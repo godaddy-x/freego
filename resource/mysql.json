@@ -1,0 +1,9 @@
+{
+  "DsName": "",
+  "Host": "127.0.0.1",
+  "Port": 3306,
+  "Database": "openwallet",
+  "Username": "root",
+  "Password": "123456",
+  "CacheSync": true
+}
