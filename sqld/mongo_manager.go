@@ -7,7 +7,6 @@ import (
 	"github.com/godaddy-x/freego/util"
 	"go.uber.org/zap"
 	"gopkg.in/mgo.v2"
-	"reflect"
 	"time"
 )
 
@@ -55,19 +54,20 @@ func (self *MGOManager) Get(option ...Option) (*MGOManager, error) {
 
 // 获取mongo的数据库连接
 func (self *MGOManager) GetDatabase(copySession *mgo.Session, data interface{}) (*mgo.Collection, error) {
-	tb, err := util.GetDbAndTb(data)
-	if err != nil {
-		return nil, err
-	}
-	database := copySession.DB("")
-	if database == nil {
-		return nil, self.Error("获取mongo数据库失败")
-	}
-	collection := database.C(tb)
-	if collection == nil {
-		return nil, self.Error("获取mongo数据集合失败")
-	}
-	return collection, nil
+	//tb, err := util.GetDbAndTb(data)
+	//if err != nil {
+	//	return nil, err
+	//}
+	//database := copySession.DB("")
+	//if database == nil {
+	//	return nil, self.Error("获取mongo数据库失败")
+	//}
+	//collection := database.C(tb)
+	//if collection == nil {
+	//	return nil, self.Error("获取mongo数据集合失败")
+	//}
+	//return collection, nil
+	return nil, nil
 }
 
 func (self *MGOManager) GetDB(option ...Option) error {
@@ -138,48 +138,48 @@ func (self *MGOManager) buildByConfig(manager cache.ICache, input ...MGOConfig) 
 
 // 保存或更新数据到mongo集合
 func (self *MGOManager) Save(datas ...interface{}) error {
-	if datas == nil || len(datas) == 0 {
-		return self.Error("参数列表不能为空")
-	}
-	for _, v := range datas {
-		copySession := self.Session.Copy()
-		err := func() error {
-			start := util.Time()
-			if v == nil {
-				return util.Error("参数元素不能为空")
-			}
-			if reflect.ValueOf(v).Kind() != reflect.Ptr {
-				return util.Error("参数值必须为指针类型")
-			}
-			objectId := util.GetDataID(v)
-			if objectId == 0 {
-				v := reflect.ValueOf(v).Elem()
-				v.FieldByName("Id").Set(reflect.ValueOf(util.GetSnowFlakeID()))
-			}
-			db, err := self.GetDatabase(copySession, v)
-			if err != nil {
-				return err
-			}
-			defer self.debug("Save/Update", v, start)
-			newObject := util.NewInstance(v)
-			err = db.FindId(objectId).One(newObject)
-			if err == nil { // 更新数据
-				err = db.UpdateId(objectId, v)
-				if err != nil {
-					return util.Error("mongo更新数据失败: ", err.Error())
-				}
-				return nil
-			} else { // 新增数据
-				err = db.Insert(v)
-				if err != nil {
-					return util.Error("mongo保存数据失败: ", err.Error())
-				}
-				return nil
-			}
-		}()
-		copySession.Close()
-		self.Error(err)
-	}
+	//if datas == nil || len(datas) == 0 {
+	//	return self.Error("参数列表不能为空")
+	//}
+	//for _, v := range datas {
+	//	copySession := self.Session.Copy()
+	//	err := func() error {
+	//		start := util.Time()
+	//		if v == nil {
+	//			return util.Error("参数元素不能为空")
+	//		}
+	//		if reflect.ValueOf(v).Kind() != reflect.Ptr {
+	//			return util.Error("参数值必须为指针类型")
+	//		}
+	//		objectId := util.GetDataID(v)
+	//		if objectId == 0 {
+	//			v := reflect.ValueOf(v).Elem()
+	//			v.FieldByName("Id").Set(reflect.ValueOf(util.GetSnowFlakeID()))
+	//		}
+	//		db, err := self.GetDatabase(copySession, v)
+	//		if err != nil {
+	//			return err
+	//		}
+	//		defer self.debug("Save/Update", v, start)
+	//		newObject := util.NewInstance(v)
+	//		err = db.FindId(objectId).One(newObject)
+	//		if err == nil { // 更新数据
+	//			err = db.UpdateId(objectId, v)
+	//			if err != nil {
+	//				return util.Error("mongo更新数据失败: ", err.Error())
+	//			}
+	//			return nil
+	//		} else { // 新增数据
+	//			err = db.Insert(v)
+	//			if err != nil {
+	//				return util.Error("mongo保存数据失败: ", err.Error())
+	//			}
+	//			return nil
+	//		}
+	//	}()
+	//	copySession.Close()
+	//	self.Error(err)
+	//}
 	return nil
 }
 
@@ -189,32 +189,32 @@ func (self *MGOManager) Update(datas ...interface{}) error {
 }
 
 func (self *MGOManager) Delete(datas ...interface{}) error {
-	if datas == nil || len(datas) == 0 {
-		return self.Error("参数列表不能为空")
-	}
-	for _, v := range datas {
-		copySession := self.Session.Copy()
-		err := func() error {
-			start := util.Time()
-			if v == nil {
-				return util.Error("参数元素不能为空")
-			}
-			if reflect.ValueOf(v).Kind() != reflect.Ptr {
-				return util.Error("参数值必须为指针类型")
-			}
-			db, err := self.GetDatabase(copySession, v)
-			if err != nil {
-				return err
-			}
-			defer self.debug("Delete", v, start)
-			if err := db.RemoveId(util.GetDataID(v)); err != nil {
-				return util.Error("删除数据ID失败")
-			}
-			return nil
-		}()
-		copySession.Close()
-		self.Error(err)
-	}
+	//if datas == nil || len(datas) == 0 {
+	//	return self.Error("参数列表不能为空")
+	//}
+	//for _, v := range datas {
+	//	copySession := self.Session.Copy()
+	//	err := func() error {
+	//		start := util.Time()
+	//		if v == nil {
+	//			return util.Error("参数元素不能为空")
+	//		}
+	//		if reflect.ValueOf(v).Kind() != reflect.Ptr {
+	//			return util.Error("参数值必须为指针类型")
+	//		}
+	//		db, err := self.GetDatabase(copySession, v)
+	//		if err != nil {
+	//			return err
+	//		}
+	//		defer self.debug("Delete", v, start)
+	//		if err := db.RemoveId(util.GetDataID(v)); err != nil {
+	//			return util.Error("删除数据ID失败")
+	//		}
+	//		return nil
+	//	}()
+	//	copySession.Close()
+	//	self.Error(err)
+	//}
 	return nil
 }
 
@@ -282,102 +282,104 @@ func (self *MGOManager) Count(cnd *sqlc.Cnd) (int64, error) {
 
 // 查询单条数据
 func (self *MGOManager) FindOne(cnd *sqlc.Cnd, data interface{}) error {
-	start := util.Time()
-	var elem = cnd.Model
-	if elem == nil {
-		return self.Error("ORM对象类型不能为空,请通过M(...)方法设置对象类型")
-	}
-	tof := util.TypeOf(elem)
-	if tof.Kind() != reflect.Struct && tof.Kind() != reflect.Ptr {
-		return self.Error("ORM对象类型必须为struct或ptr")
-	}
-	if data == nil {
-		return self.Error("返回值不能为空")
-	}
-	if reflect.TypeOf(data).Kind() != reflect.Ptr {
-		return self.Error("返回值必须为指针类型")
-	}
-	if util.TypeOf(data).Kind() != reflect.Struct {
-		return self.Error("返回结果必须为struct类型")
-	}
-	if isc, hasv, err := self.getByCache(cnd, data); err != nil {
-		return err
-	} else if isc && hasv {
-		defer self.debug("FindOne by Cache", make([]interface{}, 0), start)
-		return nil
-	} else if isc && !hasv {
-		defer self.putByCache(cnd, data)
-	}
-	copySession := self.Session.Copy()
-	err := func() error {
-		db, err := self.GetDatabase(copySession, elem)
-		if err != nil {
-			return err
-		}
-		pipe, err := self.buildPipeCondition(cnd, false)
-		if err != nil {
-			return util.Error("mongo构建查询命令失败: ", err.Error())
-		}
-		defer self.debug("FindOne", pipe, start)
-		if err := db.Pipe(pipe).One(data); err != nil {
-			if err.Error() != "not found" {
-				return util.Error("mongo查询数据失败: ", err.Error())
-			}
-		}
-		return nil
-	}()
-	copySession.Close()
-	return self.Error(err)
+	//start := util.Time()
+	//var elem = cnd.Model
+	//if elem == nil {
+	//	return self.Error("ORM对象类型不能为空,请通过M(...)方法设置对象类型")
+	//}
+	//tof := util.TypeOf(elem)
+	//if tof.Kind() != reflect.Struct && tof.Kind() != reflect.Ptr {
+	//	return self.Error("ORM对象类型必须为struct或ptr")
+	//}
+	//if data == nil {
+	//	return self.Error("返回值不能为空")
+	//}
+	//if reflect.TypeOf(data).Kind() != reflect.Ptr {
+	//	return self.Error("返回值必须为指针类型")
+	//}
+	//if util.TypeOf(data).Kind() != reflect.Struct {
+	//	return self.Error("返回结果必须为struct类型")
+	//}
+	//if isc, hasv, err := self.getByCache(cnd, data); err != nil {
+	//	return err
+	//} else if isc && hasv {
+	//	defer self.debug("FindOne by Cache", make([]interface{}, 0), start)
+	//	return nil
+	//} else if isc && !hasv {
+	//	defer self.putByCache(cnd, data)
+	//}
+	//copySession := self.Session.Copy()
+	//err := func() error {
+	//	db, err := self.GetDatabase(copySession, elem)
+	//	if err != nil {
+	//		return err
+	//	}
+	//	pipe, err := self.buildPipeCondition(cnd, false)
+	//	if err != nil {
+	//		return util.Error("mongo构建查询命令失败: ", err.Error())
+	//	}
+	//	defer self.debug("FindOne", pipe, start)
+	//	if err := db.Pipe(pipe).One(data); err != nil {
+	//		if err.Error() != "not found" {
+	//			return util.Error("mongo查询数据失败: ", err.Error())
+	//		}
+	//	}
+	//	return nil
+	//}()
+	//copySession.Close()
+	//return self.Error(err)
+	return nil
 }
 
 // 查询多条数据
 func (self *MGOManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
-	start := util.Time()
-	var elem = cnd.Model
-	if elem == nil {
-		return self.Error("ORM对象类型不能为空,请通过M(...)方法设置对象类型")
-	}
-	tof := util.TypeOf(elem)
-	if tof.Kind() != reflect.Struct && tof.Kind() != reflect.Ptr {
-		return self.Error("ORM对象类型必须为struct或ptr")
-	}
-	if data == nil {
-		return self.Error("返回值不能为空")
-	}
-	if reflect.TypeOf(data).Kind() != reflect.Ptr {
-		return self.Error("返回值必须为指针类型")
-	}
-	if util.TypeOf(data).Kind() != reflect.Slice {
-		return self.Error("返回结果必须为数组类型")
-	}
-	if isc, hasv, err := self.getByCache(cnd, data); err != nil {
-		return err
-	} else if isc && hasv {
-		defer self.debug("FindList by Cache", make([]interface{}, 0), start)
-		return nil
-	} else if isc && !hasv {
-		defer self.putByCache(cnd, data)
-	}
-	copySession := self.Session.Copy()
-	err := func() error {
-		db, err := self.GetDatabase(copySession, elem)
-		if err != nil {
-			return err
-		}
-		pipe, err := self.buildPipeCondition(cnd, false)
-		if err != nil {
-			return util.Error("mongo构建查询命令失败: ", err.Error())
-		}
-		defer self.debug("FindList", pipe, start)
-		if err := db.Pipe(pipe).All(data); err != nil {
-			if err.Error() != "not found" {
-				return util.Error("mongo查询数据失败: ", err.Error())
-			}
-		}
-		return nil
-	}()
-	copySession.Close()
-	return self.Error(err)
+	//start := util.Time()
+	//var elem = cnd.Model
+	//if elem == nil {
+	//	return self.Error("ORM对象类型不能为空,请通过M(...)方法设置对象类型")
+	//}
+	//tof := util.TypeOf(elem)
+	//if tof.Kind() != reflect.Struct && tof.Kind() != reflect.Ptr {
+	//	return self.Error("ORM对象类型必须为struct或ptr")
+	//}
+	//if data == nil {
+	//	return self.Error("返回值不能为空")
+	//}
+	//if reflect.TypeOf(data).Kind() != reflect.Ptr {
+	//	return self.Error("返回值必须为指针类型")
+	//}
+	//if util.TypeOf(data).Kind() != reflect.Slice {
+	//	return self.Error("返回结果必须为数组类型")
+	//}
+	//if isc, hasv, err := self.getByCache(cnd, data); err != nil {
+	//	return err
+	//} else if isc && hasv {
+	//	defer self.debug("FindList by Cache", make([]interface{}, 0), start)
+	//	return nil
+	//} else if isc && !hasv {
+	//	defer self.putByCache(cnd, data)
+	//}
+	//copySession := self.Session.Copy()
+	//err := func() error {
+	//	db, err := self.GetDatabase(copySession, elem)
+	//	if err != nil {
+	//		return err
+	//	}
+	//	pipe, err := self.buildPipeCondition(cnd, false)
+	//	if err != nil {
+	//		return util.Error("mongo构建查询命令失败: ", err.Error())
+	//	}
+	//	defer self.debug("FindList", pipe, start)
+	//	if err := db.Pipe(pipe).All(data); err != nil {
+	//		if err.Error() != "not found" {
+	//			return util.Error("mongo查询数据失败: ", err.Error())
+	//		}
+	//	}
+	//	return nil
+	//}()
+	//copySession.Close()
+	//return self.Error(err)
+	return nil
 }
 
 func (self *MGOManager) Close() error {

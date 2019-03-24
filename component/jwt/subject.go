@@ -101,11 +101,11 @@ func (self *Subject) Generate(secret string, refresh ...bool) (*Authorization, e
 	if self.Payload.Iat > self.Payload.Rxp {
 		return nil, util.Error("the rxp must be longer than the iat")
 	}
-	h_str_b, err := util.ObjectToJson(self.Header)
+	h_str_b, err := util.JsonMarshal(self.Header)
 	if err != nil {
 		return nil, err
 	}
-	p_str_b, err := util.ObjectToJson(self.Payload)
+	p_str_b, err := util.JsonMarshal(self.Payload)
 	if err != nil {
 		return nil, err
 	}
@@ -152,11 +152,11 @@ func (self *Subject) ValidByRefresh(accessToken, secret string, refresh bool) er
 		return util.Error("payload is nil")
 	}
 	header := &Header{}
-	if err := util.JsonToObject(h_str, header); err != nil {
+	if err := util.JsonUnmarshal(h_str, header); err != nil {
 		return util.Error("header is error: ", err.Error())
 	}
 	payload := &Payload{}
-	if err := util.JsonToObject(p_str, payload); err != nil {
+	if err := util.JsonUnmarshal(p_str, payload); err != nil {
 		return util.Error("payload is error: ", err.Error())
 	}
 	current := util.Time()

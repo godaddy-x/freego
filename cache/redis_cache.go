@@ -86,7 +86,7 @@ func (self *RedisManager) Get(key string, input interface{}) (interface{}, bool,
 			if input == nil {
 				return nil, true, nil
 			}
-			err := util.JsonToObject(value, input);
+			err := util.JsonUnmarshal(value, input);
 			return input, true, err
 		}
 		return input, false, nil
@@ -96,7 +96,7 @@ func (self *RedisManager) Get(key string, input interface{}) (interface{}, bool,
 }
 
 func (self *RedisManager) Put(key string, input interface{}, expire ...int) error {
-	value, err := util.ObjectToJson(input)
+	value, err := util.JsonMarshal(input)
 	if err != nil {
 		return err
 	}
@@ -126,8 +126,8 @@ func (self *RedisManager) Del(key ...string) error {
 			}
 		}
 		client.Send("MULTI")
-		for _,v := range key {
-			client.Send("DEL",v)
+		for _, v := range key {
+			client.Send("DEL", v)
 		}
 		if _, err := client.Do("EXEC"); err != nil {
 			return err

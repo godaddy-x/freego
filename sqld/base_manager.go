@@ -254,7 +254,7 @@ func (self *RDBManager) Save(data ...interface{}) error {
 				SetInt64(GetPtr(v, vv.FieldOffset), lastInsertId)
 				parameter = append(parameter, lastInsertId)
 			} else {
-				fval, err := GetValue(v, vv.FieldOffset, vv.FieldKind);
+				fval, err := GetValue(v, vv);
 				if err != nil {
 					log.Error("参数值获取异常", log.String("field", vv.FieldName), log.AddError(err))
 					continue
@@ -346,7 +346,7 @@ func (self *RDBManager) Update(data ...interface{}) error {
 				vpart.WriteString(strconv.FormatInt(lastInsertId, 10))
 				vpart.WriteString(",")
 			}
-			if val, err := GetValue(v, vv.FieldOffset, vv.FieldKind); err != nil {
+			if val, err := GetValue(v, vv); err != nil {
 				log.Error("参数值获取异常", log.String("field", vv.FieldName), log.AddError(err))
 				return err
 			} else {
@@ -526,7 +526,7 @@ func (self *RDBManager) FindById(data interface{}) error {
 	}
 	for i := 0; i < len(obv.FieldElem); i++ {
 		vv := obv.FieldElem[i]
-		if err := SetValue(data, vv.FieldOffset, vv.FieldKind, first[i]); err != nil {
+		if err := SetValue(data, vv, first[i]); err != nil {
 			return self.Error(err)
 		}
 	}
@@ -616,7 +616,7 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data interface{}) error {
 	}
 	for i := 0; i < len(obv.FieldElem); i++ {
 		vv := obv.FieldElem[i]
-		if err := SetValue(data, vv.FieldOffset, vv.FieldKind, first[i]); err != nil {
+		if err := SetValue(data, vv, first[i]); err != nil {
 			return self.Error(err)
 		}
 	}
@@ -713,7 +713,7 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 		model := obv.CallFunc()
 		for i := 0; i < len(obv.FieldElem); i++ {
 			vv := obv.FieldElem[i]
-			if err := SetValue(model, vv.FieldOffset, vv.FieldKind, v[i]); err != nil {
+			if err := SetValue(model, vv, v[i]); err != nil {
 				return self.Error(err)
 			}
 		}
@@ -988,184 +988,23 @@ func (self *RDBManager) Close() error {
 
 // mongo同步数据
 func (self *RDBManager) mongoSyncData(data interface{}) error {
-	if sync, err := util.ValidSyncMongo(data); err != nil {
-		return util.Error("实体字段异常: ", err.Error())
-	} else if sync {
-		mongo, err := new(MGOManager).Get(self.Option);
-		if err != nil {
-			return util.Error("获取mongo连接失败: ", err.Error())
-		}
-		defer mongo.Close()
-		if err := mongo.Save(data); err != nil {
-			if s, e := util.ObjectToJson(data); e != nil {
-				return util.Error("同步mongo数据失败,JSON对象转换失败: ", e.Error())
-			} else {
-				return util.Error("同步mongo数据失败: ", s, ", 异常: ", err.Error())
-			}
-		}
-	}
+	//if sync, err := util.ValidSyncMongo(data); err != nil {
+	//	return util.Error("实体字段异常: ", err.Error())
+	//} else if sync {
+	//	mongo, err := new(MGOManager).Get(self.Option);
+	//	if err != nil {
+	//		return util.Error("获取mongo连接失败: ", err.Error())
+	//	}
+	//	defer mongo.Close()
+	//	if err := mongo.Save(data); err != nil {
+	//		if s, e := util.ObjectToJson(data); e != nil {
+	//			return util.Error("同步mongo数据失败,JSON对象转换失败: ", e.Error())
+	//		} else {
+	//			return util.Error("同步mongo数据失败: ", s, ", 异常: ", err.Error())
+	//		}
+	//	}
+	//}
 	return nil
-}
-
-// 结果集根据对象字段类型填充到map实例
-func DataToMap(fieldArray []reflect.StructField, raw [][]byte) ([]byte, error) {
-	result := make(map[string]interface{})
-	for i := range fieldArray {
-		field := fieldArray[i]
-		var f string
-		if field.Name == sqlc.Id {
-			f = sqlc.BsonId
-		} else {
-			f = field.Tag.Get(sqlc.Bson)
-		}
-		kind := field.Type.String()
-		vs := util.Bytes2Str(raw[i])
-		if len(vs) == 0 {
-			continue
-		}
-		if kind == "int" {
-			if i0, err := util.StrToInt(util.Bytes2Str(raw[i])); err != nil {
-				return nil, util.Error("对象字段[", f, "]转换int失败")
-			} else {
-				result[f] = i0
-			}
-		} else if kind == "int8" {
-			if i8, err := util.StrToInt8(util.Bytes2Str(raw[i])); err != nil {
-				return nil, util.Error("对象字段[", f, "]转换int8失败")
-			} else {
-				result[f] = i8
-			}
-		} else if kind == "int16" {
-			if i16, err := util.StrToInt16(util.Bytes2Str(raw[i])); err != nil {
-				return nil, util.Error("对象字段[", f, "]转换int16失败")
-			} else {
-				result[f] = i16
-			}
-		} else if kind == "int32" {
-			if i32, err := util.StrToInt32(util.Bytes2Str(raw[i])); err != nil {
-				return nil, util.Error("对象字段[", f, "]转换int32失败")
-			} else {
-				result[f] = i32
-			}
-		} else if kind == "int64" {
-			if util.ValidDate(field) {
-				if vs == "0000-00-00 00:00:00" {
-					result[f] = 0
-				} else {
-					if i64, err := util.Str2Time(util.Bytes2Str(raw[i])); err != nil {
-						return nil, util.Error("对象字段[", f, "]转换int64失败: ", err.Error())
-					} else {
-						result[f] = i64
-					}
-				}
-			} else {
-				if i64, err := util.StrToInt64(util.Bytes2Str(raw[i])); err != nil {
-					return nil, util.Error("对象字段[", f, "]转换int64失败")
-				} else {
-					result[f] = i64
-				}
-			}
-		} else if kind == "string" {
-			result[f] = util.Bytes2Str(raw[i])
-		} else if kind == "[]string" {
-			array := make([]string, 0)
-			if err := util.JsonToObject(raw[i], &array); err != nil {
-				return nil, err
-			}
-			result[f] = array
-		} else if kind == "[]int" {
-			array := make([]int, 0)
-			if err := util.JsonToObject(raw[i], &array); err != nil {
-				return nil, err
-			}
-			result[f] = array
-		} else if kind == "[]int8" {
-			array := make([]int8, 0)
-			if err := util.JsonToObject(raw[i], &array); err != nil {
-				return nil, err
-			}
-			result[f] = array
-		} else if kind == "[]int16" {
-			array := make([]int16, 0)
-			if err := util.JsonToObject(raw[i], &array); err != nil {
-				return nil, err
-			}
-			result[f] = array
-		} else if kind == "[]int32" {
-			array := make([]int32, 0)
-			if err := util.JsonToObject(raw[i], &array); err != nil {
-				return nil, err
-			}
-			result[f] = array
-		} else if kind == "[]int64" {
-			array := make([]int64, 0)
-			if err := util.JsonToObject(raw[i], &array); err != nil {
-				return nil, err
-			}
-			result[f] = array
-		} else if kind == "[]interface {}" {
-			array := make([]interface{}, 0)
-			if err := util.JsonToObject(raw[i], &array); err != nil {
-				return nil, err
-			}
-			result[f] = array
-		} else if kind == "[]string" {
-			array := make([]string, 0)
-			if err := util.JsonToObject(raw[i], &array); err != nil {
-				return nil, err
-			}
-			result[f] = array
-		} else if kind == "map[string]interface {}" {
-			mmp := make(map[string]interface{})
-			if err := util.JsonToObject(raw[i], &mmp); err != nil {
-				return nil, err
-			}
-			result[f] = mmp
-		} else if kind == "map[string]int" {
-			mmp := make(map[string]int)
-			if err := util.JsonToObject(raw[i], &mmp); err != nil {
-				return nil, err
-			}
-			result[f] = mmp
-		} else if kind == "map[string]int8" {
-			mmp := make(map[string]int8)
-			if err := util.JsonToObject(raw[i], &mmp); err != nil {
-				return nil, err
-			}
-			result[f] = mmp
-		} else if kind == "map[string]int16" {
-			mmp := make(map[string]int16)
-			if err := util.JsonToObject(raw[i], &mmp); err != nil {
-				return nil, err
-			}
-			result[f] = mmp
-		} else if kind == "map[string]int32" {
-			mmp := make(map[string]int32)
-			if err := util.JsonToObject(raw[i], &mmp); err != nil {
-				return nil, err
-			}
-			result[f] = mmp
-		} else if kind == "map[string]int64" {
-			mmp := make(map[string]int64)
-			if err := util.JsonToObject(raw[i], &mmp); err != nil {
-				return nil, err
-			}
-			result[f] = mmp
-		} else if kind == "map[string]string" {
-			mmp := make(map[string]string)
-			if err := util.JsonToObject(raw[i], &mmp); err != nil {
-				return nil, err
-			}
-			result[f] = mmp
-		} else {
-			return nil, util.Error("对象字段[", f, "]转换失败([", kind, "]类型不支持)")
-		}
-	}
-	if v, err := util.ObjectToJson(result); err != nil {
-		return nil, err
-	} else {
-		return v, nil
-	}
 }
 
 // 输出查询结果集

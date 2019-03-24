@@ -36,6 +36,7 @@ var (
 	time_formt = "2006-01-02 15:04:05"
 	snowflakes = make(map[int64]*snowflake.Node, 0)
 	mu         sync.Mutex
+	fgjson     = jsoniter.ConfigCompatibleWithStandardLibrary
 )
 
 const (
@@ -49,22 +50,13 @@ func init() {
 }
 
 // 对象转JSON字符串
-func ObjectToJson(src interface{}) ([]byte, error) {
-	var json = jsoniter.ConfigCompatibleWithStandardLibrary
-	if result, err := json.Marshal(src); err != nil {
-		return nil, err
-	} else {
-		return result, nil
-	}
+func JsonMarshal(v interface{}) ([]byte, error) {
+	return fgjson.Marshal(v)
 }
 
 // JSON字符串转对象
-func JsonToObject(src []byte, target interface{}) error {
-	var json = jsoniter.ConfigCompatibleWithStandardLibrary
-	if err := json.Unmarshal(src, target); err != nil {
-		return errors.New("Json字符串转换对象出现异常: " + err.Error())
-	}
-	return nil
+func JsonUnmarshal(data []byte, v interface{}) error {
+	return fgjson.Unmarshal(data, v)
 }
 
 // 对象转对象
@@ -72,92 +64,12 @@ func JsonToAny(src interface{}, target interface{}) error {
 	if src == nil || target == nil {
 		return errors.New("参数不能为空")
 	}
-	str, err := ObjectToJson(src)
-	if err != nil {
+	if data, err := JsonMarshal(src); err != nil {
 		return err
-	}
-	if err := JsonToObject(str, target); err != nil {
+	} else if JsonUnmarshal(data, target); err != nil {
 		return err
 	}
 	return nil
-}
-
-// 通过反射获取对象Id值
-func GetDataID(data interface{}) int64 {
-	valueOf := reflect.ValueOf(data)
-	return reflect.Indirect(valueOf).FieldByName("Id").Int()
-}
-
-// 通过反射获取对象数据表标签
-func GetDbAndTb(model interface{}) (string, error) {
-	tof := reflect.TypeOf(model)
-	vof := reflect.ValueOf(model)
-	if tof.Kind() == reflect.Ptr {
-		tof = tof.Elem()
-		vof = vof.Elem()
-	}
-	// fmt.Println(vof.Kind().String())
-	if vof.Kind().String() != reflect.Struct.String() && vof.Kind().String() != reflect.Ptr.String() {
-		return "", errors.New("参数非struct或ptr类型")
-	}
-	field, ok := tof.FieldByName("Id")
-	if !ok {
-		return "", errors.New("实体Id字段不能为空")
-	}
-	tb := field.Tag.Get("tb")
-	if tb == "" {
-		return "", errors.New("实体数据库表名称标签不能为空")
-	}
-	return tb, nil
-}
-
-// 通过反射获取对象或指针具体类型
-func TypeOf(data interface{}) reflect.Type {
-	tof := reflect.TypeOf(data)
-	if tof.Kind() == reflect.Ptr {
-		tof = tof.Elem()
-	}
-	return tof
-}
-
-// 通过反射获取对象或指针具体类型
-func ValueOf(data interface{}) reflect.Value {
-	vof := reflect.ValueOf(data)
-	if vof.Kind() == reflect.Ptr {
-		vof = vof.Elem()
-	}
-	return vof
-}
-
-// 检测是否同步mongo
-func ValidSyncMongo(model interface{}) (bool, error) {
-	typeOf := reflect.TypeOf(model)
-	var field reflect.StructField
-	var ok bool
-	if typeOf.Kind() == reflect.Ptr {
-		field, ok = typeOf.Elem().FieldByName("Id")
-	} else if typeOf.Kind() == reflect.Struct {
-		field, ok = typeOf.FieldByName("Id")
-	} else {
-		return false, errors.New("实体类型异常")
-	}
-	if !ok {
-		return false, errors.New("实体Id字段不能为空")
-	}
-	mg := field.Tag.Get("mg")
-	if mg == "true" {
-		return true, nil
-	}
-	return false, nil
-}
-
-// 通过反射实例化对象
-func NewInstance(data interface{}) interface{} {
-	tof := reflect.TypeOf(data)
-	if tof.Kind() == reflect.Ptr {
-		tof = tof.Elem()
-	}
-	return reflect.New(tof).Interface()
 }
 
 // 获取当前时间/毫秒
@@ -288,13 +200,7 @@ func Error(input ...interface{}) error {
 
 // 读取JSON格式配置文件
 func ReadJsonConfig(conf []byte, result interface{}) error {
-	var json = jsoniter.ConfigCompatibleWithStandardLibrary
-	err := json.Unmarshal(conf, result)
-	if err != nil {
-		log.Println("解析配置文件失败: " + err.Error())
-		return err
-	}
-	return nil
+	return JsonUnmarshal(conf, result)
 }
 
 // string转int
@@ -380,7 +286,7 @@ func AnyToStr(any interface{}) string {
 		}
 		return "False"
 	} else {
-		if ret, err := ObjectToJson(any); err != nil {
+		if ret, err := JsonMarshal(any); err != nil {
 			log.Println("any转json失败: ", err.Error())
 			return ""
 		} else {
@@ -485,14 +391,6 @@ func ValidIgnore(field reflect.StructField) bool {
 	return false
 }
 
-// 校验是否使用date类型
-func ValidDate(field reflect.StructField) bool {
-	if field.Tag.Get(sqlc.Date) == sqlc.True {
-		return true
-	}
-	return false
-}
-
 // 读取文件
 func ReadFile(path string) ([]byte, error) {
 	if len(path) == 0 {
@@ -507,26 +405,11 @@ func ReadFile(path string) ([]byte, error) {
 
 // 读取本地JSON配置文件
 func ReadLocalJsonConfig(path string, result interface{}) error {
-	str, err := ReadFile(path)
-	if err != nil {
+	if data, err := ReadFile(path); err != nil {
 		return err
+	} else {
+		return JsonUnmarshal(data, result)
 	}
-	if err := JsonToObject(str, result); err != nil {
-		return err
-	}
-	return nil
-}
-
-func Pow(x, n int64) int64 {
-	ret := int64(1) // 结果初始为0次方的值，整数0次方为1。如果是矩阵，则为单元矩阵。
-	for n != 0 {
-		if n%2 != 0 {
-			ret = ret * x
-		}
-		n /= 2
-		x = x * x
-	}
-	return ret
 }
 
 //只用于计算10的n次方，转换string
@@ -546,15 +429,6 @@ func StrToFloat(str string) (float64, error) {
 		r, _ := v.Float64()
 		return r, nil
 	}
-}
-
-// 获取JSON字段
-func GetJsonTag(field reflect.StructField) (string, error) {
-	json := field.Tag.Get("json")
-	if json == "" {
-		return "", errors.New("json配置异常")
-	}
-	return json, nil
 }
 
 // MD5加密

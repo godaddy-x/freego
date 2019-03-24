@@ -1,6 +1,8 @@
 package sqld
 
-import "unsafe"
+import (
+	"unsafe"
+)
 
 // 通过指针获取对象字段位置
 func GetPtr(v interface{}, offset uintptr) uintptr {
@@ -151,7 +153,11 @@ func SetUint64(ptr uintptr, v uint64) {
 
 // get []string value
 func GetStringArr(ptr uintptr) []string {
-	return *((*[]string)(unsafe.Pointer(ptr)))
+	if v := *((*[]string)(unsafe.Pointer(ptr))); v == nil {
+		return make([]string, 0)
+	} else {
+		return v
+	}
 }
 
 // set []string value
@@ -161,7 +167,11 @@ func SetStringArr(ptr uintptr, v []string) {
 
 // get []int value
 func GetIntArr(ptr uintptr) []int {
-	return *((*[]int)(unsafe.Pointer(ptr)))
+	if v := *((*[]int)(unsafe.Pointer(ptr))); v == nil {
+		return make([]int, 0)
+	} else {
+		return v
+	}
 }
 
 // set []int value
@@ -171,7 +181,11 @@ func SetIntArr(ptr uintptr, v []int) {
 
 // get []int8 value
 func GetInt8Arr(ptr uintptr) []int8 {
-	return *((*[]int8)(unsafe.Pointer(ptr)))
+	if v := *((*[]int8)(unsafe.Pointer(ptr))); v == nil {
+		return make([]int8, 0)
+	} else {
+		return v
+	}
 }
 
 // set []int8 value
@@ -181,7 +195,11 @@ func SetInt8Arr(ptr uintptr, v []int8) {
 
 // get []int16 value
 func GetInt16Arr(ptr uintptr) []int16 {
-	return *((*[]int16)(unsafe.Pointer(ptr)))
+	if v := *((*[]int16)(unsafe.Pointer(ptr))); v == nil {
+		return make([]int16, 0)
+	} else {
+		return v
+	}
 }
 
 // set []int16 value
@@ -191,7 +209,11 @@ func SetInt16Arr(ptr uintptr, v []int16) {
 
 // get []int32 value
 func GetInt32Arr(ptr uintptr) []int32 {
-	return *((*[]int32)(unsafe.Pointer(ptr)))
+	if v := *((*[]int32)(unsafe.Pointer(ptr))); v == nil {
+		return make([]int32, 0)
+	} else {
+		return v
+	}
 }
 
 // set []int32 value
@@ -201,7 +223,11 @@ func SetInt32Arr(ptr uintptr, v []int32) {
 
 // get []int64 value
 func GetInt64Arr(ptr uintptr) []int64 {
-	return *((*[]int64)(unsafe.Pointer(ptr)))
+	if v := *((*[]int64)(unsafe.Pointer(ptr))); v == nil {
+		return make([]int64, 0)
+	} else {
+		return v
+	}
 }
 
 // set []int64 value
@@ -211,7 +237,11 @@ func SetInt64Arr(ptr uintptr, v []int64) {
 
 // get []float32 value
 func GetFloat32Arr(ptr uintptr) []float32 {
-	return *((*[]float32)(unsafe.Pointer(ptr)))
+	if v := *((*[]float32)(unsafe.Pointer(ptr))); v == nil {
+		return make([]float32, 0)
+	} else {
+		return v
+	}
 }
 
 // set []float32 value
@@ -221,7 +251,11 @@ func SetFloat32Arr(ptr uintptr, v []float32) {
 
 // get []float64 value
 func GetFloat64Arr(ptr uintptr) []float64 {
-	return *((*[]float64)(unsafe.Pointer(ptr)))
+	if v := *((*[]float64)(unsafe.Pointer(ptr))); v == nil {
+		return make([]float64, 0)
+	} else {
+		return v
+	}
 }
 
 // set []float64 value
@@ -231,7 +265,11 @@ func SetFloat64Arr(ptr uintptr, v []float64) {
 
 // get []bool value
 func GetBoolArr(ptr uintptr) []bool {
-	return *((*[]bool)(unsafe.Pointer(ptr)))
+	if v := *((*[]bool)(unsafe.Pointer(ptr))); v == nil {
+		return make([]bool, 0)
+	} else {
+		return v
+	}
 }
 
 // set []bool value
@@ -241,7 +279,11 @@ func SetBoolArr(ptr uintptr, v []bool) {
 
 // get []uint value
 func GetUintArr(ptr uintptr) []uint {
-	return *((*[]uint)(unsafe.Pointer(ptr)))
+	if v := *((*[]uint)(unsafe.Pointer(ptr))); v == nil {
+		return make([]uint, 0)
+	} else {
+		return v
+	}
 }
 
 // set []uint value
@@ -251,7 +293,11 @@ func SetUintArr(ptr uintptr, v []uint) {
 
 // get []uint8 value
 func GetUint8Arr(ptr uintptr) []uint8 {
-	return *((*[]uint8)(unsafe.Pointer(ptr)))
+	if v := *((*[]uint8)(unsafe.Pointer(ptr))); v == nil {
+		return make([]uint8, 0)
+	} else {
+		return v
+	}
 }
 
 // set []uint8 value
@@ -261,7 +307,11 @@ func SetUint8Arr(ptr uintptr, v []uint8) {
 
 // get []uint16 value
 func GetUint16Arr(ptr uintptr) []uint16 {
-	return *((*[]uint16)(unsafe.Pointer(ptr)))
+	if v := *((*[]uint16)(unsafe.Pointer(ptr))); v == nil {
+		return make([]uint16, 0)
+	} else {
+		return v
+	}
 }
 
 // set []uint16 value
@@ -271,7 +321,11 @@ func SetUint16Arr(ptr uintptr, v []uint16) {
 
 // get []uint32 value
 func GetUint32Arr(ptr uintptr) []uint32 {
-	return *((*[]uint32)(unsafe.Pointer(ptr)))
+	if v := *((*[]uint32)(unsafe.Pointer(ptr))); v == nil {
+		return make([]uint32, 0)
+	} else {
+		return v
+	}
 }
 
 // set []uint32 value
@@ -281,20 +335,14 @@ func SetUint32Arr(ptr uintptr, v []uint32) {
 
 // get []uint64 value
 func GetUint64Arr(ptr uintptr) []uint64 {
-	return *((*[]uint64)(unsafe.Pointer(ptr)))
+	if v := *((*[]uint64)(unsafe.Pointer(ptr))); v == nil {
+		return make([]uint64, 0)
+	} else {
+		return v
+	}
 }
 
 // set []uint64 value
 func SetUint64Arr(ptr uintptr, v []uint64) {
 	*((*[]uint64)(unsafe.Pointer(ptr))) = v
-}
-
-// get map[string]string value
-func GetMapString(ptr uintptr) map[string]string {
-	return *((*map[string]string)(unsafe.Pointer(ptr)))
-}
-
-// set map[string]string value
-func SetMapString(ptr uintptr, v map[string]string) {
-	*((*map[string]string)(unsafe.Pointer(ptr))) = v
 }

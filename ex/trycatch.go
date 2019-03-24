@@ -77,7 +77,7 @@ func (self Try) Error() string {
 			return util.AddStr("记录日志失败: ", err.Error())
 		}
 	}
-	if s, err := util.ObjectToJson(self); err != nil {
+	if s, err := util.JsonMarshal(self); err != nil {
 		return util.AddStr("异常转换失败: ", err.Error())
 	} else {
 		return util.Bytes2Str(s)
@@ -89,7 +89,7 @@ func Catch(err error) Try {
 	s := err.Error()
 	if strings.HasPrefix(s, "{") && strings.HasSuffix(s, "}") {
 		ex := Try{}
-		if err := util.JsonToObject(util.Str2Bytes(s), &ex); err != nil {
+		if err := util.JsonUnmarshal(util.Str2Bytes(s), &ex); err != nil {
 			return Try{UNKNOWN, util.AddStr("未知异常错误: ", err.Error()), nil, err}
 		}
 		return ex

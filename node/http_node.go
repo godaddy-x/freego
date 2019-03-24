@@ -76,7 +76,7 @@ func (self *HttpNode) GetParams(input interface{}) error {
 			if len(result) > (MAX_VALUE_LEN * 2) {
 				return ex.Try{Code: http.StatusLengthRequired, Msg: "参数值长度溢出: " + util.AnyToStr(len(result))}
 			}
-			if err := util.JsonToObject(result, &params); err != nil {
+			if err := util.JsonUnmarshal(result, &params); err != nil {
 				return ex.Try{Code: http.StatusBadRequest, Msg: "请求参数读取失败", Err: err}
 			}
 			for k, _ := range params {
@@ -289,7 +289,7 @@ func (self *HttpNode) RenderError(err error) error {
 			http_code = 600
 			out = ex.Try{Code: out.Code, Msg: out.Msg}
 		}
-		if result, err := util.ObjectToJson(out); err != nil {
+		if result, err := util.JsonMarshal(out); err != nil {
 			self.Output.WriteHeader(http.StatusInternalServerError)
 			self.Output.Write(util.Str2Bytes("系统发生未知错误"))
 			log.Error("系统发生未知错误", zap.String("error", err.Error()))
@@ -311,7 +311,7 @@ func (self *HttpNode) RenderTo() error {
 			return err
 		}
 	case APPLICATION_JSON:
-		if result, err := util.ObjectToJson(self.Context.Response.RespEntity); err != nil {
+		if result, err := util.JsonMarshal(self.Context.Response.RespEntity); err != nil {
 			return err
 		} else {
 			self.SetContentType(APPLICATION_JSON)

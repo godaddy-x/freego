@@ -12,6 +12,7 @@ import (
 	"github.com/godaddy-x/freego/sqld"
 	"github.com/godaddy-x/freego/util"
 	"github.com/gorilla/websocket"
+	"github.com/json-iterator/go"
 	"net/url"
 	"testing"
 	"time"
@@ -26,23 +27,24 @@ type User struct {
 }
 
 type OwWallet struct {
-	Id           int64  `json:"id" bson:"_id" tb:"ow_wallet" mg:"true"`
-	AppID        string `json:"appID" bson:"appID"`
-	WalletID     string `json:"walletID" bson:"walletID"`
-	Alias        string `json:"alias" bson:"alias"`
-	IsTrust      int64  `json:"isTrust" bson:"isTrust"`
-	PasswordType int64  `json:"passwordType" bson:"passwordType"`
-	Password     string `json:"password" bson:"password"`
-	AuthKey      string `json:"authKey" bson:"authKey"`
-	RootPath     string `json:"rootPath" bson:"rootPath"`
-	AccountIndex int64  `json:"accountIndex" bson:"accountIndex"`
-	Keystore     string `json:"keystore" bson:"keystore"`
-	Applytime    int64  `json:"applytime" bson:"applytime"`
-	Succtime     int64  `json:"succtime" bson:"succtime"`
-	Dealstate    int64  `json:"dealstate" bson:"dealstate"`
-	Ctime        int64  `json:"ctime" bson:"ctime"`
-	Utime        int64  `json:"utime" bson:"utime"`
-	State        int64  `json:"state" bson:"state"`
+	Id           int64                  `json:"id" bson:"_id" tb:"ow_wallet" mg:"true"`
+	AppID        map[string]interface{} `json:"appID" bson:"appID"`
+	WalletID     string                 `json:"walletID" bson:"walletID"`
+	Alias        string                 `json:"alias" bson:"alias"`
+	IsTrust      int64                  `json:"isTrust" bson:"isTrust"`
+	PasswordType int64                  `json:"passwordType" bson:"passwordType"`
+	Password     string                 `json:"password" bson:"password"`
+	AuthKey      string                 `json:"authKey" bson:"authKey"`
+	RootPath     string                 `json:"rootPath" bson:"rootPath"`
+	AccountIndex int64                  `json:"accountIndex" bson:"accountIndex"`
+	Keystore     string                 `json:"keystore" bson:"keystore"`
+	Applytime    int64                  `json:"applytime" bson:"applytime"`
+	Succtime     int64                  `json:"succtime" bson:"succtime"`
+	Dealstate    int64                  `json:"dealstate" bson:"dealstate"`
+	Ctime        int64                  `json:"ctime" bson:"ctime"`
+	Utime        int64                  `json:"utime" bson:"utime"`
+	State        int64                  `json:"state" bson:"state"`
+	MyDate       int64                  `json:"mydate" bson:"mydate" date:"true"`
 }
 
 func init() {
@@ -82,9 +84,9 @@ func TestMysqlSave(t *testing.T) {
 	}
 	defer db.Close()
 	vs := []interface{}{}
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 1; i++ {
 		wallet := OwWallet{
-			AppID:        "123456",
+			AppID:        map[string]interface{}{"test": 1},
 			WalletID:     util.GetUUID(),
 			PasswordType: 1,
 			Password:     "123456",
@@ -92,6 +94,7 @@ func TestMysqlSave(t *testing.T) {
 			Alias:        "hello_qtum",
 			IsTrust:      0,
 			AuthKey:      "",
+			MyDate:       util.Time(),
 		}
 		vs = append(vs, &wallet)
 	}
@@ -111,8 +114,8 @@ func TestMysqlUpdate(t *testing.T) {
 	vs := []interface{}{}
 	for i := 0; i < 10; i++ {
 		wallet := OwWallet{
-			Id:           util.GetSnowFlakeID(),
-			AppID:        "123456",
+			Id: util.GetSnowFlakeID(),
+			// AppID:        "123456",
 			WalletID:     util.GetUUID(),
 			PasswordType: 1,
 			Password:     "123456",
@@ -137,10 +140,10 @@ func TestMysqlDetele(t *testing.T) {
 	}
 	defer db.Close()
 	vs := []interface{}{}
-	for i := 0; i < 1000; i++ {
+	for i := 0; i < 2000; i++ {
 		wallet := OwWallet{
 			Id:           util.GetSnowFlakeID(),
-			AppID:        "123456",
+			//AppID:        map[string]interface{}{"test": 1},
 			WalletID:     util.GetUUID(),
 			PasswordType: 1,
 			Password:     "123456",
@@ -148,6 +151,7 @@ func TestMysqlDetele(t *testing.T) {
 			Alias:        "hello_qtum111333",
 			IsTrust:      0,
 			AuthKey:      "",
+			MyDate:       util.Time(),
 		}
 		vs = append(vs, &wallet)
 	}
@@ -158,20 +162,18 @@ func TestMysqlDetele(t *testing.T) {
 	fmt.Println("cost: ", util.Time()-l)
 }
 
-func TestMysqlFindByID(t *testing.T) {
+func TestMysqlFindById(t *testing.T) {
 	db, err := new(sqld.MysqlManager).Get(sqld.Option{AutoTx: &sqld.FALSE})
 	if err != nil {
 		panic(err)
 	}
 	defer db.Close()
 	l := util.Time()
-	for i := 0; i < 1; i++ {
-		wallet := OwWallet{
-			Id: 1108290081292026093,
-		}
-		if err := db.FindById(&wallet); err != nil {
-			fmt.Println(err)
-		}
+	wallet := OwWallet{
+		Id: 1109819821333151745,
+	}
+	if err := db.FindById(&wallet); err != nil {
+		fmt.Println(err)
 	}
 	fmt.Println("cost: ", util.Time()-l)
 }
@@ -434,9 +436,27 @@ func TestB(t *testing.T) {
 }
 
 func TestRGX(t *testing.T) {
-	obj := &OwWallet{}
-	ptr := sqld.GetPtr(obj, 216)
-	sqld.SetMapString(ptr, map[string]string{
-		"key": "o",
-	})
+	a := `["1","2","3","4","5"]`
+	for i := 0; i < 2000000; i++ {
+		b := []string{}
+		json.Unmarshal(util.Str2Bytes(a), &b);
+		util.Str2Bytes(a)
+	}
+}
+
+func TestRGX1(t *testing.T) {
+	a := []string{"1", "2", "3", "546", "7"}
+	for i := 0; i < 20000000; i++ {
+		b, _ := json.Marshal(&a)
+		util.Bytes2Str(b)
+	}
+}
+
+func TestRGX2(t *testing.T) {
+	a := []string{"1", "2", "3", "546", "7"}
+	var json = jsoniter.ConfigCompatibleWithStandardLibrary
+	for i := 0; i < 20000000; i++ {
+		b, _ := json.Marshal(&a)
+		util.Bytes2Str(b)
+	}
 }

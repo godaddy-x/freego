@@ -37,7 +37,7 @@ func (self *WebsocketNode) GetParams(input interface{}) error {
 			if len(result) > (MAX_VALUE_LEN * 2) {
 				return ex.Try{Code: http.StatusLengthRequired, Msg: "参数值长度溢出: " + util.AnyToStr(len(result))}
 			}
-			if err := util.JsonToObject(result, &params); err != nil {
+			if err := util.JsonUnmarshal(result, &params); err != nil {
 				return ex.Try{Code: http.StatusBadRequest, Msg: "请求参数读取失败", Err: err}
 			}
 			for k, _ := range params {
@@ -121,7 +121,7 @@ func (self *WebsocketNode) wsReadHandle(c *WSClient, rcvd []byte) error {
 	}
 	// 1.获取请求数据
 	params := map[string]interface{}{}
-	if err := util.JsonToObject(rcvd, &params); err != nil {
+	if err := util.JsonUnmarshal(rcvd, &params); err != nil {
 		return self.RenderError(ex.Try{Code: http.StatusBadRequest, Msg: "请求数据读取失败", Err: err})
 	}
 	self.Context.Params = params
@@ -279,7 +279,7 @@ func (self *WebsocketNode) RenderTo() error {
 	case TEXT_HTML:
 	case TEXT_PLAIN:
 	case APPLICATION_JSON:
-		if result, err := util.ObjectToJson(self.Context.Response.RespEntity); err != nil {
+		if result, err := util.JsonMarshal(self.Context.Response.RespEntity); err != nil {
 			self.sendJsonConvertError(err)
 		} else {
 			self.WSClient.send <- WSMessage{MessageType: websocket.TextMessage, Content: result}
