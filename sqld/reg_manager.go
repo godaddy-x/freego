@@ -1,7 +1,6 @@
 package sqld
 
 import (
-	"fmt"
 	"github.com/godaddy-x/freego/sqlc"
 	"github.com/godaddy-x/freego/util"
 	"reflect"
@@ -176,7 +175,13 @@ func GetValue(obj interface{}, elem *FieldElem) (interface{}, error) {
 			return getValueJsonStr(GetUint64Arr(ptr))
 		}
 	case reflect.Map:
-		return getValueOfMapStr(obj, elem)
+		if v, err := getValueOfMapStr(obj, elem); err != nil {
+			return nil, err
+		} else if len(v) > 0 {
+			return v, nil
+		} else {
+			return nil, nil
+		}
 	}
 	return nil, nil
 }
@@ -323,6 +328,9 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 	case reflect.Slice:
 		switch elem.FieldType {
 		case "[]string":
+			if b == nil || len(b) == 0 {
+				return nil
+			}
 			v := make([]string, 0)
 			if err := getValueJsonObj(b, &v); err != nil {
 				return err
@@ -330,6 +338,9 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 			SetStringArr(ptr, v)
 			return nil
 		case "[]int":
+			if b == nil || len(b) == 0 {
+				return nil
+			}
 			v := make([]int, 0)
 			if err := getValueJsonObj(b, &v); err != nil {
 				return err
@@ -337,6 +348,9 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 			SetIntArr(ptr, v)
 			return nil
 		case "[]int8":
+			if b == nil || len(b) == 0 {
+				return nil
+			}
 			v := make([]int8, 0)
 			if err := getValueJsonObj(b, &v); err != nil {
 				return err
@@ -344,6 +358,9 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 			SetInt8Arr(ptr, v)
 			return nil
 		case "[]int16":
+			if b == nil || len(b) == 0 {
+				return nil
+			}
 			v := make([]int16, 0)
 			if err := getValueJsonObj(b, &v); err != nil {
 				return err
@@ -351,6 +368,9 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 			SetInt16Arr(ptr, v)
 			return nil
 		case "[]int32":
+			if b == nil || len(b) == 0 {
+				return nil
+			}
 			v := make([]int32, 0)
 			if err := getValueJsonObj(b, &v); err != nil {
 				return err
@@ -358,6 +378,9 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 			SetInt32Arr(ptr, v)
 			return nil
 		case "[]int64":
+			if b == nil || len(b) == 0 {
+				return nil
+			}
 			v := make([]int64, 0)
 			if err := getValueJsonObj(b, &v); err != nil {
 				return err
@@ -365,6 +388,9 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 			SetInt64Arr(ptr, v)
 			return nil
 		case "[]float32":
+			if b == nil || len(b) == 0 {
+				return nil
+			}
 			v := make([]float32, 0)
 			if err := getValueJsonObj(b, &v); err != nil {
 				return err
@@ -372,6 +398,9 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 			SetFloat32Arr(ptr, v)
 			return nil
 		case "[]float64":
+			if b == nil || len(b) == 0 {
+				return nil
+			}
 			v := make([]float64, 0)
 			if err := getValueJsonObj(b, &v); err != nil {
 				return err
@@ -379,6 +408,9 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 			SetFloat64Arr(ptr, v)
 			return nil
 		case "[]bool":
+			if b == nil || len(b) == 0 {
+				return nil
+			}
 			v := make([]bool, 0)
 			if err := getValueJsonObj(b, &v); err != nil {
 				return err
@@ -386,6 +418,9 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 			SetBoolArr(ptr, v)
 			return nil
 		case "[]uint":
+			if b == nil || len(b) == 0 {
+				return nil
+			}
 			v := make([]uint, 0)
 			if err := getValueJsonObj(b, &v); err != nil {
 				return err
@@ -393,6 +428,9 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 			SetUintArr(ptr, v)
 			return nil
 		case "[]uint8":
+			if b == nil || len(b) == 0 {
+				return nil
+			}
 			v := make([]uint8, 0)
 			if err := getValueJsonObj(b, &v); err != nil {
 				return err
@@ -400,6 +438,9 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 			SetUint8Arr(ptr, v)
 			return nil
 		case "[]uint16":
+			if b == nil || len(b) == 0 {
+				return nil
+			}
 			v := make([]uint16, 0)
 			if err := getValueJsonObj(b, &v); err != nil {
 				return err
@@ -407,6 +448,9 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 			SetUint16Arr(ptr, v)
 			return nil
 		case "[]uint32":
+			if b == nil || len(b) == 0 {
+				return nil
+			}
 			v := make([]uint32, 0)
 			if err := getValueJsonObj(b, &v); err != nil {
 				return err
@@ -414,6 +458,9 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 			SetUint32Arr(ptr, v)
 			return nil
 		case "[]uint64":
+			if b == nil || len(b) == 0 {
+				return nil
+			}
 			v := make([]uint64, 0)
 			if err := getValueJsonObj(b, &v); err != nil {
 				return err
@@ -424,6 +471,9 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 	case reflect.Map:
 		switch elem.FieldType {
 		case "map[string]string":
+			if b == nil || len(b) == 0 {
+				return nil
+			}
 			v := make(map[string]string, 0)
 			if err := getValueJsonObj(b, &v); err != nil {
 				return err
@@ -431,6 +481,9 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 			reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(v))
 			return nil
 		case "map[string]int":
+			if b == nil || len(b) == 0 {
+				return nil
+			}
 			v := make(map[string]int, 0)
 			if err := getValueJsonObj(b, &v); err != nil {
 				return err
@@ -438,6 +491,9 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 			reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(v))
 			return nil
 		case "map[string]int8":
+			if b == nil || len(b) == 0 {
+				return nil
+			}
 			v := make(map[string]int8, 0)
 			if err := getValueJsonObj(b, &v); err != nil {
 				return err
@@ -445,6 +501,9 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 			reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(v))
 			return nil
 		case "map[string]int16":
+			if b == nil || len(b) == 0 {
+				return nil
+			}
 			v := make(map[string]int16, 0)
 			if err := getValueJsonObj(b, &v); err != nil {
 				return err
@@ -452,6 +511,9 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 			reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(v))
 			return nil
 		case "map[string]int32":
+			if b == nil || len(b) == 0 {
+				return nil
+			}
 			v := make(map[string]int32, 0)
 			if err := getValueJsonObj(b, &v); err != nil {
 				return err
@@ -459,6 +521,9 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 			reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(v))
 			return nil
 		case "map[string]int64":
+			if b == nil || len(b) == 0 {
+				return nil
+			}
 			v := make(map[string]int64, 0)
 			if err := getValueJsonObj(b, &v); err != nil {
 				return err
@@ -466,6 +531,9 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 			reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(v))
 			return nil
 		case "map[string]float32":
+			if b == nil || len(b) == 0 {
+				return nil
+			}
 			v := make(map[string]float32, 0)
 			if err := getValueJsonObj(b, &v); err != nil {
 				return err
@@ -473,6 +541,9 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 			reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(v))
 			return nil
 		case "map[string]float64":
+			if b == nil || len(b) == 0 {
+				return nil
+			}
 			v := make(map[string]float64, 0)
 			if err := getValueJsonObj(b, &v); err != nil {
 				return err
@@ -480,6 +551,9 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 			reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(v))
 			return nil
 		case "map[stringbool":
+			if b == nil || len(b) == 0 {
+				return nil
+			}
 			v := make(map[string]bool, 0)
 			if err := getValueJsonObj(b, &v); err != nil {
 				return err
@@ -487,6 +561,9 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 			reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(v))
 			return nil
 		case "map[string]uint":
+			if b == nil || len(b) == 0 {
+				return nil
+			}
 			v := make(map[string]uint, 0)
 			if err := getValueJsonObj(b, &v); err != nil {
 				return err
@@ -494,6 +571,9 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 			reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(v))
 			return nil
 		case "map[string]uint8":
+			if b == nil || len(b) == 0 {
+				return nil
+			}
 			v := make(map[string]uint8, 0)
 			if err := getValueJsonObj(b, &v); err != nil {
 				return err
@@ -501,6 +581,9 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 			reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(v))
 			return nil
 		case "map[string]uint16":
+			if b == nil || len(b) == 0 {
+				return nil
+			}
 			v := make(map[string]uint16, 0)
 			if err := getValueJsonObj(b, &v); err != nil {
 				return err
@@ -508,6 +591,9 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 			reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(v))
 			return nil
 		case "map[string]uint32":
+			if b == nil || len(b) == 0 {
+				return nil
+			}
 			v := make(map[string]uint32, 0)
 			if err := getValueJsonObj(b, &v); err != nil {
 				return err
@@ -515,6 +601,9 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 			reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(v))
 			return nil
 		case "map[string]uint64":
+			if b == nil || len(b) == 0 {
+				return nil
+			}
 			v := make(map[string]uint64, 0)
 			if err := getValueJsonObj(b, &v); err != nil {
 				return err
@@ -522,6 +611,9 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 			reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(v))
 			return nil
 		case "map[string]interface {}":
+			if b == nil || len(b) == 0 {
+				return nil
+			}
 			v := make(map[string]interface{}, 0)
 			if err := getValueJsonObj(b, &v); err != nil {
 				return err
@@ -529,6 +621,9 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 			reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(v))
 			return nil
 		case "map[int]string":
+			if b == nil || len(b) == 0 {
+				return nil
+			}
 			v := make(map[int]string, 0)
 			if err := getValueJsonObj(b, &v); err != nil {
 				return err
@@ -536,6 +631,9 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 			reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(v))
 			return nil
 		case "map[int]int":
+			if b == nil || len(b) == 0 {
+				return nil
+			}
 			v := make(map[int]int, 0)
 			if err := getValueJsonObj(b, &v); err != nil {
 				return err
@@ -543,6 +641,9 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 			reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(v))
 			return nil
 		case "map[int]interface {}":
+			if b == nil || len(b) == 0 {
+				return nil
+			}
 			v := make(map[int]interface{}, 0)
 			if err := getValueJsonObj(b, &v); err != nil {
 				return err
@@ -571,17 +672,12 @@ func getValueJsonObj(b []byte, v interface{}) error {
 
 func getValueOfMapStr(obj interface{}, elem *FieldElem) (string, error) {
 	if fv := reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName); fv.IsNil() {
-		return "{}", nil
+		return "", nil
 	} else if v := fv.Interface(); v == nil {
-		return "{}", nil
+		return "", nil
 	} else if b, err := util.JsonMarshal(&v); err != nil {
-		return "{}", err
+		return "", err
 	} else {
-		fmt.Println(fv.IsValid())
 		return util.Bytes2Str(b), nil
 	}
-}
-
-func setValueOfMapObj(b []byte, v interface{}) error {
-	return getValueJsonObj(b, v)
 }

@@ -27,7 +27,7 @@ type User struct {
 }
 
 type OwWallet struct {
-	Id           int64                  `json:"id" bson:"_id" tb:"ow_wallet_2" mg:"true"`
+	Id           int64                  `json:"id" bson:"_id" tb:"ow_wallet" mg:"false"`
 	AppID        map[string]interface{} `json:"appID" bson:"appID"`
 	WalletID     string                 `json:"walletID" bson:"walletID"`
 	Alias        string                 `json:"alias" bson:"alias"`
@@ -69,11 +69,11 @@ func init() {
 		panic(util.AddStr("读取mysql配置失败: ", err.Error()))
 	}
 	new(sqld.MysqlManager).InitConfigAndCache(nil, mysql)
-	mongo := sqld.MGOConfig{}
-	if err := util.ReadLocalJsonConfig("resource/mongo.json", &mongo); err != nil {
-		panic(util.AddStr("读取mongo配置失败: ", err.Error()))
-	}
-	new(sqld.MGOManager).InitConfigAndCache(nil, mongo)
+	//mongo := sqld.MGOConfig{}
+	//if err := util.ReadLocalJsonConfig("resource/mongo.json", &mongo); err != nil {
+	//	panic(util.AddStr("读取mongo配置失败: ", err.Error()))
+	//}
+	//new(sqld.MGOManager).InitConfigAndCache(nil, mongo)
 }
 
 func TestMysqlSave(t *testing.T) {
@@ -83,9 +83,9 @@ func TestMysqlSave(t *testing.T) {
 	}
 	defer db.Close()
 	vs := []interface{}{}
-	for i := 0; i < 1; i++ {
+	for i := 0; i < 2; i++ {
 		wallet := OwWallet{
-			AppID:        map[string]interface{}{"test": 1},
+			// AppID:        map[string]interface{}{"test": 1},
 			WalletID:     util.GetUUID(),
 			PasswordType: 1,
 			Password:     "123456",
@@ -167,7 +167,7 @@ func TestMysqlFindById(t *testing.T) {
 	defer db.Close()
 	l := util.Time()
 	wallet := OwWallet{
-		Id: 1109996130134917121,
+		Id: 1110165805422608385,
 	}
 	if err := db.FindById(&wallet); err != nil {
 		fmt.Println(err)

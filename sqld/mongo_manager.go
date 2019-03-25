@@ -9,6 +9,7 @@ import (
 	"go.uber.org/zap"
 	"gopkg.in/mgo.v2"
 	"reflect"
+	"strings"
 	"time"
 )
 
@@ -84,7 +85,7 @@ func (self *MGOManager) GetDB(option ...Option) error {
 	self.Node = mgo.Node
 	self.DsName = mgo.DsName
 	self.AutoTx = mgo.AutoTx
-	self.CacheSync = mgo.CacheSync
+	self.MongoSync = mgo.MongoSync
 	if ops != nil {
 		if ops.Node != nil {
 			self.Node = ops.Node
@@ -95,8 +96,8 @@ func (self *MGOManager) GetDB(option ...Option) error {
 		if ops.AutoTx != nil {
 			self.AutoTx = ops.AutoTx
 		}
-		if ops.CacheSync != nil {
-			self.CacheSync = ops.CacheSync
+		if ops.MongoSync != nil {
+			self.MongoSync = ops.MongoSync
 		}
 	}
 	return nil
@@ -144,10 +145,10 @@ func (self *MGOManager) buildByConfig(manager cache.ICache, input ...MGOConfig) 
 		} else {
 			mgo.AutoTx = v.AutoTx
 		}
-		if v.CacheSync == nil {
-			mgo.CacheSync = &FALSE
+		if v.MongoSync == nil {
+			mgo.MongoSync = &FALSE
 		} else {
-			mgo.CacheSync = v.CacheSync
+			mgo.MongoSync = v.MongoSync
 		}
 		if v.DsName == nil || len(*v.DsName) == 0 {
 			mgo.DsName = &MASTER
@@ -360,10 +361,12 @@ func (self *MGOManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	if data == nil {
 		return self.Error("返回参数对象为空")
 	}
-	if cnd.Model == nil {
-		return self.Error("ORM对象类型不能为空,请通过M(...)方法设置对象类型")
-	}
 	obkey := reflect.TypeOf(cnd.Model).String()
+	if !strings.HasPrefix(obkey, "*[]") {
+		return self.Error("返回参数必须为数组指针类型")
+	} else {
+		obkey = util.Substr(obkey, 3, len(obkey))
+	}
 	obv, ok := reg_models[obkey];
 	if !ok {
 		return self.Error(util.AddStr("没有找到注册对象类型[", obkey, "]"))

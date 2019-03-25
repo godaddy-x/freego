@@ -22,6 +22,12 @@ var (
 	rdbs   = map[string]*RDBManager{}
 )
 
+const (
+	SAVE   = 1
+	UPDATE = 2
+	DELETE = 3
+)
+
 /********************************** 数据库配置参数 **********************************/
 
 // 数据库配置
@@ -39,15 +45,21 @@ type Option struct {
 	Node      *int64  // 节点
 	DsName    *string // 数据源,分库时使用
 	AutoTx    *bool   // 是否自动事务提交 true.是 false.否
-	CacheSync *bool   // 是否数据缓存,比如redis,mongo等
+	MongoSync *bool   // 是否自动同步mongo数据库写入
+}
+
+type MGOSyncData struct {
+	CacheOption  int           // 1.save 2.update 3.delete
+	MgoTableName string        // mongo表名称
+	CacheObject  []interface{} // 需要缓存的数据 CacheSync为true时有效
 }
 
 // 数据库管理器
 type DBManager struct {
 	Option
-	CacheManager cache.ICache  // 缓存管理器
-	CacheObject  []interface{} // 需要缓存的数据 CacheSync为true时有效
-	Errors       []error       // 错误异常记录
+	CacheManager cache.ICache // 缓存管理器
+	MGOSyncData  *MGOSyncData // 同步数据对象
+	Errors       []error      // 错误异常记录
 }
 
 /********************************** 数据库ORM实现 **********************************/
@@ -201,7 +213,7 @@ func (self *RDBManager) GetDB(option ...Option) error {
 	self.Node = rdb.Node
 	self.DsName = rdb.DsName
 	self.AutoTx = rdb.AutoTx
-	self.CacheSync = rdb.CacheSync
+	self.MongoSync = rdb.MongoSync
 	if ops != nil {
 		if ops.Node != nil {
 			self.Node = ops.Node
@@ -212,8 +224,8 @@ func (self *RDBManager) GetDB(option ...Option) error {
 		if ops.AutoTx != nil {
 			self.AutoTx = ops.AutoTx
 		}
-		if ops.CacheSync != nil {
-			self.CacheSync = ops.CacheSync
+		if ops.MongoSync != nil {
+			self.MongoSync = ops.MongoSync
 		}
 		if *ops.AutoTx {
 			if txv, err := self.Db.Begin(); err != nil {
@@ -289,7 +301,7 @@ func (self *RDBManager) Save(data ...interface{}) error {
 	if len(prepare) == 0 {
 		prepare = util.Bytes2Str(sqlbuf.Bytes())
 		if log.IsDebug() {
-			defer log.Debug("数据保存操作日志", log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
+			defer log.Debug("mysql数据Save操作日志", log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
 		}
 		var err error
 		if *self.AutoTx {
@@ -310,6 +322,9 @@ func (self *RDBManager) Save(data ...interface{}) error {
 		return self.Error(util.Error("保存数据失败: ", err.Error()))
 	} else if rowsAffected <= 0 {
 		return self.Error(util.Error("保存操作受影响行数 -> ", rowsAffected))
+	}
+	if *self.MongoSync && obv.ToMongo {
+		self.MGOSyncData = &MGOSyncData{SAVE, obv.TabelName, data}
 	}
 	return nil
 }
@@ -375,7 +390,7 @@ func (self *RDBManager) Update(data ...interface{}) error {
 	if len(prepare) == 0 {
 		prepare = util.Bytes2Str(sqlbuf.Bytes())
 		if log.IsDebug() {
-			defer log.Debug("数据更新操作日志", log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
+			defer log.Debug("mysql数据Update操作日志", log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
 		}
 		var err error
 		if *self.AutoTx {
@@ -390,6 +405,9 @@ func (self *RDBManager) Update(data ...interface{}) error {
 	}
 	if _, err := stmt.Exec(parameter...); err != nil {
 		return self.Error(util.Error("更新数据失败: ", err.Error()))
+	}
+	if *self.MongoSync && obv.ToMongo {
+		self.MGOSyncData = &MGOSyncData{SAVE, obv.TabelName, data}
 	}
 	return nil
 }
@@ -440,7 +458,7 @@ func (self *RDBManager) Delete(data ...interface{}) error {
 	if len(prepare) == 0 {
 		prepare = util.Bytes2Str(sqlbuf.Bytes())
 		if log.IsDebug() {
-			defer log.Debug("数据删除操作日志", log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
+			defer log.Debug("mysql数据Delete操作日志", log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
 		}
 		var err error
 		if *self.AutoTx {
@@ -455,6 +473,9 @@ func (self *RDBManager) Delete(data ...interface{}) error {
 	}
 	if _, err := stmt.Exec(parameter...); err != nil {
 		return self.Error(util.Error("删除数据失败: ", err.Error()))
+	}
+	if *self.MongoSync && obv.ToMongo {
+		self.MGOSyncData = &MGOSyncData{SAVE, obv.TabelName, data}
 	}
 	return nil
 }
@@ -493,7 +514,7 @@ func (self *RDBManager) FindById(data interface{}) error {
 	sqlbuf.WriteString(" = ?")
 	prepare := util.Bytes2Str(sqlbuf.Bytes())
 	if log.IsDebug() {
-		defer log.Debug("通过ID查询数据日志", log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
+		defer log.Debug("mysql数据FindById操作日志", log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
 	}
 	var stmt *sql.Stmt
 	var rows *sql.Rows
@@ -583,7 +604,7 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data interface{}) error {
 		prepare = limitSql
 	}
 	if log.IsDebug() {
-		defer log.Debug("通过条件查询单条数据日志", log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
+		defer log.Debug("mysql数据数据FindOne操作日志", log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
 	}
 	var stmt *sql.Stmt
 	var rows *sql.Rows
@@ -677,7 +698,7 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 		prepare = limitSql
 	}
 	if log.IsDebug() {
-		defer log.Debug("通过条件查询多条数据日志", log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
+		defer log.Debug("mysql数据FindList操作日志", log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
 	}
 	var stmt *sql.Stmt
 	var rows *sql.Rows
@@ -760,7 +781,7 @@ func (self *RDBManager) Count(cnd *sqlc.Cnd) (int64, error) {
 	sqlbuf.WriteString(util.Substr(str2, 0, len(str2)-1))
 	prepare := util.Bytes2Str(sqlbuf.Bytes())
 	if log.IsDebug() {
-		defer log.Debug("通过条件统计数据条数日志", log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
+		defer log.Debug("mysql数据Count操作日志", log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
 	}
 	var rows *sql.Rows
 	var stmt *sql.Stmt
@@ -975,34 +996,31 @@ func (self *RDBManager) Close() error {
 			}
 		}
 	}
-	if *self.CacheSync && self.CacheObject != nil && len(self.CacheObject) > 0 {
-		for _, v := range self.CacheObject {
-			if err := self.mongoSyncData(v); err != nil {
-				log.Error("同步mongo数据库失败", zap.String("error", err.Error()))
-			}
+	if *self.MongoSync {
+		syncData := self.MGOSyncData
+		if syncData.CacheObject == nil || len(syncData.CacheObject) == 0 {
+			return nil
 		}
+		return self.mongoSyncData(syncData.CacheOption, syncData.CacheObject)
 	}
 	return nil
 }
 
 // mongo同步数据
-func (self *RDBManager) mongoSyncData(data interface{}) error {
-	//if sync, err := util.ValidSyncMongo(data); err != nil {
-	//	return util.Error("实体字段异常: ", err.Error())
-	//} else if sync {
-	//	mongo, err := new(MGOManager).Get(self.Option);
-	//	if err != nil {
-	//		return util.Error("获取mongo连接失败: ", err.Error())
-	//	}
-	//	defer mongo.Close()
-	//	if err := mongo.Save(data); err != nil {
-	//		if s, e := util.ObjectToJson(data); e != nil {
-	//			return util.Error("同步mongo数据失败,JSON对象转换失败: ", e.Error())
-	//		} else {
-	//			return util.Error("同步mongo数据失败: ", s, ", 异常: ", err.Error())
-	//		}
-	//	}
-	//}
+func (self *RDBManager) mongoSyncData(option int, data ...interface{}) error {
+	mongo, err := new(MGOManager).Get(self.Option);
+	if err != nil {
+		return util.Error("获取mongo连接失败: ", err.Error())
+	}
+	defer mongo.Close()
+	switch option {
+	case SAVE:
+		return mongo.Save(data...)
+	case UPDATE:
+		return mongo.Update(data...)
+	case DELETE:
+		return mongo.Delete(data...)
+	}
 	return nil
 }
 
@@ -1242,14 +1260,4 @@ func (self *RDBManager) BuildPagination(cnd *sqlc.Cnd, sqlbuf string, values []i
 		cnd.Pagination.PageCount = pageCount
 	}
 	return limitSql, nil
-}
-
-// 添加缓存同步对象
-func (self *RDBManager) AddCacheSync(models ...interface{}) error {
-	if *self.CacheSync && models != nil && len(models) > 0 {
-		for _, v := range models {
-			self.CacheObject = append(self.CacheObject, v)
-		}
-	}
-	return nil
 }

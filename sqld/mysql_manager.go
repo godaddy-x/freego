@@ -59,10 +59,10 @@ func (self *MysqlManager) buildByConfig(manager cache.ICache, input ...MysqlConf
 		} else {
 			rdb.AutoTx = v.AutoTx
 		}
-		if v.CacheSync == nil {
-			rdb.CacheSync = &FALSE
+		if v.MongoSync == nil {
+			rdb.MongoSync = &FALSE
 		} else {
-			rdb.CacheSync = v.CacheSync
+			rdb.MongoSync = v.MongoSync
 		}
 		if v.DsName == nil || len(*v.DsName) == 0 {
 			rdb.DsName = &MASTER
