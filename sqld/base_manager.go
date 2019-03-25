@@ -736,7 +736,6 @@ func (self *RDBManager) Count(cnd *sqlc.Cnd) (int64, error) {
 		return 0, self.Error(util.AddStr("没有找到注册对象类型[", obkey, "]"))
 	}
 	var fpart, vpart bytes.Buffer
-	fpart.Grow(32)
 	fpart.WriteString("count(1)")
 	case_part, case_arg := self.BuildWhereCase(cnd)
 	parameter := make([]interface{}, 0, len(case_arg))
@@ -1223,30 +1222,24 @@ func (self *RDBManager) BuildPagination(cnd *sqlc.Cnd, sqlbuf string, values []i
 		if err != nil {
 			return "", self.Error(util.AddStr("Count查询失败: ", err.Error()))
 		}
+		defer rows.Close()
 		var pageTotal int64
-		err = func() error {
-			for rows.Next() {
-				if err := rows.Scan(&pageTotal); err != nil {
-					return self.Error(util.AddStr("匹配结果异常: ", err.Error()))
-				}
+		for rows.Next() {
+			if err := rows.Scan(&pageTotal); err != nil {
+				return "", self.Error(util.AddStr("匹配结果异常: ", err.Error()))
 			}
-			if err := rows.Err(); err != nil {
-				return self.Error(util.Error("读取查询结果失败: ", err.Error()))
-			}
-			var pageCount int64
-			if pageTotal%cnd.Pagination.PageSize == 0 {
-				pageCount = pageTotal / cnd.Pagination.PageSize
-			} else {
-				pageCount = pageTotal/cnd.Pagination.PageSize + 1
-			}
-			cnd.Pagination.PageTotal = pageTotal
-			cnd.Pagination.PageCount = pageCount
-			return nil
-		}()
-		self.release(nil, rows)
-		if err != nil {
-			return "", self.Error(err)
 		}
+		if err := rows.Err(); err != nil {
+			return "", self.Error(util.Error("读取查询结果失败: ", err.Error()))
+		}
+		var pageCount int64
+		if pageTotal%cnd.Pagination.PageSize == 0 {
+			pageCount = pageTotal / cnd.Pagination.PageSize
+		} else {
+			pageCount = pageTotal/cnd.Pagination.PageSize + 1
+		}
+		cnd.Pagination.PageTotal = pageTotal
+		cnd.Pagination.PageCount = pageCount
 	}
 	return limitSql, nil
 }
@@ -1259,14 +1252,4 @@ func (self *RDBManager) AddCacheSync(models ...interface{}) error {
 		}
 	}
 	return nil
-}
-
-// 释放资源
-func (self *RDBManager) release(stmt *sql.Stmt, rows *sql.Rows) {
-	if stmt != nil {
-		stmt.Close()
-	}
-	if rows != nil {
-		rows.Close()
-	}
 }

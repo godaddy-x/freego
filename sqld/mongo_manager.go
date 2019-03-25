@@ -1,12 +1,14 @@
 package sqld
 
 import (
+	"fmt"
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/component/log"
 	"github.com/godaddy-x/freego/sqlc"
 	"github.com/godaddy-x/freego/util"
 	"go.uber.org/zap"
 	"gopkg.in/mgo.v2"
+	"reflect"
 	"time"
 )
 
@@ -39,54 +41,63 @@ type MGOManager struct {
 }
 
 func (self *MGOManager) Get(option ...Option) (*MGOManager, error) {
-	if option != nil && len(option) > 0 {
-		if err := self.GetDB(option[0]); err != nil {
-			return nil, err
-		}
-		return self, nil
-	} else {
-		if err := self.GetDB(); err != nil {
-			return nil, err
-		}
-		return self, nil
+	if err := self.GetDB(option...); err != nil {
+		return nil, err
 	}
+	return self, nil
 }
 
 // 获取mongo的数据库连接
-func (self *MGOManager) GetDatabase(copySession *mgo.Session, data interface{}) (*mgo.Collection, error) {
-	//tb, err := util.GetDbAndTb(data)
-	//if err != nil {
-	//	return nil, err
-	//}
-	//database := copySession.DB("")
-	//if database == nil {
-	//	return nil, self.Error("获取mongo数据库失败")
-	//}
-	//collection := database.C(tb)
-	//if collection == nil {
-	//	return nil, self.Error("获取mongo数据集合失败")
-	//}
-	//return collection, nil
-	return nil, nil
+func (self *MGOManager) GetDatabase(copySession *mgo.Session, tb string) (*mgo.Collection, error) {
+	database := copySession.DB("")
+	if database == nil {
+		return nil, self.Error("获取mongo数据库失败")
+	}
+	collection := database.C(tb)
+	if collection == nil {
+		return nil, self.Error("获取mongo数据集合失败")
+	}
+	return collection, nil
 }
 
 func (self *MGOManager) GetDB(option ...Option) error {
-	var ds string
+	ds := &MASTER
+	var ops *Option
 	if option != nil && len(option) > 0 {
-		ops := option[0]
-		self.Option = ops
-		ds = *self.Option.DsName
-	}
-	if len(mgo_sessions) > 0 {
-		manager := mgo_sessions[ds]
-		if manager == nil {
-			return self.Error(util.AddStr("mongo数据源[", ds, "]未找到,请检查..."))
+		ops = &option[0]
+		if ops.DsName != nil && len(*ops.DsName) > 0 {
+			ds = ops.DsName
+		} else {
+			ops.DsName = ds
 		}
-		self.Session = manager.Session
-		self.CacheManager = manager.CacheManager
-	} else {
-		self.CacheSync = &FALSE
+	}
+	if len(mgo_sessions) == 0 {
 		log.Warn("mongo session is nil")
+		return nil
+	}
+	mgo := mgo_sessions[*ds]
+	if mgo == nil {
+		return self.Error(util.AddStr("mongo数据源[", ds, "]未找到,请检查..."))
+	}
+	self.Session = mgo.Session
+	self.CacheManager = mgo.CacheManager
+	self.Node = mgo.Node
+	self.DsName = mgo.DsName
+	self.AutoTx = mgo.AutoTx
+	self.CacheSync = mgo.CacheSync
+	if ops != nil {
+		if ops.Node != nil {
+			self.Node = ops.Node
+		}
+		if ops.DsName != nil {
+			self.DsName = ops.DsName
+		}
+		if ops.AutoTx != nil {
+			self.AutoTx = ops.AutoTx
+		}
+		if ops.CacheSync != nil {
+			self.CacheSync = ops.CacheSync
+		}
 	}
 	return nil
 }
@@ -120,15 +131,30 @@ func (self *MGOManager) buildByConfig(manager cache.ICache, input ...MGOConfig) 
 		}
 		session.SetSocketTimeout(3 * time.Minute)
 		session.SetMode(mgo.Monotonic, true)
-		if len(*v.DsName) == 0 {
-			self.DsName = &MASTER
+		mgo := &MGOManager{}
+		mgo.Session = session
+		mgo.CacheManager = manager
+		if v.Node == nil {
+			mgo.Node = &ZERO
 		} else {
-			self.DsName = v.DsName
+			mgo.Node = v.Node
 		}
-		if err != nil {
-			panic("redis数据源[" + *self.DsName + "]类型异常失败")
+		if v.AutoTx == nil {
+			mgo.AutoTx = &FALSE
+		} else {
+			mgo.AutoTx = v.AutoTx
 		}
-		mgo_sessions[*self.DsName] = &MGOManager{DBManager: DBManager{CacheManager: manager}, Session: session}
+		if v.CacheSync == nil {
+			mgo.CacheSync = &FALSE
+		} else {
+			mgo.CacheSync = v.CacheSync
+		}
+		if v.DsName == nil || len(*v.DsName) == 0 {
+			mgo.DsName = &MASTER
+		} else {
+			mgo.DsName = v.DsName
+		}
+		mgo_sessions[*mgo.DsName] = mgo
 	}
 	if len(mgo_sessions) == 0 {
 		panic("mongo连接初始化失败: 数据源为0")
@@ -136,134 +162,151 @@ func (self *MGOManager) buildByConfig(manager cache.ICache, input ...MGOConfig) 
 	return nil
 }
 
-// 保存或更新数据到mongo集合
-func (self *MGOManager) Save(datas ...interface{}) error {
-	//if datas == nil || len(datas) == 0 {
-	//	return self.Error("参数列表不能为空")
-	//}
-	//for _, v := range datas {
-	//	copySession := self.Session.Copy()
-	//	err := func() error {
-	//		start := util.Time()
-	//		if v == nil {
-	//			return util.Error("参数元素不能为空")
-	//		}
-	//		if reflect.ValueOf(v).Kind() != reflect.Ptr {
-	//			return util.Error("参数值必须为指针类型")
-	//		}
-	//		objectId := util.GetDataID(v)
-	//		if objectId == 0 {
-	//			v := reflect.ValueOf(v).Elem()
-	//			v.FieldByName("Id").Set(reflect.ValueOf(util.GetSnowFlakeID()))
-	//		}
-	//		db, err := self.GetDatabase(copySession, v)
-	//		if err != nil {
-	//			return err
-	//		}
-	//		defer self.debug("Save/Update", v, start)
-	//		newObject := util.NewInstance(v)
-	//		err = db.FindId(objectId).One(newObject)
-	//		if err == nil { // 更新数据
-	//			err = db.UpdateId(objectId, v)
-	//			if err != nil {
-	//				return util.Error("mongo更新数据失败: ", err.Error())
-	//			}
-	//			return nil
-	//		} else { // 新增数据
-	//			err = db.Insert(v)
-	//			if err != nil {
-	//				return util.Error("mongo保存数据失败: ", err.Error())
-	//			}
-	//			return nil
-	//		}
-	//	}()
-	//	copySession.Close()
-	//	self.Error(err)
-	//}
+// 保存数据到mongo集合
+func (self *MGOManager) Save(data ...interface{}) error {
+	if data == nil || len(data) == 0 {
+		return self.Error("参数对象为空")
+	}
+	if len(data) > 2000 {
+		return self.Error("参数对象数量不能超过2000")
+	}
+	obkey := reflect.TypeOf(data[0]).String()
+	obv, ok := reg_models[obkey];
+	if !ok {
+		return self.Error(util.AddStr("没有找到注册对象类型[", obkey, "]"))
+	}
+	start := util.Time()
+	copySession := self.Session.Copy()
+	defer copySession.Close()
+	db, err := self.GetDatabase(copySession, obv.TabelName)
+	if err != nil {
+		return self.Error(err)
+	}
+	if log.IsDebug() {
+		defer log.Debug("mongo数据Save操作日志", log.Any("data", data), log.Int64("cost", util.Time()-start))
+	}
+	for _, v := range data {
+		lastInsertId := GetInt64(GetPtr(v, obv.PkOffset))
+		if lastInsertId == 0 {
+			lastInsertId = util.GetSnowFlakeID(*self.Node)
+			SetInt64(GetPtr(v, obv.PkOffset), lastInsertId)
+		}
+	}
+	if err := db.Insert(data ...); err != nil {
+		return self.Error(err)
+	}
 	return nil
 }
 
-// 保存或更新数据到mongo集合
-func (self *MGOManager) Update(datas ...interface{}) error {
-	return self.Save(datas...)
+// 更新数据到mongo集合
+func (self *MGOManager) Update(data ...interface{}) error {
+	if data == nil || len(data) == 0 {
+		return self.Error("参数对象为空")
+	}
+	if len(data) > 2000 {
+		return self.Error("参数对象数量不能超过2000")
+	}
+	obkey := reflect.TypeOf(data[0]).String()
+	obv, ok := reg_models[obkey];
+	if !ok {
+		return self.Error(util.AddStr("没有找到注册对象类型[", obkey, "]"))
+	}
+	start := util.Time()
+	copySession := self.Session.Copy()
+	defer copySession.Close()
+	db, err := self.GetDatabase(copySession, obv.TabelName)
+	if err != nil {
+		return self.Error(err)
+	}
+	if log.IsDebug() {
+		defer log.Debug("mongo数据Update操作日志", log.Any("data", data), log.Int64("cost", util.Time()-start))
+	}
+	for _, v := range data {
+		lastInsertId := GetInt64(GetPtr(v, obv.PkOffset))
+		if lastInsertId == 0 {
+			return self.Error("对象ID为空")
+		}
+		if err := db.UpdateId(lastInsertId, v); err != nil {
+			if err.Error() == "not found" {
+				return self.Error(util.AddStr("数据ID[", lastInsertId, "]不存在"))
+			}
+			return self.Error(err)
+		}
+	}
+	return nil
 }
 
-func (self *MGOManager) Delete(datas ...interface{}) error {
-	//if datas == nil || len(datas) == 0 {
-	//	return self.Error("参数列表不能为空")
-	//}
-	//for _, v := range datas {
-	//	copySession := self.Session.Copy()
-	//	err := func() error {
-	//		start := util.Time()
-	//		if v == nil {
-	//			return util.Error("参数元素不能为空")
-	//		}
-	//		if reflect.ValueOf(v).Kind() != reflect.Ptr {
-	//			return util.Error("参数值必须为指针类型")
-	//		}
-	//		db, err := self.GetDatabase(copySession, v)
-	//		if err != nil {
-	//			return err
-	//		}
-	//		defer self.debug("Delete", v, start)
-	//		if err := db.RemoveId(util.GetDataID(v)); err != nil {
-	//			return util.Error("删除数据ID失败")
-	//		}
-	//		return nil
-	//	}()
-	//	copySession.Close()
-	//	self.Error(err)
-	//}
+func (self *MGOManager) Delete(data ...interface{}) error {
+	if data == nil || len(data) == 0 {
+		return self.Error("参数对象为空")
+	}
+	if len(data) > 2000 {
+		return self.Error("参数对象数量不能超过2000")
+	}
+	obkey := reflect.TypeOf(data[0]).String()
+	obv, ok := reg_models[obkey];
+	if !ok {
+		return self.Error(util.AddStr("没有找到注册对象类型[", obkey, "]"))
+	}
+	start := util.Time()
+	copySession := self.Session.Copy()
+	defer copySession.Close()
+	db, err := self.GetDatabase(copySession, obv.TabelName)
+	if err != nil {
+		return self.Error(err)
+	}
+	if log.IsDebug() {
+		defer log.Debug("mongo数据Delete操作日志", log.Any("data", data), log.Int64("cost", util.Time()-start))
+	}
+	for _, v := range data {
+		lastInsertId := GetInt64(GetPtr(v, obv.PkOffset))
+		if lastInsertId == 0 {
+			return self.Error("对象ID为空")
+		}
+		if err := db.RemoveId(lastInsertId); err != nil {
+			if err.Error() == "not found" {
+				return self.Error(util.AddStr("数据ID[", lastInsertId, "]不存在"))
+			}
+			return self.Error(err)
+		}
+	}
 	return nil
 }
 
 // 统计数据
 func (self *MGOManager) Count(cnd *sqlc.Cnd) (int64, error) {
-	start := util.Time()
 	if cnd.Model == nil {
 		return 0, self.Error("ORM对象类型不能为空,请通过M(...)方法设置对象类型")
 	}
-	var ok bool
-	var pageTotal int64
-	if isc, hasv, err := self.getByCache(cnd, &pageTotal); err != nil {
-		return 0, err
-	} else if isc && hasv {
-		ok = isc
-		defer self.debug("Count by Cache", make([]interface{}, 0), start)
-	} else if isc && !hasv {
-		defer self.putByCache(cnd, &pageTotal)
-	}
+	copySession := self.Session.Copy()
+	defer copySession.Close()
+	obkey := reflect.TypeOf(cnd.Model).String()
+	obv, ok := reg_models[obkey];
 	if !ok {
-		copySession := self.Session.Copy()
-		_, err := func() (int64, error) {
-			db, err := self.GetDatabase(copySession, cnd.Model)
-			if err != nil {
-				return 0, err
-			}
-			pipe, err := self.buildPipeCondition(cnd, true)
-			if err != nil {
-				return 0, util.Error("mongo构建查询命令失败: ", err.Error())
-			}
-			defer self.debug("Count", pipe, start)
-			result := make(map[string]int64)
-			err = db.Pipe(pipe).One(&result)
-			if err != nil {
-				if err.Error() == "not found" {
-					return 0, nil
-				}
-				return 0, util.Error("mongo查询数据失败: ", err.Error())
-			}
-			pageTotal, ok = result[COUNT_BY]
-			if !ok {
-				return 0, util.Error("获取记录数失败")
-			}
-			return pageTotal, nil
-		}()
-		copySession.Close()
-		if err != nil {
-			return 0, self.Error(err)
+		return 0, self.Error(util.AddStr("没有找到注册对象类型[", obkey, "]"))
+	}
+	start := util.Time()
+	db, err := self.GetDatabase(copySession, obv.TabelName)
+	if err != nil {
+		return 0, err
+	}
+	pipe, err := self.buildPipeCondition(cnd, true)
+	if err != nil {
+		return 0, util.Error("mongo构建查询命令失败: ", err.Error())
+	}
+	if log.IsDebug() {
+		defer log.Debug("mongo数据Count操作日志", log.Any("pipe", pipe), log.Int64("cost", util.Time()-start))
+	}
+	result := make(map[string]int64)
+	if err := db.Pipe(pipe).One(&result); err != nil {
+		if err.Error() == "not found" {
+			return 0, nil
 		}
+		return 0, util.Error("mongo查询数据失败: ", err.Error())
+	}
+	pageTotal, ok := result[COUNT_BY]
+	if !ok {
+		return 0, util.Error("获取记录数失败")
 	}
 	if pageTotal > 0 && cnd.Pagination.PageSize > 0 {
 		var pageCount int64
@@ -282,103 +325,69 @@ func (self *MGOManager) Count(cnd *sqlc.Cnd) (int64, error) {
 
 // 查询单条数据
 func (self *MGOManager) FindOne(cnd *sqlc.Cnd, data interface{}) error {
-	//start := util.Time()
-	//var elem = cnd.Model
-	//if elem == nil {
-	//	return self.Error("ORM对象类型不能为空,请通过M(...)方法设置对象类型")
-	//}
-	//tof := util.TypeOf(elem)
-	//if tof.Kind() != reflect.Struct && tof.Kind() != reflect.Ptr {
-	//	return self.Error("ORM对象类型必须为struct或ptr")
-	//}
-	//if data == nil {
-	//	return self.Error("返回值不能为空")
-	//}
-	//if reflect.TypeOf(data).Kind() != reflect.Ptr {
-	//	return self.Error("返回值必须为指针类型")
-	//}
-	//if util.TypeOf(data).Kind() != reflect.Struct {
-	//	return self.Error("返回结果必须为struct类型")
-	//}
-	//if isc, hasv, err := self.getByCache(cnd, data); err != nil {
-	//	return err
-	//} else if isc && hasv {
-	//	defer self.debug("FindOne by Cache", make([]interface{}, 0), start)
-	//	return nil
-	//} else if isc && !hasv {
-	//	defer self.putByCache(cnd, data)
-	//}
-	//copySession := self.Session.Copy()
-	//err := func() error {
-	//	db, err := self.GetDatabase(copySession, elem)
-	//	if err != nil {
-	//		return err
-	//	}
-	//	pipe, err := self.buildPipeCondition(cnd, false)
-	//	if err != nil {
-	//		return util.Error("mongo构建查询命令失败: ", err.Error())
-	//	}
-	//	defer self.debug("FindOne", pipe, start)
-	//	if err := db.Pipe(pipe).One(data); err != nil {
-	//		if err.Error() != "not found" {
-	//			return util.Error("mongo查询数据失败: ", err.Error())
-	//		}
-	//	}
-	//	return nil
-	//}()
-	//copySession.Close()
-	//return self.Error(err)
+	if data == nil {
+		return self.Error("参数对象为空")
+	}
+	obkey := reflect.TypeOf(data).String()
+	obv, ok := reg_models[obkey];
+	if !ok {
+		return self.Error(util.AddStr("没有找到注册对象类型[", obkey, "]"))
+	}
+	start := util.Time()
+	copySession := self.Session.Copy()
+	defer copySession.Close()
+	db, err := self.GetDatabase(copySession, obv.TabelName)
+	if err != nil {
+		return self.Error(err)
+	}
+	if log.IsDebug() {
+		defer log.Debug("mongo数据FindOne操作日志", log.Int64("cost", util.Time()-start))
+	}
+	pipe, err := self.buildPipeCondition(cnd, false)
+	if err != nil {
+		return util.Error("mongo构建查询命令失败: ", err.Error())
+	}
+	if err := db.Pipe(pipe).One(data); err != nil {
+		if err.Error() != "not found" {
+			return util.Error("mongo查询数据失败: ", err.Error())
+		}
+	}
 	return nil
 }
 
 // 查询多条数据
 func (self *MGOManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
-	//start := util.Time()
-	//var elem = cnd.Model
-	//if elem == nil {
-	//	return self.Error("ORM对象类型不能为空,请通过M(...)方法设置对象类型")
-	//}
-	//tof := util.TypeOf(elem)
-	//if tof.Kind() != reflect.Struct && tof.Kind() != reflect.Ptr {
-	//	return self.Error("ORM对象类型必须为struct或ptr")
-	//}
-	//if data == nil {
-	//	return self.Error("返回值不能为空")
-	//}
-	//if reflect.TypeOf(data).Kind() != reflect.Ptr {
-	//	return self.Error("返回值必须为指针类型")
-	//}
-	//if util.TypeOf(data).Kind() != reflect.Slice {
-	//	return self.Error("返回结果必须为数组类型")
-	//}
-	//if isc, hasv, err := self.getByCache(cnd, data); err != nil {
-	//	return err
-	//} else if isc && hasv {
-	//	defer self.debug("FindList by Cache", make([]interface{}, 0), start)
-	//	return nil
-	//} else if isc && !hasv {
-	//	defer self.putByCache(cnd, data)
-	//}
-	//copySession := self.Session.Copy()
-	//err := func() error {
-	//	db, err := self.GetDatabase(copySession, elem)
-	//	if err != nil {
-	//		return err
-	//	}
-	//	pipe, err := self.buildPipeCondition(cnd, false)
-	//	if err != nil {
-	//		return util.Error("mongo构建查询命令失败: ", err.Error())
-	//	}
-	//	defer self.debug("FindList", pipe, start)
-	//	if err := db.Pipe(pipe).All(data); err != nil {
-	//		if err.Error() != "not found" {
-	//			return util.Error("mongo查询数据失败: ", err.Error())
-	//		}
-	//	}
-	//	return nil
-	//}()
-	//copySession.Close()
-	//return self.Error(err)
+	if data == nil {
+		return self.Error("返回参数对象为空")
+	}
+	if cnd.Model == nil {
+		return self.Error("ORM对象类型不能为空,请通过M(...)方法设置对象类型")
+	}
+	obkey := reflect.TypeOf(cnd.Model).String()
+	obv, ok := reg_models[obkey];
+	if !ok {
+		return self.Error(util.AddStr("没有找到注册对象类型[", obkey, "]"))
+	}
+	start := util.Time()
+	copySession := self.Session.Copy()
+	defer copySession.Close()
+	db, err := self.GetDatabase(copySession, obv.TabelName)
+	if err != nil {
+		return self.Error(err)
+	}
+	if log.IsDebug() {
+		defer log.Debug("mongo数据FindList操作日志", log.Int64("cost", util.Time()-start))
+	}
+	pipe, err := self.buildPipeCondition(cnd, false)
+	if err != nil {
+		return util.Error("mongo构建查询命令失败: ", err.Error())
+	}
+	if err := db.Pipe(pipe).All(data); err != nil {
+		if err.Error() != "not found" {
+			return util.Error("mongo查询数据失败: ", err.Error())
+		}
+	}
+	fmt.Println(111)
 	return nil
 }
 
@@ -412,7 +421,7 @@ func (self *MGOManager) putByCache(cnd *sqlc.Cnd, data interface{}) error {
 }
 
 // 获取最终pipe条件集合,包含$match $project $sort $skip $limit,未实现$group
-func (self *MGOManager) buildPipeCondition(cnd *sqlc.Cnd, iscount bool) ([]interface{}, error) {
+func (self *MGOManager) buildPipeCondition(cnd *sqlc.Cnd, countby bool) ([]interface{}, error) {
 	match := buildMongoMatch(cnd)
 	project := buildMongoProject(cnd)
 	sortby := buildMongoSortBy(cnd)
@@ -433,7 +442,7 @@ func (self *MGOManager) buildPipeCondition(cnd *sqlc.Cnd, iscount bool) ([]inter
 		tmp["$sort"] = sortby
 		pipe = append(pipe, tmp)
 	}
-	if !iscount && pageinfo != nil {
+	if !countby && pageinfo != nil {
 		tmp := make(map[string]interface{})
 		tmp["$skip"] = pageinfo[0]
 		pipe = append(pipe, tmp)
@@ -455,7 +464,7 @@ func (self *MGOManager) buildPipeCondition(cnd *sqlc.Cnd, iscount bool) ([]inter
 			cnd.Pagination.PageCount = pageCount
 		}
 	}
-	if iscount {
+	if countby {
 		tmp := make(map[string]interface{})
 		tmp["$count"] = COUNT_BY
 		pipe = append(pipe, tmp)

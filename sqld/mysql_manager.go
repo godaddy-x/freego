@@ -22,17 +22,10 @@ type MysqlManager struct {
 }
 
 func (self *MysqlManager) Get(option ...Option) (*MysqlManager, error) {
-	if option != nil && len(option) > 0 {
-		if err := self.GetDB(option[0]); err != nil {
-			return nil, err
-		}
-		return self, nil
-	} else {
-		if err := self.GetDB(); err != nil {
-			return nil, err
-		}
-		return self, nil
+	if err := self.GetDB(option...); err != nil {
+		return nil, err
 	}
+	return self, nil
 }
 
 func (self *MysqlManager) InitConfig(input ...MysqlConfig) error {

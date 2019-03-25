@@ -32,13 +32,14 @@ type FieldElem struct {
 }
 
 type ModelElem struct {
-	CallFunc  func() (interface{})
-	TabelName string
-	ModelName string
-	ToMongo   bool
-	PkOffset  uintptr
-	PkName    string
-	FieldElem []*FieldElem
+	CallFunc   func() (interface{})
+	TabelName  string
+	ModelName  string
+	ToMongo    bool
+	PkOffset   uintptr
+	PkName     string
+	PkBsonName string
+	FieldElem  []*FieldElem
 }
 
 func Model(v interface{}) func() interface{} {
@@ -80,6 +81,7 @@ func RegModel(call ...func() interface{}) {
 				v.TabelName = field.Tag.Get(sqlc.Table)
 				v.PkOffset = field.Offset
 				v.PkName = field.Tag.Get(sqlc.Json)
+				v.PkBsonName = field.Tag.Get(sqlc.Bson)
 				tomg := field.Tag.Get(sqlc.Mg)
 				if len(tomg) > 0 && tomg == sqlc.True {
 					v.ToMongo = true

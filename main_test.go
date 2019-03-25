@@ -27,7 +27,7 @@ type User struct {
 }
 
 type OwWallet struct {
-	Id           int64                  `json:"id" bson:"_id" tb:"ow_wallet" mg:"true"`
+	Id           int64                  `json:"id" bson:"_id" tb:"ow_wallet_2" mg:"true"`
 	AppID        map[string]interface{} `json:"appID" bson:"appID"`
 	WalletID     string                 `json:"walletID" bson:"walletID"`
 	Alias        string                 `json:"alias" bson:"alias"`
@@ -44,7 +44,6 @@ type OwWallet struct {
 	Ctime        int64                  `json:"ctime" bson:"ctime"`
 	Utime        int64                  `json:"utime" bson:"utime"`
 	State        int64                  `json:"state" bson:"state"`
-	MyDate       int64                  `json:"mydate" bson:"mydate" date:"true"`
 }
 
 func init() {
@@ -70,11 +69,11 @@ func init() {
 		panic(util.AddStr("读取mysql配置失败: ", err.Error()))
 	}
 	new(sqld.MysqlManager).InitConfigAndCache(nil, mysql)
-	//mongo := sqld.MGOConfig{}
-	//if err := util.ReadLocalJsonConfig("resource/mongo.json", &mongo); err != nil {
-	//	panic(util.AddStr("读取mongo配置失败: ", err.Error()))
-	//}
-	//new(sqld.MGOManager).InitConfigAndCache(manager, mongo)
+	mongo := sqld.MGOConfig{}
+	if err := util.ReadLocalJsonConfig("resource/mongo.json", &mongo); err != nil {
+		panic(util.AddStr("读取mongo配置失败: ", err.Error()))
+	}
+	new(sqld.MGOManager).InitConfigAndCache(nil, mongo)
 }
 
 func TestMysqlSave(t *testing.T) {
@@ -94,7 +93,6 @@ func TestMysqlSave(t *testing.T) {
 			Alias:        "hello_qtum",
 			IsTrust:      0,
 			AuthKey:      "",
-			MyDate:       util.Time(),
 		}
 		vs = append(vs, &wallet)
 	}
@@ -142,7 +140,7 @@ func TestMysqlDetele(t *testing.T) {
 	vs := []interface{}{}
 	for i := 0; i < 2000; i++ {
 		wallet := OwWallet{
-			Id:           util.GetSnowFlakeID(),
+			Id: util.GetSnowFlakeID(),
 			//AppID:        map[string]interface{}{"test": 1},
 			WalletID:     util.GetUUID(),
 			PasswordType: 1,
@@ -151,7 +149,6 @@ func TestMysqlDetele(t *testing.T) {
 			Alias:        "hello_qtum111333",
 			IsTrust:      0,
 			AuthKey:      "",
-			MyDate:       util.Time(),
 		}
 		vs = append(vs, &wallet)
 	}
@@ -170,7 +167,7 @@ func TestMysqlFindById(t *testing.T) {
 	defer db.Close()
 	l := util.Time()
 	wallet := OwWallet{
-		Id: 1109819821333151745,
+		Id: 1109996130134917121,
 	}
 	if err := db.FindById(&wallet); err != nil {
 		fmt.Println(err)
@@ -226,19 +223,131 @@ func TestMysqlCount(t *testing.T) {
 	fmt.Println("cost: ", util.Time()-l)
 }
 
-func TestMongo(t *testing.T) {
-	db, err := new(sqld.MGOManager).Get()
+func TestMongoSave(t *testing.T) {
+	db, err := new(sqld.MGOManager).Get(sqld.Option{AutoTx: &sqld.TRUE})
 	if err != nil {
-		fmt.Println(err.Error())
-	} else {
-		for i := 0; i < 5000; i++ {
-			find := []*OwWallet{}
-			if err := db.FindList(sqlc.M(OwWallet{}).Eq("walletID", "test").Limit(1, 10), &find); err != nil {
-				panic(err)
-			}
-			fmt.Println(len(find))
-		}
+		panic(err)
 	}
+	defer db.Close()
+	vs := []interface{}{}
+	for i := 0; i < 2000; i++ {
+		wallet := OwWallet{
+			Id: util.GetSnowFlakeID(),
+			// AppID:        map[string]interface{}{"test": 1},
+			WalletID:     util.GetUUID(),
+			PasswordType: 1,
+			Password:     "123456",
+			RootPath:     "m/44'/88'/0'",
+			Alias:        "hello_qtum",
+			IsTrust:      0,
+			AuthKey:      "",
+		}
+		vs = append(vs, &wallet)
+	}
+	l := util.Time()
+	if err := db.Save(vs...); err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println("cost: ", util.Time()-l)
+}
+
+func TestMongoUpdate(t *testing.T) {
+	db, err := new(sqld.MGOManager).Get(sqld.Option{AutoTx: &sqld.TRUE})
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+	vs := []interface{}{}
+	for i := 0; i < 1; i++ {
+		wallet := OwWallet{
+			Id: 1110012978914131969,
+			// AppID:        map[string]interface{}{"test": 1},
+			WalletID:     util.GetUUID(),
+			PasswordType: 1,
+			Password:     "123456",
+			RootPath:     "m/44'/88'/01'",
+			Alias:        "hello_qtum",
+			IsTrust:      0,
+			AuthKey:      "",
+		}
+		vs = append(vs, &wallet)
+	}
+	l := util.Time()
+	if err := db.Update(vs...); err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println("cost: ", util.Time()-l)
+}
+
+func TestMongoDelete(t *testing.T) {
+	db, err := new(sqld.MGOManager).Get(sqld.Option{AutoTx: &sqld.TRUE})
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+	vs := []interface{}{}
+	for i := 0; i < 1; i++ {
+		wallet := OwWallet{
+			Id: 1110013123152052225,
+			// AppID:        map[string]interface{}{"test": 1},
+			WalletID:     util.GetUUID(),
+			PasswordType: 1,
+			Password:     "123456",
+			RootPath:     "m/44'/88'/0'",
+			Alias:        "hello_qtum",
+			IsTrust:      0,
+			AuthKey:      "",
+		}
+		vs = append(vs, &wallet)
+	}
+	l := util.Time()
+	if err := db.Delete(vs...); err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println("cost: ", util.Time()-l)
+}
+
+func TestMongoCount(t *testing.T) {
+	db, err := new(sqld.MGOManager).Get(sqld.Option{AutoTx: &sqld.FALSE})
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+	l := util.Time()
+	if c, err := db.Count(sqlc.M(&OwWallet{}).Eq("_id", 1110013195356995886).Orderby("_id", sqlc.DESC_).Limit(1, 30)); err != nil {
+		fmt.Println(err)
+	} else {
+		fmt.Println(c)
+	}
+	fmt.Println("cost: ", util.Time()-l)
+}
+
+func TestMongoFindOne(t *testing.T) {
+	db, err := new(sqld.MGOManager).Get(sqld.Option{AutoTx: &sqld.TRUE})
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+	l := util.Time()
+	o := &OwWallet{}
+	if err := db.FindOne(sqlc.M(o).Eq("_id", 1110012978914131969), o); err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println("cost: ", util.Time()-l)
+}
+
+func TestMongoFindList(t *testing.T) {
+	db, err := new(sqld.MGOManager).Get(sqld.Option{AutoTx: &sqld.TRUE})
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+	l := util.Time()
+	o := &[]*OwWallet{}
+	if err := db.FindList(sqlc.M(&OwWallet{}).Eq("_id", 1110012978914131969).Limit(1,10), o); err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println("cost: ", util.Time()-l)
 }
 
 func TestRedis(t *testing.T) {
