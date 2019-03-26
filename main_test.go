@@ -27,23 +27,23 @@ type User struct {
 }
 
 type OwWallet struct {
-	Id           int64                  `json:"id" bson:"_id" tb:"ow_wallet" mg:"false"`
-	AppID        map[string]interface{} `json:"appID" bson:"appID"`
-	WalletID     string                 `json:"walletID" bson:"walletID"`
-	Alias        string                 `json:"alias" bson:"alias"`
-	IsTrust      int64                  `json:"isTrust" bson:"isTrust"`
-	PasswordType int64                  `json:"passwordType" bson:"passwordType"`
-	Password     string                 `json:"password" bson:"password"`
-	AuthKey      string                 `json:"authKey" bson:"authKey"`
-	RootPath     string                 `json:"rootPath" bson:"rootPath"`
-	AccountIndex int64                  `json:"accountIndex" bson:"accountIndex"`
-	Keystore     string                 `json:"keystore" bson:"keystore"`
-	Applytime    int64                  `json:"applytime" bson:"applytime"`
-	Succtime     int64                  `json:"succtime" bson:"succtime"`
-	Dealstate    int64                  `json:"dealstate" bson:"dealstate"`
-	Ctime        int64                  `json:"ctime" bson:"ctime"`
-	Utime        int64                  `json:"utime" bson:"utime"`
-	State        int64                  `json:"state" bson:"state"`
+	Id           int64  `json:"id" bson:"_id" tb:"ow_wallet" mg:"true"`
+	AppID        string `json:"appID" bson:"appID"`
+	WalletID     string `json:"walletID" bson:"walletID"`
+	Alias        string `json:"alias" bson:"alias"`
+	IsTrust      int64  `json:"isTrust" bson:"isTrust"`
+	PasswordType int64  `json:"passwordType" bson:"passwordType"`
+	Password     string `json:"password" bson:"password"`
+	AuthKey      string `json:"authKey" bson:"authKey"`
+	RootPath     string `json:"rootPath" bson:"rootPath"`
+	AccountIndex int64  `json:"accountIndex" bson:"accountIndex"`
+	Keystore     string `json:"keystore" bson:"keystore"`
+	Applytime    int64  `json:"applytime" bson:"applytime"`
+	Succtime     int64  `json:"succtime" bson:"succtime"`
+	Dealstate    int64  `json:"dealstate" bson:"dealstate"`
+	Ctime        int64  `json:"ctime" bson:"ctime"`
+	Utime        int64  `json:"utime" bson:"utime"`
+	State        int64  `json:"state" bson:"state"`
 }
 
 func init() {
@@ -69,11 +69,11 @@ func init() {
 		panic(util.AddStr("读取mysql配置失败: ", err.Error()))
 	}
 	new(sqld.MysqlManager).InitConfigAndCache(nil, mysql)
-	//mongo := sqld.MGOConfig{}
-	//if err := util.ReadLocalJsonConfig("resource/mongo.json", &mongo); err != nil {
-	//	panic(util.AddStr("读取mongo配置失败: ", err.Error()))
-	//}
-	//new(sqld.MGOManager).InitConfigAndCache(nil, mongo)
+	mongo := sqld.MGOConfig{}
+	if err := util.ReadLocalJsonConfig("resource/mongo.json", &mongo); err != nil {
+		panic(util.AddStr("读取mongo配置失败: ", err.Error()))
+	}
+	new(sqld.MGOManager).InitConfigAndCache(nil, mongo)
 }
 
 func TestMysqlSave(t *testing.T) {
@@ -83,7 +83,7 @@ func TestMysqlSave(t *testing.T) {
 	}
 	defer db.Close()
 	vs := []interface{}{}
-	for i := 0; i < 2; i++ {
+	for i := 0; i < 3; i++ {
 		wallet := OwWallet{
 			// AppID:        map[string]interface{}{"test": 1},
 			WalletID:     util.GetUUID(),
@@ -230,7 +230,7 @@ func TestMongoSave(t *testing.T) {
 	}
 	defer db.Close()
 	vs := []interface{}{}
-	for i := 0; i < 2000; i++ {
+	for i := 0; i < 3; i++ {
 		wallet := OwWallet{
 			Id: util.GetSnowFlakeID(),
 			// AppID:        map[string]interface{}{"test": 1},
@@ -344,7 +344,7 @@ func TestMongoFindList(t *testing.T) {
 	defer db.Close()
 	l := util.Time()
 	o := &[]*OwWallet{}
-	if err := db.FindList(sqlc.M(&OwWallet{}).Eq("_id", 1110012978914131969).Limit(1,10), o); err != nil {
+	if err := db.FindList(sqlc.M(&OwWallet{}).Eq("_id", 1110012978914131969).Limit(1, 10), o); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println("cost: ", util.Time()-l)

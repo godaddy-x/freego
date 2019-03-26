@@ -49,17 +49,17 @@ type Option struct {
 }
 
 type MGOSyncData struct {
-	CacheOption  int           // 1.save 2.update 3.delete
-	MgoTableName string        // mongo表名称
-	CacheObject  []interface{} // 需要缓存的数据 CacheSync为true时有效
+	CacheOption int           // 1.save 2.update 3.delete
+	CacheModel  interface{}   // 对象模型
+	CacheObject []interface{} // 需要缓存的数据 CacheSync为true时有效
 }
 
 // 数据库管理器
 type DBManager struct {
 	Option
-	CacheManager cache.ICache // 缓存管理器
-	MGOSyncData  *MGOSyncData // 同步数据对象
-	Errors       []error      // 错误异常记录
+	CacheManager cache.ICache   // 缓存管理器
+	MGOSyncData  []*MGOSyncData // 同步数据对象
+	Errors       []error        // 错误异常记录
 }
 
 /********************************** 数据库ORM实现 **********************************/
@@ -214,6 +214,7 @@ func (self *RDBManager) GetDB(option ...Option) error {
 	self.DsName = rdb.DsName
 	self.AutoTx = rdb.AutoTx
 	self.MongoSync = rdb.MongoSync
+	self.MGOSyncData = make([]*MGOSyncData, 0)
 	if ops != nil {
 		if ops.Node != nil {
 			self.Node = ops.Node
@@ -324,7 +325,8 @@ func (self *RDBManager) Save(data ...interface{}) error {
 		return self.Error(util.Error("保存操作受影响行数 -> ", rowsAffected))
 	}
 	if *self.MongoSync && obv.ToMongo {
-		self.MGOSyncData = &MGOSyncData{SAVE, obv.TabelName, data}
+		sdata := &MGOSyncData{SAVE, obv.CallFunc(), data}
+		self.MGOSyncData = append(self.MGOSyncData, sdata)
 	}
 	return nil
 }
@@ -407,7 +409,8 @@ func (self *RDBManager) Update(data ...interface{}) error {
 		return self.Error(util.Error("更新数据失败: ", err.Error()))
 	}
 	if *self.MongoSync && obv.ToMongo {
-		self.MGOSyncData = &MGOSyncData{SAVE, obv.TabelName, data}
+		sdata := &MGOSyncData{UPDATE, obv.CallFunc(), data}
+		self.MGOSyncData = append(self.MGOSyncData, sdata)
 	}
 	return nil
 }
@@ -475,7 +478,8 @@ func (self *RDBManager) Delete(data ...interface{}) error {
 		return self.Error(util.Error("删除数据失败: ", err.Error()))
 	}
 	if *self.MongoSync && obv.ToMongo {
-		self.MGOSyncData = &MGOSyncData{SAVE, obv.TabelName, data}
+		sdata := &MGOSyncData{DELETE, obv.CallFunc(), data}
+		self.MGOSyncData = append(self.MGOSyncData, sdata)
 	}
 	return nil
 }
@@ -996,23 +1000,28 @@ func (self *RDBManager) Close() error {
 			}
 		}
 	}
-	if *self.MongoSync {
-		syncData := self.MGOSyncData
-		if syncData.CacheObject == nil || len(syncData.CacheObject) == 0 {
-			return nil
+	if *self.MongoSync && len(self.MGOSyncData) > 0 {
+		for _, v := range self.MGOSyncData {
+			if len(v.CacheObject) > 0 {
+				if err := self.mongoSyncData(v.CacheOption, v.CacheModel, v.CacheObject...); err != nil {
+					log.Error("mysql数据同步mongo失败", log.Any("data", v), log.AddError(err))
+				}
+			}
 		}
-		return self.mongoSyncData(syncData.CacheOption, syncData.CacheObject)
 	}
 	return nil
 }
 
 // mongo同步数据
-func (self *RDBManager) mongoSyncData(option int, data ...interface{}) error {
+func (self *RDBManager) mongoSyncData(option int, model interface{}, data ...interface{}) error {
 	mongo, err := new(MGOManager).Get(self.Option);
 	if err != nil {
 		return util.Error("获取mongo连接失败: ", err.Error())
 	}
 	defer mongo.Close()
+	mongo.MGOSyncData = []*MGOSyncData{
+		&MGOSyncData{option, model, nil},
+	}
 	switch option {
 	case SAVE:
 		return mongo.Save(data...)

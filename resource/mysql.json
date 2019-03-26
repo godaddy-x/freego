@@ -5,5 +5,5 @@
   "Database": "openwallet",
   "Username": "root",
   "Password": "123456",
-  "CacheSync": true
+  "MongoSync": true
 }

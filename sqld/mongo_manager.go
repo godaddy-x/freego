@@ -171,7 +171,11 @@ func (self *MGOManager) Save(data ...interface{}) error {
 	if len(data) > 2000 {
 		return self.Error("参数对象数量不能超过2000")
 	}
-	obkey := reflect.TypeOf(data[0]).String()
+	d := data[0]
+	if self.MGOSyncData != nil && len(self.MGOSyncData) > 0 {
+		d = self.MGOSyncData[0].CacheModel
+	}
+	obkey := reflect.TypeOf(d).String()
 	obv, ok := reg_models[obkey];
 	if !ok {
 		return self.Error(util.AddStr("没有找到注册对象类型[", obkey, "]"))
@@ -207,7 +211,11 @@ func (self *MGOManager) Update(data ...interface{}) error {
 	if len(data) > 2000 {
 		return self.Error("参数对象数量不能超过2000")
 	}
-	obkey := reflect.TypeOf(data[0]).String()
+	d := data[0]
+	if self.MGOSyncData != nil && len(self.MGOSyncData) > 0 {
+		d = self.MGOSyncData[0].CacheModel
+	}
+	obkey := reflect.TypeOf(d).String()
 	obv, ok := reg_models[obkey];
 	if !ok {
 		return self.Error(util.AddStr("没有找到注册对象类型[", obkey, "]"))
@@ -244,7 +252,11 @@ func (self *MGOManager) Delete(data ...interface{}) error {
 	if len(data) > 2000 {
 		return self.Error("参数对象数量不能超过2000")
 	}
-	obkey := reflect.TypeOf(data[0]).String()
+	d := data[0]
+	if self.MGOSyncData != nil && len(self.MGOSyncData) > 0 {
+		d = self.MGOSyncData[0].CacheModel
+	}
+	obkey := reflect.TypeOf(d).String()
 	obv, ok := reg_models[obkey];
 	if !ok {
 		return self.Error(util.AddStr("没有找到注册对象类型[", obkey, "]"))
