@@ -131,6 +131,20 @@ func TestMysqlUpdate(t *testing.T) {
 	fmt.Println("cost: ", util.Time()-l)
 }
 
+
+func TestMysqlUpdateByCnd(t *testing.T) {
+	db, err := new(sqld.MysqlManager).Get(sqld.Option{AutoTx: &sqld.TRUE})
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+	l := util.Time()
+	if err := db.UpdateByCnd(sqlc.M(&OwWallet{}).UpdateKeyValue([]string{"password"}, "1111").Eq("id", 1110371778615574533).Eq("state", 1)); err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println("cost: ", util.Time()-l)
+}
+
 func TestMysqlDetele(t *testing.T) {
 	db, err := new(sqld.MysqlManager).Get(sqld.Option{AutoTx: &sqld.TRUE})
 	if err != nil {

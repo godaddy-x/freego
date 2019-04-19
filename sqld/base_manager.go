@@ -74,6 +74,8 @@ type IDBase interface {
 	Save(datas ...interface{}) error
 	// 更新数据
 	Update(datas ...interface{}) error
+	// 按条件更新数据
+	UpdateByCnd(cnd *sqlc.Cnd) error
 	// 删除数据
 	Delete(datas ...interface{}) error
 	// 统计数据
@@ -114,6 +116,10 @@ func (self *DBManager) Save(datas ...interface{}) error {
 
 func (self *DBManager) Update(datas ...interface{}) error {
 	return util.Error("No implementation method [Update] was found")
+}
+
+func (self *DBManager) UpdateByCnd(cnd *sqlc.Cnd) error {
+	return util.Error("No implementation method [UpdateByCnd] was found")
 }
 
 func (self *DBManager) Delete(datas ...interface{}) error {
@@ -411,6 +417,72 @@ func (self *RDBManager) Update(data ...interface{}) error {
 	if *self.MongoSync && obv.ToMongo {
 		sdata := &MGOSyncData{UPDATE, obv.CallFunc(), data}
 		self.MGOSyncData = append(self.MGOSyncData, sdata)
+	}
+	return nil
+}
+
+func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) error {
+	if cnd.Model == nil {
+		return self.Error("参数对象为空")
+	}
+	if cnd.UpdateKV == nil || len(cnd.UpdateKV) == 0 {
+		return self.Error("更新字段不能为空")
+	}
+	start := util.Time()
+	obkey := reflect.TypeOf(cnd.Model).String()
+	obv, ok := reg_models[obkey];
+	if !ok {
+		return self.Error(util.AddStr("没有找到注册对象类型[", obkey, "]"))
+	}
+	var prepare string
+	var fpart, vpart bytes.Buffer
+	case_part, case_arg := self.BuildWhereCase(cnd)
+	if case_part.Len() == 0 || len(case_arg) == 0 {
+		return self.Error("更新条件不能为空")
+	}
+	parameter := make([]interface{}, 0, len(cnd.UpdateKV)+len(case_arg))
+	for k, v := range cnd.UpdateKV { // 遍历对象字段
+		fpart.WriteString(" ")
+		fpart.WriteString(k)
+		fpart.WriteString(" = ?,")
+		parameter = append(parameter, v)
+	}
+	for _, v := range case_arg {
+		parameter = append(parameter, v)
+	}
+	vpart.Grow(case_part.Len() + 16)
+	vpart.WriteString("where")
+	str := case_part.String()
+	vpart.WriteString(util.Substr(str, 0, len(str)-3))
+	str1 := util.Bytes2Str(fpart.Bytes())
+	str2 := util.Bytes2Str(vpart.Bytes())
+	var stmt *sql.Stmt
+	var sqlbuf bytes.Buffer
+	sqlbuf.Grow(len(str1) + len(str2) + 64)
+	sqlbuf.WriteString("update ")
+	sqlbuf.WriteString(obv.TabelName)
+	sqlbuf.WriteString(" set ")
+	sqlbuf.WriteString(util.Substr(str1, 0, len(str1)-1))
+	sqlbuf.WriteString(" ")
+	sqlbuf.WriteString(util.Substr(str2, 0, len(str2)-1))
+	if len(prepare) == 0 {
+		prepare = util.Bytes2Str(sqlbuf.Bytes())
+		if log.IsDebug() {
+			defer log.Debug("mysql数据UpdateByCnd操作日志", log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
+		}
+		var err error
+		if *self.AutoTx {
+			stmt, err = self.Tx.Prepare(prepare)
+		} else {
+			stmt, err = self.Db.Prepare(prepare)
+		}
+		if err != nil {
+			return self.Error(util.AddStr("预编译sql[", prepare, "]失败: ", err.Error()))
+		}
+		defer stmt.Close()
+	}
+	if _, err := stmt.Exec(parameter...); err != nil {
+		return self.Error(util.Error("更新数据失败: ", err.Error()))
 	}
 	return nil
 }
