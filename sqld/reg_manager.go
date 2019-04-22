@@ -31,18 +31,23 @@ type FieldElem struct {
 }
 
 type ModelElem struct {
-	CallFunc   func() (interface{})
-	TabelName  string
-	ModelName  string
-	ToMongo    bool
-	PkOffset   uintptr
-	PkName     string
-	PkBsonName string
-	FieldElem  []*FieldElem
+	NewObjFunc    func() (interface{})
+	NewObjArrFunc func(i int) (interface{})
+	TabelName     string
+	ModelName     string
+	ToMongo       bool
+	PkOffset      uintptr
+	PkName        string
+	PkBsonName    string
+	FieldElem     []*FieldElem
 }
 
 func Model(v interface{}) func() interface{} {
 	return func() interface{} { return v }
+}
+
+func ModelArray(v1, v2 interface{}) func() (interface{}, interface{}) {
+	return func() (interface{}, interface{}) { return func() interface{} { return v1 }, v2 }
 }
 
 func RegModel(call ...func() interface{}) {
@@ -58,9 +63,9 @@ func RegModel(call ...func() interface{}) {
 			panic("注册对象必须为指针类型")
 		}
 		v := &ModelElem{
-			CallFunc:  v,
-			ModelName: reflect.TypeOf(model).String(),
-			FieldElem: []*FieldElem{},
+			NewObjFunc: v,
+			ModelName:  reflect.TypeOf(model).String(),
+			FieldElem:  []*FieldElem{},
 		}
 		tof := reflect.TypeOf(model).Elem()
 		vof := reflect.ValueOf(model).Elem()

@@ -321,17 +321,15 @@ func (self *RDBManager) Save(data ...interface{}) error {
 		}
 		defer stmt.Close()
 	}
-	ret, err := stmt.Exec(parameter...)
-	if err != nil {
+	if ret, err := stmt.Exec(parameter...); err != nil {
 		return self.Error(util.Error("保存数据失败: ", err.Error()))
-	}
-	if rowsAffected, err := ret.RowsAffected(); err != nil {
-		return self.Error(util.Error("保存数据失败: ", err.Error()))
+	} else if rowsAffected, err := ret.RowsAffected(); err != nil {
+		return self.Error(util.Error("获取受影响行数失败: ", err.Error()))
 	} else if rowsAffected <= 0 {
 		return self.Error(util.Error("保存操作受影响行数 -> ", rowsAffected))
 	}
 	if *self.MongoSync && obv.ToMongo {
-		sdata := &MGOSyncData{SAVE, obv.CallFunc(), data}
+		sdata := &MGOSyncData{SAVE, obv.NewObjFunc(), data}
 		self.MGOSyncData = append(self.MGOSyncData, sdata)
 	}
 	return nil
@@ -411,11 +409,15 @@ func (self *RDBManager) Update(data ...interface{}) error {
 		}
 		defer stmt.Close()
 	}
-	if _, err := stmt.Exec(parameter...); err != nil {
+	if ret, err := stmt.Exec(parameter...); err != nil {
 		return self.Error(util.Error("更新数据失败: ", err.Error()))
+	} else if rowsAffected, err := ret.RowsAffected(); err != nil {
+		return self.Error(util.Error("获取受影响行数失败: ", err.Error()))
+	} else if rowsAffected <= 0 {
+		return self.Error(util.Error("更新操作受影响行数 -> ", rowsAffected))
 	}
 	if *self.MongoSync && obv.ToMongo {
-		sdata := &MGOSyncData{UPDATE, obv.CallFunc(), data}
+		sdata := &MGOSyncData{UPDATE, obv.NewObjFunc(), data}
 		self.MGOSyncData = append(self.MGOSyncData, sdata)
 	}
 	return nil
@@ -481,8 +483,20 @@ func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) error {
 		}
 		defer stmt.Close()
 	}
-	if _, err := stmt.Exec(parameter...); err != nil {
+	if ret, err := stmt.Exec(parameter...); err != nil {
 		return self.Error(util.Error("更新数据失败: ", err.Error()))
+	} else if rowsAffected, err := ret.RowsAffected(); err != nil {
+		return self.Error(util.Error("获取受影响行数失败: ", err.Error()))
+	} else if rowsAffected <= 0 {
+		return self.Error(util.Error("更新操作受影响行数 -> ", rowsAffected))
+	}
+	if *self.MongoSync && obv.ToMongo {
+
+		if err := self.FindList(cnd, nil); err != nil {
+			return self.Error(util.Error("获取更新数据集合失败:  ", err.Error()))
+		}
+		sdata := &MGOSyncData{UPDATE, obv.NewObjFunc(), nil}
+		self.MGOSyncData = append(self.MGOSyncData, sdata)
 	}
 	return nil
 }
@@ -546,11 +560,15 @@ func (self *RDBManager) Delete(data ...interface{}) error {
 		}
 		defer stmt.Close()
 	}
-	if _, err := stmt.Exec(parameter...); err != nil {
+	if ret, err := stmt.Exec(parameter...); err != nil {
 		return self.Error(util.Error("删除数据失败: ", err.Error()))
+	} else if rowsAffected, err := ret.RowsAffected(); err != nil {
+		return self.Error(util.Error("获取受影响行数失败: ", err.Error()))
+	} else if rowsAffected <= 0 {
+		return self.Error(util.Error("删除操作受影响行数 -> ", rowsAffected))
 	}
 	if *self.MongoSync && obv.ToMongo {
-		sdata := &MGOSyncData{DELETE, obv.CallFunc(), data}
+		sdata := &MGOSyncData{DELETE, obv.NewObjFunc(), data}
 		self.MGOSyncData = append(self.MGOSyncData, sdata)
 	}
 	return nil
@@ -807,7 +825,7 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	slicev := resultv.Elem()
 	slicev = slicev.Slice(0, slicev.Cap())
 	for _, v := range out {
-		model := obv.CallFunc()
+		model := obv.NewObjFunc()
 		for i := 0; i < len(obv.FieldElem); i++ {
 			vv := obv.FieldElem[i]
 			if err := SetValue(model, vv, v[i]); err != nil {

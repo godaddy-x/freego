@@ -51,6 +51,9 @@ func init() {
 	sqld.RegModel(
 		sqld.Model(&OwWallet{}),
 	)
+	sqld.ModelArray(&OwWallet{}, func(i int) interface{} {
+		return make([]*OwWallet, 0, i)
+	})
 
 	//redis := cache.RedisConfig{}
 	//if err := util.ReadLocalJsonConfig("resource/redis.json", &redis); err != nil {
@@ -130,7 +133,6 @@ func TestMysqlUpdate(t *testing.T) {
 	}
 	fmt.Println("cost: ", util.Time()-l)
 }
-
 
 func TestMysqlUpdateByCnd(t *testing.T) {
 	db, err := new(sqld.MysqlManager).Get(sqld.Option{AutoTx: &sqld.TRUE})
