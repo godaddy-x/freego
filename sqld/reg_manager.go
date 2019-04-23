@@ -30,32 +30,32 @@ type FieldElem struct {
 	FieldOffset   uintptr
 }
 
+type Hook struct {
+	NewObj    func() (interface{})
+	NewObjArr func() (interface{})
+}
+
 type ModelElem struct {
-	NewObjFunc    func() (interface{})
-	NewObjArrFunc func(i int) (interface{})
-	TabelName     string
-	ModelName     string
-	ToMongo       bool
-	PkOffset      uintptr
-	PkName        string
-	PkBsonName    string
-	FieldElem     []*FieldElem
+	Hook       Hook
+	TabelName  string
+	ModelName  string
+	ToMongo    bool
+	PkOffset   uintptr
+	PkName     string
+	PkBsonName string
+	FieldElem  []*FieldElem
 }
 
 func Model(v interface{}) func() interface{} {
 	return func() interface{} { return v }
 }
 
-func ModelArray(v1, v2 interface{}) func() (interface{}, interface{}) {
-	return func() (interface{}, interface{}) { return func() interface{} { return v1 }, v2 }
-}
-
-func RegModel(call ...func() interface{}) {
-	if call == nil || len(call) == 0 {
+func RegModel(hook ...Hook) {
+	if hook == nil || len(hook) == 0 {
 		panic("注册对象函数不能为空")
 	}
-	for _, v := range call {
-		model := v()
+	for _, v := range hook {
+		model := v.NewObj()
 		if model == nil {
 			panic("注册对象不能为空")
 		}
@@ -63,9 +63,9 @@ func RegModel(call ...func() interface{}) {
 			panic("注册对象必须为指针类型")
 		}
 		v := &ModelElem{
-			NewObjFunc: v,
-			ModelName:  reflect.TypeOf(model).String(),
-			FieldElem:  []*FieldElem{},
+			Hook:      v,
+			ModelName: reflect.TypeOf(model).String(),
+			FieldElem: []*FieldElem{},
 		}
 		tof := reflect.TypeOf(model).Elem()
 		vof := reflect.ValueOf(model).Elem()

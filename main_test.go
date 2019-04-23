@@ -49,12 +49,11 @@ type OwWallet struct {
 func init() {
 	// 注册对象
 	sqld.RegModel(
-		sqld.Model(&OwWallet{}),
+		sqld.Hook{
+			func() interface{} { return &OwWallet{} },
+			func() interface{} { return &[]*OwWallet{} },
+		},
 	)
-	sqld.ModelArray(&OwWallet{}, func(i int) interface{} {
-		return make([]*OwWallet, 0, i)
-	})
-
 	//redis := cache.RedisConfig{}
 	//if err := util.ReadLocalJsonConfig("resource/redis.json", &redis); err != nil {
 	//	panic(util.AddStr("读取redis配置失败: ", err.Error()))
@@ -141,7 +140,7 @@ func TestMysqlUpdateByCnd(t *testing.T) {
 	}
 	defer db.Close()
 	l := util.Time()
-	if err := db.UpdateByCnd(sqlc.M(&OwWallet{}).UpdateKeyValue([]string{"password"}, "1111").Eq("id", 1110371778615574533).Eq("state", 1)); err != nil {
+	if err := db.UpdateByCnd(sqlc.M(&OwWallet{}).UpdateKeyValue([]string{"password"}, "1111").Eq("id", 1110371778615574533)); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println("cost: ", util.Time()-l)
@@ -218,7 +217,7 @@ func TestMysqlFindList(t *testing.T) {
 	defer db.Close()
 	l := util.Time()
 	result := []*OwWallet{}
-	if err := db.FindList(sqlc.M(&OwWallet{}).Orderby("id", sqlc.DESC_).Limit(1, 30), &result); err != nil {
+	if err := db.FindList(sqlc.M(&OwWallet{}).Orderby("id", sqlc.DESC_).Limit(1, 5), &result); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println("cost: ", util.Time()-l)

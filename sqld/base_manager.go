@@ -118,7 +118,7 @@ func (self *DBManager) Update(datas ...interface{}) error {
 	return util.Error("No implementation method [Update] was found")
 }
 
-func (self *DBManager) UpdateByCnd(cnd *sqlc.Cnd) error {
+func (self *DBManager) UpdateByCnd(cnd *sqlc.Cnd, data ...interface{}) error {
 	return util.Error("No implementation method [UpdateByCnd] was found")
 }
 
@@ -329,7 +329,7 @@ func (self *RDBManager) Save(data ...interface{}) error {
 		return self.Error(util.Error("保存操作受影响行数 -> ", rowsAffected))
 	}
 	if *self.MongoSync && obv.ToMongo {
-		sdata := &MGOSyncData{SAVE, obv.NewObjFunc(), data}
+		sdata := &MGOSyncData{SAVE, obv.Hook.NewObj(), data}
 		self.MGOSyncData = append(self.MGOSyncData, sdata)
 	}
 	return nil
@@ -414,10 +414,11 @@ func (self *RDBManager) Update(data ...interface{}) error {
 	} else if rowsAffected, err := ret.RowsAffected(); err != nil {
 		return self.Error(util.Error("获取受影响行数失败: ", err.Error()))
 	} else if rowsAffected <= 0 {
-		return self.Error(util.Error("更新操作受影响行数 -> ", rowsAffected))
+		log.Warn(util.AddStr("Update -> 更新操作受影响行数 -> ", rowsAffected), log.String("sql", prepare))
+		return nil
 	}
 	if *self.MongoSync && obv.ToMongo {
-		sdata := &MGOSyncData{UPDATE, obv.NewObjFunc(), data}
+		sdata := &MGOSyncData{UPDATE, obv.Hook.NewObj(), data}
 		self.MGOSyncData = append(self.MGOSyncData, sdata)
 	}
 	return nil
@@ -488,14 +489,27 @@ func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) error {
 	} else if rowsAffected, err := ret.RowsAffected(); err != nil {
 		return self.Error(util.Error("获取受影响行数失败: ", err.Error()))
 	} else if rowsAffected <= 0 {
-		return self.Error(util.Error("更新操作受影响行数 -> ", rowsAffected))
+		log.Warn(util.AddStr("UpdateByCnd -> 更新操作受影响行数 -> ", rowsAffected), log.String("sql", prepare))
+		return nil
 	}
 	if *self.MongoSync && obv.ToMongo {
-
-		if err := self.FindList(cnd, nil); err != nil {
+		data := obv.Hook.NewObjArr()
+		if err := self.FindList(cnd, data); err != nil {
 			return self.Error(util.Error("获取更新数据集合失败:  ", err.Error()))
 		}
-		sdata := &MGOSyncData{UPDATE, obv.NewObjFunc(), nil}
+		result := make([]interface{}, 0)
+		if err := util.JsonToAny(data, &result); err != nil {
+			return self.Error(util.Error("数据转换map集合失败:  ", err.Error()))
+		}
+		cdata := make([]interface{}, 0, len(result))
+		for _, v := range result {
+			o := obv.Hook.NewObj()
+			if err := util.JsonToAny(v, o); err != nil {
+				return self.Error(util.Error("map数据转对象失败:  ", err.Error()))
+			}
+			cdata = append(cdata, o)
+		}
+		sdata := &MGOSyncData{UPDATE, obv.Hook.NewObj(), cdata}
 		self.MGOSyncData = append(self.MGOSyncData, sdata)
 	}
 	return nil
@@ -565,10 +579,11 @@ func (self *RDBManager) Delete(data ...interface{}) error {
 	} else if rowsAffected, err := ret.RowsAffected(); err != nil {
 		return self.Error(util.Error("获取受影响行数失败: ", err.Error()))
 	} else if rowsAffected <= 0 {
-		return self.Error(util.Error("删除操作受影响行数 -> ", rowsAffected))
+		log.Warn(util.AddStr("Delete -> 删除操作受影响行数 -> ", rowsAffected), log.String("sql", prepare))
+		return nil
 	}
 	if *self.MongoSync && obv.ToMongo {
-		sdata := &MGOSyncData{DELETE, obv.NewObjFunc(), data}
+		sdata := &MGOSyncData{DELETE, obv.Hook.NewObj(), data}
 		self.MGOSyncData = append(self.MGOSyncData, sdata)
 	}
 	return nil
@@ -825,7 +840,7 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	slicev := resultv.Elem()
 	slicev = slicev.Slice(0, slicev.Cap())
 	for _, v := range out {
-		model := obv.NewObjFunc()
+		model := obv.Hook.NewObj()
 		for i := 0; i < len(obv.FieldElem); i++ {
 			vv := obv.FieldElem[i]
 			if err := SetValue(model, vv, v[i]); err != nil {
@@ -1110,7 +1125,7 @@ func (self *RDBManager) mongoSyncData(option int, model interface{}, data ...int
 	}
 	defer mongo.Close()
 	mongo.MGOSyncData = []*MGOSyncData{
-		&MGOSyncData{option, model, nil},
+		{option, model, nil},
 	}
 	switch option {
 	case SAVE:
