@@ -171,6 +171,9 @@ func (self *WebsocketNode) ValidSession() error {
 		}
 	}
 	if len(accessToken) == 0 {
+		if !self.Context.Anonymous {
+			return ex.Try{Code: http.StatusUnauthorized, Msg: "授权令牌读取失败"}
+		}
 		return nil
 	}
 	var sessionId string
