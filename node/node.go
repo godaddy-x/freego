@@ -38,9 +38,18 @@ type GlobalConfig struct {
 	SessionSecret  string // 会话密钥
 }
 
+type NodePtr struct {
+	Node      interface{}
+	Output    interface{}
+	Input     interface{}
+	Pattern   string
+	Anonymous bool
+	Handle    func(ctx *Context) error
+}
+
 type ProtocolNode interface {
 	// 初始化上下文
-	InitContext(ob, output, input interface{}, pattern string) error
+	InitContext(ptr *NodePtr) error
 	// 初始化连接
 	Connect(ctx *Context, s Session) error
 	// 关闭连接
@@ -56,9 +65,9 @@ type ProtocolNode interface {
 	// 设置响应头格式
 	SetContentType(contentType string)
 	// 核心代理方法
-	Proxy(output, input interface{}, pattern string, handle func(ctx *Context) error)
-	// 核心绑定路由方法
-	Router(pattern string, handle func(ctx *Context) error)
+	Proxy(ptr *NodePtr)
+	// 核心绑定路由方法 默认Anonymous=true无需校验
+	Router(pattern string, handle func(ctx *Context) error, anonymous ...bool)
 	// html响应模式
 	Html(ctx *Context, view string, data interface{}) error
 	// json响应模式
@@ -84,14 +93,16 @@ type HookNode struct {
 }
 
 type Context struct {
-	Host     string
-	Style    string
-	Device   string
-	Method   string
-	Headers  map[string]string
-	Params   map[string]interface{}
-	Session  Session
-	Response *Response
+	Host      string
+	Style     string
+	Device    string
+	Method    string
+	Headers   map[string]string
+	Params    map[string]interface{}
+	Session   Session
+	Response  *Response
+	Version   string
+	Anonymous bool
 }
 
 type Response struct {

@@ -523,3 +523,13 @@ func Str2Bytes(s string) []byte {
 func Bytes2Str(b []byte) string {
 	return *(*string)(unsafe.Pointer(&b))
 }
+
+// 无限等待
+func ForeverWait(msg string) error {
+	c := make(chan bool)
+	go func() {
+		log.Println(msg)
+	}()
+	<-c
+	return nil
+}

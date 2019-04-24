@@ -99,10 +99,10 @@ func (self *HttpNode) GetParams(input interface{}) error {
 	return self.OverrideFunc.GetParamsFunc(input)
 }
 
-func (self *HttpNode) InitContext(ob, output, input interface{}, pattern string) error {
-	w := output.(http.ResponseWriter)
-	r := input.(*http.Request)
-	o := ob.(*HttpNode)
+func (self *HttpNode) InitContext(ptr *NodePtr) error {
+	w := ptr.Output.(http.ResponseWriter)
+	r := ptr.Input.(*http.Request)
+	o := ptr.Node.(*HttpNode)
 	if self.OverrideFunc == nil {
 		o.OverrideFunc = &OverrideFunc{}
 	} else {
@@ -119,9 +119,11 @@ func (self *HttpNode) InitContext(ob, output, input interface{}, pattern string)
 	o.Output = w
 	o.Input = r
 	o.Context = &Context{
-		Host:   util.GetClientIp(r),
-		Style:  HTTP,
-		Method: pattern,
+		Host:      util.GetClientIp(r),
+		Style:     HTTP,
+		Method:    ptr.Pattern,
+		Anonymous: ptr.Anonymous,
+		Version:   self.Context.Version,
 		Response: &Response{
 			ContentEncoding: UTF8,
 			ContentType:     APPLICATION_JSON,
@@ -169,6 +171,9 @@ func (self *HttpNode) ValidSession() error {
 		}
 	}
 	if len(accessToken) == 0 {
+		if !self.Context.Anonymous {
+			return ex.Try{Code: http.StatusUnauthorized, Msg: "授权令牌读取失败"}
+		}
 		return nil
 	}
 	var sessionId string
@@ -211,11 +216,12 @@ func (self *HttpNode) TouchSession() error {
 	return nil
 }
 
-func (self *HttpNode) Proxy(output, input interface{}, pattern string, handle func(ctx *Context) error) {
+func (self *HttpNode) Proxy(ptr *NodePtr) {
 	// 1.初始化请求上下文
 	ob := &HttpNode{}
 	err := func() error {
-		if err := self.InitContext(ob, output, input, pattern); err != nil {
+		ptr.Node = ob
+		if err := self.InitContext(ptr); err != nil {
 			return err
 		}
 		// 2.校验会话有效性
@@ -227,7 +233,7 @@ func (self *HttpNode) Proxy(output, input interface{}, pattern string, handle fu
 			return err
 		}
 		// 4.执行业务方法
-		r1 := handle(ob.Context) // r1异常格式,建议使用ex模式
+		r1 := ptr.Handle(ob.Context) // r1异常格式,建议使用ex模式
 		// 5.执行视图控制方法
 		r2 := ob.PostHandle(ob.OverrideFunc.PostHandleFunc, r1)
 		// 6.执行释放资源,记录日志方法
@@ -331,9 +337,24 @@ func (self *HttpNode) StartServer() {
 	}()
 }
 
-func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error) {
+func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, anonymous ...bool) {
+	if !strings.HasPrefix(pattern, "/") {
+		pattern = util.AddStr("/", pattern)
+	}
+	if len(self.Context.Version) > 0 {
+		pattern = util.AddStr("/", self.Context.Version, pattern)
+	}
 	http.DefaultServeMux.HandleFunc(pattern, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		self.Proxy(w, r, pattern, handle)
+		anon := true
+		if anonymous != nil && len(anonymous) > 0 {
+			anon = anonymous[0]
+		}
+		self.Proxy(
+			&NodePtr{
+				self,
+				w, r, pattern, anon, handle,
+			},
+		)
 	}))
 }
 

@@ -60,10 +60,10 @@ func (self *WebsocketNode) GetParams(input interface{}) error {
 	return self.OverrideFunc.GetParamsFunc(input)
 }
 
-func (self *WebsocketNode) InitContext(ob, output, input interface{}, pattern string) error {
-	w := output.(http.ResponseWriter)
-	r := input.(*http.Request)
-	o := ob.(*WebsocketNode)
+func (self *WebsocketNode) InitContext(ptr *NodePtr) error {
+	w := ptr.Output.(http.ResponseWriter)
+	r := ptr.Input.(*http.Request)
+	o := ptr.Node.(*WebsocketNode)
 	if self.OverrideFunc == nil {
 		o.OverrideFunc = &OverrideFunc{}
 	} else {
@@ -76,7 +76,7 @@ func (self *WebsocketNode) InitContext(ob, output, input interface{}, pattern st
 	o.Context = &Context{
 		Host:   util.GetClientIp(r),
 		Style:  WEBSOCKET,
-		Method: pattern,
+		Method: ptr.Pattern,
 		Response: &Response{
 			ContentEncoding: UTF8,
 			ContentType:     APPLICATION_JSON,
@@ -85,8 +85,8 @@ func (self *WebsocketNode) InitContext(ob, output, input interface{}, pattern st
 	return nil
 }
 
-func (self *WebsocketNode) InitWebsocket(handle func(ctx *Context) error) error {
-	if ws, err := self.newWSClient(self.Output, self.Input, util.GetUUID(), self.wsReadHandle, handle); err != nil {
+func (self *WebsocketNode) InitWebsocket(ptr *NodePtr) error {
+	if ws, err := self.newWSClient(self.Output, self.Input, util.GetUUID(), self.wsReadHandle, ptr.Handle); err != nil {
 		return ex.Try{Code: http.StatusInternalServerError, Msg: "建立websocket连接失败", Err: err}
 	} else {
 		self.WSClient = ws
@@ -214,12 +214,13 @@ func (self *WebsocketNode) TouchSession() error {
 	return nil
 }
 
-func (self *WebsocketNode) Proxy(output, input interface{}, pattern string, handle func(ctx *Context) error) {
+func (self *WebsocketNode) Proxy(ptr *NodePtr) {
 	ob := &WebsocketNode{}
-	if err := self.InitContext(ob, output, input, pattern); err != nil {
+	ptr.Node = ob
+	if err := self.InitContext(ptr); err != nil {
 		return
 	}
-	if err := ob.InitWebsocket(handle); err != nil {
+	if err := ob.InitWebsocket(ptr); err != nil {
 		return
 	}
 }
@@ -309,9 +310,24 @@ func (self *WebsocketNode) StartServer() {
 	}()
 }
 
-func (self *WebsocketNode) Router(pattern string, handle func(ctx *Context) error) {
+func (self *WebsocketNode) Router(pattern string, handle func(ctx *Context) error, anonymous ...bool) {
+	if !strings.HasPrefix(pattern, "/") {
+		pattern = util.AddStr("/", pattern)
+	}
+	if len(self.Context.Version) > 0 {
+		pattern = util.AddStr("/", self.Context.Version, pattern)
+	}
 	http.DefaultServeMux.HandleFunc(pattern, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		self.Proxy(w, r, pattern, handle)
+		anon := true
+		if anonymous != nil && len(anonymous) > 0 {
+			anon = anonymous[0]
+		}
+		self.Proxy(
+			&NodePtr{
+				self,
+				w, r, pattern, anon, handle,
+			},
+		)
 	}))
 }
 
