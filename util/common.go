@@ -433,8 +433,8 @@ func StrToFloat(str string) (float64, error) {
 
 // MD5加密
 func MD5(s string, salt ...string) string {
-	if len(salt) > 0 {
-		s = salt[0] + s
+	for _, v := range salt {
+		s = v + s
 	}
 	has := md5.Sum(Str2Bytes(s))
 	return fmt.Sprintf("%x", has) //将[]byte转成16进制
@@ -442,8 +442,8 @@ func MD5(s string, salt ...string) string {
 
 // SHA256加密
 func SHA256(s string, salt ...string) string {
-	if len(salt) > 0 {
-		s = salt[0] + s
+	for _, v := range salt {
+		s = v + s
 	}
 	h := sha256.New()
 	h.Write(Str2Bytes(s))
