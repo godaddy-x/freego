@@ -14,8 +14,6 @@ import (
 
 type HttpNode struct {
 	HookNode
-	Input    *http.Request
-	Output   http.ResponseWriter
 	TemplDir string
 }
 
@@ -100,13 +98,13 @@ func (self *HttpNode) GetParams(input interface{}) error {
 }
 
 func (self *HttpNode) InitContext(ptr *NodePtr) error {
-	w := ptr.Output.(http.ResponseWriter)
-	r := ptr.Input.(*http.Request)
-	o := ptr.Node.(*HttpNode)
+	output := ptr.Output
+	input := ptr.Input
+	node := ptr.Node.(*HttpNode)
 	if self.OverrideFunc == nil {
-		o.OverrideFunc = &OverrideFunc{}
+		node.OverrideFunc = &OverrideFunc{}
 	} else {
-		o.OverrideFunc = self.OverrideFunc
+		node.OverrideFunc = self.OverrideFunc
 	}
 	if len(self.TemplDir) == 0 {
 		if path, err := os.Getwd(); err != nil {
@@ -115,11 +113,9 @@ func (self *HttpNode) InitContext(ptr *NodePtr) error {
 			self.TemplDir = path
 		}
 	}
-	o.SessionAware = self.SessionAware
-	o.Output = w
-	o.Input = r
-	o.Context = &Context{
-		Host:      util.GetClientIp(r),
+	node.SessionAware = self.SessionAware
+	node.Context = &Context{
+		Host:      util.GetClientIp(input),
 		Style:     HTTP,
 		Method:    ptr.Pattern,
 		Anonymous: ptr.Anonymous,
@@ -129,14 +125,16 @@ func (self *HttpNode) InitContext(ptr *NodePtr) error {
 			ContentType:     APPLICATION_JSON,
 			TemplDir:        self.TemplDir,
 		},
+		Input:  input,
+		Output: output,
 	}
-	if err := o.GetHeader(r); err != nil {
+	if err := node.GetHeader(input); err != nil {
 		return err
 	}
-	if err := o.GetParams(r); err != nil {
+	if err := node.GetParams(input); err != nil {
 		return err
 	}
-	if err := o.PaddDevice(); err != nil {
+	if err := node.PaddDevice(); err != nil {
 		return err
 	}
 	return nil
@@ -296,12 +294,12 @@ func (self *HttpNode) RenderError(err error) error {
 			out = ex.Try{Code: out.Code, Msg: out.Msg}
 		}
 		if result, err := util.JsonMarshal(out); err != nil {
-			self.Output.WriteHeader(http.StatusInternalServerError)
-			self.Output.Write(util.Str2Bytes("系统发生未知错误"))
+			self.Context.Output.WriteHeader(http.StatusInternalServerError)
+			self.Context.Output.Write(util.Str2Bytes("系统发生未知错误"))
 			log.Error("系统发生未知错误", zap.String("error", err.Error()))
 		} else {
-			self.Output.WriteHeader(http_code)
-			self.Output.Write(result)
+			self.Context.Output.WriteHeader(http_code)
+			self.Context.Output.Write(result)
 		}
 		return nil
 	}
@@ -313,7 +311,7 @@ func (self *HttpNode) RenderTo() error {
 	case TEXT_HTML:
 		if templ, err := template.ParseFiles(self.Context.Response.TemplDir + self.Context.Response.RespView); err != nil {
 			return err
-		} else if err := templ.Execute(self.Output, self.Context.Response.RespEntity); err != nil {
+		} else if err := templ.Execute(self.Context.Output, self.Context.Response.RespEntity); err != nil {
 			return err
 		}
 	case APPLICATION_JSON:
@@ -321,7 +319,7 @@ func (self *HttpNode) RenderTo() error {
 			return err
 		} else {
 			self.SetContentType(APPLICATION_JSON)
-			self.Output.Write(result)
+			self.Context.Output.Write(result)
 		}
 	default:
 		return ex.Try{Code: http.StatusUnsupportedMediaType, Msg: "无效的响应格式"}
@@ -352,7 +350,7 @@ func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, an
 		self.Proxy(
 			&NodePtr{
 				self,
-				w, r, pattern, anon, handle,
+				r, w, pattern, anon, handle,
 			},
 		)
 	}))
@@ -383,7 +381,7 @@ func (self *HttpNode) Json(ctx *Context, data interface{}) error {
 }
 
 func (self *HttpNode) SetContentType(contentType string) {
-	self.Output.Header().Set("Content-Type", contentType)
+	self.Context.Output.Header().Set("Content-Type", contentType)
 }
 
 func (self *HttpNode) Connect(ctx *Context, s Session) error {

@@ -1,5 +1,7 @@
 package node
 
+import "net/http"
+
 const (
 	HTTP      = "http"
 	WEBSOCKET = "websocket"
@@ -40,8 +42,8 @@ type GlobalConfig struct {
 
 type NodePtr struct {
 	Node      interface{}
-	Output    interface{}
-	Input     interface{}
+	Input     *http.Request
+	Output    http.ResponseWriter
 	Pattern   string
 	Anonymous bool
 	Handle    func(ctx *Context) error
@@ -103,6 +105,8 @@ type Context struct {
 	Response  *Response
 	Version   string
 	Anonymous bool
+	Input     *http.Request
+	Output    http.ResponseWriter
 }
 
 type Response struct {

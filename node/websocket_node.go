@@ -13,8 +13,6 @@ import (
 
 type WebsocketNode struct {
 	HookNode
-	Input     *http.Request
-	Output    http.ResponseWriter
 	WSClient  *WSClient
 	WSManager *WSManager
 }
@@ -61,32 +59,34 @@ func (self *WebsocketNode) GetParams(input interface{}) error {
 }
 
 func (self *WebsocketNode) InitContext(ptr *NodePtr) error {
-	w := ptr.Output.(http.ResponseWriter)
-	r := ptr.Input.(*http.Request)
-	o := ptr.Node.(*WebsocketNode)
+	output := ptr.Output
+	input := ptr.Input
+	node := ptr.Node.(*WebsocketNode)
 	if self.OverrideFunc == nil {
-		o.OverrideFunc = &OverrideFunc{}
+		node.OverrideFunc = &OverrideFunc{}
 	} else {
-		o.OverrideFunc = self.OverrideFunc
+		node.OverrideFunc = self.OverrideFunc
 	}
-	o.SessionAware = self.SessionAware
-	o.WSManager = self.WSManager
-	o.Output = w
-	o.Input = r
-	o.Context = &Context{
-		Host:   util.GetClientIp(r),
-		Style:  WEBSOCKET,
-		Method: ptr.Pattern,
+	node.SessionAware = self.SessionAware
+	node.WSManager = self.WSManager
+	node.Context = &Context{
+		Host:      util.GetClientIp(input),
+		Style:     WEBSOCKET,
+		Method:    ptr.Pattern,
+		Anonymous: ptr.Anonymous,
+		Version:   self.Context.Version,
 		Response: &Response{
 			ContentEncoding: UTF8,
 			ContentType:     APPLICATION_JSON,
 		},
+		Input:  input,
+		Output: output,
 	}
 	return nil
 }
 
 func (self *WebsocketNode) InitWebsocket(ptr *NodePtr) error {
-	if ws, err := self.newWSClient(self.Output, self.Input, util.GetUUID(), self.wsReadHandle, ptr.Handle); err != nil {
+	if ws, err := self.newWSClient(self.Context.Output, self.Context.Input, util.GetUUID(), self.wsReadHandle, ptr.Handle); err != nil {
 		return ex.Try{Code: http.StatusInternalServerError, Msg: "建立websocket连接失败", Err: err}
 	} else {
 		self.WSClient = ws
@@ -328,7 +328,7 @@ func (self *WebsocketNode) Router(pattern string, handle func(ctx *Context) erro
 		self.Proxy(
 			&NodePtr{
 				self,
-				w, r, pattern, anon, handle,
+				r, w, pattern, anon, handle,
 			},
 		)
 	}))
@@ -349,7 +349,7 @@ func (self *WebsocketNode) Json(ctx *Context, data interface{}) error {
 }
 
 func (self *WebsocketNode) SetContentType(contentType string) {
-	self.Output.Header().Set("Content-Type", contentType)
+	self.Context.Output.Header().Set("Content-Type", contentType)
 }
 
 func (self *WebsocketNode) Connect(ctx *Context, s Session) error {
