@@ -346,26 +346,14 @@ func LowerFirst(str string) string {
 	return upperStr
 }
 
-// 获取雪花UUID,默认为0区
-func GetUUID(sec ...int64) string {
-	seed := int64(0)
-	if sec != nil && len(sec) > 0 && sec[0] > 0 {
-		seed = sec[0]
-	}
-	node, ok := snowflakes[seed];
-	if !ok || node == nil {
-		mu.Lock()
-		node, ok = snowflakes[seed];
-		if !ok || node == nil {
-			node, _ = snowflake.NewNode(seed)
-			snowflakes[seed] = node
-		}
-		mu.Unlock()
-	}
-	return node.Generate().String()
+// 获取雪花string ID,默认为0区
+func GetSnowFlakeStrID(sec ...int64) string {
+	i64 := GetSnowFlakeIntID(sec...)
+	return AnyToStr(i64)
 }
 
-func GetSnowFlakeID(sec ...int64) int64 {
+// 获取雪花int64 ID,默认为0区
+func GetSnowFlakeIntID(sec ...int64) int64 {
 	seed := int64(0)
 	if sec != nil && len(sec) > 0 && sec[0] > 0 {
 		seed = sec[0]

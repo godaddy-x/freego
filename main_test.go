@@ -88,7 +88,7 @@ func TestMysqlSave(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		wallet := OwWallet{
 			// AppID:        map[string]interface{}{"test": 1},
-			WalletID:     util.GetUUID(),
+			WalletID:     util.GetSnowFlakeStrID(),
 			PasswordType: 1,
 			Password:     "123456",
 			RootPath:     "m/44'/88'/0'",
@@ -114,9 +114,9 @@ func TestMysqlUpdate(t *testing.T) {
 	vs := []interface{}{}
 	for i := 0; i < 10; i++ {
 		wallet := OwWallet{
-			Id: util.GetSnowFlakeID(),
+			Id: util.GetSnowFlakeIntID(),
 			// AppID:        "123456",
-			WalletID:     util.GetUUID(),
+			WalletID:     util.GetSnowFlakeStrID(),
 			PasswordType: 1,
 			Password:     "123456",
 			RootPath:     "m/44'/88'/0'",
@@ -155,9 +155,9 @@ func TestMysqlDetele(t *testing.T) {
 	vs := []interface{}{}
 	for i := 0; i < 2000; i++ {
 		wallet := OwWallet{
-			Id: util.GetSnowFlakeID(),
+			Id: util.GetSnowFlakeIntID(),
 			//AppID:        map[string]interface{}{"test": 1},
-			WalletID:     util.GetUUID(),
+			WalletID:     util.GetSnowFlakeStrID(),
 			PasswordType: 1,
 			Password:     "123456",
 			RootPath:     "m/44'/88'/0'",
@@ -247,9 +247,9 @@ func TestMongoSave(t *testing.T) {
 	vs := []interface{}{}
 	for i := 0; i < 3; i++ {
 		wallet := OwWallet{
-			Id: util.GetSnowFlakeID(),
+			Id: util.GetSnowFlakeIntID(),
 			// AppID:        map[string]interface{}{"test": 1},
-			WalletID:     util.GetUUID(),
+			WalletID:     util.GetSnowFlakeStrID(),
 			PasswordType: 1,
 			Password:     "123456",
 			RootPath:     "m/44'/88'/0'",
@@ -277,7 +277,7 @@ func TestMongoUpdate(t *testing.T) {
 		wallet := OwWallet{
 			Id: 1110012978914131969,
 			// AppID:        map[string]interface{}{"test": 1},
-			WalletID:     util.GetUUID(),
+			WalletID:     util.GetSnowFlakeStrID(),
 			PasswordType: 1,
 			Password:     "123456",
 			RootPath:     "m/44'/88'/01'",
@@ -305,7 +305,7 @@ func TestMongoDelete(t *testing.T) {
 		wallet := OwWallet{
 			Id: 1110013123152052225,
 			// AppID:        map[string]interface{}{"test": 1},
-			WalletID:     util.GetUUID(),
+			WalletID:     util.GetSnowFlakeStrID(),
 			PasswordType: 1,
 			Password:     "123456",
 			RootPath:     "m/44'/88'/0'",

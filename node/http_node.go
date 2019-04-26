@@ -4,7 +4,6 @@ import (
 	"github.com/godaddy-x/freego/component/log"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/util"
-	"go.uber.org/zap"
 	"html/template"
 	"io/ioutil"
 	"net/http"
@@ -17,9 +16,9 @@ type HttpNode struct {
 	TemplDir string
 }
 
-func (self *HttpNode) GetHeader(input interface{}) error {
+func (self *HttpNode) GetHeader() error {
 	if self.OverrideFunc.GetHeaderFunc == nil {
-		r := input.(*http.Request)
+		r := self.Context.Input
 		headers := map[string]string{}
 		if len(r.Header) > 0 {
 			i := 0
@@ -41,12 +40,12 @@ func (self *HttpNode) GetHeader(input interface{}) error {
 		self.Context.Headers = headers
 		return nil
 	}
-	return self.OverrideFunc.GetHeaderFunc(input)
+	return self.OverrideFunc.GetHeaderFunc(self.Context)
 }
 
-func (self *HttpNode) GetParams(input interface{}) error {
+func (self *HttpNode) GetParams() error {
 	if self.OverrideFunc.GetParamsFunc == nil {
-		r := input.(*http.Request)
+		r := self.Context.Input
 		r.ParseForm()
 		params := map[string]interface{}{}
 		if r.Method == GET {
@@ -91,10 +90,16 @@ func (self *HttpNode) GetParams(input interface{}) error {
 		} else {
 			return ex.Try{Code: http.StatusUnsupportedMediaType, Msg: "未知的请求类型"}
 		}
-		self.Context.Params = params
+		reqDto := &ReqDto{}
+		if err := util.JsonToAny(params, reqDto); err != nil {
+			return ex.Try{Code: http.StatusBadRequest, Msg: "请求参数解析异常", Err: err}
+		} else if reqDto.Data == nil {
+			return ex.Try{Code: http.StatusBadRequest, Msg: "请求参数d解析为空"}
+		}
+		self.Context.Params = reqDto
 		return nil
 	}
-	return self.OverrideFunc.GetParamsFunc(input)
+	return self.OverrideFunc.GetParamsFunc(self.Context)
 }
 
 func (self *HttpNode) InitContext(ptr *NodePtr) error {
@@ -125,13 +130,14 @@ func (self *HttpNode) InitContext(ptr *NodePtr) error {
 			ContentType:     APPLICATION_JSON,
 			TemplDir:        self.TemplDir,
 		},
-		Input:  input,
-		Output: output,
+		Input:     input,
+		Output:    output,
+		SecretKey: self.Context.SecretKey,
 	}
-	if err := node.GetHeader(input); err != nil {
+	if err := node.GetHeader(); err != nil {
 		return err
 	}
-	if err := node.GetParams(input); err != nil {
+	if err := node.GetParams(); err != nil {
 		return err
 	}
 	if err := node.PaddDevice(); err != nil {
@@ -156,18 +162,7 @@ func (self *HttpNode) ValidSession() error {
 	if self.SessionAware == nil {
 		return ex.Try{Code: http.StatusInternalServerError, Msg: "会话管理器尚未初始化"}
 	}
-	// header获取token
-	accessToken := self.Context.GetHeader(Global.SessionIdName)
-	// header为空尝试通过参数获取token
-	if len(accessToken) == 0 {
-		if v := self.Context.GetParam(Global.SessionIdName); v != nil {
-			var b bool
-			accessToken, b = v.(string)
-			if !b {
-				return ex.Try{Code: http.StatusUnauthorized, Msg: "授权令牌读取失败"}
-			}
-		}
-	}
+	accessToken := self.Context.Params.Token
 	if len(accessToken) == 0 {
 		if !self.Context.Anonymous {
 			return ex.Try{Code: http.StatusUnauthorized, Msg: "授权令牌读取失败"}
@@ -185,12 +180,11 @@ func (self *HttpNode) ValidSession() error {
 	if err != nil || session == nil {
 		return ex.Try{Code: http.StatusUnauthorized, Msg: "获取会话失败", Err: err}
 	}
-	session.SetAccessToken(accessToken)
 	if !session.IsValid() {
 		self.SessionAware.DeleteSession(session)
 		return ex.Try{Code: http.StatusUnauthorized, Msg: "会话已失效"}
 	}
-	if err := session.Validate(); err != nil {
+	if err := session.Validate(accessToken, self.Context.SecretKey()); err != nil {
 		return ex.Try{Code: http.StatusUnauthorized, Msg: "会话校验失败或已失效", Err: err}
 	}
 	self.Context.Session = session
@@ -293,10 +287,23 @@ func (self *HttpNode) RenderError(err error) error {
 			http_code = 600
 			out = ex.Try{Code: out.Code, Msg: out.Msg}
 		}
-		if result, err := util.JsonMarshal(out); err != nil {
+		resp := &RespDto{
+			Status:  out.Code,
+			Message: out.Msg,
+			Time:    util.Time(),
+			Data:    make(map[string]interface{}),
+		}
+		if result, err := util.JsonMarshal(resp); err != nil {
 			self.Context.Output.WriteHeader(http.StatusInternalServerError)
-			self.Context.Output.Write(util.Str2Bytes("系统发生未知错误"))
-			log.Error("系统发生未知错误", zap.String("error", err.Error()))
+			resp = &RespDto{
+				Status:  http.StatusInternalServerError,
+				Message: "系统发生未知错误",
+				Time:    util.Time(),
+				Data:    make(map[string]interface{}),
+			}
+			result, _ := util.JsonMarshal(resp)
+			self.Context.Output.Write(result)
+			log.Error(resp.Message, log.String("error", err.Error()))
 		} else {
 			self.Context.Output.WriteHeader(http_code)
 			self.Context.Output.Write(result)
@@ -315,8 +322,17 @@ func (self *HttpNode) RenderTo() error {
 			return err
 		}
 	case APPLICATION_JSON:
-		if result, err := util.JsonMarshal(self.Context.Response.RespEntity); err != nil {
-			return err
+		resp := &RespDto{
+			Status:  http.StatusOK,
+			Message: "success",
+			Time:    util.Time(),
+			Data:    self.Context.Response.RespEntity,
+		}
+		if resp.Data == nil {
+			resp.Data = make(map[string]interface{})
+		}
+		if result, err := util.JsonMarshal(resp); err != nil {
+			return ex.Try{Code: http.StatusInternalServerError, Msg: "响应数据异常", Err: err}
 		} else {
 			self.SetContentType(APPLICATION_JSON)
 			self.Context.Output.Write(result)

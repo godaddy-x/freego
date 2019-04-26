@@ -5,7 +5,6 @@ import (
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/util"
 	"github.com/gorilla/websocket"
-	"go.uber.org/zap"
 	"net/http"
 	"sync"
 	"time"
@@ -49,12 +48,12 @@ func (self *WSManager) start() {
 	for {
 		select {
 		case conn := <-self.register:
-			log.Debug("/A new socket has connected.", zap.String("id", conn.id))
+			log.Debug("/A new socket has connected.", log.String("id", conn.id))
 			self.clients.Store(conn.id, conn)
 			go self.read(conn)
 			go self.write(conn)
 		case conn := <-self.unregister:
-			log.Debug("/A socket has disconnected.", zap.String("id", conn.id))
+			log.Debug("/A socket has disconnected.", log.String("id", conn.id))
 			close(conn.send)
 			self.clients.Delete(conn.id)
 		}
@@ -111,7 +110,7 @@ func (self *WSManager) validator() {
 		})
 		for _, v := range wss {
 			if util.Time()-v.access > self.timeout {
-				log.Debug("/A websocket validator disconnected.", zap.String("id", v.id))
+				log.Debug("/A websocket validator disconnected.", log.String("id", v.id))
 				v.send <- WSMessage{MessageType: websocket.CloseMessage, Content: util.Str2Bytes(ex.Try{Code: http.StatusRequestTimeout, Msg: "连接超时已断开"}.Error())}
 			}
 		}

@@ -8,7 +8,6 @@ import (
 	"github.com/godaddy-x/freego/sqlc"
 	"github.com/godaddy-x/freego/sqld/dialect"
 	"github.com/godaddy-x/freego/util"
-	"go.uber.org/zap"
 	"reflect"
 	"strconv"
 	"strings"
@@ -269,7 +268,7 @@ func (self *RDBManager) Save(data ...interface{}) error {
 		vpart_.WriteString(" (")
 		for _, vv := range obv.FieldElem {
 			if vv.Primary {
-				lastInsertId := util.GetSnowFlakeID(*self.Node)
+				lastInsertId := util.GetSnowFlakeIntID(*self.Node)
 				SetInt64(GetPtr(v, vv.FieldOffset), lastInsertId)
 				parameter = append(parameter, lastInsertId)
 			} else {
@@ -1097,11 +1096,11 @@ func (self *RDBManager) Close() error {
 	if *self.AutoTx && self.Tx != nil {
 		if self.Errors != nil && len(self.Errors) > 0 {
 			if err := self.Tx.Rollback(); err != nil {
-				log.Error("事务回滚失败", zap.String("error", err.Error()))
+				log.Error("事务回滚失败", log.String("error", err.Error()))
 			}
 		} else {
 			if err := self.Tx.Commit(); err != nil {
-				log.Error("事务提交失败", zap.String("error", err.Error()))
+				log.Error("事务提交失败", log.String("error", err.Error()))
 			}
 		}
 	}

@@ -8,7 +8,6 @@ import (
 	"github.com/godaddy-x/freego/component/log"
 	"github.com/godaddy-x/freego/util"
 	consulapi "github.com/hashicorp/consul/api"
-	"go.uber.org/zap"
 	"net"
 	"net/http"
 	"net/rpc"
@@ -182,7 +181,7 @@ func (self *ConsulManager) StartListenAndServe() {
 		for {
 			conn, err := l.Accept()
 			if err != nil {
-				log.Error("accept rpc connection error", zap.String("error", err.Error()))
+				log.Error("accept rpc connection error", log.String("error", err.Error()))
 				continue
 			}
 			go func(conn net.Conn) {
@@ -195,7 +194,7 @@ func (self *ConsulManager) StartListenAndServe() {
 				}
 				err = rpc.ServeRequest(srv)
 				if err != nil {
-					log.Error("server rpc request error", zap.String("error", err.Error()))
+					log.Error("server rpc request error", log.String("error", err.Error()))
 				}
 				srv.Close()
 			}(conn)
@@ -282,10 +281,10 @@ func (self *ConsulManager) rpcMonitor(monitor MonitorLog, err error) error {
 	monitor.CostTime = util.Time() - monitor.BeginTime
 	if err != nil {
 		monitor.Errors = []string{err.Error()}
-		log.Error("RPC错误", zap.String("error", err.Error()))
+		log.Error("RPC错误", log.String("error", err.Error()))
 	}
 	if self.Config.Logger == "local" {
-		log.Error("RPC监控", zap.Any("monitor", monitor))
+		log.Error("RPC监控", log.Any("monitor", monitor))
 	} else if self.Config.Logger == "amqp" {
 	}
 	return err

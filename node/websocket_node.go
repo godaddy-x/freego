@@ -5,7 +5,6 @@ import (
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/util"
 	"github.com/gorilla/websocket"
-	"io/ioutil"
 	"net/http"
 	"strings"
 	"sync"
@@ -17,45 +16,12 @@ type WebsocketNode struct {
 	WSManager *WSManager
 }
 
-func (self *WebsocketNode) GetHeader(input interface{}) error {
+func (self *WebsocketNode) GetHeader() error {
 	return nil
 }
 
-func (self *WebsocketNode) GetParams(input interface{}) error {
-	if self.OverrideFunc.GetParamsFunc == nil {
-		r := input.(*http.Request)
-		r.ParseForm()
-		params := map[string]interface{}{}
-		if r.Method == GET || r.Method == POST {
-			result, err := ioutil.ReadAll(r.Body)
-			if err != nil {
-				return ex.Try{Code: http.StatusBadRequest, Msg: "获取请求参数失败", Err: err}
-			}
-			r.Body.Close()
-			if len(result) > (MAX_VALUE_LEN * 2) {
-				return ex.Try{Code: http.StatusLengthRequired, Msg: "参数值长度溢出: " + util.AnyToStr(len(result))}
-			}
-			if err := util.JsonUnmarshal(result, &params); err != nil {
-				return ex.Try{Code: http.StatusBadRequest, Msg: "请求参数读取失败", Err: err}
-			}
-			for k, _ := range params {
-				if len(k) > MAX_FIELD_LEN {
-					return ex.Try{Code: http.StatusLengthRequired, Msg: "参数名长度溢出: " + util.AnyToStr(len(k))}
-				}
-			}
-		} else if r.Method == PUT {
-			return ex.Try{Code: http.StatusUnsupportedMediaType, Msg: "暂不支持PUT类型"}
-		} else if r.Method == PATCH {
-			return ex.Try{Code: http.StatusUnsupportedMediaType, Msg: "暂不支持PATCH类型"}
-		} else if r.Method == DELETE {
-			return ex.Try{Code: http.StatusUnsupportedMediaType, Msg: "暂不支持DELETE类型"}
-		} else {
-			return ex.Try{Code: http.StatusUnsupportedMediaType, Msg: "未知的请求类型"}
-		}
-		self.Context.Params = params
-		return nil
-	}
-	return self.OverrideFunc.GetParamsFunc(input)
+func (self *WebsocketNode) GetParams() error {
+	return nil
 }
 
 func (self *WebsocketNode) InitContext(ptr *NodePtr) error {
@@ -79,14 +45,15 @@ func (self *WebsocketNode) InitContext(ptr *NodePtr) error {
 			ContentEncoding: UTF8,
 			ContentType:     APPLICATION_JSON,
 		},
-		Input:  input,
-		Output: output,
+		Input:     input,
+		Output:    output,
+		SecretKey: self.Context.SecretKey,
 	}
 	return nil
 }
 
 func (self *WebsocketNode) InitWebsocket(ptr *NodePtr) error {
-	if ws, err := self.newWSClient(self.Context.Output, self.Context.Input, util.GetUUID(), self.wsReadHandle, ptr.Handle); err != nil {
+	if ws, err := self.newWSClient(self.Context.Output, self.Context.Input, util.GetSnowFlakeStrID(), self.wsReadHandle, ptr.Handle); err != nil {
 		return ex.Try{Code: http.StatusInternalServerError, Msg: "建立websocket连接失败", Err: err}
 	} else {
 		self.WSClient = ws
@@ -120,11 +87,13 @@ func (self *WebsocketNode) wsReadHandle(c *WSClient, rcvd []byte) error {
 		return self.RenderError(ex.Try{Code: http.StatusBadRequest, Msg: "请求数据不能为空"})
 	}
 	// 1.获取请求数据
-	params := map[string]interface{}{}
-	if err := util.JsonUnmarshal(rcvd, &params); err != nil {
+	reqDto := &ReqDto{}
+	if err := util.JsonUnmarshal(rcvd, reqDto); err != nil {
 		return self.RenderError(ex.Try{Code: http.StatusBadRequest, Msg: "请求数据读取失败", Err: err})
+	} else if reqDto.Data == nil {
+		return ex.Try{Code: http.StatusBadRequest, Msg: "请求参数d解析为空"}
 	}
-	self.Context.Params = params
+	self.Context.Params = reqDto
 	// false.已有会话 true.会话为空
 	state := false
 	// 2.判定或校验会话
@@ -161,15 +130,7 @@ func (self *WebsocketNode) ValidSession() error {
 	if self.SessionAware == nil {
 		return ex.Try{Code: http.StatusInternalServerError, Msg: "会话管理器尚未初始化"}
 	}
-	accessToken := ""
-	// 通过参数获取token
-	if v := self.Context.GetParam(Global.SessionIdName); v != nil {
-		var b bool
-		accessToken, b = v.(string)
-		if !b {
-			return ex.Try{Code: http.StatusUnauthorized, Msg: "授权令牌读取失败"}
-		}
-	}
+	accessToken := self.Context.Params.Token
 	if len(accessToken) == 0 {
 		if !self.Context.Anonymous {
 			return ex.Try{Code: http.StatusUnauthorized, Msg: "授权令牌读取失败"}
@@ -188,12 +149,11 @@ func (self *WebsocketNode) ValidSession() error {
 		return ex.Try{Code: http.StatusUnauthorized, Msg: "获取会话失败", Err: err}
 	}
 	session.SetHost(self.Context.Host)
-	session.SetAccessToken(accessToken)
 	if !session.IsValid() {
 		self.SessionAware.DeleteSession(session)
 		return ex.Try{Code: http.StatusUnauthorized, Msg: "会话已失效"}
 	}
-	if err := session.Validate(); err != nil {
+	if err := session.Validate(accessToken, self.Context.SecretKey()); err != nil {
 		return ex.Try{Code: http.StatusUnauthorized, Msg: "会话校验失败或已失效", Err: err}
 	}
 	self.Context.Session = session

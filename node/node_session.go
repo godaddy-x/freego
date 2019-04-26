@@ -17,8 +17,6 @@ type Session interface {
 
 	SetTimeout(t int64) error // 抛出校验会话异常
 
-	SetAccessToken(token string) error // 抛出校验会话异常
-
 	SetHost(host string)
 
 	GetHost() string
@@ -35,7 +33,7 @@ type Session interface {
 
 	RemoveAttribute(k string) error // 抛出校验会话异常
 
-	Validate() error // 校验会话
+	Validate(accessToken, secretKey string) error // 校验会话
 
 	IsValid() bool // 判断会话是否有效
 
@@ -63,22 +61,17 @@ type JWTSession struct {
 	Host           string
 	Expire         bool
 	Attributes     map[string]interface{}
-	AccessToken    string
 }
 
-func (self *JWTSession) Build(sub *jwt.Subject, srt string) (*jwt.Authorization, error) {
-	author, err := sub.Generate(srt);
-	if err != nil {
-		return nil, err
-	}
+func BuildJWTSession(subject *jwt.Subject, author *jwt.Authorization) Session {
+	self := &JWTSession{}
 	self.Id = author.Signature
-	self.Host = sub.Payload.Aud
-	self.Timeout = sub.Payload.Exp
+	self.Host = subject.Payload.Aud
+	self.Timeout = subject.Payload.Exp
 	self.StartTimestamp = author.AccessTime
 	self.LastAccessTime = author.AccessTime
-	self.AccessToken = author.AccessToken
 	self.Attributes = map[string]interface{}{}
-	return author, nil
+	return self
 }
 
 func (self *JWTSession) GetId() string {
@@ -94,19 +87,11 @@ func (self *JWTSession) GetLastAccessTime() int64 {
 }
 
 func (self *JWTSession) GetTimeout() (int64, error) {
-	if err := self.Validate(); err != nil {
-		return 0, err
-	}
 	return self.Timeout, nil
 }
 
 func (self *JWTSession) SetTimeout(t int64) error {
 	self.Timeout = t
-	return nil
-}
-
-func (self *JWTSession) SetAccessToken(token string) error {
-	self.AccessToken = token
 	return nil
 }
 
@@ -129,7 +114,7 @@ func (self *JWTSession) Stop() error {
 	return nil
 }
 
-func (self *JWTSession) Validate() error {
+func (self *JWTSession) Validate(accessToken, secretKey string) error {
 	if self.Expire {
 		return util.Error("session[", self.Id, "] expired")
 	} else if self.IsTimeout() {
@@ -140,7 +125,7 @@ func (self *JWTSession) Validate() error {
 	if len(self.GetHost()) > 0 {
 		subject.Payload = &jwt.Payload{Aud: self.GetHost()}
 	}
-	if err := subject.Valid(self.AccessToken, Global.SessionSecret); err != nil {
+	if err := subject.Valid(accessToken, secretKey); err != nil {
 		return err
 	}
 	return nil
@@ -213,11 +198,14 @@ func (self *DefaultCacheSessionAware) CreateSession(s Session) error {
 	if err := s.Touch(); err != nil {
 		return err
 	}
-	if err := s.Validate(); err != nil {
+	//if err := s.Validate(); err != nil {
+	//	return err
+	//}
+	if t, err := s.GetTimeout(); err != nil {
 		return err
+	} else {
+		self.c.Put(s.GetId(), s, int(t/1000))
 	}
-	s.SetAccessToken("")
-	self.c.Put(s.GetId(), s, Global.SessionTimeout)
 	return nil
 }
 
@@ -240,7 +228,11 @@ func (self *DefaultCacheSessionAware) UpdateSession(s Session) error {
 	if err := s.Touch(); err != nil {
 		return err
 	}
-	self.c.Put(s.GetId(), s, Global.SessionTimeout)
+	if t, err := s.GetTimeout(); err != nil {
+		return err
+	} else {
+		self.c.Put(s.GetId(), s, int(t/1000))
+	}
 	return nil
 }
 

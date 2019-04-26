@@ -27,11 +27,10 @@ const (
 	MAX_FIELD_LEN       = 25   // 最大参数名长度
 	MAX_QUERYSTRING_LEN = 1000 // 最大GET参数名长度
 	MAX_VALUE_LEN       = 4000 // 最大参数值长度
-
 )
 
 var (
-	Global = GlobalConfig{SessionIdName: "token", SessionTimeout: 1800, SessionSecret: "9r*gploYnA&zMg^U"}
+	JWTGlobal = &GlobalConfig{SessionTimeout: 1800, SessionSecret: "9r*gploYnA&zMg^U"}
 )
 
 type GlobalConfig struct {
@@ -61,9 +60,9 @@ type ProtocolNode interface {
 	// 刷新会话
 	TouchSession() error
 	// 获取请求头数据
-	GetHeader(input interface{}) error
+	GetHeader() error
 	// 获取请求参数
-	GetParams(input interface{}) error
+	GetParams() error
 	// 设置响应头格式
 	SetContentType(contentType string)
 	// 核心代理方法
@@ -94,19 +93,34 @@ type HookNode struct {
 	OverrideFunc *OverrideFunc
 }
 
+type ReqDto struct {
+	Token string      `json:"a"`
+	Nonce string      `json:"n"`
+	Time  int64       `json:"t"`
+	Data  interface{} `json:"d"`
+}
+
+type RespDto struct {
+	Status  int       `json:"s"`
+	Message string      `json:"m"`
+	Time    int64       `json:"t"`
+	Data    interface{} `json:"d"`
+}
+
 type Context struct {
 	Host      string
 	Style     string
 	Device    string
 	Method    string
 	Headers   map[string]string
-	Params    map[string]interface{}
+	Params    *ReqDto
 	Session   Session
 	Response  *Response
 	Version   string
 	Anonymous bool
 	Input     *http.Request
 	Output    http.ResponseWriter
+	SecretKey func() string
 }
 
 type Response struct {
@@ -118,24 +132,14 @@ type Response struct {
 }
 
 type OverrideFunc struct {
-	GetHeaderFunc       func(input interface{}) error
-	GetParamsFunc       func(input interface{}) error
+	GetHeaderFunc       func(ctx *Context) error
+	GetParamsFunc       func(ctx *Context) error
 	PreHandleFunc       func(ctx *Context) error
 	PostHandleFunc      func(resp *Response, err error) error
 	AfterCompletionFunc func(ctx *Context, resp *Response, err error) error
 	RenderErrorFunc     func(err error) error
 	LoginFunc           func(ctx *Context) error
 	LogoutFunc          func(ctx *Context) error
-}
-
-func (self *Context) GetParam(k string) interface{} {
-	if len(k) == 0 || len(self.Params) == 0 {
-		return nil
-	}
-	if v, b := self.Params[k]; b {
-		return v
-	}
-	return nil
 }
 
 func (self *Context) GetHeader(k string) string {

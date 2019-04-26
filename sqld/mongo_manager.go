@@ -6,7 +6,6 @@ import (
 	"github.com/godaddy-x/freego/component/log"
 	"github.com/godaddy-x/freego/sqlc"
 	"github.com/godaddy-x/freego/util"
-	"go.uber.org/zap"
 	"gopkg.in/mgo.v2"
 	"reflect"
 	"strings"
@@ -193,7 +192,7 @@ func (self *MGOManager) Save(data ...interface{}) error {
 	for _, v := range data {
 		lastInsertId := GetInt64(GetPtr(v, obv.PkOffset))
 		if lastInsertId == 0 {
-			lastInsertId = util.GetSnowFlakeID(*self.Node)
+			lastInsertId = util.GetSnowFlakeIntID(*self.Node)
 			SetInt64(GetPtr(v, obv.PkOffset), lastInsertId)
 		}
 	}
@@ -606,5 +605,5 @@ func buildMongoLimit(cnd *sqlc.Cnd) []int64 {
 }
 
 func (self *MGOManager) debug(title string, pipe interface{}, start int64) {
-	log.Debug("mongo pipe debug", zap.String("title", title), zap.Any("values", pipe), zap.Int64("cost", util.Time()-start))
+	log.Debug("mongo pipe debug", log.String("title", title), log.Any("values", pipe), log.Int64("cost", util.Time()-start))
 }

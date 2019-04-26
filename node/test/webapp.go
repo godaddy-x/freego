@@ -31,46 +31,32 @@ func (self *MyWsNode) test(ctx *node.Context) error {
 }
 
 func (self *MyWebNode) login(ctx *node.Context) error {
-	session := new(node.JWTSession)
-	_, err := session.Build(&jwt.Subject{
+	subject := &jwt.Subject{
 		Payload: &jwt.Payload{
 			Sub: "zhangsan",
 			Iss: "456",
 			Aud: ctx.Host,
 			Dev: ctx.Device,
-			Exp: int64(node.Global.SessionTimeout * 1000),
+			Exp: jwt.TWO_WEEK,
 		},
-	}, node.Global.SessionSecret)
-	if err != nil {
-		return err
 	}
-	fmt.Println(session.AccessToken)
-	s := session.AccessToken
-	self.Connect(ctx, session)
-	session.SetAttribute("test", session.Id)
-	return self.Json(ctx, map[string]interface{}{"token": s})
+	self.Connect(ctx, node.BuildJWTSession(subject, nil))
+	return self.Json(ctx, map[string]interface{}{"token": ""})
 	//return self.Html(ctx, "/web/index.html", map[string]interface{}{"tewt": 1})
 }
 
 func (self *MyWsNode) login(ctx *node.Context) error {
-	session := new(node.JWTSession)
-	_, err := session.Build(&jwt.Subject{
+	subject := &jwt.Subject{
 		Payload: &jwt.Payload{
 			Sub: "zhangsan",
 			Iss: "456",
 			Aud: ctx.Host,
 			Dev: ctx.Device,
-			Exp: int64(node.Global.SessionTimeout * 1000),
+			Exp: jwt.TWO_WEEK,
 		},
-	}, node.Global.SessionSecret)
-	if err != nil {
-		return err
 	}
-	fmt.Println(session.AccessToken)
-	s := session.AccessToken
-	self.Connect(ctx, session)
-	session.SetAttribute("test", session.Id)
-	return self.Json(ctx, map[string]interface{}{"token": s})
+	self.Connect(ctx, node.BuildJWTSession(subject, nil))
+	return self.Json(ctx, map[string]interface{}{"token": ""})
 }
 
 func (self *MyWebNode) logout(ctx *node.Context) error {
@@ -85,10 +71,15 @@ func (self *MyWsNode) logout(ctx *node.Context) error {
 	return self.Json(ctx, map[string]interface{}{"token": "test"})
 }
 
+func GetSecretKey() string {
+	return "123456"
+}
+
 func StartHttpNode() *MyWebNode {
 	my := &MyWebNode{}
 	my.Context = &node.Context{
-		Host: "0.0.0.0:8090",
+		Host:      "0.0.0.0:8090",
+		SecretKey: GetSecretKey,
 	}
 	my.SessionAware = local_aware
 	my.OverrideFunc = &node.OverrideFunc{
@@ -116,7 +107,8 @@ func StartHttpNode() *MyWebNode {
 func StartWsNode() *MyWsNode {
 	my := &MyWsNode{}
 	my.Context = &node.Context{
-		Host: "0.0.0.0:9090",
+		Host:      "0.0.0.0:9090",
+		SecretKey: GetSecretKey,
 	}
 	my.SessionAware = local_aware
 	my.Router("/test2", my.test)

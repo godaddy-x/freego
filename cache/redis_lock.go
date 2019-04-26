@@ -55,7 +55,7 @@ func (self *RedisManager) getLock(conn redis.Conn, resource string) (lock *Lock,
 }
 
 func (self *RedisManager) getLockkWithTimeout(conn redis.Conn, resource string, timeout time.Duration) (lock *Lock, ok bool, err error) {
-	lock = &Lock{resource, util.GetUUID(), conn, timeout}
+	lock = &Lock{resource, util.GetSnowFlakeStrID(), conn, timeout}
 	ok, err = lock.tryLock()
 	if !ok || err != nil {
 		conn.Close()

@@ -73,7 +73,7 @@ func (self *Subject) Generate(secret string, refresh ...bool) (*Authorization, e
 	} else if len(self.Header.Alg) == 0 {
 		return nil, util.Error("header.alg is nil")
 	}
-	self.Payload.Jti = util.SHA256(util.GetUUID(self.Header.Nod))
+	self.Payload.Jti = util.SHA256(util.GetSnowFlakeStrID(self.Header.Nod))
 	self.Payload.Iat = util.Time()
 	if self.Payload.Exp <= 0 {
 		self.Payload.Exp = self.Payload.Iat + HALF_HOUR
