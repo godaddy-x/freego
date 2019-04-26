@@ -350,7 +350,7 @@ func (self *RDBManager) Update(data ...interface{}) error {
 		return self.Error(util.AddStr("没有找到注册对象类型[", obkey, "]"))
 	}
 	parameter := make([]interface{}, 0, len(obv.FieldElem)*len(data))
-	fpart.Grow(44 * len(data) * len(obv.FieldElem))
+	fpart.Grow(45 * len(data) * len(obv.FieldElem))
 	vpart.Grow(32 * len(data))
 	for _, vv := range obv.FieldElem { // 遍历对象字段
 		fpart.WriteString(" ")
@@ -372,7 +372,7 @@ func (self *RDBManager) Update(data ...interface{}) error {
 			} else {
 				parameter = append(parameter, val)
 			}
-			fpart.WriteString("when ")
+			fpart.WriteString(" when ")
 			fpart.WriteString(strconv.FormatInt(GetInt64(GetPtr(v, obv.PkOffset)), 10))
 			fpart.WriteString(" then ? ")
 		}
