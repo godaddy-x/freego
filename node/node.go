@@ -1,6 +1,9 @@
 package node
 
-import "net/http"
+import (
+	"github.com/godaddy-x/freego/component/jwt"
+	"net/http"
+)
 
 const (
 	HTTP      = "http"
@@ -101,10 +104,15 @@ type ReqDto struct {
 }
 
 type RespDto struct {
-	Status  int       `json:"s"`
+	Status  int         `json:"s"`
 	Message string      `json:"m"`
 	Time    int64       `json:"t"`
 	Data    interface{} `json:"d"`
+}
+
+type Security struct {
+	Subject   *jwt.Subject
+	SecretKey string
 }
 
 type Context struct {
@@ -120,7 +128,7 @@ type Context struct {
 	Anonymous bool
 	Input     *http.Request
 	Output    http.ResponseWriter
-	SecretKey func() string
+	Security  func() *Security
 }
 
 type Response struct {

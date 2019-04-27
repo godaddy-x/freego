@@ -130,9 +130,9 @@ func (self *HttpNode) InitContext(ptr *NodePtr) error {
 			ContentType:     APPLICATION_JSON,
 			TemplDir:        self.TemplDir,
 		},
-		Input:     input,
-		Output:    output,
-		SecretKey: self.Context.SecretKey,
+		Input:    input,
+		Output:   output,
+		Security: self.Context.Security,
 	}
 	if err := node.GetHeader(); err != nil {
 		return err
@@ -165,7 +165,7 @@ func (self *HttpNode) ValidSession() error {
 	accessToken := self.Context.Params.Token
 	if len(accessToken) == 0 {
 		if !self.Context.Anonymous {
-			return ex.Try{Code: http.StatusUnauthorized, Msg: "授权令牌读取失败"}
+			return ex.Try{Code: http.StatusUnauthorized, Msg: "获取授权令牌失败"}
 		}
 		return nil
 	}
@@ -184,7 +184,7 @@ func (self *HttpNode) ValidSession() error {
 		self.SessionAware.DeleteSession(session)
 		return ex.Try{Code: http.StatusUnauthorized, Msg: "会话已失效"}
 	}
-	if err := session.Validate(accessToken, self.Context.SecretKey()); err != nil {
+	if err := session.Validate(accessToken, self.Context.Security().SecretKey); err != nil {
 		return ex.Try{Code: http.StatusUnauthorized, Msg: "会话校验失败或已失效", Err: err}
 	}
 	self.Context.Session = session

@@ -71,15 +71,18 @@ func (self *MyWsNode) logout(ctx *node.Context) error {
 	return self.Json(ctx, map[string]interface{}{"token": "test"})
 }
 
-func GetSecretKey() string {
-	return "123456"
+func GetSecurity() *node.Security {
+	subject := &jwt.Subject{
+		Payload: &jwt.Payload{Iss: "http://localhost"},
+	}
+	return &node.Security{subject, "123456"}
 }
 
 func StartHttpNode() *MyWebNode {
 	my := &MyWebNode{}
 	my.Context = &node.Context{
-		Host:      "0.0.0.0:8090",
-		SecretKey: GetSecretKey,
+		Host:     "0.0.0.0:8090",
+		Security: GetSecurity,
 	}
 	my.SessionAware = local_aware
 	my.OverrideFunc = &node.OverrideFunc{
@@ -107,8 +110,8 @@ func StartHttpNode() *MyWebNode {
 func StartWsNode() *MyWsNode {
 	my := &MyWsNode{}
 	my.Context = &node.Context{
-		Host:      "0.0.0.0:9090",
-		SecretKey: GetSecretKey,
+		Host:     "0.0.0.0:9090",
+		Security: GetSecurity,
 	}
 	my.SessionAware = local_aware
 	my.Router("/test2", my.test)
