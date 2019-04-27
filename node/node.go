@@ -129,6 +129,7 @@ type Context struct {
 	Input     *http.Request
 	Output    http.ResponseWriter
 	Security  func() *Security
+	UserId    int64
 }
 
 type Response struct {

@@ -153,8 +153,12 @@ func (self *WebsocketNode) ValidSession() error {
 		self.SessionAware.DeleteSession(session)
 		return ex.Try{Code: http.StatusUnauthorized, Msg: "会话已失效"}
 	}
-	if err := session.Validate(accessToken, self.Context.Security().SecretKey); err != nil {
+	if sub, err := session.Validate(accessToken, self.Context.Security().SecretKey); err != nil {
 		return ex.Try{Code: http.StatusUnauthorized, Msg: "会话校验失败或已失效", Err: err}
+	} else {
+		userId, _ := util.StrToInt64(sub)
+		self.Context.UserId = userId
+		self.Context.Session = session
 	}
 	self.Context.Session = session
 	return nil
