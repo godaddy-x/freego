@@ -161,7 +161,7 @@ func (self *Context) GetHeader(k string) string {
 	return ""
 }
 
-func (self *Context) IsLogin() bool {
+func (self *Context) Authorized() bool {
 	session := self.Session
 	if session != nil && session.IsValid() {
 		return true

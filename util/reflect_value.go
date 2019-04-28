@@ -1,4 +1,4 @@
-package sqld
+package util
 
 import (
 	"strconv"

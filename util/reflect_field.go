@@ -1,8 +1,13 @@
-package sqld
+package util
 
 import (
 	"unsafe"
 )
+
+type emptyInter struct {
+	t *struct{}
+	w unsafe.Pointer
+}
 
 // 通过指针获取对象字段位置
 func GetPtr(v interface{}, offset uintptr) uintptr {

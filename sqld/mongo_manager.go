@@ -190,10 +190,10 @@ func (self *MGOManager) Save(data ...interface{}) error {
 		defer log.Debug("mongo数据Save操作日志", log.Any("data", data), log.Int64("cost", util.Time()-start))
 	}
 	for _, v := range data {
-		lastInsertId := GetInt64(GetPtr(v, obv.PkOffset))
+		lastInsertId := util.GetInt64(util.GetPtr(v, obv.PkOffset))
 		if lastInsertId == 0 {
 			lastInsertId = util.GetSnowFlakeIntID(*self.Node)
-			SetInt64(GetPtr(v, obv.PkOffset), lastInsertId)
+			util.SetInt64(util.GetPtr(v, obv.PkOffset), lastInsertId)
 		}
 	}
 	if err := db.Insert(data ...); err != nil {
@@ -230,7 +230,7 @@ func (self *MGOManager) Update(data ...interface{}) error {
 		defer log.Debug("mongo数据Update操作日志", log.Any("data", data), log.Int64("cost", util.Time()-start))
 	}
 	for _, v := range data {
-		lastInsertId := GetInt64(GetPtr(v, obv.PkOffset))
+		lastInsertId := util.GetInt64(util.GetPtr(v, obv.PkOffset))
 		if lastInsertId == 0 {
 			return self.Error("对象ID为空")
 		}
@@ -271,7 +271,7 @@ func (self *MGOManager) Delete(data ...interface{}) error {
 		defer log.Debug("mongo数据Delete操作日志", log.Any("data", data), log.Int64("cost", util.Time()-start))
 	}
 	for _, v := range data {
-		lastInsertId := GetInt64(GetPtr(v, obv.PkOffset))
+		lastInsertId := util.GetInt64(util.GetPtr(v, obv.PkOffset))
 		if lastInsertId == 0 {
 			return self.Error("对象ID为空")
 		}

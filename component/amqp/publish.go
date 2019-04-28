@@ -3,7 +3,7 @@ package rabbitmq
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/godaddy-x/jorm/log"
+	"github.com/godaddy-x/freego/component/log"
 	"github.com/streadway/amqp"
 	"sync"
 	"time"

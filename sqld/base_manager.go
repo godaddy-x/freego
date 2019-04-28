@@ -269,7 +269,7 @@ func (self *RDBManager) Save(data ...interface{}) error {
 		for _, vv := range obv.FieldElem {
 			if vv.Primary {
 				lastInsertId := util.GetSnowFlakeIntID(*self.Node)
-				SetInt64(GetPtr(v, vv.FieldOffset), lastInsertId)
+				util.SetInt64(util.GetPtr(v, vv.FieldOffset), lastInsertId)
 				parameter = append(parameter, lastInsertId)
 			} else {
 				fval, err := GetValue(v, vv);
@@ -359,7 +359,7 @@ func (self *RDBManager) Update(data ...interface{}) error {
 		fpart.WriteString(obv.PkName)
 		for _, v := range data {
 			if vv.Primary {
-				lastInsertId := GetInt64(GetPtr(v, obv.PkOffset))
+				lastInsertId := util.GetInt64(util.GetPtr(v, obv.PkOffset))
 				if lastInsertId == 0 {
 					return self.Error("对象ID为空")
 				}
@@ -373,7 +373,7 @@ func (self *RDBManager) Update(data ...interface{}) error {
 				parameter = append(parameter, val)
 			}
 			fpart.WriteString(" when ")
-			fpart.WriteString(strconv.FormatInt(GetInt64(GetPtr(v, obv.PkOffset)), 10))
+			fpart.WriteString(strconv.FormatInt(util.GetInt64(util.GetPtr(v, obv.PkOffset)), 10))
 			fpart.WriteString(" then ? ")
 		}
 		fpart.WriteString("end,")
@@ -539,7 +539,7 @@ func (self *RDBManager) Delete(data ...interface{}) error {
 		if !ok {
 			return self.Error(util.AddStr("没有找到注册对象类型[", obkey, "]"))
 		}
-		lastInsertId := GetInt64(GetPtr(v, obv.PkOffset))
+		lastInsertId := util.GetInt64(util.GetPtr(v, obv.PkOffset))
 		if lastInsertId == 0 {
 			return self.Error("对象ID为空")
 		}
@@ -599,7 +599,7 @@ func (self *RDBManager) FindById(data interface{}) error {
 	if !ok {
 		return self.Error(util.AddStr("没有找到注册对象类型[", obkey, "]"))
 	}
-	lastInsertId := GetInt64(GetPtr(data, obv.PkOffset))
+	lastInsertId := util.GetInt64(util.GetPtr(data, obv.PkOffset))
 	if lastInsertId == 0 {
 		return self.Error("对象ID为空")
 	}
