@@ -81,7 +81,8 @@ func GetSecurity() *node.Security {
 func StartHttpNode() *MyWebNode {
 	my := &MyWebNode{}
 	my.Context = &node.Context{
-		Host:     "0.0.0.0:8090",
+		Host:     "0.0.0.0",
+		Port:     8090,
 		Security: GetSecurity,
 	}
 	my.SessionAware = local_aware
@@ -110,7 +111,8 @@ func StartHttpNode() *MyWebNode {
 func StartWsNode() *MyWsNode {
 	my := &MyWsNode{}
 	my.Context = &node.Context{
-		Host:     "0.0.0.0:9090",
+		Host:     "0.0.0.0",
+		Port:     9090,
 		Security: GetSecurity,
 	}
 	my.SessionAware = local_aware

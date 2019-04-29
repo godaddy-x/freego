@@ -496,7 +496,6 @@ func GetClientIp(req *http.Request) string {
 	if remoteAddr == "::1" {
 		remoteAddr = "127.0.0.1"
 	}
-
 	return remoteAddr
 }
 

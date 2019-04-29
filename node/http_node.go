@@ -121,6 +121,7 @@ func (self *HttpNode) InitContext(ptr *NodePtr) error {
 	node.SessionAware = self.SessionAware
 	node.Context = &Context{
 		Host:      util.GetClientIp(input),
+		Port:      self.Context.Port,
 		Style:     HTTP,
 		Method:    ptr.Pattern,
 		Anonymous: ptr.Anonymous,
@@ -348,7 +349,7 @@ func (self *HttpNode) RenderTo() error {
 
 func (self *HttpNode) StartServer() {
 	go func() {
-		if err := http.ListenAndServe(self.Context.Host, nil); err != nil {
+		if err := http.ListenAndServe(util.AddStr(self.Context.Host, ":", self.Context.Port), nil); err != nil {
 			panic(err)
 		}
 	}()

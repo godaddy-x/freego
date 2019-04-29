@@ -37,6 +37,7 @@ func (self *WebsocketNode) InitContext(ptr *NodePtr) error {
 	node.WSManager = self.WSManager
 	node.Context = &Context{
 		Host:      util.GetClientIp(input),
+		Port:      self.Context.Port,
 		Style:     WEBSOCKET,
 		Method:    ptr.Pattern,
 		Anonymous: ptr.Anonymous,
@@ -271,7 +272,7 @@ func (self *WebsocketNode) StartServer() {
 	}
 	go self.WSManager.start()
 	go func() {
-		if err := http.ListenAndServe(self.Context.Host, nil); err != nil {
+		if err := http.ListenAndServe(util.AddStr(self.Context.Host, ":", self.Context.Port), nil); err != nil {
 			panic(err)
 		}
 	}()
