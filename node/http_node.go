@@ -119,6 +119,7 @@ func (self *HttpNode) InitContext(ptr *NodePtr) error {
 		}
 	}
 	node.SessionAware = self.SessionAware
+	node.CacheAware = self.CacheAware
 	node.Context = &Context{
 		Host:      util.GetClientIp(input),
 		Port:      self.Context.Port,
@@ -185,13 +186,18 @@ func (self *HttpNode) ValidSession() error {
 		self.SessionAware.DeleteSession(session)
 		return ex.Try{Code: http.StatusUnauthorized, Msg: "会话已失效"}
 	}
-	if sub, err := session.Validate(accessToken, self.Context.Security().SecretKey); err != nil {
+	sub, err := session.Validate(accessToken, self.Context.Security().SecretKey)
+	if err != nil {
 		return ex.Try{Code: http.StatusUnauthorized, Msg: "会话校验失败或已失效", Err: err}
-	} else {
-		userId, _ := util.StrToInt64(sub)
-		self.Context.UserId = userId
-		self.Context.Session = session
 	}
+	if sig, b, err := self.CacheAware.Get(util.AddStr(JWT_SUB_, sub), nil); err != nil {
+		return ex.Try{Code: http.StatusInternalServerError, Msg: "会话缓存服务异常"}
+	} else if !b || sig != util.SHA256(accessToken) {
+		return ex.Try{Code: http.StatusUnauthorized, Msg: "会话已被踢出", Err: err}
+	}
+	userId, _ := util.StrToInt64(sub)
+	self.Context.UserId = userId
+	self.Context.Session = session
 	return nil
 }
 
@@ -271,7 +277,11 @@ func (self *HttpNode) PostHandle(handle func(resp *Response, err error) error, e
 
 func (self *HttpNode) AfterCompletion(handle func(ctx *Context, resp *Response, err error) error, err error) error {
 	if handle != nil {
-		if err := handle(self.Context, self.Context.Response, err); err != nil {
+		if err != nil {
+			if err1 := ex.Catch(err); err1.Code >= ex.BIZ {
+				return err
+			}
+		} else if err := handle(self.Context, self.Context.Response, err); err != nil {
 			return err
 		}
 	} else if err != nil {
@@ -362,6 +372,12 @@ func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, an
 	if len(self.Context.Version) > 0 {
 		pattern = util.AddStr("/", self.Context.Version, pattern)
 	}
+	if self.SessionAware == nil {
+		panic("会话服务尚未初始化")
+	}
+	if self.CacheAware == nil {
+		panic("缓存服务尚未初始化")
+	}
 	http.DefaultServeMux.HandleFunc(pattern, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		anon := true
 		if anonymous != nil && len(anonymous) > 0 {
@@ -404,11 +420,15 @@ func (self *HttpNode) SetContentType(contentType string) {
 	self.Context.Output.Header().Set("Content-Type", contentType)
 }
 
-func (self *HttpNode) Connect(ctx *Context, s Session) error {
+func (self *HttpNode) Connect(ctx *Context, s Session, sub, token string) error {
 	if err := self.SessionAware.CreateSession(s); err != nil {
 		return err
 	}
 	ctx.Session = s
+	expire, _ := s.GetTimeout()
+	if err := self.CacheAware.Put(util.AddStr(JWT_SUB_, sub), util.SHA256(token), int(expire/1000)); err != nil {
+		return ex.Try{Code: http.StatusInternalServerError, Msg: "会话缓存服务异常"}
+	}
 	return nil
 }
 

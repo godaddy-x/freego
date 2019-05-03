@@ -1,6 +1,7 @@
 package node
 
 import (
+	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/component/jwt"
 	"net/http"
 )
@@ -30,6 +31,8 @@ const (
 	MAX_FIELD_LEN       = 25   // 最大参数名长度
 	MAX_QUERYSTRING_LEN = 1000 // 最大GET参数名长度
 	MAX_VALUE_LEN       = 4000 // 最大参数值长度
+
+	JWT_SUB_ = "jwt_sub_"
 )
 
 var (
@@ -55,7 +58,7 @@ type ProtocolNode interface {
 	// 初始化上下文
 	InitContext(ptr *NodePtr) error
 	// 初始化连接
-	Connect(ctx *Context, s Session) error
+	Connect(ctx *Context, s Session, sub, token string) error
 	// 关闭连接
 	Release(ctx *Context) error
 	// 校验会话
@@ -93,6 +96,7 @@ type ProtocolNode interface {
 type HookNode struct {
 	Context      *Context
 	SessionAware SessionAware
+	CacheAware   cache.ICache
 	OverrideFunc *OverrideFunc
 }
 

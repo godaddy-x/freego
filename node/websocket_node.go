@@ -33,7 +33,11 @@ func (self *WebsocketNode) InitContext(ptr *NodePtr) error {
 	} else {
 		node.OverrideFunc = self.OverrideFunc
 	}
+	if self.WSManager == nil {
+		return ex.Try{Code: http.StatusInternalServerError, Msg: "WS管理器尚未初始化"}
+	}
 	node.SessionAware = self.SessionAware
+	node.CacheAware = self.CacheAware
 	node.WSManager = self.WSManager
 	node.Context = &Context{
 		Host:      util.GetClientIp(input),
@@ -154,13 +158,17 @@ func (self *WebsocketNode) ValidSession() error {
 		self.SessionAware.DeleteSession(session)
 		return ex.Try{Code: http.StatusUnauthorized, Msg: "会话已失效"}
 	}
-	if sub, err := session.Validate(accessToken, self.Context.Security().SecretKey); err != nil {
+	sub, err := session.Validate(accessToken, self.Context.Security().SecretKey)
+	if err != nil {
 		return ex.Try{Code: http.StatusUnauthorized, Msg: "会话校验失败或已失效", Err: err}
-	} else {
-		userId, _ := util.StrToInt64(sub)
-		self.Context.UserId = userId
-		self.Context.Session = session
 	}
+	if sig, b, err := self.CacheAware.Get(util.AddStr(JWT_SUB_, sub), nil); err != nil {
+		return ex.Try{Code: http.StatusInternalServerError, Msg: "会话缓存服务异常"}
+	} else if !b || sig != util.SHA256(accessToken) {
+		return ex.Try{Code: http.StatusUnauthorized, Msg: "会话已被踢出", Err: err}
+	}
+	userId, _ := util.StrToInt64(sub)
+	self.Context.UserId = userId
 	self.Context.Session = session
 	return nil
 }
@@ -285,6 +293,12 @@ func (self *WebsocketNode) Router(pattern string, handle func(ctx *Context) erro
 	if len(self.Context.Version) > 0 {
 		pattern = util.AddStr("/", self.Context.Version, pattern)
 	}
+	if self.SessionAware == nil {
+		panic("会话服务尚未初始化")
+	}
+	if self.CacheAware == nil {
+		panic("缓存服务尚未初始化")
+	}
 	http.DefaultServeMux.HandleFunc(pattern, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		anon := true
 		if anonymous != nil && len(anonymous) > 0 {
@@ -317,11 +331,15 @@ func (self *WebsocketNode) SetContentType(contentType string) {
 	self.Context.Output.Header().Set("Content-Type", contentType)
 }
 
-func (self *WebsocketNode) Connect(ctx *Context, s Session) error {
+func (self *WebsocketNode) Connect(ctx *Context, s Session, sub, token string) error {
 	if err := self.SessionAware.CreateSession(s); err != nil {
 		return err
 	}
 	ctx.Session = s
+	expire, _ := s.GetTimeout()
+	if err := self.CacheAware.Put(util.AddStr(JWT_SUB_, sub), util.SHA256(token), int(expire/1000)); err != nil {
+		return ex.Try{Code: http.StatusInternalServerError, Msg: "会话缓存服务异常"}
+	}
 	return nil
 }
 

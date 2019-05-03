@@ -12,7 +12,7 @@ type LocalMapManager struct {
 }
 
 // a默认缓存时间/分钟 b默认校验数据间隔时间/分钟
-func (self *LocalMapManager) NewCache(a, b int) *LocalMapManager {
+func (self *LocalMapManager) NewCache(a, b int) ICache {
 	c := go_cache.New(time.Duration(a)*time.Minute, time.Duration(b)*time.Minute)
 	return &LocalMapManager{c: c}
 }
@@ -29,7 +29,7 @@ func (self *LocalMapManager) Put(key string, input interface{}, expire ...int) e
 	if expire != nil && len(expire) > 0 {
 		self.c.Set(key, input, time.Duration(expire[0])*time.Second)
 	} else {
-		self.c.Set(key, input, 15*24*time.Hour)
+		self.c.SetDefault(key, input)
 	}
 	return nil
 }

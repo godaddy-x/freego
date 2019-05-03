@@ -67,7 +67,7 @@ func BuildJWTSession(subject *jwt.Subject, author *jwt.Authorization) Session {
 	self := &JWTSession{}
 	self.Id = author.Signature
 	self.Host = subject.Payload.Aud
-	self.Timeout = subject.Payload.Exp
+	self.Timeout = subject.Payload.Exp - subject.Payload.Iat
 	self.StartTimestamp = author.AccessTime
 	self.LastAccessTime = author.AccessTime
 	self.Attributes = map[string]interface{}{}

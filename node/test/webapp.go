@@ -2,12 +2,14 @@ package http_web
 
 import (
 	"fmt"
+	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/component/jwt"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/node"
 )
 
 var (
+	local_cache = new(cache.LocalMapManager).NewCache(30, 10)
 	local_aware = node.NewLocalCacheSessionAware()
 )
 
@@ -40,7 +42,11 @@ func (self *MyWebNode) login(ctx *node.Context) error {
 			Exp: jwt.TWO_WEEK,
 		},
 	}
-	self.Connect(ctx, node.BuildJWTSession(subject, nil))
+	author, err := subject.Generate(GetSecurity().SecretKey)
+	if err != nil {
+		return ex.Try{ex.SYSTEM, "生成授权失败", err, nil}
+	}
+	self.Connect(ctx, node.BuildJWTSession(subject, author), subject.Payload.Sub, author.AccessToken)
 	return self.Json(ctx, map[string]interface{}{"token": ""})
 	//return self.Html(ctx, "/web/index.html", map[string]interface{}{"tewt": 1})
 }
@@ -55,7 +61,11 @@ func (self *MyWsNode) login(ctx *node.Context) error {
 			Exp: jwt.TWO_WEEK,
 		},
 	}
-	self.Connect(ctx, node.BuildJWTSession(subject, nil))
+	author, err := subject.Generate(GetSecurity().SecretKey)
+	if err != nil {
+		return ex.Try{ex.SYSTEM, "生成授权失败", err, nil}
+	}
+	self.Connect(ctx, node.BuildJWTSession(subject, author), subject.Payload.Sub, author.AccessToken)
 	return self.Json(ctx, map[string]interface{}{"token": ""})
 }
 
@@ -86,6 +96,7 @@ func StartHttpNode() *MyWebNode {
 		Security: GetSecurity,
 	}
 	my.SessionAware = local_aware
+	my.CacheAware = local_cache
 	my.OverrideFunc = &node.OverrideFunc{
 		GetHeaderFunc: nil,
 		GetParamsFunc: nil,
@@ -116,6 +127,7 @@ func StartWsNode() *MyWsNode {
 		Security: GetSecurity,
 	}
 	my.SessionAware = local_aware
+	my.CacheAware = local_cache
 	my.Router("/test2", my.test)
 	my.Router("/login2", my.login)
 	my.Router("/logout2", my.logout)
