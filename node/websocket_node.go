@@ -232,12 +232,15 @@ func (self *WebsocketNode) PostHandle(handle func(resp *Response, err error) err
 }
 
 func (self *WebsocketNode) AfterCompletion(handle func(ctx *Context, resp *Response, err error) error, err error) error {
+	var handle_err error
 	if handle != nil {
-		if err := handle(self.Context, self.Context.Response, err); err != nil {
-			return err
-		}
-	} else if err != nil {
+		handle_err = handle(self.Context, self.Context.Response, err)
+	}
+	if err != nil {
 		return err
+	}
+	if handle_err != nil {
+		return handle_err
 	}
 	return nil
 }

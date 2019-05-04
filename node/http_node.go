@@ -276,16 +276,15 @@ func (self *HttpNode) PostHandle(handle func(resp *Response, err error) error, e
 }
 
 func (self *HttpNode) AfterCompletion(handle func(ctx *Context, resp *Response, err error) error, err error) error {
+	var handle_err error
 	if handle != nil {
-		if err != nil {
-			if err1 := ex.Catch(err); err1.Code >= ex.BIZ {
-				return err
-			}
-		} else if err := handle(self.Context, self.Context.Response, err); err != nil {
-			return err
-		}
-	} else if err != nil {
+		handle_err = handle(self.Context, self.Context.Response, err)
+	}
+	if err != nil {
 		return err
+	}
+	if handle_err != nil {
+		return handle_err
 	}
 	return nil
 }
