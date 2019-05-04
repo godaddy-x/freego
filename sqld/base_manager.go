@@ -1094,17 +1094,19 @@ func (self *RDBManager) FindComplex(cnd *sqlc.Cnd, data interface{}) error {
 
 func (self *RDBManager) Close() error {
 	if *self.AutoTx && self.Tx != nil {
-		if self.Errors != nil && len(self.Errors) > 0 {
+		if self.Errors == nil && len(self.Errors) == 0 {
+			if err := self.Tx.Commit(); err != nil {
+				log.Error("事务提交失败", log.String("error", err.Error()))
+				return nil
+			}
+		} else {
 			if err := self.Tx.Rollback(); err != nil {
 				log.Error("事务回滚失败", log.String("error", err.Error()))
 			}
-		} else {
-			if err := self.Tx.Commit(); err != nil {
-				log.Error("事务提交失败", log.String("error", err.Error()))
-			}
+			return nil
 		}
 	}
-	if *self.MongoSync && len(self.MGOSyncData) > 0 {
+	if self.Errors == nil && len(self.Errors) == 0 && *self.MongoSync && len(self.MGOSyncData) > 0 {
 		for _, v := range self.MGOSyncData {
 			if len(v.CacheObject) > 0 {
 				if err := self.mongoSyncData(v.CacheOption, v.CacheModel, v.CacheObject...); err != nil {
