@@ -18,26 +18,26 @@ type HttpNode struct {
 
 func (self *HttpNode) GetHeader() error {
 	if self.OverrideFunc.GetHeaderFunc == nil {
-		r := self.Context.Input
-		headers := map[string]string{}
-		if len(r.Header) > 0 {
-			i := 0
-			for k, v := range r.Header {
-				i++
-				if i > MAX_HEADER_SIZE {
-					return ex.Try{Code: http.StatusLengthRequired, Msg: "请求头数量溢出: " + util.AnyToStr(i)}
-				}
-				if len(k) > MAX_FIELD_LEN {
-					return ex.Try{Code: http.StatusLengthRequired, Msg: "参数名长度溢出: " + util.AnyToStr(len(k))}
-				}
-				v0 := v[0]
-				if len(v0) > MAX_VALUE_LEN {
-					return ex.Try{Code: http.StatusLengthRequired, Msg: "参数值长度溢出: " + util.AnyToStr(len(v0))}
-				}
-				headers[k] = v0
-			}
-		}
-		self.Context.Headers = headers
+		//r := self.Context.Input
+		//headers := map[string]string{}
+		//if len(r.Header) > 0 {
+		//	i := 0
+		//	for k, v := range r.Header {
+		//		i++
+		//		if i > MAX_HEADER_SIZE {
+		//			return ex.Try{Code: http.StatusLengthRequired, Msg: "请求头数量溢出: " + util.AnyToStr(i)}
+		//		}
+		//		if len(k) > MAX_FIELD_LEN {
+		//			return ex.Try{Code: http.StatusLengthRequired, Msg: "参数名长度溢出: " + util.AnyToStr(len(k))}
+		//		}
+		//		v0 := v[0]
+		//		if len(v0) > MAX_VALUE_LEN {
+		//			return ex.Try{Code: http.StatusLengthRequired, Msg: "参数值长度溢出: " + util.AnyToStr(len(v0))}
+		//		}
+		//		headers[k] = v0
+		//	}
+		//}
+		//self.Context.Headers = headers
 		return nil
 	}
 	return self.OverrideFunc.GetHeaderFunc(self.Context)
@@ -47,40 +47,24 @@ func (self *HttpNode) GetParams() error {
 	if self.OverrideFunc.GetParamsFunc == nil {
 		r := self.Context.Input
 		r.ParseForm()
-		params := map[string]interface{}{}
-		if r.Method == GET {
-			i := 0
-			for k, v := range r.Form {
-				i++
-				if i > MAX_PARAMETER_SIZE {
-					return ex.Try{Code: http.StatusLengthRequired, Msg: "请求参数数量溢出: " + util.AnyToStr(i)}
-				}
-				if len(k) > MAX_FIELD_LEN {
-					return ex.Try{Code: http.StatusLengthRequired, Msg: "参数名长度溢出: " + util.AnyToStr(len(k))}
-				}
-				v0 := strings.Join(v, "")
-				if len(v0) > MAX_VALUE_LEN {
-					return ex.Try{Code: http.StatusLengthRequired, Msg: "参数值长度溢出: " + util.AnyToStr(len(v0))}
-				}
-				params[k] = v0
-			}
-		} else if r.Method == POST {
+		req := &ReqDto{}
+		if r.Method == POST {
 			result, err := ioutil.ReadAll(r.Body)
 			if err != nil {
-				return ex.Try{Code: http.StatusBadRequest, Msg: "获取请求参数失败", Err: err}
+				return ex.Try{Code: http.StatusBadRequest, Msg: "获取参数失败", Err: err}
 			}
 			r.Body.Close()
-			if len(result) > (MAX_VALUE_LEN * 2) {
+			if len(result) > (MAX_VALUE_LEN * 5) {
 				return ex.Try{Code: http.StatusLengthRequired, Msg: "参数值长度溢出: " + util.AnyToStr(len(result))}
 			}
-			if err := util.JsonUnmarshal(result, &params); err != nil {
-				return ex.Try{Code: http.StatusBadRequest, Msg: "请求参数读取失败", Err: err}
+			if err := util.JsonUnmarshal(result, req); err != nil {
+				return ex.Try{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err}
 			}
-			for k, _ := range params {
-				if len(k) > MAX_FIELD_LEN {
-					return ex.Try{Code: http.StatusBadRequest, Msg: "参数名长度溢出: " + util.AnyToStr(len(k))}
-				}
+			if err := self.Context.SecurityCheck(req, self.Context.Security().SecretKey); err != nil {
+				return err
 			}
+		} else if r.Method == GET {
+			// return ex.Try{Code: http.StatusUnsupportedMediaType, Msg: "暂不支持GET类型"}
 		} else if r.Method == PUT {
 			return ex.Try{Code: http.StatusUnsupportedMediaType, Msg: "暂不支持PUT类型"}
 		} else if r.Method == PATCH {
@@ -90,13 +74,7 @@ func (self *HttpNode) GetParams() error {
 		} else {
 			return ex.Try{Code: http.StatusUnsupportedMediaType, Msg: "未知的请求类型"}
 		}
-		reqDto := &ReqDto{}
-		if err := util.JsonToAny(params, reqDto); err != nil {
-			return ex.Try{Code: http.StatusBadRequest, Msg: "请求参数解析异常", Err: err}
-		} else if reqDto.Data == nil {
-			return ex.Try{Code: http.StatusBadRequest, Msg: "请求参数d解析为空"}
-		}
-		self.Context.Params = reqDto
+		self.Context.Params = req
 		return nil
 	}
 	return self.OverrideFunc.GetParamsFunc(self.Context)

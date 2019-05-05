@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"github.com/bwmarrin/snowflake"
 	"github.com/godaddy-x/freego/sqlc"
+	"github.com/godaddy-x/jorm/util"
 	"github.com/json-iterator/go"
 	"github.com/shopspring/decimal"
 	"io/ioutil"
@@ -246,6 +247,12 @@ func StrToInt64(str string) (int64, error) {
 		return 0, errors.New("string转int64失败")
 	}
 	return b, nil
+}
+
+// float64转int64
+func Float64ToInt64(f float64) int64 {
+	a := decimal.NewFromFloat(f)
+	return a.IntPart()
 }
 
 // 基础类型 int uint float string bool
@@ -519,4 +526,15 @@ func ForeverWait(msg string) error {
 	}()
 	<-c
 	return nil
+}
+
+// 通过jwt的签名重新生成密钥
+func GetAccessKeyByJWT(token, secret string) string {
+	if len(token) == 0 || len(token) < 64 {
+		return ""
+	}
+	part1 := util.Substr2(token, len(token)-39, len(token)-33)
+	part2 := util.Substr2(token, len(token)-35, len(token)-30)
+	part3 := util.Substr2(token, len(token)-53, len(token)-51)
+	return util.MD5(part3, part2, part1, secret)
 }

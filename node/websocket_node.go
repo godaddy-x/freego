@@ -89,16 +89,17 @@ func (self *WebsocketNode) newWSClient(w http.ResponseWriter, r *http.Request, u
 
 func (self *WebsocketNode) wsReadHandle(c *WSClient, rcvd []byte) error {
 	if rcvd == nil || len(rcvd) == 0 {
-		return self.RenderError(ex.Try{Code: http.StatusBadRequest, Msg: "请求数据不能为空"})
+		return self.RenderError(ex.Try{Code: http.StatusBadRequest, Msg: "获取参数失败"})
 	}
 	// 1.获取请求数据
-	reqDto := &ReqDto{}
-	if err := util.JsonUnmarshal(rcvd, reqDto); err != nil {
-		return self.RenderError(ex.Try{Code: http.StatusBadRequest, Msg: "请求数据读取失败", Err: err})
-	} else if reqDto.Data == nil {
-		return ex.Try{Code: http.StatusBadRequest, Msg: "请求参数d解析为空"}
+	req := &ReqDto{}
+	if err := util.JsonUnmarshal(rcvd, req); err != nil {
+		return self.RenderError(ex.Try{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err})
 	}
-	self.Context.Params = reqDto
+	if err := self.Context.SecurityCheck(req, self.Context.Security().SecretKey); err != nil {
+		return err
+	}
+	self.Context.Params = req
 	// false.已有会话 true.会话为空
 	state := false
 	// 2.判定或校验会话

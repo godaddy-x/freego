@@ -3,7 +3,10 @@ package node
 import (
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/component/jwt"
+	"github.com/godaddy-x/freego/ex"
+	"github.com/godaddy-x/freego/util"
 	"net/http"
+	"net/url"
 )
 
 const (
@@ -33,6 +36,13 @@ const (
 	MAX_VALUE_LEN       = 4000 // 最大参数值长度
 
 	JWT_SUB_ = "jwt_sub_"
+
+	Token = "a"
+	Data  = "d"
+	Key   = "k"
+	Nonce = "n"
+	Time  = "t"
+	Sign  = "g"
 )
 
 var (
@@ -105,6 +115,7 @@ type ReqDto struct {
 	Nonce string      `json:"n"`
 	Time  int64       `json:"t"`
 	Data  interface{} `json:"d"`
+	Sign  string      `json:"g"`
 }
 
 type RespDto struct {
@@ -172,4 +183,43 @@ func (self *Context) Authorized() bool {
 		return true
 	}
 	return false
+}
+
+// 按指定规则进行数据解码,校验参数安全
+func (self *Context) SecurityCheck(req *ReqDto, secret string) error {
+	d, _ := req.Data.(string)
+	if len(d) == 0 {
+		return ex.Try{Code: http.StatusBadRequest, Msg: "业务参数无效"}
+	}
+	if len(req.Sign) == 0 || len(req.Sign) != 32 {
+		return ex.Try{Code: http.StatusBadRequest, Msg: "签名参数无效"}
+	}
+	if len(req.Nonce) == 0 {
+		return ex.Try{Code: http.StatusBadRequest, Msg: "随机参数无效"}
+	}
+	if req.Time == 0 {
+		return ex.Try{Code: http.StatusBadRequest, Msg: "时间参数无效"}
+	} else if req.Time+300000 < util.Time() { // 判断时间是否超过5分钟
+		return ex.Try{Code: http.StatusBadRequest, Msg: "时间参数已过期"}
+	}
+	if !validSign(req, d, secret) {
+		return ex.Try{Code: http.StatusBadRequest, Msg: "签名参数校验失败"}
+	}
+	data := make(map[string]interface{})
+	if ret, err := url.QueryUnescape(d); err != nil {
+		return ex.Try{Code: http.StatusBadRequest, Msg: "业务参数解码失败"}
+	} else if err := util.JsonUnmarshal(util.Str2Bytes(ret), &data); err != nil {
+		return ex.Try{Code: http.StatusBadRequest, Msg: "业务参数解析失败"}
+	} else {
+		req.Data = data
+	}
+	return nil
+}
+
+// 校验签名有效性
+func validSign(req *ReqDto, data, secret string) bool {
+	token := req.Token
+	key := util.GetAccessKeyByJWT(token, secret)
+	sign_str := util.AddStr(Token, "=", token, "&", Data, "=", data, "&", Key, "=", key, "&", Nonce, "=", req.Nonce, "&", Time, "=", req.Time)
+	return req.Sign == util.MD5(sign_str)
 }

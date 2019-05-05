@@ -85,7 +85,7 @@ func TestMysqlSave(t *testing.T) {
 	}
 	defer db.Close()
 	vs := []interface{}{}
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 1; i++ {
 		wallet := OwWallet{
 			// AppID:        map[string]interface{}{"test": 1},
 			WalletID:     util.GetSnowFlakeStrID(),
