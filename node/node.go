@@ -6,7 +6,6 @@ import (
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/util"
 	"net/http"
-	"net/url"
 )
 
 const (
@@ -186,7 +185,7 @@ func (self *Context) Authorized() bool {
 }
 
 // 按指定规则进行数据解码,校验参数安全
-func (self *Context) SecurityCheck(req *ReqDto, secret string) error {
+func (self *Context) SecurityCheck(req *ReqDto) error {
 	d, _ := req.Data.(string)
 	if len(d) == 0 {
 		return ex.Try{Code: http.StatusBadRequest, Msg: "业务参数无效"}
@@ -202,16 +201,17 @@ func (self *Context) SecurityCheck(req *ReqDto, secret string) error {
 	} else if req.Time+300000 < util.Time() { // 判断时间是否超过5分钟
 		return ex.Try{Code: http.StatusBadRequest, Msg: "时间参数已过期"}
 	}
-	if !validSign(req, d, secret) {
+	if !validSign(req, d, self.Security().SecretKey) {
 		return ex.Try{Code: http.StatusBadRequest, Msg: "签名参数校验失败"}
 	}
 	data := make(map[string]interface{})
-	if ret, err := url.QueryUnescape(d); err != nil {
+	if ret := util.Base64URLDecode(d); ret == nil {
 		return ex.Try{Code: http.StatusBadRequest, Msg: "业务参数解码失败"}
-	} else if err := util.JsonUnmarshal(util.Str2Bytes(ret), &data); err != nil {
+	} else if err := util.JsonUnmarshal(ret, &data); err != nil {
 		return ex.Try{Code: http.StatusBadRequest, Msg: "业务参数解析失败"}
 	} else {
 		req.Data = data
+		self.Params = req
 	}
 	return nil
 }

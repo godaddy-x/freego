@@ -13,6 +13,7 @@ import (
 const (
 	JWT          = "JWT"
 	SHA256       = "SHA256"
+	MD5          = "MD5"
 	QUARTER_HOUR = int64(900000);
 	HALF_HOUR    = int64(3600000);
 	TWO_WEEK     = int64(1209600000);
@@ -38,16 +39,50 @@ type Header struct {
 }
 
 type Payload struct {
-	Sub string            `json:"sub"` // 用户主体
-	Dev string            `json:"dev"` // 设备类型
-	Aud string            `json:"aud"` // 接收token主体
-	Iss string            `json:"iss"` // 签发token主体
-	Iat int64             `json:"iat"` // 授权token时间
-	Exp int64             `json:"exp"` // 授权token过期时间
-	Rxp int64             `json:"rxp"` // 续期token过期时间
-	Nbf int64             `json:"nbf"` // 定义在什么时间之前,该token都是不可用的
-	Jti string            `json:"jti"` // 唯一身份标识,主要用来作为一次性token,从而回避重放攻击
-	Ext map[string]string `json:"ext"` // 扩展信息
+	Sub string `json:"sub"` // 用户主体
+	Dev string `json:"dev"` // 设备类型
+	Aud string `json:"aud"` // 接收token主体
+	Iss string `json:"iss"` // 签发token主体
+	Iat int64  `json:"iat"` // 授权token时间
+	Exp int64  `json:"exp"` // 授权token过期时间
+	Rxp int64  `json:"rxp"` // 续期token过期时间
+	Nbf int64  `json:"nbf"` // 定义在什么时间之前,该token都是不可用的
+	Jti string `json:"jti"` // 唯一身份标识,主要用来作为一次性token,从而回避重放攻击
+}
+
+func (self *Subject) GetAccessToken(secret_key string) (*Authorization, error) {
+	if len(secret_key) == 0 {
+		return nil, util.Error("secret key is nil")
+	}
+	if self.Header == nil {
+		return nil, util.Error("header is nil")
+	}
+	if self.Payload == nil {
+		return nil, util.Error("payload is nil")
+	}
+	msg, err := util.JsonMarshal(self)
+	if err != nil {
+		return nil, err
+	}
+	var content, signature, r_signature string
+	content = util.Base64URLEncode(msg)
+	if self.Header.Alg == MD5 {
+		signature = util.MD5(secret_key, content)
+		r_signature = util.MD5(util.AddStr(content, ".", signature, ".", secret_key))
+	} else if self.Header.Alg == SHA256 {
+		signature = util.SHA256(secret_key, content)
+		r_signature = util.SHA256(util.AddStr(content, ".", signature, ".", secret_key))
+	} else {
+		return nil, util.Error("alg [", self.Header.Alg, "] is error")
+	}
+	token := util.AddStr(content, ".", signature)
+	return &Authorization{
+		self.Payload.Iat,
+		token,
+		r_signature,
+		signature,
+		util.GetAccessKeyByJWT(token, secret_key),
+	}, nil
 }
 
 // 生成Token
@@ -64,17 +99,14 @@ func (self *Subject) Generate(secret string, refresh ...bool) (*Authorization, e
 	if len(self.Payload.Iss) == 0 {
 		return nil, util.Error("payload.iss is nil")
 	}
-	if self.Payload.Ext == nil {
-		self.Payload.Ext = make(map[string]string, 0)
-	}
 	if self.Header == nil {
-		self.Header = &Header{Typ: JWT, Alg: SHA256, Nod: 0}
+		self.Header = &Header{Typ: JWT, Alg: MD5, Nod: 0}
 	} else if len(self.Header.Typ) == 0 {
 		return nil, util.Error("header.typ is nil")
 	} else if len(self.Header.Alg) == 0 {
 		return nil, util.Error("header.alg is nil")
 	}
-	self.Payload.Jti = util.SHA256(util.GetSnowFlakeStrID(self.Header.Nod))
+	self.Payload.Jti = util.MD5(util.GetSnowFlakeStrID(self.Header.Nod))
 	self.Payload.Iat = util.Time()
 	if self.Payload.Exp <= 0 {
 		self.Payload.Exp = self.Payload.Iat + HALF_HOUR
@@ -115,10 +147,10 @@ func (self *Subject) Generate(secret string, refresh ...bool) (*Authorization, e
 	if len(h_str) == 0 || len(p_str) == 0 {
 		return nil, err
 	}
-	signature := util.SHA256(util.AddStr(h_str, ".", p_str, ".", secret))
+	signature := util.MD5(util.AddStr(h_str, ".", p_str, ".", secret))
 	accessToken := util.AddStr(h_str, ".", p_str, ".", signature)
 	accessTime := self.Payload.Iat
-	refreshToken := util.SHA256(util.AddStr(accessToken, ".", util.AnyToStr(accessTime), ".", secret))
+	refreshToken := util.MD5(util.AddStr(accessToken, ".", util.AnyToStr(accessTime), ".", secret))
 	return &Authorization{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,
@@ -144,17 +176,20 @@ func (self *Subject) ValidByRefresh(accessToken, secret string, refresh bool) er
 	if len(spl) != 3 {
 		return util.Error("accessToken is nil")
 	}
-	if len(spl[0]) == 0 || len(spl[1]) == 0 || len(spl[2]) != 64 {
+	spl0 := spl[0]
+	spl1 := spl[1]
+	spl2 := spl[2]
+	if len(spl0) == 0 || len(spl1) == 0 || len(spl2) < 32 {
 		return util.Error("message is nil")
 	}
-	if util.SHA256(util.AddStr(spl[0], ".", spl[1], ".", secret)) != spl[2] {
+	if util.MD5(util.AddStr(spl0, ".", spl1, ".", secret)) != spl2 {
 		return util.Error("accessToken invalid")
 	}
-	h_str := util.Base64URLDecode(spl[0])
+	h_str := util.Base64URLDecode(spl0)
 	if len(h_str) == 0 {
 		return util.Error("header is nil")
 	}
-	p_str := util.Base64URLDecode(spl[1])
+	p_str := util.Base64URLDecode(spl1)
 	if len(p_str) == 0 {
 		return util.Error("payload is nil")
 	}
@@ -207,7 +242,7 @@ func (self *Subject) Refresh(accessToken, refreshToken, secret string, accessTim
 			return nil, util.Error("it must be more than ", interval[0], " milliseconds")
 		}
 	}
-	validRefreshToken := util.SHA256(util.AddStr(accessToken, ".", accessTime, ".", secret))
+	validRefreshToken := util.MD5(util.AddStr(accessToken, ".", accessTime, ".", secret))
 	if validRefreshToken != refreshToken {
 		return nil, util.Error("refreshToken invalid")
 	}
@@ -227,7 +262,6 @@ func (self *Subject) Refresh(accessToken, refreshToken, secret string, accessTim
 		Exp: self.Payload.Exp - self.Payload.Iat,
 		Rxp: self.Payload.Rxp,
 		Nbf: self.Payload.Nbf,
-		Ext: self.Payload.Ext,
 	}
 	subject := &Subject{Header: self.Header, Payload: payload}
 	if rs, err := subject.Generate(secret, true); err != nil {

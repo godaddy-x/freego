@@ -60,7 +60,7 @@ func (self *HttpNode) GetParams() error {
 			if err := util.JsonUnmarshal(result, req); err != nil {
 				return ex.Try{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err}
 			}
-			if err := self.Context.SecurityCheck(req, self.Context.Security().SecretKey); err != nil {
+			if err := self.Context.SecurityCheck(req); err != nil {
 				return err
 			}
 		} else if r.Method == GET {
@@ -74,7 +74,6 @@ func (self *HttpNode) GetParams() error {
 		} else {
 			return ex.Try{Code: http.StatusUnsupportedMediaType, Msg: "未知的请求类型"}
 		}
-		self.Context.Params = req
 		return nil
 	}
 	return self.OverrideFunc.GetParamsFunc(self.Context)
@@ -170,7 +169,7 @@ func (self *HttpNode) ValidSession() error {
 	}
 	if sig, b, err := self.CacheAware.Get(util.AddStr(JWT_SUB_, sub), nil); err != nil {
 		return ex.Try{Code: http.StatusInternalServerError, Msg: "会话缓存服务异常"}
-	} else if !b || sig != util.SHA256(accessToken) {
+	} else if !b || sig != util.MD5(accessToken) {
 		return ex.Try{Code: http.StatusUnauthorized, Msg: "会话已被踢出", Err: err}
 	}
 	userId, _ := util.StrToInt64(sub)
@@ -403,7 +402,7 @@ func (self *HttpNode) Connect(ctx *Context, s Session, sub, token string) error 
 	}
 	ctx.Session = s
 	expire, _ := s.GetTimeout()
-	if err := self.CacheAware.Put(util.AddStr(JWT_SUB_, sub), util.SHA256(token), int(expire/1000)); err != nil {
+	if err := self.CacheAware.Put(util.AddStr(JWT_SUB_, sub), util.MD5(token), int(expire/1000)); err != nil {
 		return ex.Try{Code: http.StatusInternalServerError, Msg: "会话缓存服务异常"}
 	}
 	return nil

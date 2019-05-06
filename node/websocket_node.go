@@ -96,10 +96,9 @@ func (self *WebsocketNode) wsReadHandle(c *WSClient, rcvd []byte) error {
 	if err := util.JsonUnmarshal(rcvd, req); err != nil {
 		return self.RenderError(ex.Try{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err})
 	}
-	if err := self.Context.SecurityCheck(req, self.Context.Security().SecretKey); err != nil {
+	if err := self.Context.SecurityCheck(req); err != nil {
 		return err
 	}
-	self.Context.Params = req
 	// false.已有会话 true.会话为空
 	state := false
 	// 2.判定或校验会话
@@ -165,7 +164,7 @@ func (self *WebsocketNode) ValidSession() error {
 	}
 	if sig, b, err := self.CacheAware.Get(util.AddStr(JWT_SUB_, sub), nil); err != nil {
 		return ex.Try{Code: http.StatusInternalServerError, Msg: "会话缓存服务异常"}
-	} else if !b || sig != util.SHA256(accessToken) {
+	} else if !b || sig != util.MD5(accessToken) {
 		return ex.Try{Code: http.StatusUnauthorized, Msg: "会话已被踢出", Err: err}
 	}
 	userId, _ := util.StrToInt64(sub)
@@ -341,7 +340,7 @@ func (self *WebsocketNode) Connect(ctx *Context, s Session, sub, token string) e
 	}
 	ctx.Session = s
 	expire, _ := s.GetTimeout()
-	if err := self.CacheAware.Put(util.AddStr(JWT_SUB_, sub), util.SHA256(token), int(expire/1000)); err != nil {
+	if err := self.CacheAware.Put(util.AddStr(JWT_SUB_, sub), util.MD5(token), int(expire/1000)); err != nil {
 		return ex.Try{Code: http.StatusInternalServerError, Msg: "会话缓存服务异常"}
 	}
 	return nil

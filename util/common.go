@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"github.com/bwmarrin/snowflake"
 	"github.com/godaddy-x/freego/sqlc"
-	"github.com/godaddy-x/jorm/util"
 	"github.com/json-iterator/go"
 	"github.com/shopspring/decimal"
 	"io/ioutil"
@@ -528,13 +527,10 @@ func ForeverWait(msg string) error {
 	return nil
 }
 
-// 通过jwt的签名重新生成密钥
+// 通过JWT的签名生成授权密钥
 func GetAccessKeyByJWT(token, secret string) string {
-	if len(token) == 0 || len(token) < 64 {
+	if len(token) == 0 || len(token) < 32 {
 		return ""
 	}
-	part1 := util.Substr2(token, len(token)-39, len(token)-33)
-	part2 := util.Substr2(token, len(token)-35, len(token)-30)
-	part3 := util.Substr2(token, len(token)-53, len(token)-51)
-	return util.MD5(part3, part2, part1, secret)
+	return MD5(MD5(token, secret), secret)
 }
