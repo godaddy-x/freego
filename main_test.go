@@ -384,7 +384,7 @@ func TestRedis(t *testing.T) {
 }
 
 func TestEX(t *testing.T) {
-	e := ex.Try{ex.UNKNOWN, "sss", errors.New("ss"), nil}
+	e := ex.Throw{ex.UNKNOWN, "sss", errors.New("ss"), nil}
 	s := ex.Catch(e)
 	fmt.Println(s)
 }

@@ -2,7 +2,6 @@ package node
 
 import (
 	"github.com/godaddy-x/freego/cache"
-	"github.com/godaddy-x/freego/component/jwt"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/util"
 	"net/http"
@@ -127,8 +126,7 @@ type RespDto struct {
 }
 
 type Security struct {
-	Subject   *jwt.Subject
-	SecretKey string
+	JwtSecretKey string
 }
 
 type Context struct {
@@ -190,27 +188,27 @@ func (self *Context) Authorized() bool {
 func (self *Context) SecurityCheck(req *ReqDto) error {
 	d, _ := req.Data.(string)
 	if len(d) == 0 {
-		return ex.Try{Code: http.StatusBadRequest, Msg: "业务参数无效"}
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "业务参数无效"}
 	}
 	if len(req.Sign) == 0 || len(req.Sign) != 32 {
-		return ex.Try{Code: http.StatusBadRequest, Msg: "签名参数无效"}
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "签名参数无效"}
 	}
 	if len(req.Nonce) == 0 {
-		return ex.Try{Code: http.StatusBadRequest, Msg: "随机参数无效"}
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "随机参数无效"}
 	}
 	if req.Time == 0 {
-		return ex.Try{Code: http.StatusBadRequest, Msg: "时间参数无效"}
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "时间参数无效"}
 	} else if req.Time+300000 < util.Time() { // 判断时间是否超过5分钟
-		return ex.Try{Code: http.StatusBadRequest, Msg: "时间参数已过期"}
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "时间参数已过期"}
 	}
 	if !validSign(req, d, self.Security().SecretKey) {
-		return ex.Try{Code: http.StatusBadRequest, Msg: "签名参数校验失败"}
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "签名参数校验失败"}
 	}
 	data := make(map[string]interface{})
 	if ret := util.Base64URLDecode(d); ret == nil {
-		return ex.Try{Code: http.StatusBadRequest, Msg: "业务参数解码失败"}
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "业务参数解码失败"}
 	} else if err := util.JsonUnmarshal(ret, &data); err != nil {
-		return ex.Try{Code: http.StatusBadRequest, Msg: "业务参数解析失败"}
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "业务参数解析失败"}
 	} else {
 		req.Data = data
 		self.Params = req

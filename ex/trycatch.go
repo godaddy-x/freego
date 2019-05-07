@@ -40,19 +40,19 @@ var (
 )
 
 type ILogger interface {
-	Log(try Try) error
+	Log(throw Throw) error
 }
 
 type LocalWriter int
 
-func (self LocalWriter) Log(try Try) error {
-	if try.Code > BIZ {
-		log.Println(try.Err)
+func (self LocalWriter) Log(throw Throw) error {
+	if throw.Code > BIZ {
+		log.Println(throw.Err)
 	}
 	return nil
 }
 
-type Try struct {
+type Throw struct {
 	Code int         `json:"code"`
 	Msg  string      `json:"msg"`
 	Err  error       `json:"-"`
@@ -68,7 +68,7 @@ func InitLogAdapter(input ILogger) error {
 	return nil
 }
 
-func (self Try) Error() string {
+func (self Throw) Error() string {
 	if self.Code == 0 {
 		self.Code = BIZ
 	}
@@ -85,14 +85,14 @@ func (self Try) Error() string {
 	return ""
 }
 
-func Catch(err error) Try {
+func Catch(err error) Throw {
 	s := err.Error()
 	if strings.HasPrefix(s, "{") && strings.HasSuffix(s, "}") {
-		ex := Try{}
+		ex := Throw{}
 		if err := util.JsonUnmarshal(util.Str2Bytes(s), &ex); err != nil {
-			return Try{UNKNOWN, util.AddStr("未知异常错误: ", err.Error()), nil, err}
+			return Throw{UNKNOWN, util.AddStr("未知异常错误: ", err.Error()), nil, err}
 		}
 		return ex
 	}
-	return Try{UNKNOWN, s, nil, nil}
+	return Throw{UNKNOWN, s, nil, nil}
 }

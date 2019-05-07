@@ -24,12 +24,12 @@ type MyWsNode struct {
 func (self *MyWebNode) test(ctx *node.Context) error {
 	//return self.Html(ctx, "/resource/index.html", map[string]interface{}{"tewt": 1})
 	//return self.Json(ctx, map[string]interface{}{"tewt": 1})
-	return ex.Try{Code: ex.BIZ, Msg: "测试错误"}
+	return ex.Throw{Code: ex.BIZ, Msg: "测试错误"}
 }
 
 func (self *MyWsNode) test(ctx *node.Context) error {
 	// return self.Json(ctx, map[string]interface{}{"tewt": 1})
-	return ex.Try{Code: ex.BIZ, Msg: "测试错误"}
+	return ex.Throw{Code: ex.BIZ, Msg: "测试错误"}
 }
 
 func (self *MyWebNode) login(ctx *node.Context) error {
@@ -48,7 +48,7 @@ func (self *MyWebNode) login(ctx *node.Context) error {
 	}
 	author, err := subject.GetAuthorization(GetSecurity().SecretKey)
 	if err != nil {
-		return ex.Try{ex.SYSTEM, "生成授权失败", err, nil}
+		return ex.Throw{ex.SYSTEM, "生成授权失败", err, nil}
 	}
 	self.ApplySignatureKey(subject.Payload.Sub, author.SignatureKey, exp)
 	return self.Json(ctx, map[string]interface{}{"token": ""})
@@ -71,7 +71,7 @@ func (self *MyWsNode) login(ctx *node.Context) error {
 	}
 	author, err := subject.GetAuthorization(GetSecurity().SecretKey)
 	if err != nil {
-		return ex.Try{ex.SYSTEM, "生成授权失败", err, nil}
+		return ex.Throw{ex.SYSTEM, "生成授权失败", err, nil}
 	}
 	self.ApplySignatureKey(subject.Payload.Sub, author.SignatureKey, exp)
 	return self.Json(ctx, map[string]interface{}{"token": ""})

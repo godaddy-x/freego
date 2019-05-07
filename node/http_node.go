@@ -19,26 +19,6 @@ type HttpNode struct {
 
 func (self *HttpNode) GetHeader() error {
 	if self.OverrideFunc.GetHeaderFunc == nil {
-		//r := self.Context.Input
-		//headers := map[string]string{}
-		//if len(r.Header) > 0 {
-		//	i := 0
-		//	for k, v := range r.Header {
-		//		i++
-		//		if i > MAX_HEADER_SIZE {
-		//			return ex.Try{Code: http.StatusLengthRequired, Msg: "请求头数量溢出: " + util.AnyToStr(i)}
-		//		}
-		//		if len(k) > MAX_FIELD_LEN {
-		//			return ex.Try{Code: http.StatusLengthRequired, Msg: "参数名长度溢出: " + util.AnyToStr(len(k))}
-		//		}
-		//		v0 := v[0]
-		//		if len(v0) > MAX_VALUE_LEN {
-		//			return ex.Try{Code: http.StatusLengthRequired, Msg: "参数值长度溢出: " + util.AnyToStr(len(v0))}
-		//		}
-		//		headers[k] = v0
-		//	}
-		//}
-		//self.Context.Headers = headers
 		return nil
 	}
 	return self.OverrideFunc.GetHeaderFunc(self.Context)
@@ -52,28 +32,28 @@ func (self *HttpNode) GetParams() error {
 		if r.Method == POST {
 			result, err := ioutil.ReadAll(r.Body)
 			if err != nil {
-				return ex.Try{Code: http.StatusBadRequest, Msg: "获取参数失败", Err: err}
+				return ex.Throw{Code: http.StatusBadRequest, Msg: "获取参数失败", Err: err}
 			}
 			r.Body.Close()
 			if len(result) > (MAX_VALUE_LEN * 5) {
-				return ex.Try{Code: http.StatusLengthRequired, Msg: "参数值长度溢出: " + util.AnyToStr(len(result))}
+				return ex.Throw{Code: http.StatusLengthRequired, Msg: "参数值长度溢出: " + util.AnyToStr(len(result))}
 			}
 			if err := util.JsonUnmarshal(result, req); err != nil {
-				return ex.Try{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err}
+				return ex.Throw{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err}
 			}
 			if err := self.Context.SecurityCheck(req); err != nil {
 				return err
 			}
 		} else if r.Method == GET {
-			// return ex.Try{Code: http.StatusUnsupportedMediaType, Msg: "暂不支持GET类型"}
+			// return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "暂不支持GET类型"}
 		} else if r.Method == PUT {
-			return ex.Try{Code: http.StatusUnsupportedMediaType, Msg: "暂不支持PUT类型"}
+			return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "暂不支持PUT类型"}
 		} else if r.Method == PATCH {
-			return ex.Try{Code: http.StatusUnsupportedMediaType, Msg: "暂不支持PATCH类型"}
+			return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "暂不支持PATCH类型"}
 		} else if r.Method == DELETE {
-			return ex.Try{Code: http.StatusUnsupportedMediaType, Msg: "暂不支持DELETE类型"}
+			return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "暂不支持DELETE类型"}
 		} else {
-			return ex.Try{Code: http.StatusUnsupportedMediaType, Msg: "未知的请求类型"}
+			return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "未知的请求类型"}
 		}
 		return nil
 	}
@@ -142,34 +122,34 @@ func (self *HttpNode) ValidSession() error {
 	access_token := self.Context.Params.Token
 	if len(access_token) == 0 {
 		if !self.Context.Anonymous {
-			return ex.Try{Code: http.StatusUnauthorized, Msg: "获取授权令牌失败"}
+			return ex.Throw{Code: http.StatusUnauthorized, Msg: "获取授权令牌失败"}
 		}
 		return nil
 	}
 	checker, err := new(jwt.Subject).GetSubjectChecker(access_token)
 	if err != nil {
-		return ex.Try{Code: http.StatusUnauthorized, Msg: "授权令牌无效", Err: err}
+		return ex.Throw{Code: http.StatusUnauthorized, Msg: "授权令牌无效", Err: err}
 	}
 	// 获取缓存的sub->signature key
 	sub := checker.Subject.Payload.Sub
 	sub_key := util.AddStr(JWT_SUB_, sub)
-	secret_key := self.Context.Security().SecretKey
+	secret_key := self.Context.Security().JwtSecretKey
 	if sigkey, b, err := self.CacheAware.Get(sub_key, nil); err != nil {
-		return ex.Try{Code: http.StatusInternalServerError, Msg: "缓存服务异常"}
+		return ex.Throw{Code: http.StatusInternalServerError, Msg: "缓存服务异常"}
 	} else if !b {
-		return ex.Try{Code: http.StatusUnauthorized, Msg: "会话获取失败或已失效"}
+		return ex.Throw{Code: http.StatusUnauthorized, Msg: "会话获取失败或已失效"}
 	} else if v, b := sigkey.(string); !b {
-		return ex.Try{Code: http.StatusUnauthorized, Msg: "会话签名密钥无效"}
+		return ex.Throw{Code: http.StatusUnauthorized, Msg: "会话签名密钥无效"}
 	} else if err := checker.Authentication(v, secret_key); err != nil {
-		return ex.Try{Code: http.StatusUnauthorized, Msg: "会话签名校验失败"}
+		return ex.Throw{Code: http.StatusUnauthorized, Msg: "会话签名校验失败"}
 	}
 	session := BuildJWTSession(checker)
 	if session == nil {
-		return ex.Try{Code: http.StatusUnauthorized, Msg: "创建会话失败"}
+		return ex.Throw{Code: http.StatusUnauthorized, Msg: "创建会话失败"}
 	} else if session.Invalid() {
-		return ex.Try{Code: http.StatusUnauthorized, Msg: "会话已失效"}
+		return ex.Throw{Code: http.StatusUnauthorized, Msg: "会话已失效"}
 	} else if session.IsTimeout() {
-		return ex.Try{Code: http.StatusUnauthorized, Msg: "会话已过期"}
+		return ex.Throw{Code: http.StatusUnauthorized, Msg: "会话已过期"}
 	}
 	userId, _ := util.StrToInt64(sub)
 	self.Context.UserId = userId
@@ -261,7 +241,7 @@ func (self *HttpNode) RenderError(err error) error {
 		http_code := out.Code
 		if http_code > http.StatusInternalServerError { // 大于500的都属于业务异常代码,重定义http错误代码为600
 			http_code = 600
-			out = ex.Try{Code: out.Code, Msg: out.Msg}
+			out = ex.Throw{Code: out.Code, Msg: out.Msg}
 		}
 		resp := &RespDto{
 			Status:  out.Code,
@@ -308,13 +288,13 @@ func (self *HttpNode) RenderTo() error {
 			resp.Data = make(map[string]interface{})
 		}
 		if result, err := util.JsonMarshal(resp); err != nil {
-			return ex.Try{Code: http.StatusInternalServerError, Msg: "响应数据异常", Err: err}
+			return ex.Throw{Code: http.StatusInternalServerError, Msg: "响应数据异常", Err: err}
 		} else {
 			self.SetContentType(APPLICATION_JSON)
 			self.Context.Output.Write(result)
 		}
 	default:
-		return ex.Try{Code: http.StatusUnsupportedMediaType, Msg: "无效的响应格式"}
+		return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "无效的响应格式"}
 	}
 	return nil
 }
@@ -353,10 +333,10 @@ func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, an
 
 func (self *HttpNode) Html(ctx *Context, view string, data interface{}) error {
 	if len(ctx.Response.TemplDir) == 0 {
-		return ex.Try{Code: http.StatusNotFound, Msg: "模版目录尚未设置"}
+		return ex.Throw{Code: http.StatusNotFound, Msg: "模版目录尚未设置"}
 	}
 	if len(view) == 0 {
-		return ex.Try{Code: http.StatusNotFound, Msg: "模版文件尚未设置"}
+		return ex.Throw{Code: http.StatusNotFound, Msg: "模版文件尚未设置"}
 	}
 	ctx.Response.ContentEncoding = UTF8
 	ctx.Response.ContentType = TEXT_HTML
@@ -394,7 +374,7 @@ func (self *HttpNode) Release(ctx *Context) error {
 
 func (self *HttpNode) ApplySignatureKey(sub, key string, exp int64) error {
 	if err := self.CacheAware.Put(util.AddStr(JWT_SUB_, sub), key, int(exp/1000)); err != nil {
-		return ex.Try{Code: http.StatusInternalServerError, Msg: "初始化用户密钥失败", Err: err}
+		return ex.Throw{Code: http.StatusInternalServerError, Msg: "初始化用户密钥失败", Err: err}
 	}
 	return nil
 }

@@ -111,7 +111,7 @@ func (self *WSManager) validator() {
 		for _, v := range wss {
 			if util.Time()-v.access > self.timeout {
 				log.Debug("/A websocket validator disconnected.", log.String("id", v.id))
-				v.send <- WSMessage{MessageType: websocket.CloseMessage, Content: util.Str2Bytes(ex.Try{Code: http.StatusRequestTimeout, Msg: "连接超时已断开"}.Error())}
+				v.send <- WSMessage{MessageType: websocket.CloseMessage, Content: util.Str2Bytes(ex.Throw{Code: http.StatusRequestTimeout, Msg: "连接超时已断开"}.Error())}
 			}
 		}
 		log.Debug("/A websocket validator finished processing.")

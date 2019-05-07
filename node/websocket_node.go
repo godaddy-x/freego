@@ -35,7 +35,7 @@ func (self *WebsocketNode) InitContext(ptr *NodePtr) error {
 		node.OverrideFunc = self.OverrideFunc
 	}
 	if self.WSManager == nil {
-		return ex.Try{Code: http.StatusInternalServerError, Msg: "WS管理器尚未初始化"}
+		return ex.Throw{Code: http.StatusInternalServerError, Msg: "WS管理器尚未初始化"}
 	}
 	node.SessionAware = self.SessionAware
 	node.CacheAware = self.CacheAware
@@ -60,7 +60,7 @@ func (self *WebsocketNode) InitContext(ptr *NodePtr) error {
 
 func (self *WebsocketNode) InitWebsocket(ptr *NodePtr) error {
 	if ws, err := self.newWSClient(self.Context.Output, self.Context.Input, util.GetSnowFlakeStrID(), self.wsReadHandle, ptr.Handle); err != nil {
-		return ex.Try{Code: http.StatusInternalServerError, Msg: "建立websocket连接失败", Err: err}
+		return ex.Throw{Code: http.StatusInternalServerError, Msg: "建立websocket连接失败", Err: err}
 	} else {
 		self.WSClient = ws
 	}
@@ -90,12 +90,12 @@ func (self *WebsocketNode) newWSClient(w http.ResponseWriter, r *http.Request, u
 
 func (self *WebsocketNode) wsReadHandle(c *WSClient, rcvd []byte) error {
 	if rcvd == nil || len(rcvd) == 0 {
-		return self.RenderError(ex.Try{Code: http.StatusBadRequest, Msg: "获取参数失败"})
+		return self.RenderError(ex.Throw{Code: http.StatusBadRequest, Msg: "获取参数失败"})
 	}
 	// 1.获取请求数据
 	req := &ReqDto{}
 	if err := util.JsonUnmarshal(rcvd, req); err != nil {
-		return self.RenderError(ex.Try{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err})
+		return self.RenderError(ex.Throw{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err})
 	}
 	if err := self.Context.SecurityCheck(req); err != nil {
 		return err
@@ -109,9 +109,9 @@ func (self *WebsocketNode) wsReadHandle(c *WSClient, rcvd []byte) error {
 		}
 		state = true
 	} else if self.Context.Session.Invalid() {
-		return self.RenderError(ex.Try{Code: http.StatusUnauthorized, Msg: "会话已失效"})
+		return self.RenderError(ex.Throw{Code: http.StatusUnauthorized, Msg: "会话已失效"})
 	} else if self.Context.Session.IsTimeout() {
-		return self.RenderError(ex.Try{Code: http.StatusUnauthorized, Msg: "会话已超时"})
+		return self.RenderError(ex.Throw{Code: http.StatusUnauthorized, Msg: "会话已超时"})
 	}
 	err := func() error {
 		// 3.上下文前置检测方法
@@ -134,39 +134,39 @@ func (self *WebsocketNode) wsReadHandle(c *WSClient, rcvd []byte) error {
 
 func (self *WebsocketNode) ValidSession() error {
 	//if self.SessionAware == nil {
-	//	return ex.Try{Code: http.StatusInternalServerError, Msg: "会话管理器尚未初始化"}
+	//	return ex.Throw{Code: http.StatusInternalServerError, Msg: "会话管理器尚未初始化"}
 	//}
 	access_token := self.Context.Params.Token
 	if len(access_token) == 0 {
 		if !self.Context.Anonymous {
-			return ex.Try{Code: http.StatusUnauthorized, Msg: "获取授权令牌失败"}
+			return ex.Throw{Code: http.StatusUnauthorized, Msg: "获取授权令牌失败"}
 		}
 		return nil
 	}
 	checker, err := new(jwt.Subject).GetSubjectChecker(access_token)
 	if err != nil {
-		return ex.Try{Code: http.StatusUnauthorized, Msg: "授权令牌无效", Err: err}
+		return ex.Throw{Code: http.StatusUnauthorized, Msg: "授权令牌无效", Err: err}
 	}
 	// 获取缓存的sub->signature key
 	sub := checker.Subject.Payload.Sub
 	sub_key := util.AddStr(JWT_SUB_, sub)
-	secret_key := self.Context.Security().SecretKey
+	secret_key := self.Context.Security().JwtSecretKey
 	if sigkey, b, err := self.CacheAware.Get(sub_key, nil); err != nil {
-		return ex.Try{Code: http.StatusInternalServerError, Msg: "缓存服务异常"}
+		return ex.Throw{Code: http.StatusInternalServerError, Msg: "缓存服务异常"}
 	} else if !b {
-		return ex.Try{Code: http.StatusUnauthorized, Msg: "会话获取失败或已失效"}
+		return ex.Throw{Code: http.StatusUnauthorized, Msg: "会话获取失败或已失效"}
 	} else if v, b := sigkey.(string); !b {
-		return ex.Try{Code: http.StatusUnauthorized, Msg: "会话签名密钥无效"}
+		return ex.Throw{Code: http.StatusUnauthorized, Msg: "会话签名密钥无效"}
 	} else if err := checker.Authentication(v, secret_key); err != nil {
-		return ex.Try{Code: http.StatusUnauthorized, Msg: "会话签名校验失败"}
+		return ex.Throw{Code: http.StatusUnauthorized, Msg: "会话签名校验失败"}
 	}
 	session := BuildJWTSession(checker)
 	if session == nil {
-		return ex.Try{Code: http.StatusUnauthorized, Msg: "创建会话失败"}
+		return ex.Throw{Code: http.StatusUnauthorized, Msg: "创建会话失败"}
 	} else if session.Invalid() {
-		return ex.Try{Code: http.StatusUnauthorized, Msg: "会话已失效"}
+		return ex.Throw{Code: http.StatusUnauthorized, Msg: "会话已失效"}
 	} else if session.IsTimeout() {
-		return ex.Try{Code: http.StatusUnauthorized, Msg: "会话已过期"}
+		return ex.Throw{Code: http.StatusUnauthorized, Msg: "会话已过期"}
 	}
 	userId, _ := util.StrToInt64(sub)
 	self.Context.UserId = userId
@@ -253,13 +253,13 @@ func (self *WebsocketNode) RenderTo() error {
 			self.WSClient.send <- WSMessage{MessageType: websocket.TextMessage, Content: result}
 		}
 	default:
-		return ex.Try{Code: http.StatusUnsupportedMediaType, Msg: "无效的响应格式"}
+		return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "无效的响应格式"}
 	}
 	return nil
 }
 
 func (self *WebsocketNode) sendJsonConvertError(err error) error {
-	out := ex.Try{Code: http.StatusUnsupportedMediaType, Msg: "系统发生未知错误", Err: util.Error("JSON对象转换失败: ", err.Error())}
+	out := ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "系统发生未知错误", Err: util.Error("JSON对象转换失败: ", err.Error())}
 	return self.RenderError(out)
 }
 
@@ -334,7 +334,7 @@ func (self *WebsocketNode) Release(ctx *Context) error {
 
 func (self *WebsocketNode) ApplySignatureKey(sub, key string, exp int64) error {
 	if err := self.CacheAware.Put(util.AddStr(JWT_SUB_, sub), key, int(exp/1000)); err != nil {
-		return ex.Try{Code: http.StatusInternalServerError, Msg: "初始化用户密钥失败", Err: err}
+		return ex.Throw{Code: http.StatusInternalServerError, Msg: "初始化用户密钥失败", Err: err}
 	}
 	return nil
 }
