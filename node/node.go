@@ -67,7 +67,7 @@ type ProtocolNode interface {
 	// 初始化上下文
 	InitContext(ptr *NodePtr) error
 	// 初始化连接
-	Connect(ctx *Context, s Session, sub, token string) error
+	Connect(ctx *Context, s Session) error
 	// 关闭连接
 	Release(ctx *Context) error
 	// 校验会话
@@ -94,6 +94,8 @@ type ProtocolNode interface {
 	PostHandle(handle func(resp *Response, err error) error, err error) error
 	// 最终响应执行方法(视图渲染后执行,可操作资源释放,保存日志等)
 	AfterCompletion(handle func(ctx *Context, resp *Response, err error) error, err error) error
+	// 初始化设置用户会话密钥
+	ApplySignatureKey(sub, key string, exp int64) error
 	// 渲染输出
 	RenderTo() error
 	// 异常错误响应方法
@@ -178,7 +180,7 @@ func (self *Context) GetHeader(k string) string {
 
 func (self *Context) Authorized() bool {
 	session := self.Session
-	if session != nil && session.IsValid() {
+	if session != nil && !session.Invalid() {
 		return true
 	}
 	return false

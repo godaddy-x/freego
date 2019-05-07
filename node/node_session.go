@@ -35,7 +35,7 @@ type Session interface {
 
 	Validate(accessToken, secretKey string) (string, error) // 校验会话
 
-	IsValid() bool // 判断会话是否有效
+	Invalid() bool // 判断会话是否有效
 
 	IsTimeout() bool // 判断会话是否已超时
 }
@@ -63,14 +63,15 @@ type JWTSession struct {
 	Attributes     map[string]interface{}
 }
 
-func BuildJWTSession(subject *jwt.Subject, author *jwt.Authorization) Session {
+func BuildJWTSession(checker *jwt.SubjectChecker) Session {
+	subject := checker.Subject
 	self := &JWTSession{}
-	self.Id = author.Signature
+	self.Id = checker.Signature
 	self.Host = subject.Payload.Aud
 	self.Timeout = subject.Payload.Exp - subject.Payload.Iat
-	self.StartTimestamp = author.AccessTime
-	self.LastAccessTime = author.AccessTime
-	self.Attributes = map[string]interface{}{}
+	self.StartTimestamp = subject.Payload.Iat
+	self.LastAccessTime = subject.Payload.Iat
+	self.Attributes = make(map[string]interface{}, 0)
 	return self
 }
 
@@ -125,17 +126,17 @@ func (self *JWTSession) Validate(accessToken, secretKey string) (string, error) 
 	if len(self.GetHost()) > 0 {
 		subject.Payload = &jwt.Payload{Aud: self.GetHost()}
 	}
-	if err := subject.Valid(accessToken, secretKey); err != nil {
-		return "", err
-	}
+	//if err := subject.Valid(accessToken, secretKey); err != nil {
+	//	return "", err
+	//}
 	return subject.Payload.Sub, nil
 }
 
-func (self *JWTSession) IsValid() bool {
+func (self *JWTSession) Invalid() bool {
 	if len(self.Id) > 0 && !self.Expire && self.StopTime == 0 {
-		return true
+		return false
 	}
-	return false
+	return true
 }
 
 func (self *JWTSession) IsTimeout() bool {
@@ -192,7 +193,7 @@ type DefaultCacheSessionAware struct {
 }
 
 func (self *DefaultCacheSessionAware) CreateSession(s Session) error {
-	if !s.IsValid() {
+	if s.Invalid() {
 		return util.Error("session[", s.GetId(), "] create invalid")
 	}
 	if err := s.Touch(); err != nil {
@@ -215,7 +216,7 @@ func (self *DefaultCacheSessionAware) ReadSession(s string) (Session, error) {
 		return nil, util.Error("session[", s, "] read err: ", err.Error())
 	} else if b && v != nil {
 		if r, ok := v.(Session); ok {
-			if !r.IsValid() {
+			if r.Invalid() {
 				return nil, util.Error("session[", s, "] read invalid")
 			}
 			return r, nil

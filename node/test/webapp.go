@@ -6,11 +6,11 @@ import (
 	"github.com/godaddy-x/freego/component/jwt"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/node"
+	"github.com/godaddy-x/freego/util"
 )
 
 var (
 	local_cache = new(cache.LocalMapManager).NewCache(30, 10)
-	local_aware = node.NewLocalCacheSessionAware()
 )
 
 type MyWebNode struct {
@@ -33,46 +33,54 @@ func (self *MyWsNode) test(ctx *node.Context) error {
 }
 
 func (self *MyWebNode) login(ctx *node.Context) error {
+	time := util.Time()
+	exp := jwt.TWO_WEEK
 	subject := &jwt.Subject{
 		Payload: &jwt.Payload{
 			Sub: "zhangsan",
-			Iss: "456",
-			Aud: ctx.Host,
 			Dev: ctx.Device,
-			Exp: jwt.TWO_WEEK,
+			Aud: ctx.Host,
+			Iss: "localhost",
+			Iat: time,
+			Exp: time + exp,
+			Nbf: time,
 		},
 	}
-	author, err := subject.Generate(GetSecurity().SecretKey)
+	author, err := subject.GetAuthorization(GetSecurity().SecretKey)
 	if err != nil {
 		return ex.Try{ex.SYSTEM, "生成授权失败", err, nil}
 	}
-	self.Connect(ctx, node.BuildJWTSession(subject, author), subject.Payload.Sub, author.AccessToken)
+	self.ApplySignatureKey(subject.Payload.Sub, author.SignatureKey, exp)
 	return self.Json(ctx, map[string]interface{}{"token": ""})
 	//return self.Html(ctx, "/web/index.html", map[string]interface{}{"tewt": 1})
 }
 
 func (self *MyWsNode) login(ctx *node.Context) error {
+	time := util.Time()
+	exp := jwt.TWO_WEEK
 	subject := &jwt.Subject{
 		Payload: &jwt.Payload{
 			Sub: "zhangsan",
-			Iss: "456",
-			Aud: ctx.Host,
 			Dev: ctx.Device,
-			Exp: jwt.TWO_WEEK,
+			Aud: ctx.Host,
+			Iss: "localhost",
+			Iat: time,
+			Exp: time + exp,
+			Nbf: time,
 		},
 	}
-	author, err := subject.Generate(GetSecurity().SecretKey)
+	author, err := subject.GetAuthorization(GetSecurity().SecretKey)
 	if err != nil {
 		return ex.Try{ex.SYSTEM, "生成授权失败", err, nil}
 	}
-	self.Connect(ctx, node.BuildJWTSession(subject, author), subject.Payload.Sub, author.AccessToken)
+	self.ApplySignatureKey(subject.Payload.Sub, author.SignatureKey, exp)
 	return self.Json(ctx, map[string]interface{}{"token": ""})
 }
 
 func (self *MyWebNode) logout(ctx *node.Context) error {
 	fmt.Println(ctx.Session.GetAttribute("test"))
 	self.Release(ctx)
-	return self.Html(ctx, "/resource/index.html", map[string]interface{}{"tewt": 1})
+	return self.Html(ctx, "/resource/index.html", map[string]interface{}{"test": 1})
 }
 
 func (self *MyWsNode) logout(ctx *node.Context) error {
@@ -95,7 +103,6 @@ func StartHttpNode() *MyWebNode {
 		Port:     8090,
 		Security: GetSecurity,
 	}
-	my.SessionAware = local_aware
 	my.CacheAware = local_cache
 	my.OverrideFunc = &node.OverrideFunc{
 		GetHeaderFunc: nil,
@@ -126,7 +133,6 @@ func StartWsNode() *MyWsNode {
 		Port:     9090,
 		Security: GetSecurity,
 	}
-	my.SessionAware = local_aware
 	my.CacheAware = local_cache
 	my.Router("/test2", my.test)
 	my.Router("/login2", my.login)

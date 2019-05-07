@@ -1,6 +1,7 @@
 package node
 
 import (
+	"github.com/godaddy-x/freego/component/jwt"
 	"github.com/godaddy-x/freego/component/log"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/util"
@@ -138,39 +139,37 @@ func (self *HttpNode) PaddDevice() error {
 }
 
 func (self *HttpNode) ValidSession() error {
-	if self.SessionAware == nil {
-		return ex.Try{Code: http.StatusInternalServerError, Msg: "会话管理器尚未初始化"}
-	}
-	accessToken := self.Context.Params.Token
-	if len(accessToken) == 0 {
+	access_token := self.Context.Params.Token
+	if len(access_token) == 0 {
 		if !self.Context.Anonymous {
 			return ex.Try{Code: http.StatusUnauthorized, Msg: "获取授权令牌失败"}
 		}
 		return nil
 	}
-	var sessionId string
-	spl := strings.Split(accessToken, ".")
-	if len(spl) == 3 {
-		sessionId = spl[2]
-	} else {
-		sessionId = accessToken
-	}
-	session, err := self.SessionAware.ReadSession(sessionId)
-	if err != nil || session == nil {
-		return ex.Try{Code: http.StatusUnauthorized, Msg: "获取会话失败", Err: err}
-	}
-	if !session.IsValid() {
-		self.SessionAware.DeleteSession(session)
-		return ex.Try{Code: http.StatusUnauthorized, Msg: "会话已失效"}
-	}
-	sub, err := session.Validate(accessToken, self.Context.Security().SecretKey)
+	checker, err := new(jwt.Subject).GetSubjectChecker(access_token)
 	if err != nil {
-		return ex.Try{Code: http.StatusUnauthorized, Msg: "会话校验失败或已失效", Err: err}
+		return ex.Try{Code: http.StatusUnauthorized, Msg: "授权令牌无效", Err: err}
 	}
-	if sig, b, err := self.CacheAware.Get(util.AddStr(JWT_SUB_, sub), nil); err != nil {
-		return ex.Try{Code: http.StatusInternalServerError, Msg: "会话缓存服务异常"}
-	} else if !b || sig != util.MD5(accessToken) {
-		return ex.Try{Code: http.StatusUnauthorized, Msg: "会话已被踢出", Err: err}
+	// 获取缓存的sub->signature key
+	sub := checker.Subject.Payload.Sub
+	sub_key := util.AddStr(JWT_SUB_, sub)
+	secret_key := self.Context.Security().SecretKey
+	if sigkey, b, err := self.CacheAware.Get(sub_key, nil); err != nil {
+		return ex.Try{Code: http.StatusInternalServerError, Msg: "缓存服务异常"}
+	} else if !b {
+		return ex.Try{Code: http.StatusUnauthorized, Msg: "会话获取失败或已失效"}
+	} else if v, b := sigkey.(string); !b {
+		return ex.Try{Code: http.StatusUnauthorized, Msg: "会话签名密钥无效"}
+	} else if err := checker.Authentication(v, secret_key); err != nil {
+		return ex.Try{Code: http.StatusUnauthorized, Msg: "会话签名校验失败"}
+	}
+	session := BuildJWTSession(checker)
+	if session == nil {
+		return ex.Try{Code: http.StatusUnauthorized, Msg: "创建会话失败"}
+	} else if session.Invalid() {
+		return ex.Try{Code: http.StatusUnauthorized, Msg: "会话已失效"}
+	} else if session.IsTimeout() {
+		return ex.Try{Code: http.StatusUnauthorized, Msg: "会话已过期"}
 	}
 	userId, _ := util.StrToInt64(sub)
 	self.Context.UserId = userId
@@ -179,19 +178,6 @@ func (self *HttpNode) ValidSession() error {
 }
 
 func (self *HttpNode) TouchSession() error {
-	if self.Context == nil || self.Context.Session == nil {
-		return nil
-	}
-	session := self.Context.Session
-	if session.IsValid() {
-		if err := self.SessionAware.UpdateSession(session); err != nil {
-			return ex.Try{Code: http.StatusInternalServerError, Msg: "更新会话失败", Err: err}
-		}
-	} else {
-		if err := self.SessionAware.DeleteSession(session); err != nil {
-			return ex.Try{Code: http.StatusInternalServerError, Msg: "删除会话失败", Err: err}
-		}
-	}
 	return nil
 }
 
@@ -348,9 +334,6 @@ func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, an
 	if len(self.Context.Version) > 0 {
 		pattern = util.AddStr("/", self.Context.Version, pattern)
 	}
-	if self.SessionAware == nil {
-		panic("会话服务尚未初始化")
-	}
 	if self.CacheAware == nil {
 		panic("缓存服务尚未初始化")
 	}
@@ -396,19 +379,22 @@ func (self *HttpNode) SetContentType(contentType string) {
 	self.Context.Output.Header().Set("Content-Type", contentType)
 }
 
-func (self *HttpNode) Connect(ctx *Context, s Session, sub, token string) error {
-	if err := self.SessionAware.CreateSession(s); err != nil {
-		return err
-	}
-	ctx.Session = s
-	expire, _ := s.GetTimeout()
-	if err := self.CacheAware.Put(util.AddStr(JWT_SUB_, sub), util.MD5(token), int(expire/1000)); err != nil {
-		return ex.Try{Code: http.StatusInternalServerError, Msg: "会话缓存服务异常"}
-	}
+func (self *HttpNode) Connect(ctx *Context, s Session) error {
+	//if err := self.SessionAware.CreateSession(s); err != nil {
+	//	return err
+	//}
+	//ctx.Session = s
 	return nil
 }
 
 func (self *HttpNode) Release(ctx *Context) error {
 	ctx.Session.Stop()
+	return nil
+}
+
+func (self *HttpNode) ApplySignatureKey(sub, key string, exp int64) error {
+	if err := self.CacheAware.Put(util.AddStr(JWT_SUB_, sub), key, int(exp/1000)); err != nil {
+		return ex.Try{Code: http.StatusInternalServerError, Msg: "初始化用户密钥失败", Err: err}
+	}
 	return nil
 }

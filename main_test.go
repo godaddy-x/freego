@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/component/auth"
-	"github.com/godaddy-x/freego/component/jwt"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/sqlc"
 	"github.com/godaddy-x/freego/sqld"
@@ -381,31 +380,6 @@ func TestRedis(t *testing.T) {
 		fmt.Println(client.Get("redislock:test", &s))
 		fmt.Println(s)
 		fmt.Println(client.Size("tx.block.coin.BTC"))
-	}
-}
-
-func TestJWT(t *testing.T) {
-	subject := &jwt.Subject{
-		Payload: &jwt.Payload{Sub: "admin", Iss: jwt.JWT, Exp: jwt.HALF_HOUR, Rxp: jwt.TWO_WEEK, Nbf: 0},
-	}
-	secret := "123456789"
-	result, _ := subject.Generate(secret)
-	fmt.Println(result.AccessToken)
-	fmt.Println(result.RefreshToken)
-	fmt.Println(result.AccessTime)
-	if err := subject.Valid(result.AccessToken, secret); err != nil {
-		fmt.Println(err)
-	}
-	result1, err := subject.Refresh(result.AccessToken, result.RefreshToken, secret, result.AccessTime)
-	if err != nil {
-		fmt.Println(err.Error())
-	} else {
-		fmt.Println(result1.AccessToken)
-		fmt.Println(result1.RefreshToken)
-		fmt.Println(result1.AccessTime)
-		if err := subject.Valid(result1.AccessToken, secret); err != nil {
-			fmt.Println(err)
-		}
 	}
 }
 
