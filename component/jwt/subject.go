@@ -71,22 +71,22 @@ func (self *Subject) GetAuthorization(jwt_secret_key, api_secret_key, secret_key
 		self.Payload.Jti = util.MD5(util.GetSnowFlakeStrID(self.Header.Nod), self.Payload.Sub)
 		if msg, err := util.JsonMarshal(self); err != nil {
 			return nil, err
-		} else {
-			content = util.Base64URLEncode(msg)
+		} else if content = util.Base64URLEncode(msg); len(content) == 0 {
+			return nil, util.Error("content is nil")
 		}
-		signature_key = util.MD5(jwt_secret_key, content, ".") // 生成数据签名密钥
-		signature = util.MD5(signature_key, content, ".")      // 通过密钥获得数据签名
+		signature_key = util.MD5(jwt_secret_key, content, ".")                 // 生成数据签名密钥
+		signature = util.MD5(jwt_secret_key, signature_key, ".", content, ".") // 通过密钥获得数据签名
 		access_token = util.AddStr(content, ".", signature)
 		access_key = util.GetApiAccessKeyByMD5(access_token, api_secret_key)
 	} else if self.Header.Alg == SHA256 && secret_key_alg == SHA256 { // jti,signature计算值使用SHA256算法
 		self.Payload.Jti = util.SHA256(util.GetSnowFlakeStrID(self.Header.Nod), self.Payload.Sub)
 		if msg, err := util.JsonMarshal(self); err != nil {
 			return nil, err
-		} else {
-			content = util.Base64URLEncode(msg)
+		} else if content = util.Base64URLEncode(msg); len(content) == 0 {
+			return nil, util.Error("content is nil")
 		}
-		signature_key = util.SHA256(jwt_secret_key, content, ".")
-		signature = util.SHA256(signature_key, content, ".")
+		signature_key = util.SHA256(jwt_secret_key, content, ".")                 // 生成数据签名密钥
+		signature = util.SHA256(jwt_secret_key, signature_key, ".", content, ".") // 通过密钥获得数据签名
 		access_token = util.AddStr(content, ".", signature)
 		access_key = util.GetApiAccessKeyBySHA256(access_token, api_secret_key)
 	} else {
@@ -141,13 +141,13 @@ func (self *SubjectChecker) Authentication(signature_key, jwt_secret_key string)
 	if subject.Header.Alg == MD5 { // MD5算法校验签名
 		if signature_key != util.MD5(jwt_secret_key, content, ".") {
 			return util.Error("signature_key invalid")
-		} else if signature != util.MD5(signature_key, content, ".") {
+		} else if signature != util.MD5(jwt_secret_key, signature_key, ".", content, ".") {
 			return util.Error("signature error")
 		}
 	} else if subject.Header.Alg == SHA256 { //  SHA256算法校验签名
 		if signature_key != util.SHA256(jwt_secret_key, content, ".") {
 			return util.Error("signature_key invalid")
-		} else if signature != util.SHA256(signature_key, content, ".") {
+		} else if signature != util.SHA256(jwt_secret_key, signature_key, ".", content, ".") {
 			return util.Error("signature error")
 		}
 	} else {
