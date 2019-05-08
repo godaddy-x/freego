@@ -90,9 +90,10 @@ func (self *HttpNode) InitContext(ptr *NodePtr) error {
 			ContentType:     APPLICATION_JSON,
 			TemplDir:        self.TemplDir,
 		},
-		Input:    input,
-		Output:   output,
-		Security: self.Context.Security,
+		Input:     input,
+		Output:    output,
+		SecretKey: self.Context.SecretKey,
+		Storage:   make(map[string]interface{}),
 	}
 	if err := node.GetHeader(); err != nil {
 		return err
@@ -133,15 +134,17 @@ func (self *HttpNode) ValidSession() error {
 	// 获取缓存的sub->signature key
 	sub := checker.Subject.Payload.Sub
 	sub_key := util.AddStr(JWT_SUB_, sub)
-	secret_key := self.Context.Security().JwtSecretKey
-	if sigkey, b, err := self.CacheAware.Get(sub_key, nil); err != nil {
-		return ex.Throw{Code: http.StatusInternalServerError, Msg: "缓存服务异常"}
+	jwt_secret_key := self.Context.SecretKey().JwtSecretKey
+	if cacheObj, err := self.CacheAware(); err != nil {
+		return ex.Throw{Code: http.StatusInternalServerError, Msg: "缓存服务异常", Err: err}
+	} else if sigkey, b, err := cacheObj.Get(sub_key, nil); err != nil {
+		return ex.Throw{Code: http.StatusInternalServerError, Msg: "读取缓存数据异常", Err: err}
 	} else if !b {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "会话获取失败或已失效"}
 	} else if v, b := sigkey.(string); !b {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "会话签名密钥无效"}
-	} else if err := checker.Authentication(v, secret_key); err != nil {
-		return ex.Throw{Code: http.StatusUnauthorized, Msg: "会话签名校验失败"}
+	} else if err := checker.Authentication(v, jwt_secret_key); err != nil {
+		return ex.Throw{Code: http.StatusUnauthorized, Msg: "会话已失效或已超时", Err: err}
 	}
 	session := BuildJWTSession(checker)
 	if session == nil {
@@ -372,9 +375,27 @@ func (self *HttpNode) Release(ctx *Context) error {
 	return nil
 }
 
-func (self *HttpNode) ApplySignatureKey(sub, key string, exp int64) error {
-	if err := self.CacheAware.Put(util.AddStr(JWT_SUB_, sub), key, int(exp/1000)); err != nil {
+func (self *HttpNode) LoginBySubject(sub, key string, exp int64) error {
+	if cacheObj, err := self.CacheAware(); err != nil {
+		return ex.Throw{Code: http.StatusInternalServerError, Msg: "缓存服务异常", Err: err}
+	} else if err := cacheObj.Put(util.AddStr(JWT_SUB_, sub), key, int(exp/1000)); err != nil {
 		return ex.Throw{Code: http.StatusInternalServerError, Msg: "初始化用户密钥失败", Err: err}
+	}
+	return nil
+}
+
+func (self *HttpNode) LogoutBySubject(subs ...string) error {
+	if subs == nil {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "用户密钥不能为空"}
+	}
+	subkeys := make([]string, 0, len(subs))
+	for _, v := range subs {
+		subkeys = append(subkeys, util.AddStr(JWT_SUB_, v))
+	}
+	if cacheObj, err := self.CacheAware(); err != nil {
+		return ex.Throw{Code: http.StatusInternalServerError, Msg: "缓存服务异常", Err: err}
+	} else if err := cacheObj.Del(subkeys...); err != nil {
+		return ex.Throw{Code: http.StatusInternalServerError, Msg: "删除用户密钥失败", Err: err}
 	}
 	return nil
 }

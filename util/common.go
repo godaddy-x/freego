@@ -527,10 +527,18 @@ func ForeverWait(msg string) error {
 	return nil
 }
 
-// 通过JWT的签名生成授权密钥
-func GetAccessKeyByJWT(token, secret string) string {
+// 生成API签名MD5密钥
+func GetApiAccessKeyByMD5(token, secret string) string {
 	if len(token) == 0 || len(token) < 32 {
 		return ""
 	}
 	return MD5(MD5(token, secret), secret)
+}
+
+// 生成API签名SHA256密钥
+func GetApiAccessKeyBySHA256(token, secret string) string {
+	if len(token) == 0 || len(token) < 32 {
+		return ""
+	}
+	return SHA256(SHA256(token, secret), secret)
 }

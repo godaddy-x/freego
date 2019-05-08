@@ -2,6 +2,7 @@ package node
 
 import (
 	"github.com/godaddy-x/freego/cache"
+	"github.com/godaddy-x/freego/component/jwt"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/util"
 	"net/http"
@@ -93,8 +94,10 @@ type ProtocolNode interface {
 	PostHandle(handle func(resp *Response, err error) error, err error) error
 	// 最终响应执行方法(视图渲染后执行,可操作资源释放,保存日志等)
 	AfterCompletion(handle func(ctx *Context, resp *Response, err error) error, err error) error
-	// 初始化设置用户会话密钥
-	ApplySignatureKey(sub, key string, exp int64) error
+	// 保存用户会话密钥
+	LoginBySubject(sub, key string, exp int64) error
+	// 删除用户会话密钥
+	LogoutBySubject(subs ...string) error
 	// 渲染输出
 	RenderTo() error
 	// 异常错误响应方法
@@ -106,7 +109,7 @@ type ProtocolNode interface {
 type HookNode struct {
 	Context      *Context
 	SessionAware SessionAware
-	CacheAware   cache.ICache
+	CacheAware   func(ds ...string) (cache.ICache, error)
 	OverrideFunc *OverrideFunc
 }
 
@@ -125,8 +128,10 @@ type RespDto struct {
 	Data    interface{} `json:"d"`
 }
 
-type Security struct {
+type SecretKey struct {
+	ApiSecretKey string
 	JwtSecretKey string
+	SecretKeyAlg string
 }
 
 type Context struct {
@@ -143,8 +148,9 @@ type Context struct {
 	Anonymous bool
 	Input     *http.Request
 	Output    http.ResponseWriter
-	Security  func() *Security
+	SecretKey func() *SecretKey
 	UserId    int64
+	Storage   map[string]interface{}
 }
 
 type Response struct {
@@ -190,7 +196,7 @@ func (self *Context) SecurityCheck(req *ReqDto) error {
 	if len(d) == 0 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "业务参数无效"}
 	}
-	if len(req.Sign) == 0 || len(req.Sign) != 32 {
+	if len(req.Sign) == 0 || len(req.Sign) < 32 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "签名参数无效"}
 	}
 	if len(req.Nonce) == 0 {
@@ -201,8 +207,9 @@ func (self *Context) SecurityCheck(req *ReqDto) error {
 	} else if req.Time+300000 < util.Time() { // 判断时间是否超过5分钟
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "时间参数已过期"}
 	}
-	if !validSign(req, d, self.Security().SecretKey) {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "签名参数校验失败"}
+	keyfun := self.SecretKey()
+	if !validSign(req, d, keyfun.ApiSecretKey, keyfun.SecretKeyAlg) {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "API签名校验失败"}
 	}
 	data := make(map[string]interface{})
 	if ret := util.Base64URLDecode(d); ret == nil {
@@ -217,9 +224,17 @@ func (self *Context) SecurityCheck(req *ReqDto) error {
 }
 
 // 校验签名有效性
-func validSign(req *ReqDto, data, secret string) bool {
+func validSign(req *ReqDto, data, api_secret_key, secret_key_alg string) bool {
+	var key string
 	token := req.Token
-	key := util.GetAccessKeyByJWT(token, secret)
-	sign_str := util.AddStr(Token, "=", token, "&", Data, "=", data, "&", Key, "=", key, "&", Nonce, "=", req.Nonce, "&", Time, "=", req.Time)
-	return req.Sign == util.MD5(sign_str)
+	if secret_key_alg == jwt.MD5 {
+		key = util.GetApiAccessKeyByMD5(token, api_secret_key)
+		sign_str := util.AddStr(Token, "=", token, "&", Data, "=", data, "&", Key, "=", key, "&", Nonce, "=", req.Nonce, "&", Time, "=", req.Time)
+		return req.Sign == util.MD5(sign_str)
+	} else if secret_key_alg == jwt.SHA256 {
+		key = util.GetApiAccessKeyBySHA256(token, api_secret_key)
+		sign_str := util.AddStr(Token, "=", token, "&", Data, "=", data, "&", Key, "=", key, "&", Nonce, "=", req.Nonce, "&", Time, "=", req.Time)
+		return req.Sign == util.SHA256(sign_str)
+	}
+	return false
 }

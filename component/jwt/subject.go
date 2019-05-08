@@ -15,7 +15,8 @@ const (
 	SHA256       = "SHA256"
 	MD5          = "MD5"
 	QUARTER_HOUR = int64(900000);
-	HALF_HOUR    = int64(3600000);
+	HALF_HOUR    = int64(1800000);
+	ONE_DAY      = int64(86400000);
 	TWO_WEEK     = int64(1209600000);
 )
 
@@ -55,8 +56,8 @@ type Payload struct {
 	Jti string `json:"jti"` // 唯一身份标识,主要用来作为一次性token,从而回避重放攻击
 }
 
-func (self *Subject) GetAuthorization(secret_key string) (*Authorization, error) {
-	if len(secret_key) == 0 {
+func (self *Subject) GetAuthorization(jwt_secret_key, api_secret_key, secret_key_alg string) (*Authorization, error) {
+	if len(jwt_secret_key) == 0 {
 		return nil, util.Error("secret key is nil")
 	}
 	if self.Header == nil {
@@ -65,34 +66,36 @@ func (self *Subject) GetAuthorization(secret_key string) (*Authorization, error)
 	if self.Payload == nil {
 		return nil, util.Error("payload is nil")
 	}
-	var content, signature, access_token, signature_key string
-	if self.Header.Alg == MD5 { // jti,signature计算值使用MD5算法
-		self.Payload.Jti = util.MD5(util.GetSnowFlakeStrID(self.Header.Nod))
+	var content, signature, access_token, signature_key, access_key string
+	if self.Header.Alg == MD5 && secret_key_alg == MD5 { // jti,signature计算值使用MD5算法
+		self.Payload.Jti = util.MD5(util.GetSnowFlakeStrID(self.Header.Nod), self.Payload.Sub)
 		if msg, err := util.JsonMarshal(self); err != nil {
 			return nil, err
 		} else {
 			content = util.Base64URLEncode(msg)
 		}
-		signature_key = util.MD5(secret_key, content, ".") // 生成数据签名密钥
-		signature = util.MD5(signature_key, content, ".")  // 通过密钥获得数据签名
+		signature_key = util.MD5(jwt_secret_key, content, ".") // 生成数据签名密钥
+		signature = util.MD5(signature_key, content, ".")      // 通过密钥获得数据签名
 		access_token = util.AddStr(content, ".", signature)
-	} else if self.Header.Alg == SHA256 { // jti,signature计算值使用SHA256算法
-		self.Payload.Jti = util.SHA256(util.GetSnowFlakeStrID(self.Header.Nod))
+		access_key = util.GetApiAccessKeyByMD5(access_token, api_secret_key)
+	} else if self.Header.Alg == SHA256 && secret_key_alg == SHA256 { // jti,signature计算值使用SHA256算法
+		self.Payload.Jti = util.SHA256(util.GetSnowFlakeStrID(self.Header.Nod), self.Payload.Sub)
 		if msg, err := util.JsonMarshal(self); err != nil {
 			return nil, err
 		} else {
 			content = util.Base64URLEncode(msg)
 		}
-		signature_key = util.SHA256(secret_key, content, ".")
+		signature_key = util.SHA256(jwt_secret_key, content, ".")
 		signature = util.SHA256(signature_key, content, ".")
 		access_token = util.AddStr(content, ".", signature)
+		access_key = util.GetApiAccessKeyBySHA256(access_token, api_secret_key)
 	} else {
 		return nil, util.Error("alg [", self.Header.Alg, "] error")
 	}
 	return &Authorization{
 		AccessToken:  access_token,
 		Signature:    signature,
-		AccessKey:    util.GetAccessKeyByJWT(access_token, secret_key),
+		AccessKey:    access_key,
 		SignatureKey: signature_key,
 	}, nil
 }
@@ -128,7 +131,7 @@ func (self *Subject) GetSubjectChecker(access_token string) (*SubjectChecker, er
 	}, nil
 }
 
-func (self *SubjectChecker) Authentication(signature_key, secret_key string) error {
+func (self *SubjectChecker) Authentication(signature_key, jwt_secret_key string) error {
 	subject := self.Subject
 	content := self.Content
 	signature := self.Signature
@@ -136,13 +139,13 @@ func (self *SubjectChecker) Authentication(signature_key, secret_key string) err
 		return util.Error("signature invalid")
 	}
 	if subject.Header.Alg == MD5 { // MD5算法校验签名
-		if signature_key != util.MD5(secret_key, content, ".") {
+		if signature_key != util.MD5(jwt_secret_key, content, ".") {
 			return util.Error("signature_key invalid")
 		} else if signature != util.MD5(signature_key, content, ".") {
 			return util.Error("signature error")
 		}
 	} else if subject.Header.Alg == SHA256 { //  SHA256算法校验签名
-		if signature_key != util.SHA256(secret_key, content, ".") {
+		if signature_key != util.SHA256(jwt_secret_key, content, ".") {
 			return util.Error("signature_key invalid")
 		} else if signature != util.SHA256(signature_key, content, ".") {
 			return util.Error("signature error")
