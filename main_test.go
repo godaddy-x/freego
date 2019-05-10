@@ -70,11 +70,11 @@ func init() {
 		panic(util.AddStr("读取mysql配置失败: ", err.Error()))
 	}
 	new(sqld.MysqlManager).InitConfigAndCache(nil, mysql)
-	mongo := sqld.MGOConfig{}
-	if err := util.ReadLocalJsonConfig("resource/mongo.json", &mongo); err != nil {
-		panic(util.AddStr("读取mongo配置失败: ", err.Error()))
-	}
-	new(sqld.MGOManager).InitConfigAndCache(nil, mongo)
+	//mongo := sqld.MGOConfig{}
+	//if err := util.ReadLocalJsonConfig("resource/mongo.json", &mongo); err != nil {
+	//	panic(util.AddStr("读取mongo配置失败: ", err.Error()))
+	//}
+	//new(sqld.MGOManager).InitConfigAndCache(nil, mongo)
 }
 
 func TestMysqlSave(t *testing.T) {
@@ -222,7 +222,7 @@ func TestMysqlFindList(t *testing.T) {
 	fmt.Println("cost: ", util.Time()-l)
 }
 
-func TestMysqlFindComplex(t *testing.T) {
+func TestMysqlFindListComplex(t *testing.T) {
 	db, err := new(sqld.MysqlManager).Get(sqld.Option{AutoTx: &sqld.FALSE})
 	if err != nil {
 		panic(err)
@@ -230,7 +230,21 @@ func TestMysqlFindComplex(t *testing.T) {
 	defer db.Close()
 	l := util.Time()
 	result := []*OwWallet{}
-	if err := db.FindComplex(sqlc.M(&OwWallet{}).Fields("a.id").Groupby("a.id").From("ow_wallet a").Orderby("a.id", sqlc.DESC_).Limit(1, 5), &result); err != nil {
+	if err := db.FindListComplex(sqlc.M(&OwWallet{}).Fields("count(a.id) as id").From("ow_wallet a").Orderby("a.id", sqlc.DESC_).Limit(1, 5), &result); err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println("cost: ", util.Time()-l)
+}
+
+func TestMysqlFindOneComplex(t *testing.T) {
+	db, err := new(sqld.MysqlManager).Get(sqld.Option{AutoTx: &sqld.FALSE})
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+	l := util.Time()
+	result := OwWallet{}
+	if err := db.FindOneComplex(sqlc.M(&OwWallet{}).Fields("count(a.id) as id").From("ow_wallet a").Orderby("a.id", sqlc.DESC_).Limit(1, 5), &result); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println("cost: ", util.Time()-l)

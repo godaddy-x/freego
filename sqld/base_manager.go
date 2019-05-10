@@ -86,7 +86,9 @@ type IDBase interface {
 	// 按条件查询数据
 	FindList(cnd *sqlc.Cnd, data interface{}) error
 	// 按复杂条件查询数据
-	FindComplex(cnd *sqlc.Cnd, data interface{}) error
+	FindOneComplex(cnd *sqlc.Cnd, data interface{}) error
+	// 按复杂条件查询数据列表
+	FindListComplex(cnd *sqlc.Cnd, data interface{}) error
 	// 构建数据表别名
 	BuildCondKey(cnd *sqlc.Cnd, key string) string
 	// 构建逻辑条件
@@ -141,8 +143,12 @@ func (self *DBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	return util.Error("No implementation method [FindList] was found")
 }
 
-func (self *DBManager) FindComplex(cnd *sqlc.Cnd, data interface{}) error {
-	return util.Error("No implementation method [FindComplex] was found")
+func (self *DBManager) FindOneComplex(cnd *sqlc.Cnd, data interface{}) error {
+	return util.Error("No implementation method [FindOneComplexOne] was found")
+}
+
+func (self *DBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
+	return util.Error("No implementation method [FindListComplex] was found")
 }
 
 func (self *DBManager) Close() error {
@@ -642,7 +648,7 @@ func (self *RDBManager) FindById(data interface{}) error {
 	}
 	defer rows.Close()
 	cols, err := rows.Columns()
-	if err != nil && len(cols) != len(obv.FieldElem) {
+	if err != nil {
 		return self.Error(util.Error("读取结果列长度失败: ", err.Error()))
 	}
 	var first [][]byte
@@ -732,7 +738,7 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data interface{}) error {
 	}
 	defer rows.Close()
 	cols, err := rows.Columns()
-	if err != nil && len(cols) != len(obv.FieldElem) {
+	if err != nil {
 		return self.Error(util.Error("读取结果列长度失败: ", err.Error()))
 	}
 	var first [][]byte
@@ -830,8 +836,11 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	}
 	defer rows.Close()
 	cols, err := rows.Columns()
-	if err != nil && len(cols) != len(obv.FieldElem) {
-		return self.Error(util.Error("读取结果列长度失败: ", err.Error()))
+	if err != nil {
+		return self.Error(util.Error("读取查询列失败: ", err.Error()))
+	}
+	if len(cols) != len(cnd.AnyFields) {
+		return self.Error(util.Error("查询列长度异常"))
 	}
 	out, err := OutDest(rows, len(cols));
 	if err != nil {
@@ -936,7 +945,7 @@ func (self *RDBManager) Count(cnd *sqlc.Cnd) (int64, error) {
 	return pageTotal, nil
 }
 
-func (self *RDBManager) FindComplex(cnd *sqlc.Cnd, data interface{}) error {
+func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 	if data == nil {
 		return self.Error("参数对象为空")
 	}
@@ -1021,7 +1030,7 @@ func (self *RDBManager) FindComplex(cnd *sqlc.Cnd, data interface{}) error {
 		prepare = limitSql
 	}
 	if log.IsDebug() {
-		defer log.Debug("mysql数据FindComplex操作日志", log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
+		defer log.Debug("mysql数据FindListComplex操作日志", log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
 	}
 	var stmt *sql.Stmt
 	var rows *sql.Rows
@@ -1041,8 +1050,11 @@ func (self *RDBManager) FindComplex(cnd *sqlc.Cnd, data interface{}) error {
 	}
 	defer rows.Close()
 	cols, err := rows.Columns()
-	if err != nil && len(cols) != len(obv.FieldElem) {
-		return self.Error(util.Error("读取结果列长度失败: ", err.Error()))
+	if err != nil {
+		return self.Error(util.Error("读取查询列失败: ", err.Error()))
+	}
+	if len(cols) != len(cnd.AnyFields) {
+		return self.Error(util.Error("查询列长度异常"))
 	}
 	out, err := OutDest(rows, len(cols));
 	if err != nil {
@@ -1055,16 +1067,150 @@ func (self *RDBManager) FindComplex(cnd *sqlc.Cnd, data interface{}) error {
 	slicev = slicev.Slice(0, slicev.Cap())
 	for _, v := range out {
 		model := obv.Hook.NewObj()
-		for i := 0; i < len(obv.FieldElem); i++ {
-			vv := obv.FieldElem[i]
-			if err := SetValue(model, vv, v[i]); err != nil {
-				return self.Error(err)
+		for i := 0; i < len(cols); i++ {
+			for _, vv := range obv.FieldElem {
+				if vv.FieldJsonName == cols[i] {
+					if err := SetValue(model, vv, v[i]); err != nil {
+						return self.Error(err)
+					}
+					break
+				}
 			}
 		}
 		slicev = reflect.Append(slicev, reflect.ValueOf(model))
 	}
 	slicev = slicev.Slice(0, slicev.Cap())
 	resultv.Elem().Set(slicev.Slice(0, len(out)))
+	return nil
+}
+
+func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data interface{}) error {
+	if data == nil {
+		return self.Error("参数对象为空")
+	}
+	if cnd.FromCond == nil || len(cnd.FromCond.Table) == 0 {
+		return self.Error("查询表名不能为空")
+	}
+	if cnd.AnyFields == nil || len(cnd.AnyFields) == 0 {
+		return self.Error("查询字段不能为空")
+	}
+	if data == nil {
+		return self.Error("参数对象为空")
+	}
+	start := util.Time()
+	obkey := reflect.TypeOf(data).String()
+	obv, ok := reg_models[obkey];
+	if !ok {
+		return self.Error(util.AddStr("没有找到注册对象类型[", obkey, "]"))
+	}
+	var fpart, vpart bytes.Buffer
+	fpart.Grow(30 * len(cnd.AnyFields))
+	for _, vv := range cnd.AnyFields {
+		fpart.WriteString(vv)
+		fpart.WriteString(",")
+	}
+	case_part, case_arg := self.BuildWhereCase(cnd)
+	parameter := make([]interface{}, 0, len(case_arg))
+	for _, v := range case_arg {
+		parameter = append(parameter, v)
+	}
+	if case_part.Len() > 0 {
+		vpart.Grow(case_part.Len() + 16)
+		vpart.WriteString("where")
+		str := case_part.String()
+		vpart.WriteString(util.Substr(str, 0, len(str)-3))
+	}
+	str1 := util.Bytes2Str(fpart.Bytes())
+	str2 := util.Bytes2Str(vpart.Bytes())
+	groupby := self.BuilGroupBy(cnd)
+	sortby := self.BuilSortBy(cnd)
+	var prepare string
+	var sqlbuf bytes.Buffer
+	sqlbuf.Grow(len(str1) + len(str2) + len(groupby) + len(sortby) + 32)
+	sqlbuf.WriteString("select ")
+	sqlbuf.WriteString(util.Substr(str1, 0, len(str1)-1))
+	sqlbuf.WriteString(" from ")
+	sqlbuf.WriteString(cnd.FromCond.Table)
+	sqlbuf.WriteString(" ")
+	sqlbuf.WriteString(cnd.FromCond.Alias)
+	sqlbuf.WriteString(" ")
+	if len(cnd.JoinCond) > 0 {
+		for _, v := range cnd.JoinCond {
+			if len(v.Table) == 0 || len(v.On) == 0 {
+				continue
+			}
+			if v.Type == sqlc.LEFT_ {
+				sqlbuf.WriteString(" left join ")
+			} else if v.Type == sqlc.RIGHT_ {
+				sqlbuf.WriteString(" right join ")
+			} else if v.Type == sqlc.INNER_ {
+				sqlbuf.WriteString(" inner join ")
+			} else {
+				continue
+			}
+			sqlbuf.WriteString(v.Table)
+			sqlbuf.WriteString(" on ")
+			sqlbuf.WriteString(v.On)
+			sqlbuf.WriteString(" ")
+		}
+	}
+	sqlbuf.WriteString(util.Substr(str2, 0, len(str2)-1))
+	if len(groupby) > 0 {
+		sqlbuf.WriteString(groupby)
+	}
+	if len(sortby) > 0 {
+		sqlbuf.WriteString(sortby)
+	}
+	if limitSql, err := self.BuildPagination(cnd, util.Bytes2Str(sqlbuf.Bytes()), parameter); err != nil {
+		return self.Error(err)
+	} else {
+		prepare = limitSql
+	}
+	if log.IsDebug() {
+		defer log.Debug("mysql数据FindOneComplex操作日志", log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
+	}
+	var stmt *sql.Stmt
+	var rows *sql.Rows
+	var err error
+	if *self.AutoTx {
+		stmt, err = self.Tx.Prepare(prepare)
+	} else {
+		stmt, err = self.Db.Prepare(prepare)
+	}
+	if err != nil {
+		return self.Error(util.AddStr("预编译sql[", prepare, "]失败: ", err.Error()))
+	}
+	defer stmt.Close()
+	rows, err = stmt.Query(parameter...)
+	if err != nil {
+		return self.Error(util.Error("查询失败: ", err.Error()))
+	}
+	defer rows.Close()
+	cols, err := rows.Columns()
+	if err != nil {
+		return self.Error(util.Error("读取查询列失败: ", err.Error()))
+	}
+	if len(cols) != len(cnd.AnyFields) {
+		return self.Error(util.Error("查询列长度异常"))
+	}
+	var first [][]byte
+	if out, err := OutDest(rows, len(cols)); err != nil {
+		return self.Error(util.Error("读取查询结果失败: ", err.Error()))
+	} else if len(out) == 0 {
+		return nil
+	} else {
+		first = out[0]
+	}
+	for i := 0; i < len(cols); i++ {
+		for _, vv := range obv.FieldElem {
+			if vv.FieldJsonName == cols[i] {
+				if err := SetValue(data, vv, first[i]); err != nil {
+					return self.Error(err)
+				}
+				break
+			}
+		}
+	}
 	return nil
 }
 
