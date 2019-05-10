@@ -117,7 +117,7 @@ func (self *DBManager) Update(datas ...interface{}) error {
 	return util.Error("No implementation method [Update] was found")
 }
 
-func (self *DBManager) UpdateByCnd(cnd *sqlc.Cnd, data ...interface{}) error {
+func (self *DBManager) UpdateByCnd(cnd *sqlc.Cnd) error {
 	return util.Error("No implementation method [UpdateByCnd] was found")
 }
 
@@ -787,16 +787,20 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	}
 	str1 := util.Bytes2Str(fpart.Bytes())
 	str2 := util.Bytes2Str(vpart.Bytes())
+	groupby := self.BuilGroupBy(cnd)
 	sortby := self.BuilSortBy(cnd)
 	var prepare string
 	var sqlbuf bytes.Buffer
-	sqlbuf.Grow(len(str1) + len(str2) + len(sortby) + 32)
+	sqlbuf.Grow(len(str1) + len(str2) + len(groupby) + len(sortby) + 32)
 	sqlbuf.WriteString("select ")
 	sqlbuf.WriteString(util.Substr(str1, 0, len(str1)-1))
 	sqlbuf.WriteString(" from ")
 	sqlbuf.WriteString(obv.TabelName)
 	sqlbuf.WriteString(" ")
 	sqlbuf.WriteString(util.Substr(str2, 0, len(str2)-1))
+	if len(groupby) > 0 {
+		sqlbuf.WriteString(groupby)
+	}
 	if len(sortby) > 0 {
 		sqlbuf.WriteString(sortby)
 	}
@@ -933,162 +937,134 @@ func (self *RDBManager) Count(cnd *sqlc.Cnd) (int64, error) {
 }
 
 func (self *RDBManager) FindComplex(cnd *sqlc.Cnd, data interface{}) error {
-	//start := util.Time()
-	//if cnd == nil {
-	//	return self.Error("条件参数不能为空")
-	//}
-	//if data == nil {
-	//	return self.Error("返回值不能为空")
-	//}
-	//if reflect.ValueOf(data).Kind() != reflect.Ptr {
-	//	return self.Error("返回值必须为指针类型")
-	//}
-	//if len(cnd.AnyFields) == 0 {
-	//	return self.Error("查询字段不能为空")
-	//}
-	//var fieldPart1, fieldPart2 bytes.Buffer
-	//fieldPart1.Grow(CAP_128)
-	//fieldPart2.Grow(CAP_64)
-	//var valuePart = make([]interface{}, 0)
-	//var elem = cnd.Model
-	//if elem == nil {
-	//	return self.Error("ORM对象类型不能为空,请通过M(...)方法设置对象类型")
-	//}
-	//tof := util.TypeOf(elem)
-	//if tof.Kind() != reflect.Struct && tof.Kind() != reflect.Ptr {
-	//	return self.Error("ORM对象类型必须为struct或ptr")
-	//}
-	//for i := 0; i < len(cnd.AnyFields); i++ {
-	//	fieldPart1.WriteString(" ")
-	//	fieldPart1.WriteString(cnd.AnyFields[i])
-	//	fieldPart1.WriteString(",")
-	//	continue
-	//}
-	//part, args := self.BuildWhereCase(cnd)
-	//for _, v := range args {
-	//	valuePart = append(valuePart, v)
-	//}
-	//if part.Len() > 0 {
-	//	fieldPart2.WriteString("where")
-	//	s := part.String()
-	//	fieldPart2.WriteString(util.Substr(s, 0, len(s)-3))
-	//}
-	//s1 := util.Bytes2Str(fieldPart1.Bytes())
-	//s2 := util.Bytes2Str(fieldPart2.Bytes())
-	//var sqlbuf bytes.Buffer
-	//sqlbuf.Grow(len(s1) + len(s2) + CAP_128)
-	//sqlbuf.WriteString("select ")
-	//sqlbuf.WriteString(util.Substr(s1, 0, len(s1)-1))
-	//sqlbuf.WriteString(" from ")
-	//sqlbuf.WriteString(cnd.FromCond.Table)
-	//sqlbuf.WriteString(" ")
-	//if len(cnd.JoinCond) > 0 {
-	//	for _, v := range cnd.JoinCond {
-	//		if len(v.Table) == 0 || len(v.On) == 0 {
-	//			continue
-	//		}
-	//		if v.Type == sqlc.LEFT_ {
-	//			sqlbuf.WriteString(" left join ")
-	//		} else if v.Type == sqlc.RIGHT_ {
-	//			sqlbuf.WriteString(" right join ")
-	//		} else if v.Type == sqlc.INNER_ {
-	//			sqlbuf.WriteString(" inner join ")
-	//		} else {
-	//			continue
-	//		}
-	//		sqlbuf.WriteString(v.Table)
-	//		sqlbuf.WriteString(" on ")
-	//		sqlbuf.WriteString(v.On)
-	//		sqlbuf.WriteString(" ")
-	//	}
-	//}
-	//sqlbuf.WriteString(util.Substr(s2, 0, len(s2)-1))
-	//groupby := self.BuilGroupBy(cnd)
-	//if len(groupby) > 0 {
-	//	sqlbuf.WriteString(" ")
-	//	sqlbuf.WriteString(groupby)
-	//}
-	//sortby := self.BuilSortBy(cnd)
-	//if len(sortby) > 0 {
-	//	sqlbuf.WriteString(" ")
-	//	sqlbuf.WriteString(sortby)
-	//}
-	//limitSql, err := self.BuildPagination(cnd, util.Bytes2Str(sqlbuf.Bytes()), valuePart);
-	//if err != nil {
-	//	return self.Error(err)
-	//}
-	//defer self.debug("FindComplex", limitSql, valuePart, start)
-	//var stmt *sql.Stmt
-	//var rows *sql.Rows
-	//if *self.AutoTx {
-	//	stmt, err = self.Tx.Prepare(limitSql)
-	//} else {
-	//	stmt, err = self.Db.Prepare(limitSql)
-	//}
-	//if err != nil {
-	//	return self.Error(util.AddStr("预编译sql[", limitSql, "]失败: ", err.Error()))
-	//}
-	//err = func() error {
-	//	rows, err = stmt.Query(valuePart...)
-	//	if err != nil {
-	//		return self.Error(util.AddStr("查询失败: ", err.Error()))
-	//	}
-	//	columns, err := rows.Columns()
-	//	if err != nil && len(columns) != len(cnd.AnyFields) {
-	//		return self.Error(util.AddStr("读取查询结果列长度失败: ", err.Error()))
-	//	}
-	//	raws, err := OutDest(rows, len(columns))
-	//	if err != nil {
-	//		return self.Error(util.AddStr("读取查询结果失败: ", err.Error()))
-	//	}
-	//	var fieldArray []reflect.StructField
-	//	for _, v := range columns {
-	//		for i := 0; i < tof.NumField(); i++ {
-	//			field := tof.Field(i)
-	//			fname := field.Tag.Get(sqlc.Json)
-	//			if len(fname) == 0 {
-	//				return self.Error(util.AddStr("字段[", field.Name, "]无效json标签"))
-	//			}
-	//			if v == fname {
-	//				fieldArray = append(fieldArray, field)
-	//				continue
-	//			}
-	//		}
-	//	}
-	//	if reflect.TypeOf(data).Elem().Kind() == reflect.Slice {
-	//		resultv := reflect.ValueOf(data)
-	//		if resultv.Kind() != reflect.Ptr || resultv.Elem().Kind() != reflect.Slice {
-	//			return self.Error("列表结果参数必须是指针类型")
-	//		}
-	//		slicev := resultv.Elem()
-	//		slicev = slicev.Slice(0, slicev.Cap())
-	//		for i := 0; i < len(raws); i++ {
-	//			str, err := DataToMap(fieldArray, raws[i])
-	//			if err != nil {
-	//				return self.Error(err)
-	//			}
-	//			model := util.NewInstance(elem)
-	//			if err := util.JsonToObject(str, &model); err != nil {
-	//				return self.Error(err)
-	//			}
-	//			slicev = reflect.Append(slicev, reflect.ValueOf(model))
-	//		}
-	//		slicev = slicev.Slice(0, slicev.Cap())
-	//		resultv.Elem().Set(slicev.Slice(0, len(raws)))
-	//	} else {
-	//		if len(raws) <= 0 {
-	//			return nil
-	//		}
-	//		if str, err := DataToMap(fieldArray, raws[0]); err != nil {
-	//			return self.Error(err)
-	//		} else if err := util.JsonToObject(str, data); err != nil {
-	//			return self.Error(err)
-	//		}
-	//	}
-	//	return nil
-	//}()
-	//self.release(stmt, rows)
-	//return self.Error(err)
+	if data == nil {
+		return self.Error("参数对象为空")
+	}
+	if cnd.FromCond == nil || len(cnd.FromCond.Table) == 0 {
+		return self.Error("查询表名不能为空")
+	}
+	if cnd.AnyFields == nil || len(cnd.AnyFields) == 0 {
+		return self.Error("查询字段不能为空")
+	}
+	start := util.Time()
+	obkey := reflect.TypeOf(data).String()
+	if !strings.HasPrefix(obkey, "*[]") {
+		return self.Error("返回参数必须为数组指针类型")
+	} else {
+		obkey = util.Substr(obkey, 3, len(obkey))
+	}
+	obv, ok := reg_models[obkey];
+	if !ok {
+		return self.Error(util.AddStr("没有找到注册对象类型[", obkey, "]"))
+	}
+	var fpart, vpart bytes.Buffer
+	fpart.Grow(30 * len(cnd.AnyFields))
+	for _, vv := range cnd.AnyFields {
+		fpart.WriteString(vv)
+		fpart.WriteString(",")
+	}
+	case_part, case_arg := self.BuildWhereCase(cnd)
+	parameter := make([]interface{}, 0, len(case_arg))
+	for _, v := range case_arg {
+		parameter = append(parameter, v)
+	}
+	if case_part.Len() > 0 {
+		vpart.Grow(case_part.Len() + 16)
+		vpart.WriteString("where")
+		str := case_part.String()
+		vpart.WriteString(util.Substr(str, 0, len(str)-3))
+	}
+	str1 := util.Bytes2Str(fpart.Bytes())
+	str2 := util.Bytes2Str(vpart.Bytes())
+	groupby := self.BuilGroupBy(cnd)
+	sortby := self.BuilSortBy(cnd)
+	var prepare string
+	var sqlbuf bytes.Buffer
+	sqlbuf.Grow(len(str1) + len(str2) + len(groupby) + len(sortby) + 32)
+	sqlbuf.WriteString("select ")
+	sqlbuf.WriteString(util.Substr(str1, 0, len(str1)-1))
+	sqlbuf.WriteString(" from ")
+	sqlbuf.WriteString(cnd.FromCond.Table)
+	sqlbuf.WriteString(" ")
+	sqlbuf.WriteString(cnd.FromCond.Alias)
+	sqlbuf.WriteString(" ")
+	if len(cnd.JoinCond) > 0 {
+		for _, v := range cnd.JoinCond {
+			if len(v.Table) == 0 || len(v.On) == 0 {
+				continue
+			}
+			if v.Type == sqlc.LEFT_ {
+				sqlbuf.WriteString(" left join ")
+			} else if v.Type == sqlc.RIGHT_ {
+				sqlbuf.WriteString(" right join ")
+			} else if v.Type == sqlc.INNER_ {
+				sqlbuf.WriteString(" inner join ")
+			} else {
+				continue
+			}
+			sqlbuf.WriteString(v.Table)
+			sqlbuf.WriteString(" on ")
+			sqlbuf.WriteString(v.On)
+			sqlbuf.WriteString(" ")
+		}
+	}
+	sqlbuf.WriteString(util.Substr(str2, 0, len(str2)-1))
+	if len(groupby) > 0 {
+		sqlbuf.WriteString(groupby)
+	}
+	if len(sortby) > 0 {
+		sqlbuf.WriteString(sortby)
+	}
+	if limitSql, err := self.BuildPagination(cnd, util.Bytes2Str(sqlbuf.Bytes()), parameter); err != nil {
+		return self.Error(err)
+	} else {
+		prepare = limitSql
+	}
+	if log.IsDebug() {
+		defer log.Debug("mysql数据FindComplex操作日志", log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
+	}
+	var stmt *sql.Stmt
+	var rows *sql.Rows
+	var err error
+	if *self.AutoTx {
+		stmt, err = self.Tx.Prepare(prepare)
+	} else {
+		stmt, err = self.Db.Prepare(prepare)
+	}
+	if err != nil {
+		return self.Error(util.AddStr("预编译sql[", prepare, "]失败: ", err.Error()))
+	}
+	defer stmt.Close()
+	rows, err = stmt.Query(parameter...)
+	if err != nil {
+		return self.Error(util.Error("查询失败: ", err.Error()))
+	}
+	defer rows.Close()
+	cols, err := rows.Columns()
+	if err != nil && len(cols) != len(obv.FieldElem) {
+		return self.Error(util.Error("读取结果列长度失败: ", err.Error()))
+	}
+	out, err := OutDest(rows, len(cols));
+	if err != nil {
+		return self.Error(util.Error("读取查询结果失败: ", err.Error()))
+	} else if len(out) == 0 {
+		return nil
+	}
+	resultv := reflect.ValueOf(data)
+	slicev := resultv.Elem()
+	slicev = slicev.Slice(0, slicev.Cap())
+	for _, v := range out {
+		model := obv.Hook.NewObj()
+		for i := 0; i < len(obv.FieldElem); i++ {
+			vv := obv.FieldElem[i]
+			if err := SetValue(model, vv, v[i]); err != nil {
+				return self.Error(err)
+			}
+		}
+		slicev = reflect.Append(slicev, reflect.ValueOf(model))
+	}
+	slicev = slicev.Slice(0, slicev.Cap())
+	resultv.Elem().Set(slicev.Slice(0, len(out)))
 	return nil
 }
 

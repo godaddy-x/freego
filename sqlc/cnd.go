@@ -79,8 +79,8 @@ type Cnd struct {
 	UpdateKV    map[string]interface{}
 	Model       interface{}
 	Pagination  dialect.Dialect
-	FromCond    FromCond
-	JoinCond    []JoinCond
+	FromCond    *FromCond
+	JoinCond    []*JoinCond
 	CacheConfig CacheConfig
 }
 
@@ -206,7 +206,7 @@ func (self *Cnd) Or(cnds ...interface{}) *Cnd {
 
 // 复杂查询设定首个from table as
 func (self *Cnd) From(fromTable string) *Cnd {
-	self.FromCond = FromCond{fromTable, ""}
+	self.FromCond = &FromCond{fromTable, ""}
 	return self
 }
 
@@ -215,7 +215,7 @@ func (self *Cnd) Join(join int, table string, on string) *Cnd {
 	if len(table) == 0 || len(on) == 0 {
 		return self
 	}
-	self.JoinCond = append(self.JoinCond, JoinCond{join, table, "", on})
+	self.JoinCond = append(self.JoinCond, &JoinCond{join, table, "", on})
 	return self
 }
 

@@ -216,7 +216,21 @@ func TestMysqlFindList(t *testing.T) {
 	defer db.Close()
 	l := util.Time()
 	result := []*OwWallet{}
-	if err := db.FindList(sqlc.M(&OwWallet{}).Orderby("id", sqlc.DESC_).Limit(1, 5), &result); err != nil {
+	if err := db.FindList(sqlc.M(&OwWallet{}).Fields("id").Groupby("id").Orderby("id", sqlc.DESC_).Limit(1, 5), &result); err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println("cost: ", util.Time()-l)
+}
+
+func TestMysqlFindComplex(t *testing.T) {
+	db, err := new(sqld.MysqlManager).Get(sqld.Option{AutoTx: &sqld.FALSE})
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+	l := util.Time()
+	result := []*OwWallet{}
+	if err := db.FindComplex(sqlc.M(&OwWallet{}).Fields("a.id").Groupby("a.id").From("ow_wallet a").Orderby("a.id", sqlc.DESC_).Limit(1, 5), &result); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println("cost: ", util.Time()-l)
@@ -384,7 +398,7 @@ func TestRedis(t *testing.T) {
 }
 
 func TestEX(t *testing.T) {
-	e := ex.Throw{ex.UNKNOWN, "sss", errors.New("ss"), nil}
+	e := ex.Throw{ex.UNKNOWN, "sss", errors.New("ss")}
 	s := ex.Catch(e)
 	fmt.Println(s)
 }

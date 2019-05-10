@@ -528,17 +528,17 @@ func ForeverWait(msg string) error {
 }
 
 // 生成API签名MD5密钥
-func GetApiAccessKeyByMD5(token, secret string) string {
-	if len(token) == 0 || len(token) < 32 {
+func GetApiAccessKeyByMD5(access_token, api_secret_key string) string {
+	if len(access_token) == 0 || len(access_token) < 32 {
 		return ""
 	}
-	return MD5(MD5(token, secret), secret)
+	return MD5(access_token, api_secret_key)
 }
 
 // 生成API签名SHA256密钥
-func GetApiAccessKeyBySHA256(token, secret string) string {
-	if len(token) == 0 || len(token) < 32 {
+func GetApiAccessKeyBySHA256(access_token, api_secret_key string) string {
+	if len(access_token) == 0 || len(access_token) < 32 {
 		return ""
 	}
-	return SHA256(SHA256(token, secret), secret)
+	return SHA256(access_token, api_secret_key)
 }
