@@ -27,12 +27,13 @@ const (
 	NO_TLIKE_
 	OR_
 	ORDER_BY_
-	ASC_
-	DESC_
 	LEFT_
 	RIGHT_
 	INNER_
 )
+
+const ASC_ = 1
+const DESC_ = 2
 
 const (
 	Id     = "Id"

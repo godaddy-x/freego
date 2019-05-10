@@ -542,13 +542,7 @@ func timeWriter(conn *websocket.Conn) {
 }
 
 func TestA(t *testing.T) {
-	l := util.Time()
-	s := "mydata4vipday.720.datx"
-	for i := 0; i < 1000000000; i++ {
-		a := []byte(s)
-		_ = string(a)
-	}
-	fmt.Println(util.Time() - l)
+	fmt.Println(sqlc.ASC_)
 }
 
 func TestB(t *testing.T) {

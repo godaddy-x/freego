@@ -13,6 +13,7 @@ import (
 const (
 	SEP     = ":||||:"
 	BIZ     = 100000 // 普通业务异常
+	GOB     = 999993 // GOB转换异常
 	JSON    = 999994 // JSON转换异常
 	NUMBER  = 999995 // 数值转换异常
 	DATA    = 999996 // 数据服务异常
@@ -23,6 +24,7 @@ const (
 
 const (
 	JSON_ERR    = "响应数据构建失败"
+	GOB_ERR     = "响应数据构建失败"
 	DATA_ERR    = "数据服务加载失败"
 	DATA_C_ERR  = "数据保存失败"
 	DATA_R_ERR  = "数据查询失败"

@@ -303,13 +303,13 @@ func AnyToStr(any interface{}) string {
 }
 
 // 深度复制对象
-func DeepCopy(dst, src interface{}) error {
+func GobCopy(src, dst interface{}) error {
 	var buf bytes.Buffer
 	if err := gob.NewEncoder(&buf).Encode(src); err != nil {
-		return Error("深度复制对象序列化异常: ", err.Error())
+		return Error("GOB序列化异常: ", err.Error())
 	}
 	if err := gob.NewDecoder(bytes.NewBuffer(buf.Bytes())).Decode(dst); err != nil {
-		return Error("深度复制对象反序列异常: ", err.Error())
+		return Error("GOB反序列异常: ", err.Error())
 	}
 	return nil
 }
@@ -541,4 +541,34 @@ func GetApiAccessKeyBySHA256(access_token, api_secret_key string) string {
 		return ""
 	}
 	return SHA256(access_token, api_secret_key)
+}
+
+// 检测int数值是否在区间
+func CheckInt(c int, vs ...int) bool {
+	for _, v := range vs {
+		if v == c {
+			return true
+		}
+	}
+	return false
+}
+
+// 检测int64数值是否在区间
+func CheckInt64(c int64, vs ...int64) bool {
+	for _, v := range vs {
+		if v == c {
+			return true
+		}
+	}
+	return false
+}
+
+// 检测string数值是否在区间
+func CheckStr(c string, vs ...string) bool {
+	for _, v := range vs {
+		if v == c {
+			return true
+		}
+	}
+	return false
 }
