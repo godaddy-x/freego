@@ -156,23 +156,23 @@ func (self *DBManager) Close() error {
 }
 
 func (self *DBManager) BuildCondKey(cnd *sqlc.Cnd, key string) string {
-	log.Warn("No implementation method [BuildCondKey] was found")
+	log.Warn("No implementation method [BuildCondKey] was found", 0)
 	return ""
 }
 
 func (self *DBManager) BuildWhereCase(cnd *sqlc.Cnd) (bytes.Buffer, []interface{}) {
-	log.Warn("No implementation method [BuildWhereCase] was found")
+	log.Warn("No implementation method [BuildWhereCase] was found", 0)
 	var b bytes.Buffer
 	return b, nil
 }
 
 func (self *DBManager) BuilGroupBy(cnd *sqlc.Cnd) string {
-	log.Warn("No implementation method [BuilGroupBy] was found")
+	log.Warn("No implementation method [BuilGroupBy] was found", 0)
 	return ""
 }
 
 func (self *DBManager) BuilSortBy(cnd *sqlc.Cnd) string {
-	log.Warn("No implementation method [BuilSortBy] was found")
+	log.Warn("No implementation method [BuilSortBy] was found", 0)
 	return ""
 }
 
@@ -280,7 +280,7 @@ func (self *RDBManager) Save(data ...interface{}) error {
 			} else {
 				fval, err := GetValue(v, vv);
 				if err != nil {
-					log.Error("参数值获取异常", log.String("field", vv.FieldName), log.AddError(err))
+					log.Error("参数值获取异常", 0, log.String("field", vv.FieldName), log.AddError(err))
 					continue
 				}
 				parameter = append(parameter, fval)
@@ -313,7 +313,7 @@ func (self *RDBManager) Save(data ...interface{}) error {
 	if len(prepare) == 0 {
 		prepare = util.Bytes2Str(sqlbuf.Bytes())
 		if log.IsDebug() {
-			defer log.Debug("mysql数据Save操作日志", log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
+			defer log.Debug("mysql数据Save操作日志", util.Time(), log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
 		}
 		var err error
 		if *self.AutoTx {
@@ -373,7 +373,7 @@ func (self *RDBManager) Update(data ...interface{}) error {
 				vpart.WriteString(",")
 			}
 			if val, err := GetValue(v, vv); err != nil {
-				log.Error("参数值获取异常", log.String("field", vv.FieldName), log.AddError(err))
+				log.Error("参数值获取异常", 0, log.String("field", vv.FieldName), log.AddError(err))
 				return err
 			} else {
 				parameter = append(parameter, val)
@@ -401,7 +401,7 @@ func (self *RDBManager) Update(data ...interface{}) error {
 	if len(prepare) == 0 {
 		prepare = util.Bytes2Str(sqlbuf.Bytes())
 		if log.IsDebug() {
-			defer log.Debug("mysql数据Update操作日志", log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
+			defer log.Debug("mysql数据Update操作日志", util.Time(), log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
 		}
 		var err error
 		if *self.AutoTx {
@@ -419,7 +419,7 @@ func (self *RDBManager) Update(data ...interface{}) error {
 	} else if rowsAffected, err := ret.RowsAffected(); err != nil {
 		return self.Error(util.Error("获取受影响行数失败: ", err.Error()))
 	} else if rowsAffected <= 0 {
-		log.Warn(util.AddStr("Update -> 更新操作受影响行数 -> ", rowsAffected), log.String("sql", prepare))
+		log.Warn(util.AddStr("Update -> 更新操作受影响行数 -> ", rowsAffected), 0, log.String("sql", prepare))
 		return nil
 	}
 	if *self.MongoSync && obv.ToMongo {
@@ -476,7 +476,7 @@ func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) error {
 	if len(prepare) == 0 {
 		prepare = util.Bytes2Str(sqlbuf.Bytes())
 		if log.IsDebug() {
-			defer log.Debug("mysql数据UpdateByCnd操作日志", log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
+			defer log.Debug("mysql数据UpdateByCnd操作日志", util.Time(), log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
 		}
 		var err error
 		if *self.AutoTx {
@@ -494,7 +494,7 @@ func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) error {
 	} else if rowsAffected, err := ret.RowsAffected(); err != nil {
 		return self.Error(util.Error("获取受影响行数失败: ", err.Error()))
 	} else if rowsAffected <= 0 {
-		log.Warn(util.AddStr("UpdateByCnd -> 更新操作受影响行数 -> ", rowsAffected), log.String("sql", prepare))
+		log.Warn(util.AddStr("UpdateByCnd -> 更新操作受影响行数 -> ", rowsAffected), 0, log.String("sql", prepare))
 		return nil
 	}
 	if *self.MongoSync && obv.ToMongo {
@@ -566,7 +566,7 @@ func (self *RDBManager) Delete(data ...interface{}) error {
 	if len(prepare) == 0 {
 		prepare = util.Bytes2Str(sqlbuf.Bytes())
 		if log.IsDebug() {
-			defer log.Debug("mysql数据Delete操作日志", log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
+			defer log.Debug("mysql数据Delete操作日志", util.Time(), log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
 		}
 		var err error
 		if *self.AutoTx {
@@ -584,7 +584,7 @@ func (self *RDBManager) Delete(data ...interface{}) error {
 	} else if rowsAffected, err := ret.RowsAffected(); err != nil {
 		return self.Error(util.Error("获取受影响行数失败: ", err.Error()))
 	} else if rowsAffected <= 0 {
-		log.Warn(util.AddStr("Delete -> 删除操作受影响行数 -> ", rowsAffected), log.String("sql", prepare))
+		log.Warn(util.AddStr("Delete -> 删除操作受影响行数 -> ", rowsAffected), 0, log.String("sql", prepare))
 		return nil
 	}
 	if *self.MongoSync && obv.ToMongo {
@@ -628,7 +628,7 @@ func (self *RDBManager) FindById(data interface{}) error {
 	sqlbuf.WriteString(" = ?")
 	prepare := util.Bytes2Str(sqlbuf.Bytes())
 	if log.IsDebug() {
-		defer log.Debug("mysql数据FindById操作日志", log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
+		defer log.Debug("mysql数据FindById操作日志", util.Time(), log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
 	}
 	var stmt *sql.Stmt
 	var rows *sql.Rows
@@ -718,7 +718,7 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data interface{}) error {
 		prepare = limitSql
 	}
 	if log.IsDebug() {
-		defer log.Debug("mysql数据数据FindOne操作日志", log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
+		defer log.Debug("mysql数据数据FindOne操作日志", util.Time(), log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
 	}
 	var stmt *sql.Stmt
 	var rows *sql.Rows
@@ -816,7 +816,7 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 		prepare = limitSql
 	}
 	if log.IsDebug() {
-		defer log.Debug("mysql数据FindList操作日志", log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
+		defer log.Debug("mysql数据FindList操作日志", util.Time(), log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
 	}
 	var stmt *sql.Stmt
 	var rows *sql.Rows
@@ -838,9 +838,6 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	cols, err := rows.Columns()
 	if err != nil {
 		return self.Error(util.Error("读取查询列失败: ", err.Error()))
-	}
-	if len(cols) != len(cnd.AnyFields) {
-		return self.Error(util.Error("查询列长度异常"))
 	}
 	out, err := OutDest(rows, len(cols));
 	if err != nil {
@@ -902,7 +899,7 @@ func (self *RDBManager) Count(cnd *sqlc.Cnd) (int64, error) {
 	sqlbuf.WriteString(util.Substr(str2, 0, len(str2)-1))
 	prepare := util.Bytes2Str(sqlbuf.Bytes())
 	if log.IsDebug() {
-		defer log.Debug("mysql数据Count操作日志", log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
+		defer log.Debug("mysql数据Count操作日志", util.Time(), log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
 	}
 	var rows *sql.Rows
 	var stmt *sql.Stmt
@@ -1030,7 +1027,7 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 		prepare = limitSql
 	}
 	if log.IsDebug() {
-		defer log.Debug("mysql数据FindListComplex操作日志", log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
+		defer log.Debug("mysql数据FindListComplex操作日志", util.Time(), log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
 	}
 	var stmt *sql.Stmt
 	var rows *sql.Rows
@@ -1167,7 +1164,7 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data interface{}) error {
 		prepare = limitSql
 	}
 	if log.IsDebug() {
-		defer log.Debug("mysql数据FindOneComplex操作日志", log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
+		defer log.Debug("mysql数据FindOneComplex操作日志", util.Time(), log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
 	}
 	var stmt *sql.Stmt
 	var rows *sql.Rows
@@ -1218,12 +1215,12 @@ func (self *RDBManager) Close() error {
 	if *self.AutoTx && self.Tx != nil {
 		if self.Errors == nil && len(self.Errors) == 0 {
 			if err := self.Tx.Commit(); err != nil {
-				log.Error("事务提交失败", log.String("error", err.Error()))
+				log.Error("事务提交失败", 0, log.AddError(err))
 				return nil
 			}
 		} else {
 			if err := self.Tx.Rollback(); err != nil {
-				log.Error("事务回滚失败", log.String("error", err.Error()))
+				log.Error("事务回滚失败", 0, log.AddError(err))
 			}
 			return nil
 		}
@@ -1232,7 +1229,7 @@ func (self *RDBManager) Close() error {
 		for _, v := range self.MGOSyncData {
 			if len(v.CacheObject) > 0 {
 				if err := self.mongoSyncData(v.CacheOption, v.CacheModel, v.CacheObject...); err != nil {
-					log.Error("mysql数据同步mongo失败", log.Any("data", v), log.AddError(err))
+					log.Error("mysql数据同步mongo失败", 0, log.Any("data", v), log.AddError(err))
 				}
 			}
 		}

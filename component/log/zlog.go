@@ -1,6 +1,7 @@
 package log
 
 import (
+	"github.com/godaddy-x/freego/util"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"gopkg.in/natefinch/lumberjack.v2"
@@ -94,16 +95,16 @@ func InitNewLog(config *ZapConfig) *zap.Logger {
 func buildLog(config *ZapConfig) *zap.Logger {
 	// 基础日志配置
 	encoderConfig := zapcore.EncoderConfig{
-		TimeKey:        "time",
-		LevelKey:       "level",
-		NameKey:        "logger",
-		CallerKey:      "caller",
+		TimeKey:  "time",
+		LevelKey: "level",
+		NameKey:  "logger",
+		// CallerKey:      "caller",
 		MessageKey:     "msg",
 		StacktraceKey:  "stacktrace",
 		LineEnding:     zapcore.DefaultLineEnding,
-		EncodeLevel:    zapcore.LowercaseLevelEncoder, // 小写编码器
-		EncodeTime:     zapcore.ISO8601TimeEncoder,    // ISO8601 UTC 时间格式
-		EncodeCaller:   zapcore.ShortCallerEncoder,    // 全路径编码器
+		EncodeLevel:    zapcore.LowercaseLevelEncoder,  // 小写编码器
+		EncodeTime:     zapcore.EpochMillisTimeEncoder, // 毫秒时间戳格式
+		EncodeCaller:   zapcore.ShortCallerEncoder,     // 全路径编码器
 		EncodeDuration: zapcore.SecondsDurationEncoder,
 		EncodeName:     zapcore.FullNameEncoder,
 	}
@@ -148,37 +149,58 @@ func buildLog(config *ZapConfig) *zap.Logger {
 }
 
 // debug
-func Debug(msg string, fields ...zap.Field) {
+func Debug(msg string, start int64, fields ...zap.Field) {
+	if start > 0 {
+		fields = append(fields, zap.Int64("cost", util.Time()-start))
+	}
 	zapLog.l.Debug(msg, fields...)
 }
 
 // info
-func Info(msg string, fields ...zap.Field) {
+func Info(msg string, start int64, fields ...zap.Field) {
+	if start > 0 {
+		fields = append(fields, zap.Int64("cost", util.Time()-start))
+	}
 	zapLog.l.Info(msg, fields...)
 }
 
 // warn
-func Warn(msg string, fields ...zap.Field) {
+func Warn(msg string, start int64, fields ...zap.Field) {
+	if start > 0 {
+		fields = append(fields, zap.Int64("cost", util.Time()-start))
+	}
 	zapLog.l.Warn(msg, fields...)
 }
 
 // error
-func Error(msg string, fields ...zap.Field) {
+func Error(msg string, start int64, fields ...zap.Field) {
+	if start > 0 {
+		fields = append(fields, zap.Int64("cost", util.Time()-start))
+	}
 	zapLog.l.Error(msg, fields...)
 }
 
 // dpanic
-func DPanic(msg string, fields ...zap.Field) {
+func DPanic(msg string, start int64, fields ...zap.Field) {
+	if start > 0 {
+		fields = append(fields, zap.Int64("cost", util.Time()-start))
+	}
 	zapLog.l.DPanic(msg, fields...)
 }
 
 // panic
-func Panic(msg string, fields ...zap.Field) {
+func Panic(msg string, start int64, fields ...zap.Field) {
+	if start > 0 {
+		fields = append(fields, zap.Int64("cost", util.Time()-start))
+	}
 	zapLog.l.Panic(msg, fields...)
 }
 
 // fatal
-func Fatal(msg string, fields ...zap.Field) {
+func Fatal(msg string, start int64, fields ...zap.Field) {
+	if start > 0 {
+		fields = append(fields, zap.Int64("cost", util.Time()-start))
+	}
 	zapLog.l.Fatal(msg, fields...)
 }
 

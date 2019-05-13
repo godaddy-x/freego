@@ -72,7 +72,7 @@ func (self *MGOManager) GetDB(option ...Option) error {
 		}
 	}
 	if len(mgo_sessions) == 0 {
-		log.Warn("mongo session is nil")
+		log.Warn("mongo session is nil", 0)
 		return nil
 	}
 	mgo := mgo_sessions[*ds]
@@ -187,7 +187,7 @@ func (self *MGOManager) Save(data ...interface{}) error {
 		return self.Error(err)
 	}
 	if log.IsDebug() {
-		defer log.Debug("mongo数据Save操作日志", log.Any("data", data), log.Int64("cost", util.Time()-start))
+		defer log.Debug("mongo数据Save操作日志", util.Time(), log.Any("data", data), log.Int64("cost", util.Time()-start))
 	}
 	for _, v := range data {
 		lastInsertId := util.GetInt64(util.GetPtr(v, obv.PkOffset))
@@ -227,7 +227,7 @@ func (self *MGOManager) Update(data ...interface{}) error {
 		return self.Error(err)
 	}
 	if log.IsDebug() {
-		defer log.Debug("mongo数据Update操作日志", log.Any("data", data), log.Int64("cost", util.Time()-start))
+		defer log.Debug("mongo数据Update操作日志", util.Time(), log.Any("data", data), log.Int64("cost", util.Time()-start))
 	}
 	for _, v := range data {
 		lastInsertId := util.GetInt64(util.GetPtr(v, obv.PkOffset))
@@ -268,7 +268,7 @@ func (self *MGOManager) Delete(data ...interface{}) error {
 		return self.Error(err)
 	}
 	if log.IsDebug() {
-		defer log.Debug("mongo数据Delete操作日志", log.Any("data", data), log.Int64("cost", util.Time()-start))
+		defer log.Debug("mongo数据Delete操作日志", util.Time(), log.Any("data", data), log.Int64("cost", util.Time()-start))
 	}
 	for _, v := range data {
 		lastInsertId := util.GetInt64(util.GetPtr(v, obv.PkOffset))
@@ -307,7 +307,7 @@ func (self *MGOManager) Count(cnd *sqlc.Cnd) (int64, error) {
 		return 0, util.Error("mongo构建查询命令失败: ", err.Error())
 	}
 	if log.IsDebug() {
-		defer log.Debug("mongo数据Count操作日志", log.Any("pipe", pipe), log.Int64("cost", util.Time()-start))
+		defer log.Debug("mongo数据Count操作日志", util.Time(), log.Any("pipe", pipe), log.Int64("cost", util.Time()-start))
 	}
 	result := make(map[string]int64)
 	if err := db.Pipe(pipe).One(&result); err != nil {
@@ -353,7 +353,7 @@ func (self *MGOManager) FindOne(cnd *sqlc.Cnd, data interface{}) error {
 		return self.Error(err)
 	}
 	if log.IsDebug() {
-		defer log.Debug("mongo数据FindOne操作日志", log.Int64("cost", util.Time()-start))
+		defer log.Debug("mongo数据FindOne操作日志", util.Time(), log.Int64("cost", util.Time()-start))
 	}
 	pipe, err := self.buildPipeCondition(cnd, false)
 	if err != nil {
@@ -390,7 +390,7 @@ func (self *MGOManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 		return self.Error(err)
 	}
 	if log.IsDebug() {
-		defer log.Debug("mongo数据FindList操作日志", log.Int64("cost", util.Time()-start))
+		defer log.Debug("mongo数据FindList操作日志", util.Time(), log.Int64("cost", util.Time()-start))
 	}
 	pipe, err := self.buildPipeCondition(cnd, false)
 	if err != nil {
@@ -602,8 +602,4 @@ func buildMongoLimit(cnd *sqlc.Cnd) []int64 {
 		return []int64{(pageNo - 1) * pageSize, pageSize}
 	}
 	return nil
-}
-
-func (self *MGOManager) debug(title string, pipe interface{}, start int64) {
-	log.Debug("mongo pipe debug", log.String("title", title), log.Any("values", pipe), log.Int64("cost", util.Time()-start))
 }

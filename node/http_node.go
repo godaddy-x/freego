@@ -196,7 +196,7 @@ func (self *HttpNode) Proxy(ptr *NodePtr) {
 
 func (self *HttpNode) LastAccessTouch(err error) {
 	if err := self.TouchSession(); err != nil {
-		log.Error(err.Error())
+		log.Error("刷新会话失败", 0, log.AddError(err))
 	}
 	if err != nil {
 		self.RenderError(err)
@@ -262,7 +262,7 @@ func (self *HttpNode) RenderError(err error) error {
 			}
 			result, _ := util.JsonMarshal(resp)
 			self.Context.Output.Write(result)
-			log.Error(resp.Message, log.String("error", err.Error()))
+			log.Error(resp.Message, 0, log.AddError(err))
 		} else {
 			self.Context.Output.WriteHeader(http_code)
 			self.Context.Output.Write(result)

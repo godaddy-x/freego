@@ -192,7 +192,7 @@ func (self *WebsocketNode) Proxy(ptr *NodePtr) {
 func (self *WebsocketNode) LastAccessTouch(state bool, err error) error {
 	if state {
 		if err := self.TouchSession(); err != nil {
-			log.Error(err.Error())
+			log.Error("刷新会话失败", 0, log.AddError(err))
 		}
 	}
 	if err != nil {

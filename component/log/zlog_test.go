@@ -28,7 +28,7 @@ func TestZap(t *testing.T) {
 	a := errors.New("my")
 	b := errors.New("ow")
 	c := []error{a, b}
-	log.Info("log 初始化成功", log.String("test", "w"), log.Any("wo", map[string]interface{}{"yy": 45}), log.AddError(c...))
+	log.Info("log 初始化成功", 0, log.String("test", "w"), log.Any("wo", map[string]interface{}{"yy": 45}), log.AddError(c...))
 	log.Println("test")
 
 }
