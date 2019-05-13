@@ -108,6 +108,9 @@ func (self *WebsocketNode) wsReadHandle(c *WSClient, rcvd []byte) error {
 		if err := self.ValidSession(); err != nil {
 			return self.RenderError(err)
 		}
+		if err := self.ValidPermission(); err != nil {
+			return self.RenderError(err)
+		}
 		state = true
 	} else if self.Context.Session.Invalid() {
 		return self.RenderError(ex.Throw{Code: http.StatusUnauthorized, Msg: "会话已失效"})
@@ -144,6 +147,8 @@ func (self *WebsocketNode) ValidSession() error {
 	checker, err := new(jwt.Subject).GetSubjectChecker(access_token)
 	if err != nil {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "授权令牌无效", Err: err}
+	} else {
+		self.Context.Roles = checker.GetRole()
 	}
 	// 获取缓存的sub->signature key
 	sub := checker.Subject.Payload.Sub
@@ -172,6 +177,30 @@ func (self *WebsocketNode) ValidSession() error {
 	self.Context.UserId = userId
 	self.Context.Session = session
 	return nil
+}
+
+func (self *WebsocketNode) ValidPermission() error {
+	if self.Context.PermissionKey == nil {
+		return nil
+	}
+	permission := self.Context.PermissionKey(self.Context.UserId)
+	need, check := permission[self.Context.Method];
+	if !check || need.NeedRole == nil || len(need.NeedRole) == 0 { // 没有查询到URL配置,则跳过
+		return nil
+	}
+	access := 0
+	need_access := len(need.NeedRole)
+	for _, cr := range self.Context.Roles {
+		for _, nr := range need.NeedRole {
+			if cr == nr {
+				access ++
+				if !need.MathchAll || access == need_access { // 任意授权通过则放行,或已满足授权长度
+					return nil
+				}
+			}
+		}
+	}
+	return ex.Throw{Code: http.StatusUnauthorized, Msg: "访问权限不足"}
 }
 
 func (self *WebsocketNode) TouchSession() error {

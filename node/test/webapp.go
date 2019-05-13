@@ -51,8 +51,7 @@ func (self *MyWebNode) login(ctx *node.Context) error {
 			Nbf: time,
 		},
 	}
-	keyfun := GetSecretKey()
-	author, err := subject.GetAuthorization(keyfun.JwtSecretKey, keyfun.ApiSecretKey, keyfun.SecretKeyAlg)
+	author, err := subject.GetAuthorization(GetSecretKey())
 	if err != nil {
 		return ex.Throw{ex.SYSTEM, "生成授权失败", err}
 	}
@@ -75,8 +74,7 @@ func (self *MyWsNode) login(ctx *node.Context) error {
 			Nbf: time,
 		},
 	}
-	keyfun := GetSecretKey()
-	author, err := subject.GetAuthorization(keyfun.JwtSecretKey, keyfun.ApiSecretKey, keyfun.SecretKeyAlg)
+	author, err := subject.GetAuthorization(GetSecretKey())
 	if err != nil {
 		return ex.Throw{ex.SYSTEM, "生成授权失败", err}
 	}
@@ -96,8 +94,8 @@ func (self *MyWsNode) logout(ctx *node.Context) error {
 	return self.Json(ctx, map[string]interface{}{"token": "test"})
 }
 
-func GetSecretKey() *node.SecretKey {
-	return &node.SecretKey{
+func GetSecretKey() *jwt.SecretKey {
+	return &jwt.SecretKey{
 		ApiSecretKey: "123456",
 		JwtSecretKey: "123456",
 		SecretKeyAlg: jwt.SHA256,

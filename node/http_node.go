@@ -90,10 +90,11 @@ func (self *HttpNode) InitContext(ptr *NodePtr) error {
 			ContentType:     APPLICATION_JSON,
 			TemplDir:        self.TemplDir,
 		},
-		Input:     input,
-		Output:    output,
-		SecretKey: self.Context.SecretKey,
-		Storage:   make(map[string]interface{}),
+		Input:         input,
+		Output:        output,
+		SecretKey:     self.Context.SecretKey,
+		PermissionKey: self.Context.PermissionKey,
+		Storage:       make(map[string]interface{}),
 	}
 	if err := node.GetHeader(); err != nil {
 		return err
@@ -130,6 +131,8 @@ func (self *HttpNode) ValidSession() error {
 	checker, err := new(jwt.Subject).GetSubjectChecker(access_token)
 	if err != nil {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "授权令牌无效", Err: err}
+	} else {
+		self.Context.Roles = checker.GetRole()
 	}
 	// 获取缓存的sub->signature key
 	sub := checker.Subject.Payload.Sub
@@ -160,6 +163,30 @@ func (self *HttpNode) ValidSession() error {
 	return nil
 }
 
+func (self *HttpNode) ValidPermission() error {
+	if self.Context.PermissionKey == nil {
+		return nil
+	}
+	permission := self.Context.PermissionKey(self.Context.UserId)
+	need, check := permission[self.Context.Method];
+	if !check || need.NeedRole == nil || len(need.NeedRole) == 0 { // 没有查询到URL配置,则跳过
+		return nil
+	}
+	access := 0
+	need_access := len(need.NeedRole)
+	for _, cr := range self.Context.Roles {
+		for _, nr := range need.NeedRole {
+			if cr == nr {
+				access ++
+				if !need.MathchAll || access == need_access { // 任意授权通过则放行,或已满足授权长度
+					return nil
+				}
+			}
+		}
+	}
+	return ex.Throw{Code: http.StatusUnauthorized, Msg: "访问权限不足"}
+}
+
 func (self *HttpNode) TouchSession() error {
 	return nil
 }
@@ -176,21 +203,25 @@ func (self *HttpNode) Proxy(ptr *NodePtr) {
 		if err := ob.ValidSession(); err != nil {
 			return err
 		}
-		// 3.上下文前置检测方法
+		// 3.校验访问权限
+		if err := ob.ValidPermission(); err != nil {
+			return err
+		}
+		// 4.上下文前置检测方法
 		if err := ob.PreHandle(ob.OverrideFunc.PreHandleFunc); err != nil {
 			return err
 		}
-		// 4.执行业务方法
+		// 5.执行业务方法
 		r1 := ptr.Handle(ob.Context) // r1异常格式,建议使用ex模式
-		// 5.执行视图控制方法
+		// 6.执行视图控制方法
 		r2 := ob.PostHandle(ob.OverrideFunc.PostHandleFunc, r1)
-		// 6.执行释放资源,记录日志方法
+		// 7.执行释放资源,记录日志方法
 		if err := ob.AfterCompletion(ob.OverrideFunc.AfterCompletionFunc, r2); err != nil {
 			return err
 		}
 		return nil
 	}()
-	// 7.更新会话有效性
+	// 8.更新会话有效性
 	ob.LastAccessTouch(err)
 }
 

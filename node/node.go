@@ -74,6 +74,8 @@ type ProtocolNode interface {
 	ValidSession() error
 	// 刷新会话
 	TouchSession() error
+	// 校验权限
+	ValidPermission() error
 	// 获取请求头数据
 	GetHeader() error
 	// 获取请求参数
@@ -128,29 +130,30 @@ type RespDto struct {
 	Data    interface{} `json:"d"`
 }
 
-type SecretKey struct {
-	ApiSecretKey string
-	JwtSecretKey string
-	SecretKeyAlg string
+type Permission struct {
+	MathchAll bool
+	NeedRole  []string
 }
 
 type Context struct {
-	Host      string
-	Port      int64
-	Style     string
-	Device    string
-	Method    string
-	Headers   map[string]string
-	Params    *ReqDto
-	Session   Session
-	Response  *Response
-	Version   string
-	Anonymous bool
-	Input     *http.Request
-	Output    http.ResponseWriter
-	SecretKey func() *SecretKey
-	UserId    int64
-	Storage   map[string]interface{}
+	Host          string
+	Port          int64
+	Style         string
+	Device        string
+	Method        string
+	Headers       map[string]string
+	Params        *ReqDto
+	Session       Session
+	Response      *Response
+	Version       string
+	Anonymous     bool
+	Input         *http.Request
+	Output        http.ResponseWriter
+	SecretKey     func() *jwt.SecretKey
+	UserId        int64
+	Storage       map[string]interface{}
+	Roles         []string
+	PermissionKey func(userId int64) map[string]*Permission
 }
 
 type Response struct {
@@ -207,8 +210,7 @@ func (self *Context) SecurityCheck(req *ReqDto) error {
 	} else if req.Time+300000 < util.Time() { // 判断时间是否超过5分钟
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "时间参数已过期"}
 	}
-	keyfun := self.SecretKey()
-	if !validSign(req, d, keyfun.ApiSecretKey, keyfun.SecretKeyAlg) {
+	if !validSign(req, d, self.SecretKey()) {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "API签名校验失败"}
 	}
 	data := make(map[string]interface{})
@@ -224,16 +226,15 @@ func (self *Context) SecurityCheck(req *ReqDto) error {
 }
 
 // 校验签名有效性
-func validSign(req *ReqDto, data, api_secret_key, secret_key_alg string) bool {
-	var key string
+func validSign(req *ReqDto, d string, key *jwt.SecretKey) bool {
+	api_secret_key := key.ApiSecretKey
+	secret_key_alg := key.SecretKeyAlg
 	token := req.Token
 	if secret_key_alg == jwt.MD5 {
-		key = util.GetApiAccessKeyByMD5(token, api_secret_key)
-		sign_str := util.AddStr(Token, "=", token, "&", Data, "=", data, "&", Key, "=", key, "&", Nonce, "=", req.Nonce, "&", Time, "=", req.Time)
+		sign_str := util.AddStr(Token, "=", token, "&", Data, "=", d, "&", Key, "=", util.GetApiAccessKeyByMD5(token, api_secret_key), "&", Nonce, "=", req.Nonce, "&", Time, "=", req.Time)
 		return req.Sign == util.MD5(sign_str)
 	} else if secret_key_alg == jwt.SHA256 {
-		key = util.GetApiAccessKeyBySHA256(token, api_secret_key)
-		sign_str := util.AddStr(Token, "=", token, "&", Data, "=", data, "&", Key, "=", key, "&", Nonce, "=", req.Nonce, "&", Time, "=", req.Time)
+		sign_str := util.AddStr(Token, "=", token, "&", Data, "=", d, "&", Key, "=", util.GetApiAccessKeyBySHA256(token, api_secret_key), "&", Nonce, "=", req.Nonce, "&", Time, "=", req.Time)
 		return req.Sign == util.SHA256(sign_str)
 	}
 	return false

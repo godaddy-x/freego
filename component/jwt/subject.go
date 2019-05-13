@@ -32,6 +32,12 @@ type SubjectChecker struct {
 	SignatureKey string
 }
 
+type SecretKey struct {
+	ApiSecretKey string
+	JwtSecretKey string
+	SecretKeyAlg string
+}
+
 type Authorization struct {
 	AccessToken  string `json:"accessToken"`  // 授权Token
 	Signature    string `json:"signature"`    // Token签名
@@ -54,9 +60,13 @@ type Payload struct {
 	Exp int64  `json:"exp"` // 授权token过期时间
 	Nbf int64  `json:"nbf"` // 定义在什么时间之前,该token都是不可用的
 	Jti string `json:"jti"` // 唯一身份标识,主要用来作为一次性token,从而回避重放攻击
+	Rol string `json:"rol"` // 角色ID列表
 }
 
-func (self *Subject) GetAuthorization(jwt_secret_key, api_secret_key, secret_key_alg string) (*Authorization, error) {
+func (self *Subject) GetAuthorization(key *SecretKey) (*Authorization, error) {
+	jwt_secret_key := key.JwtSecretKey
+	api_secret_key := key.ApiSecretKey
+	secret_key_alg := key.SecretKeyAlg
 	if len(jwt_secret_key) == 0 {
 		return nil, util.Error("secret key is nil")
 	}
@@ -129,6 +139,21 @@ func (self *Subject) GetSubjectChecker(access_token string) (*SubjectChecker, er
 		Content:   content,
 		Signature: signature,
 	}, nil
+}
+
+func (self *SubjectChecker) GetRole() []string {
+	rol := self.Subject.Payload.Rol
+	if len(rol) == 0 {
+		return make([]string, 0)
+	}
+	spl := strings.Split(self.Subject.Payload.Rol, ",")
+	role := make([]string, 0, len(spl))
+	for _, v := range spl {
+		if len(v) > 0 {
+			role = append(role, v)
+		}
+	}
+	return role
 }
 
 func (self *SubjectChecker) Authentication(signature_key, jwt_secret_key string) error {
