@@ -167,7 +167,10 @@ func (self *HttpNode) ValidPermission() error {
 	if self.Context.PermissionKey == nil {
 		return nil
 	}
-	permission := self.Context.PermissionKey(self.Context.UserId)
+	permission, err := self.Context.PermissionKey()
+	if err != nil {
+		return ex.Throw{Code: http.StatusUnauthorized, Msg: "读取授权资源失败", Err: err}
+	}
 	need, check := permission[self.Context.Method];
 	if !check || need.NeedRole == nil || len(need.NeedRole) == 0 { // 没有查询到URL配置,则跳过
 		return nil
@@ -178,7 +181,7 @@ func (self *HttpNode) ValidPermission() error {
 		for _, nr := range need.NeedRole {
 			if cr == nr {
 				access ++
-				if !need.MathchAll || access == need_access { // 任意授权通过则放行,或已满足授权长度
+				if need.MathchAll == 0 || access == need_access { // 任意授权通过则放行,或已满足授权长度
 					return nil
 				}
 			}

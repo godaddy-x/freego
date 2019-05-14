@@ -131,7 +131,7 @@ type RespDto struct {
 }
 
 type Permission struct {
-	MathchAll bool
+	MathchAll int64
 	NeedRole  []string
 }
 
@@ -153,7 +153,7 @@ type Context struct {
 	UserId        int64
 	Storage       map[string]interface{}
 	Roles         []string
-	PermissionKey func(userId int64) map[string]*Permission
+	PermissionKey func() (map[string]*Permission, error)
 }
 
 type Response struct {
