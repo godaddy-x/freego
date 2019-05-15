@@ -44,23 +44,19 @@ const (
 	Sign  = "g"
 )
 
-var (
-	JWTGlobal = &GlobalConfig{SessionTimeout: 1800, SessionSecret: "9r*gploYnA&zMg^U"}
-)
-
-type GlobalConfig struct {
-	SessionIdName  string // 会话ID名称
-	SessionTimeout int    // 会话过期时间/秒
-	SessionSecret  string // 会话密钥
+type HookNode struct {
+	Context      *Context
+	SessionAware SessionAware
+	CacheAware   func(ds ...string) (cache.ICache, error)
+	OverrideFunc *OverrideFunc
 }
 
 type NodePtr struct {
-	Node      interface{}
-	Input     *http.Request
-	Output    http.ResponseWriter
-	Pattern   string
-	Anonymous bool
-	Handle    func(ctx *Context) error
+	Node    interface{}
+	Input   *http.Request
+	Output  http.ResponseWriter
+	Pattern string
+	Handle  func(ctx *Context) error
 }
 
 type ProtocolNode interface {
@@ -84,8 +80,8 @@ type ProtocolNode interface {
 	SetContentType(contentType string)
 	// 核心代理方法
 	Proxy(ptr *NodePtr)
-	// 核心绑定路由方法 默认Anonymous=true无需校验
-	Router(pattern string, handle func(ctx *Context) error, anonymous ...bool)
+	// 核心绑定路由方法
+	Router(pattern string, handle func(ctx *Context) error)
 	// html响应模式
 	Html(ctx *Context, view string, data interface{}) error
 	// json响应模式
@@ -108,13 +104,6 @@ type ProtocolNode interface {
 	StartServer()
 }
 
-type HookNode struct {
-	Context      *Context
-	SessionAware SessionAware
-	CacheAware   func(ds ...string) (cache.ICache, error)
-	OverrideFunc *OverrideFunc
-}
-
 type ReqDto struct {
 	Token string      `json:"a"`
 	Nonce string      `json:"n"`
@@ -132,6 +121,7 @@ type RespDto struct {
 
 type Permission struct {
 	MathchAll int64
+	NeedLogin int64
 	NeedRole  []string
 }
 
@@ -146,14 +136,13 @@ type Context struct {
 	Session       Session
 	Response      *Response
 	Version       string
-	Anonymous     bool
 	Input         *http.Request
 	Output        http.ResponseWriter
 	SecretKey     func() *jwt.SecretKey
 	UserId        int64
 	Storage       map[string]interface{}
 	Roles         []string
-	PermissionKey func() (map[string]*Permission, error)
+	PermissionKey func(url string) (*Permission, error)
 }
 
 type Response struct {

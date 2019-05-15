@@ -41,12 +41,11 @@ func (self *WebsocketNode) InitContext(ptr *NodePtr) error {
 	node.CacheAware = self.CacheAware
 	node.WSManager = self.WSManager
 	node.Context = &Context{
-		Host:      util.GetClientIp(input),
-		Port:      self.Context.Port,
-		Style:     WEBSOCKET,
-		Method:    ptr.Pattern,
-		Anonymous: ptr.Anonymous,
-		Version:   self.Context.Version,
+		Host:    util.GetClientIp(input),
+		Port:    self.Context.Port,
+		Style:   WEBSOCKET,
+		Method:  ptr.Pattern,
+		Version: self.Context.Version,
 		Response: &Response{
 			ContentEncoding: UTF8,
 			ContentType:     APPLICATION_JSON,
@@ -139,9 +138,6 @@ func (self *WebsocketNode) wsReadHandle(c *WSClient, rcvd []byte) error {
 func (self *WebsocketNode) ValidSession() error {
 	access_token := self.Context.Params.Token
 	if len(access_token) == 0 {
-		if !self.Context.Anonymous {
-			return ex.Throw{Code: http.StatusUnauthorized, Msg: "获取授权令牌失败"}
-		}
 		return nil
 	}
 	checker, err := new(jwt.Subject).GetSubjectChecker(access_token)
@@ -183,13 +179,18 @@ func (self *WebsocketNode) ValidPermission() error {
 	if self.Context.PermissionKey == nil {
 		return nil
 	}
-	permission, err := self.Context.PermissionKey()
+	need, err := self.Context.PermissionKey(self.Context.Method)
 	if err != nil {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "读取授权资源失败", Err: err}
-	}
-	need, check := permission[self.Context.Method];
-	if !check || need.NeedRole == nil || len(need.NeedRole) == 0 { // 没有查询到URL配置,则跳过
+	} else if need == nil { // 无授权资源配置,跳过
 		return nil
+	} else if need.NeedRole == nil || len(need.NeedRole) == 0 { // 无授权角色配置跳过
+		return nil
+	}
+	if need.NeedLogin == 0 { // 无登录状态,跳过
+		return nil
+	} else if self.Context.Session == nil { // 需要登录状态,会话为空,抛出异常
+		return ex.Throw{Code: http.StatusUnauthorized, Msg: "获取授权令牌失败"}
 	}
 	access := 0
 	need_access := len(need.NeedRole)
@@ -309,7 +310,7 @@ func (self *WebsocketNode) StartServer() {
 	}()
 }
 
-func (self *WebsocketNode) Router(pattern string, handle func(ctx *Context) error, anonymous ...bool) {
+func (self *WebsocketNode) Router(pattern string, handle func(ctx *Context) error) {
 	if !strings.HasPrefix(pattern, "/") {
 		pattern = util.AddStr("/", pattern)
 	}
@@ -320,16 +321,7 @@ func (self *WebsocketNode) Router(pattern string, handle func(ctx *Context) erro
 		panic("缓存服务尚未初始化")
 	}
 	http.DefaultServeMux.HandleFunc(pattern, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		anon := true
-		if anonymous != nil && len(anonymous) > 0 {
-			anon = anonymous[0]
-		}
-		self.Proxy(
-			&NodePtr{
-				self,
-				r, w, pattern, anon, handle,
-			},
-		)
+		self.Proxy(&NodePtr{self, r, w, pattern, handle})
 	}))
 }
 
@@ -352,10 +344,6 @@ func (self *WebsocketNode) SetContentType(contentType string) {
 }
 
 func (self *WebsocketNode) Connect(ctx *Context, s Session) error {
-	//if err := self.SessionAware.CreateSession(s); err != nil {
-	//	return err
-	//}
-	//ctx.Session = s
 	return nil
 }
 
