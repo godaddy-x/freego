@@ -107,6 +107,9 @@ func (self *WebsocketNode) wsReadHandle(c *WSClient, rcvd []byte) error {
 		if err := self.ValidSession(); err != nil {
 			return self.RenderError(err)
 		}
+		if err := self.ValidReplayAttack(); err != nil {
+			return self.RenderError(err)
+		}
 		if err := self.ValidPermission(); err != nil {
 			return self.RenderError(err)
 		}
@@ -172,6 +175,21 @@ func (self *WebsocketNode) ValidSession() error {
 	userId, _ := util.StrToInt64(sub)
 	self.Context.UserId = userId
 	self.Context.Session = session
+	return nil
+}
+
+func (self *WebsocketNode) ValidReplayAttack() error {
+	param := self.Context.Params
+	key := util.AddStr(JWT_SIG_, param.Sign)
+	if c, err := self.CacheAware(); err != nil {
+		return err
+	} else if _, b, err := c.Get(key, nil); err != nil {
+		return err
+	} else if b {
+		return ex.Throw{Code: http.StatusForbidden, Msg: "重复请求不受理"}
+	} else {
+		c.Put(key, 1, int((param.Time+jwt.FIVE_MINUTES)/1000))
+	}
 	return nil
 }
 

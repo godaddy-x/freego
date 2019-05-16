@@ -35,6 +35,7 @@ const (
 	MAX_VALUE_LEN       = 4000 // 最大参数值长度
 
 	JWT_SUB_ = "jwt_sub_"
+	JWT_SIG_ = "jwt_sig_"
 
 	Token = "a"
 	Data  = "d"
@@ -68,6 +69,8 @@ type ProtocolNode interface {
 	Release(ctx *Context) error
 	// 校验会话
 	ValidSession() error
+	// 校验重放攻击
+	ValidReplayAttack() error
 	// 刷新会话
 	TouchSession() error
 	// 校验权限
@@ -196,7 +199,7 @@ func (self *Context) SecurityCheck(req *ReqDto) error {
 	}
 	if req.Time == 0 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "时间参数无效"}
-	} else if req.Time+300000 < util.Time() { // 判断时间是否超过5分钟
+	} else if req.Time+jwt.FIVE_MINUTES < util.Time() { // 判断时间是否超过5分钟
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "时间参数已过期"}
 	}
 	if !validSign(req, d, self.SecretKey()) {

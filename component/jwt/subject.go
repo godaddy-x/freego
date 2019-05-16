@@ -11,9 +11,11 @@ import (
 )
 
 const (
-	JWT          = "JWT"
-	SHA256       = "SHA256"
-	MD5          = "MD5"
+	JWT    = "JWT"
+	SHA256 = "SHA256"
+	MD5    = "MD5"
+
+	FIVE_MINUTES = int64(300000);
 	QUARTER_HOUR = int64(900000);
 	HALF_HOUR    = int64(1800000);
 	ONE_DAY      = int64(86400000);

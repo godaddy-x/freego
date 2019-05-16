@@ -159,6 +159,21 @@ func (self *HttpNode) ValidSession() error {
 	return nil
 }
 
+func (self *HttpNode) ValidReplayAttack() error {
+	param := self.Context.Params
+	key := util.AddStr(JWT_SIG_, param.Sign)
+	if c, err := self.CacheAware(); err != nil {
+		return err
+	} else if _, b, err := c.Get(key, nil); err != nil {
+		return err
+	} else if b {
+		return ex.Throw{Code: http.StatusForbidden, Msg: "重复请求不受理"}
+	} else {
+		c.Put(key, 1, int((param.Time+jwt.FIVE_MINUTES)/1000))
+	}
+	return nil
+}
+
 func (self *HttpNode) ValidPermission() error {
 	if self.Context.PermissionKey == nil {
 		return nil
@@ -207,25 +222,29 @@ func (self *HttpNode) Proxy(ptr *NodePtr) {
 		if err := ob.ValidSession(); err != nil {
 			return err
 		}
-		// 3.校验访问权限
+		// 3.校验重放攻击
+		if err := ob.ValidReplayAttack(); err != nil {
+			return err
+		}
+		// 4.校验访问权限
 		if err := ob.ValidPermission(); err != nil {
 			return err
 		}
-		// 4.上下文前置检测方法
+		// 5.上下文前置检测方法
 		if err := ob.PreHandle(ob.OverrideFunc.PreHandleFunc); err != nil {
 			return err
 		}
-		// 5.执行业务方法
+		// 6.执行业务方法
 		r1 := ptr.Handle(ob.Context) // r1异常格式,建议使用ex模式
-		// 6.执行视图控制方法
+		// 7.执行视图控制方法
 		r2 := ob.PostHandle(ob.OverrideFunc.PostHandleFunc, r1)
-		// 7.执行释放资源,记录日志方法
+		// 8.执行释放资源,记录日志方法
 		if err := ob.AfterCompletion(ob.OverrideFunc.AfterCompletionFunc, r2); err != nil {
 			return err
 		}
 		return nil
 	}()
-	// 8.更新会话有效性
+	// 9.更新会话有效性
 	ob.LastAccessTouch(err)
 }
 
