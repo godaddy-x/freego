@@ -1,6 +1,7 @@
 package node
 
 import (
+	"fmt"
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/component/jwt"
 	"github.com/godaddy-x/freego/ex"
@@ -50,6 +51,7 @@ type HookNode struct {
 	SessionAware SessionAware
 	CacheAware   func(ds ...string) (cache.ICache, error)
 	OverrideFunc *OverrideFunc
+	Customize    bool
 }
 
 type NodePtr struct {
@@ -83,8 +85,8 @@ type ProtocolNode interface {
 	SetContentType(contentType string)
 	// 核心代理方法
 	Proxy(ptr *NodePtr)
-	// 核心绑定路由方法
-	Router(pattern string, handle func(ctx *Context) error)
+	// 核心绑定路由方法, customize=true自定义不执行默认流程
+	Router(pattern string, handle func(ctx *Context) error, customize ... bool)
 	// html响应模式
 	Html(ctx *Context, view string, data interface{}) error
 	// json响应模式
@@ -109,17 +111,19 @@ type ProtocolNode interface {
 
 type ReqDto struct {
 	Token string      `json:"a"`
+	Data  interface{} `json:"d"`
 	Nonce string      `json:"n"`
 	Time  int64       `json:"t"`
-	Data  interface{} `json:"d"`
 	Sign  string      `json:"g"`
 }
 
 type RespDto struct {
-	Status  int         `json:"s"`
-	Message string      `json:"m"`
-	Time    int64       `json:"t"`
+	Code    int         `json:"c"`
 	Data    interface{} `json:"d"`
+	Message string      `json:"m"`
+	Nonce   string      `json:"n"`
+	Time    int64       `json:"t"`
+	Sign    string      `json:"g"`
 }
 
 type Permission struct {
@@ -202,7 +206,7 @@ func (self *Context) SecurityCheck(req *ReqDto) error {
 	} else if req.Time+jwt.FIVE_MINUTES < util.Time() { // 判断时间是否超过5分钟
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "时间参数已过期"}
 	}
-	if !validSign(req, d, self.SecretKey()) {
+	if !ValidSign(req, d, self.SecretKey()) {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "API签名校验失败"}
 	}
 	data := make(map[string]interface{})
@@ -218,16 +222,63 @@ func (self *Context) SecurityCheck(req *ReqDto) error {
 }
 
 // 校验签名有效性
-func validSign(req *ReqDto, d string, key *jwt.SecretKey) bool {
+func ValidSign(req *ReqDto, data string, key *jwt.SecretKey) bool {
 	api_secret_key := key.ApiSecretKey
 	secret_key_alg := key.SecretKeyAlg
 	token := req.Token
+	nonce := req.Nonce
+	time := req.Time
 	if secret_key_alg == jwt.MD5 {
-		sign_str := util.AddStr(Token, "=", token, "&", Data, "=", d, "&", Key, "=", util.GetApiAccessKeyByMD5(token, api_secret_key), "&", Nonce, "=", req.Nonce, "&", Time, "=", req.Time)
+		key := util.GetApiAccessKeyByMD5(token, api_secret_key)
+		sign_str := util.AddStr(token, data, key, nonce, time)
 		return req.Sign == util.MD5(sign_str)
 	} else if secret_key_alg == jwt.SHA256 {
-		sign_str := util.AddStr(Token, "=", token, "&", Data, "=", d, "&", Key, "=", util.GetApiAccessKeyBySHA256(token, api_secret_key), "&", Nonce, "=", req.Nonce, "&", Time, "=", req.Time)
+		key := util.GetApiAccessKeyBySHA256(token, api_secret_key)
+		sign_str := util.AddStr(token, data, key, nonce, time)
 		return req.Sign == util.SHA256(sign_str)
 	}
 	return false
+}
+
+// 校验签名有效性
+func BuidSign(token string, resp *RespDto, key *jwt.SecretKey) error {
+	api_secret_key := key.ApiSecretKey
+	secret_key_alg := key.SecretKeyAlg
+	code := resp.Code
+	message := resp.Message
+	nonce := resp.Nonce
+	time := resp.Time
+	data := ""
+	if resp.Data != nil {
+		if d, err := util.JsonMarshal(resp.Data); err != nil {
+			return ex.Throw{Code: http.StatusInternalServerError, Msg: "响应数据构建异常"}
+		} else if data = util.Base64URLEncode(d); len(data) == 0 {
+			return ex.Throw{Code: http.StatusInternalServerError, Msg: "响应数据构建为空"}
+		}
+		resp.Data = data
+	}
+	if secret_key_alg == jwt.MD5 {
+		key := util.GetApiAccessKeyByMD5(token, api_secret_key)
+		sign_str := util.AddStr(token, code, data, key, message, nonce, time)
+		resp.Sign = util.MD5(sign_str)
+	} else if secret_key_alg == jwt.SHA256 {
+		key := util.GetApiAccessKeyBySHA256(token, api_secret_key)
+		sign_str := util.AddStr(token, code, data, key, message, nonce, time)
+		resp.Sign = util.SHA256(sign_str)
+	}
+	return nil
+}
+
+func (ctx *Context) SendText(data string) {
+	ctx.Output.Header().Set("Content-Type", TEXT_PLAIN)
+	fmt.Println(ctx.Output.Write(util.Str2Bytes(data)))
+}
+
+func (ctx *Context) SendJson(data interface{}) {
+	ctx.Output.Header().Set("Content-Type", APPLICATION_JSON)
+	if b, err := util.JsonMarshal(data); err != nil {
+		ctx.Output.Write(util.Str2Bytes(""))
+	} else {
+		fmt.Println(ctx.Output.Write(b))
+	}
 }
