@@ -95,10 +95,6 @@ func (self *HttpNode) InitContext(ptr *NodePtr) error {
 		PermissionKey: self.Context.PermissionKey,
 		Storage:       make(map[string]interface{}),
 	}
-	if self.Customize {
-		node.Customize = true
-		return ptr.Handle(node.Context)
-	}
 	if err := node.GetHeader(); err != nil {
 		return err
 	}
@@ -221,8 +217,6 @@ func (self *HttpNode) Proxy(ptr *NodePtr) {
 		ptr.Node = ob
 		if err := self.InitContext(ptr); err != nil {
 			return err
-		} else if ob.Customize { // 如设置自定义则跳过以下流程处理
-			return nil
 		}
 		// 2.校验会话有效性
 		if err := ob.ValidSession(); err != nil {
@@ -296,7 +290,6 @@ func (self *HttpNode) AfterCompletion(handle func(ctx *Context, resp *Response, 
 }
 
 func (self *HttpNode) RenderError(err error) error {
-	param := self.Context.Params
 	if self.OverrideFunc.RenderErrorFunc == nil {
 		out := ex.Catch(err)
 		if self.Context.Response.ContentType == APPLICATION_JSON {
@@ -308,24 +301,19 @@ func (self *HttpNode) RenderError(err error) error {
 			out = ex.Throw{Code: out.Code, Msg: out.Msg}
 		}
 		resp := &RespDto{
-			Code:    out.Code,
+			Status:  out.Code,
 			Message: out.Msg,
-			Nonce:   param.Nonce,
 			Time:    util.Time(),
+			Data:    make(map[string]interface{}),
 		}
-		if resp.Data == nil {
-			resp.Data = make(map[string]interface{})
-		}
-		BuidSign(param.Token, resp, self.Context.SecretKey())
 		if result, err := util.JsonMarshal(resp); err != nil {
 			self.Context.Output.WriteHeader(http.StatusInternalServerError)
 			resp = &RespDto{
-				Code:    http.StatusInternalServerError,
+				Status:  http.StatusInternalServerError,
 				Message: "系统发生未知错误",
-				Nonce:   param.Nonce,
 				Time:    util.Time(),
+				Data:    make(map[string]interface{}),
 			}
-			BuidSign(self.Context.Params.Token, resp, self.Context.SecretKey())
 			result, _ := util.JsonMarshal(resp)
 			self.Context.Output.Write(result)
 			log.Error(resp.Message, 0, log.AddError(err))
@@ -347,20 +335,17 @@ func (self *HttpNode) RenderTo() error {
 			return err
 		}
 	case APPLICATION_JSON:
-		param := self.Context.Params
 		resp := &RespDto{
-			Code:    http.StatusOK,
+			Status:  http.StatusOK,
 			Message: "success",
-			Nonce:   param.Nonce,
 			Time:    util.Time(),
 			Data:    self.Context.Response.RespEntity,
 		}
 		if resp.Data == nil {
 			resp.Data = make(map[string]interface{})
 		}
-		BuidSign(param.Token, resp, self.Context.SecretKey())
 		if result, err := util.JsonMarshal(resp); err != nil {
-			return ex.Throw{Code: http.StatusInternalServerError, Msg: "响应数据构建失败", Err: err}
+			return ex.Throw{Code: http.StatusInternalServerError, Msg: "响应数据异常", Err: err}
 		} else {
 			self.SetContentType(APPLICATION_JSON)
 			self.Context.Output.Write(result)
@@ -379,7 +364,7 @@ func (self *HttpNode) StartServer() {
 	}()
 }
 
-func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, customize ...bool) {
+func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error) {
 	if !strings.HasPrefix(pattern, "/") {
 		pattern = util.AddStr("/", pattern)
 	}
@@ -388,11 +373,6 @@ func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, cu
 	}
 	if self.CacheAware == nil {
 		panic("缓存服务尚未初始化")
-	}
-	if customize != nil && len(customize) > 0 {
-		if customize[0] {
-			self.Customize = true
-		}
 	}
 	http.DefaultServeMux.HandleFunc(pattern, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		self.Proxy(&NodePtr{self, r, w, pattern, handle})
