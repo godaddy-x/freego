@@ -50,6 +50,7 @@ type HookNode struct {
 	SessionAware SessionAware
 	CacheAware   func(ds ...string) (cache.ICache, error)
 	OverrideFunc *OverrideFunc
+	Customize    bool
 }
 
 type NodePtr struct {
@@ -83,8 +84,8 @@ type ProtocolNode interface {
 	SetContentType(contentType string)
 	// 核心代理方法
 	Proxy(ptr *NodePtr)
-	// 核心绑定路由方法
-	Router(pattern string, handle func(ctx *Context) error)
+	// 核心绑定路由方法, customize=true自定义不执行默认流程
+	Router(pattern string, handle func(ctx *Context) error, customize ... bool)
 	// html响应模式
 	Html(ctx *Context, view string, data interface{}) error
 	// json响应模式
@@ -230,4 +231,21 @@ func validSign(req *ReqDto, d string, key *jwt.SecretKey) bool {
 		return req.Sign == util.SHA256(sign_str)
 	}
 	return false
+}
+
+func (ctx *Context) ResponseText(data string) error {
+	ctx.Output.Header().Set("Content-Type", TEXT_PLAIN)
+	ctx.Output.Write(util.Str2Bytes(data))
+	return nil
+}
+
+func (ctx *Context) ResponseJson(data interface{}) error {
+	ctx.Output.Header().Set("Content-Type", APPLICATION_JSON)
+	if b, err := util.JsonMarshal(data); err != nil {
+		ctx.Output.Write(util.Str2Bytes(""))
+		return err
+	} else {
+		ctx.Output.Write(b)
+	}
+	return nil
 }

@@ -95,6 +95,10 @@ func (self *HttpNode) InitContext(ptr *NodePtr) error {
 		PermissionKey: self.Context.PermissionKey,
 		Storage:       make(map[string]interface{}),
 	}
+	if self.Customize {
+		node.Customize = true
+		return ptr.Handle(node.Context)
+	}
 	if err := node.GetHeader(); err != nil {
 		return err
 	}
@@ -217,6 +221,8 @@ func (self *HttpNode) Proxy(ptr *NodePtr) {
 		ptr.Node = ob
 		if err := self.InitContext(ptr); err != nil {
 			return err
+		} else if ob.Customize { // 如设置自定义则跳过以下流程处理
+			return nil
 		}
 		// 2.校验会话有效性
 		if err := ob.ValidSession(); err != nil {
@@ -364,7 +370,7 @@ func (self *HttpNode) StartServer() {
 	}()
 }
 
-func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error) {
+func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, customize ... bool) {
 	if !strings.HasPrefix(pattern, "/") {
 		pattern = util.AddStr("/", pattern)
 	}
@@ -373,6 +379,11 @@ func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error) {
 	}
 	if self.CacheAware == nil {
 		panic("缓存服务尚未初始化")
+	}
+	if customize != nil && len(customize) > 0 {
+		if customize[0] {
+			self.Customize = true
+		}
 	}
 	http.DefaultServeMux.HandleFunc(pattern, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		self.Proxy(&NodePtr{self, r, w, pattern, handle})

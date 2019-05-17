@@ -328,7 +328,7 @@ func (self *WebsocketNode) StartServer() {
 	}()
 }
 
-func (self *WebsocketNode) Router(pattern string, handle func(ctx *Context) error) {
+func (self *WebsocketNode) Router(pattern string, handle func(ctx *Context) error, customize ... bool) {
 	if !strings.HasPrefix(pattern, "/") {
 		pattern = util.AddStr("/", pattern)
 	}
