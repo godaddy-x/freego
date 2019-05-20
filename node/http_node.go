@@ -5,7 +5,6 @@ import (
 	"github.com/godaddy-x/freego/component/log"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/util"
-	"html/template"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -18,46 +17,40 @@ type HttpNode struct {
 }
 
 func (self *HttpNode) GetHeader() error {
-	if self.OverrideFunc.GetHeaderFunc == nil {
-		return nil
-	}
-	return self.OverrideFunc.GetHeaderFunc(self.Context)
+	return nil
 }
 
 func (self *HttpNode) GetParams() error {
-	if self.OverrideFunc.GetParamsFunc == nil {
-		r := self.Context.Input
-		r.ParseForm()
-		req := &ReqDto{}
-		if r.Method == POST {
-			result, err := ioutil.ReadAll(r.Body)
-			if err != nil {
-				return ex.Throw{Code: http.StatusBadRequest, Msg: "获取参数失败", Err: err}
-			}
-			r.Body.Close()
-			if len(result) > (MAX_VALUE_LEN * 5) {
-				return ex.Throw{Code: http.StatusLengthRequired, Msg: "参数值长度溢出: " + util.AnyToStr(len(result))}
-			}
-			if err := util.JsonUnmarshal(result, req); err != nil {
-				return ex.Throw{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err}
-			}
-			if err := self.Context.SecurityCheck(req); err != nil {
-				return err
-			}
-		} else if r.Method == GET {
-			// return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "暂不支持GET类型"}
-		} else if r.Method == PUT {
-			return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "暂不支持PUT类型"}
-		} else if r.Method == PATCH {
-			return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "暂不支持PATCH类型"}
-		} else if r.Method == DELETE {
-			return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "暂不支持DELETE类型"}
-		} else {
-			return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "未知的请求类型"}
+	r := self.Context.Input
+	r.ParseForm()
+	req := &ReqDto{}
+	if r.Method == POST {
+		result, err := ioutil.ReadAll(r.Body)
+		if err != nil {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "获取参数失败", Err: err}
 		}
-		return nil
+		r.Body.Close()
+		if len(result) > (MAX_VALUE_LEN * 5) {
+			return ex.Throw{Code: http.StatusLengthRequired, Msg: "参数值长度溢出: " + util.AnyToStr(len(result))}
+		}
+		if err := util.JsonUnmarshal(result, req); err != nil {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err}
+		}
+		if err := self.Context.SecurityCheck(req); err != nil {
+			return err
+		}
+	} else if r.Method == GET {
+		// return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "暂不支持GET类型"}
+	} else if r.Method == PUT {
+		return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "暂不支持PUT类型"}
+	} else if r.Method == PATCH {
+		return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "暂不支持PATCH类型"}
+	} else if r.Method == DELETE {
+		return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "暂不支持DELETE类型"}
+	} else {
+		return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "未知的请求类型"}
 	}
-	return self.OverrideFunc.GetParamsFunc(self.Context)
+	return nil
 }
 
 func (self *HttpNode) InitContext(ptr *NodePtr) error {
@@ -79,16 +72,12 @@ func (self *HttpNode) InitContext(ptr *NodePtr) error {
 	node.SessionAware = self.SessionAware
 	node.CacheAware = self.CacheAware
 	node.Context = &Context{
-		Host:    util.GetClientIp(input),
-		Port:    self.Context.Port,
-		Style:   HTTP,
-		Method:  ptr.Pattern,
-		Version: self.Context.Version,
-		Response: &Response{
-			ContentEncoding: UTF8,
-			ContentType:     APPLICATION_JSON,
-			TemplDir:        self.TemplDir,
-		},
+		Host:          util.GetClientIp(input),
+		Port:          self.Context.Port,
+		Style:         HTTP,
+		Method:        ptr.Pattern,
+		Version:       self.Context.Version,
+		Response:      &Response{UTF8, APPLICATION_JSON, nil},
 		Input:         input,
 		Output:        output,
 		SecretKey:     self.Context.SecretKey,
@@ -210,14 +199,10 @@ func (self *HttpNode) ValidPermission() error {
 	return ex.Throw{Code: http.StatusUnauthorized, Msg: "访问权限不足"}
 }
 
-func (self *HttpNode) TouchSession() error {
-	return nil
-}
-
 func (self *HttpNode) Proxy(ptr *NodePtr) {
 	// 1.初始化请求上下文
 	ob := &HttpNode{}
-	err := func() error {
+	if err := func() error {
 		ptr.Node = ob
 		if err := self.InitContext(ptr); err != nil {
 			return err
@@ -249,17 +234,8 @@ func (self *HttpNode) Proxy(ptr *NodePtr) {
 			return err
 		}
 		return nil
-	}()
-	// 9.更新会话有效性
-	ob.LastAccessTouch(err)
-}
-
-func (self *HttpNode) LastAccessTouch(err error) {
-	if err := self.TouchSession(); err != nil {
-		log.Error("刷新会话失败", 0, log.AddError(err))
-	}
-	if err != nil {
-		self.RenderError(err)
+	}(); err != nil {
+		ob.RenderError(err)
 	}
 }
 
@@ -296,56 +272,38 @@ func (self *HttpNode) AfterCompletion(handle func(ctx *Context, resp *Response, 
 }
 
 func (self *HttpNode) RenderError(err error) error {
-	if self.OverrideFunc.RenderErrorFunc == nil {
-		out := ex.Catch(err)
-		if self.Context.Response.ContentType == APPLICATION_JSON {
-			self.SetContentType(APPLICATION_JSON)
-		}
-		http_code := out.Code
-		if http_code > http.StatusInternalServerError { // 大于500的都属于业务异常代码,重定义http错误代码为600
-			http_code = 600
-			out = ex.Throw{Code: out.Code, Msg: out.Msg}
-		}
-		resp := &RespDto{
-			Status:  out.Code,
-			Message: out.Msg,
-			Time:    util.Time(),
-			Data:    make(map[string]interface{}),
-		}
-		if result, err := util.JsonMarshal(resp); err != nil {
-			self.Context.Output.WriteHeader(http.StatusInternalServerError)
-			resp = &RespDto{
-				Status:  http.StatusInternalServerError,
-				Message: "系统发生未知错误",
-				Time:    util.Time(),
-				Data:    make(map[string]interface{}),
-			}
-			result, _ := util.JsonMarshal(resp)
-			self.Context.Output.Write(result)
-			log.Error(resp.Message, 0, log.AddError(err))
-		} else {
-			self.Context.Output.WriteHeader(http_code)
-			self.Context.Output.Write(result)
-		}
-		return nil
+	out := ex.Catch(err)
+	http_code := out.Code
+	if http_code > http.StatusInternalServerError { // 大于500的都属于业务异常代码,重定义http错误代码为600
+		http_code = 600
+		out = ex.Throw{Code: out.Code, Msg: out.Msg}
 	}
-	return self.OverrideFunc.RenderErrorFunc(err)
+	resp := &RespDto{
+		Status:  out.Code,
+		Message: out.Msg,
+		Time:    util.Time(),
+		Data:    make(map[string]interface{}),
+	}
+	if result, err := util.JsonMarshal(resp); err != nil {
+		log.Error(resp.Message, 0, log.AddError(err))
+		return nil
+	} else {
+		self.Context.Output.Header().Set("Content-Type", APPLICATION_JSON)
+		self.Context.Output.WriteHeader(http_code)
+		self.Context.Output.Write(result)
+	}
+	return nil
 }
 
 func (self *HttpNode) RenderTo() error {
 	switch self.Context.Response.ContentType {
 	case TEXT_HTML:
-		if templ, err := template.ParseFiles(self.Context.Response.TemplDir + self.Context.Response.RespView); err != nil {
-			return err
-		} else if err := templ.Execute(self.Context.Output, self.Context.Response.RespEntity); err != nil {
-			return err
-		}
 	case APPLICATION_JSON:
 		resp := &RespDto{
 			Status:  http.StatusOK,
 			Message: "success",
 			Time:    util.Time(),
-			Data:    self.Context.Response.RespEntity,
+			Data:    self.Context.Response.ContentEntity,
 		}
 		if resp.Data == nil {
 			resp.Data = make(map[string]interface{})
@@ -353,7 +311,7 @@ func (self *HttpNode) RenderTo() error {
 		if result, err := util.JsonMarshal(resp); err != nil {
 			return ex.Throw{Code: http.StatusInternalServerError, Msg: "响应数据异常", Err: err}
 		} else {
-			self.SetContentType(APPLICATION_JSON)
+			self.Context.Output.Header().Set("Content-Type", APPLICATION_JSON)
 			self.Context.Output.Write(result)
 		}
 	default:
@@ -370,7 +328,7 @@ func (self *HttpNode) StartServer() {
 	}()
 }
 
-func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, customize ... bool) {
+func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, customize ...bool) {
 	if !strings.HasPrefix(pattern, "/") {
 		pattern = util.AddStr("/", pattern)
 	}
@@ -390,40 +348,11 @@ func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, cu
 	}))
 }
 
-func (self *HttpNode) Html(ctx *Context, view string, data interface{}) error {
-	if len(ctx.Response.TemplDir) == 0 {
-		return ex.Throw{Code: http.StatusNotFound, Msg: "模版目录尚未设置"}
-	}
-	if len(view) == 0 {
-		return ex.Throw{Code: http.StatusNotFound, Msg: "模版文件尚未设置"}
-	}
-	ctx.Response.ContentEncoding = UTF8
-	ctx.Response.ContentType = TEXT_HTML
-	ctx.Response.RespView = view
-	ctx.Response.RespEntity = data
-	return nil
-}
-
 func (self *HttpNode) Json(ctx *Context, data interface{}) error {
 	if data == nil {
 		data = map[string]interface{}{}
 	}
-	ctx.Response.ContentEncoding = UTF8
-	ctx.Response.ContentType = APPLICATION_JSON
-	ctx.Response.RespEntity = data
-	return nil
-}
-
-func (self *HttpNode) SetContentType(contentType string) {
-	self.Context.Output.Header().Set("Content-Type", contentType)
-}
-
-func (self *HttpNode) Connect(ctx *Context, s Session) error {
-	return nil
-}
-
-func (self *HttpNode) Release(ctx *Context) error {
-	ctx.Session.Stop()
+	ctx.Response = &Response{UTF8, APPLICATION_JSON, data}
 	return nil
 }
 

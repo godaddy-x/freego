@@ -2,7 +2,6 @@ package node
 
 import (
 	"github.com/godaddy-x/freego/component/jwt"
-	"github.com/godaddy-x/freego/component/log"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/util"
 	"github.com/gorilla/websocket"
@@ -41,15 +40,12 @@ func (self *WebsocketNode) InitContext(ptr *NodePtr) error {
 	node.CacheAware = self.CacheAware
 	node.WSManager = self.WSManager
 	node.Context = &Context{
-		Host:    util.GetClientIp(input),
-		Port:    self.Context.Port,
-		Style:   WEBSOCKET,
-		Method:  ptr.Pattern,
-		Version: self.Context.Version,
-		Response: &Response{
-			ContentEncoding: UTF8,
-			ContentType:     APPLICATION_JSON,
-		},
+		Host:      util.GetClientIp(input),
+		Port:      self.Context.Port,
+		Style:     WEBSOCKET,
+		Method:    ptr.Pattern,
+		Version:   self.Context.Version,
+		Response:  &Response{UTF8, APPLICATION_JSON, nil},
 		Input:     input,
 		Output:    output,
 		SecretKey: self.Context.SecretKey,
@@ -100,8 +96,6 @@ func (self *WebsocketNode) wsReadHandle(c *WSClient, rcvd []byte) error {
 	if err := self.Context.SecurityCheck(req); err != nil {
 		return err
 	}
-	// false.已有会话 true.会话为空
-	state := false
 	// 2.判定或校验会话
 	if self.Context.Session == nil { // 如无会话则校验以及填充会话,如存在会话则跳过
 		if err := self.ValidSession(); err != nil {
@@ -113,13 +107,12 @@ func (self *WebsocketNode) wsReadHandle(c *WSClient, rcvd []byte) error {
 		if err := self.ValidPermission(); err != nil {
 			return self.RenderError(err)
 		}
-		state = true
 	} else if self.Context.Session.Invalid() {
 		return self.RenderError(ex.Throw{Code: http.StatusUnauthorized, Msg: "会话已失效"})
 	} else if self.Context.Session.IsTimeout() {
 		return self.RenderError(ex.Throw{Code: http.StatusUnauthorized, Msg: "会话已超时"})
 	}
-	err := func() error {
+	if err := func() error {
 		// 3.上下文前置检测方法
 		if err := self.PreHandle(self.OverrideFunc.PreHandleFunc); err != nil {
 			return err
@@ -133,9 +126,10 @@ func (self *WebsocketNode) wsReadHandle(c *WSClient, rcvd []byte) error {
 			return err
 		}
 		return nil
-	}()
-	// 7.更新会话有效性
-	return self.LastAccessTouch(state, err)
+	}(); err != nil {
+		self.RenderError(err)
+	}
+	return nil
 }
 
 func (self *WebsocketNode) ValidSession() error {
@@ -225,10 +219,6 @@ func (self *WebsocketNode) ValidPermission() error {
 	return ex.Throw{Code: http.StatusUnauthorized, Msg: "访问权限不足"}
 }
 
-func (self *WebsocketNode) TouchSession() error {
-	return nil
-}
-
 func (self *WebsocketNode) Proxy(ptr *NodePtr) {
 	ob := &WebsocketNode{}
 	ptr.Node = ob
@@ -238,18 +228,6 @@ func (self *WebsocketNode) Proxy(ptr *NodePtr) {
 	if err := ob.InitWebsocket(ptr); err != nil {
 		return
 	}
-}
-
-func (self *WebsocketNode) LastAccessTouch(state bool, err error) error {
-	if state {
-		if err := self.TouchSession(); err != nil {
-			log.Error("刷新会话失败", 0, log.AddError(err))
-		}
-	}
-	if err != nil {
-		self.RenderError(err)
-	}
-	return nil
 }
 
 func (self *WebsocketNode) PreHandle(handle func(ctx *Context) error) error {
@@ -285,12 +263,8 @@ func (self *WebsocketNode) AfterCompletion(handle func(ctx *Context, resp *Respo
 }
 
 func (self *WebsocketNode) RenderError(err error) error {
-	if self.OverrideFunc.RenderErrorFunc == nil {
-		out := ex.Catch(err)
-		self.WSClient.send <- WSMessage{MessageType: websocket.CloseMessage, Content: util.Str2Bytes(out.Error())}
-		return nil
-	}
-	return self.OverrideFunc.RenderErrorFunc(err)
+	self.WSClient.send <- WSMessage{MessageType: websocket.CloseMessage, Content: util.Str2Bytes(ex.Catch(err).Error())}
+	return nil
 }
 
 func (self *WebsocketNode) RenderTo() error {
@@ -298,7 +272,9 @@ func (self *WebsocketNode) RenderTo() error {
 	case TEXT_HTML:
 	case TEXT_PLAIN:
 	case APPLICATION_JSON:
-		if result, err := util.JsonMarshal(self.Context.Response.RespEntity); err != nil {
+		if data := self.Context.Response.ContentEntity; data == nil {
+			data = make(map[string]interface{})
+		} else if result, err := util.JsonMarshal(data); err != nil {
 			self.sendJsonConvertError(err)
 		} else {
 			self.WSClient.send <- WSMessage{MessageType: websocket.TextMessage, Content: result}
@@ -328,7 +304,7 @@ func (self *WebsocketNode) StartServer() {
 	}()
 }
 
-func (self *WebsocketNode) Router(pattern string, handle func(ctx *Context) error, customize ... bool) {
+func (self *WebsocketNode) Router(pattern string, handle func(ctx *Context) error, customize ...bool) {
 	if !strings.HasPrefix(pattern, "/") {
 		pattern = util.AddStr("/", pattern)
 	}
@@ -343,30 +319,11 @@ func (self *WebsocketNode) Router(pattern string, handle func(ctx *Context) erro
 	}))
 }
 
-func (self *WebsocketNode) Html(ctx *Context, view string, data interface{}) error {
-	return nil
-}
-
 func (self *WebsocketNode) Json(ctx *Context, data interface{}) error {
 	if data == nil {
 		data = map[string]interface{}{}
 	}
-	ctx.Response.ContentEncoding = UTF8
-	ctx.Response.ContentType = APPLICATION_JSON
-	ctx.Response.RespEntity = data
-	return nil
-}
-
-func (self *WebsocketNode) SetContentType(contentType string) {
-	self.Context.Output.Header().Set("Content-Type", contentType)
-}
-
-func (self *WebsocketNode) Connect(ctx *Context, s Session) error {
-	return nil
-}
-
-func (self *WebsocketNode) Release(ctx *Context) error {
-	ctx.Session.Stop()
+	ctx.Response = &Response{UTF8, APPLICATION_JSON, data}
 	return nil
 }
 

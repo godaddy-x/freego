@@ -64,30 +64,20 @@ type NodePtr struct {
 type ProtocolNode interface {
 	// 初始化上下文
 	InitContext(ptr *NodePtr) error
-	// 初始化连接
-	Connect(ctx *Context, s Session) error
-	// 关闭连接
-	Release(ctx *Context) error
 	// 校验会话
 	ValidSession() error
 	// 校验重放攻击
 	ValidReplayAttack() error
-	// 刷新会话
-	TouchSession() error
 	// 校验权限
 	ValidPermission() error
 	// 获取请求头数据
 	GetHeader() error
 	// 获取请求参数
 	GetParams() error
-	// 设置响应头格式
-	SetContentType(contentType string)
 	// 核心代理方法
 	Proxy(ptr *NodePtr)
 	// 核心绑定路由方法, customize=true自定义不执行默认流程
-	Router(pattern string, handle func(ctx *Context) error, customize ... bool)
-	// html响应模式
-	Html(ctx *Context, view string, data interface{}) error
+	Router(pattern string, handle func(ctx *Context) error, customize ...bool)
 	// json响应模式
 	Json(ctx *Context, data interface{}) error
 	// 前置检测方法(业务方法前执行)
@@ -150,22 +140,15 @@ type Context struct {
 }
 
 type Response struct {
-	ContentEncoding string
-	ContentType     string
-	RespEntity      interface{}
-	TemplDir        string
-	RespView        string
+	Encoding      string
+	ContentType   string
+	ContentEntity interface{}
 }
 
 type OverrideFunc struct {
-	GetHeaderFunc       func(ctx *Context) error
-	GetParamsFunc       func(ctx *Context) error
 	PreHandleFunc       func(ctx *Context) error
 	PostHandleFunc      func(resp *Response, err error) error
 	AfterCompletionFunc func(ctx *Context, resp *Response, err error) error
-	RenderErrorFunc     func(err error) error
-	LoginFunc           func(ctx *Context) error
-	LogoutFunc          func(ctx *Context) error
 }
 
 func (self *Context) GetHeader(k string) string {
@@ -219,15 +202,17 @@ func (self *Context) SecurityCheck(req *ReqDto) error {
 }
 
 // 校验签名有效性
-func validSign(req *ReqDto, d string, key *jwt.SecretKey) bool {
+func validSign(req *ReqDto, dataStr string, key *jwt.SecretKey) bool {
+	token := req.Token
+	nonce := req.Nonce
+	time := req.Time
 	api_secret_key := key.ApiSecretKey
 	secret_key_alg := key.SecretKeyAlg
-	token := req.Token
 	if secret_key_alg == jwt.MD5 {
-		sign_str := util.AddStr(Token, "=", token, "&", Data, "=", d, "&", Key, "=", util.GetApiAccessKeyByMD5(token, api_secret_key), "&", Nonce, "=", req.Nonce, "&", Time, "=", req.Time)
+		sign_str := util.AddStr(token, dataStr, util.GetApiAccessKeyByMD5(token, api_secret_key), nonce, time)
 		return req.Sign == util.MD5(sign_str)
 	} else if secret_key_alg == jwt.SHA256 {
-		sign_str := util.AddStr(Token, "=", token, "&", Data, "=", d, "&", Key, "=", util.GetApiAccessKeyBySHA256(token, api_secret_key), "&", Nonce, "=", req.Nonce, "&", Time, "=", req.Time)
+		sign_str := util.AddStr(token, dataStr, util.GetApiAccessKeyBySHA256(token, api_secret_key), nonce, time)
 		return req.Sign == util.SHA256(sign_str)
 	}
 	return false

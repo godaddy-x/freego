@@ -84,13 +84,11 @@ func (self *MyWsNode) login(ctx *node.Context) error {
 
 func (self *MyWebNode) logout(ctx *node.Context) error {
 	fmt.Println(ctx.Session.GetAttribute("test"))
-	self.Release(ctx)
-	return self.Html(ctx, "/resource/index.html", map[string]interface{}{"test": 1})
+	return nil
 }
 
 func (self *MyWsNode) logout(ctx *node.Context) error {
 	fmt.Println(ctx.Session.GetAttribute("test"))
-	self.Release(ctx)
 	return self.Json(ctx, map[string]interface{}{"token": "test"})
 }
 
@@ -115,8 +113,6 @@ func StartHttpNode() *MyWebNode {
 	}
 	my.CacheAware = GetCacheAware
 	my.OverrideFunc = &node.OverrideFunc{
-		GetHeaderFunc: nil,
-		GetParamsFunc: nil,
 		//PreHandleFunc: func(ctx *node.Context) error {
 		//	return nil
 		//},
