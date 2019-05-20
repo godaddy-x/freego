@@ -149,17 +149,17 @@ func (self *HttpNode) ValidSession() error {
 	} else if err := checker.Authentication(v, jwt_secret_key); err != nil {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "会话已失效或已超时", Err: err}
 	}
-	session := BuildJWTSession(checker)
-	if session == nil {
+	if session := BuildJWTSession(checker); session == nil {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "创建会话失败"}
 	} else if session.Invalid() {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "会话已失效"}
 	} else if session.IsTimeout() {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "会话已过期"}
+	} else {
+		userId, _ := util.StrToInt64(sub)
+		self.Context.UserId = userId
+		self.Context.Session = session
 	}
-	userId, _ := util.StrToInt64(sub)
-	self.Context.UserId = userId
-	self.Context.Session = session
 	return nil
 }
 
