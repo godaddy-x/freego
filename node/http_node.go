@@ -7,13 +7,11 @@ import (
 	"github.com/godaddy-x/freego/util"
 	"io/ioutil"
 	"net/http"
-	"os"
 	"strings"
 )
 
 type HttpNode struct {
 	HookNode
-	TemplDir string
 }
 
 func (self *HttpNode) GetHeader() error {
@@ -62,13 +60,7 @@ func (self *HttpNode) InitContext(ptr *NodePtr) error {
 	} else {
 		node.OverrideFunc = self.OverrideFunc
 	}
-	if len(self.TemplDir) == 0 {
-		if path, err := os.Getwd(); err != nil {
-			return err
-		} else {
-			self.TemplDir = path
-		}
-	}
+	node.CreateAt = util.Time()
 	node.SessionAware = self.SessionAware
 	node.CacheAware = self.CacheAware
 	node.Context = &Context{
@@ -86,7 +78,7 @@ func (self *HttpNode) InitContext(ptr *NodePtr) error {
 	}
 	if self.Customize {
 		node.Customize = true
-		return ptr.Handle(node.Context)
+		return nil
 	}
 	if err := node.GetHeader(); err != nil {
 		return err
@@ -113,11 +105,11 @@ func (self *HttpNode) PaddDevice() error {
 }
 
 func (self *HttpNode) ValidSession() error {
-	access_token := self.Context.Params.Token
-	if len(access_token) == 0 {
+	param := self.Context.Params
+	if param == nil || len(param.Token) == 0 {
 		return nil
 	}
-	checker, err := new(jwt.Subject).GetSubjectChecker(access_token)
+	checker, err := new(jwt.Subject).GetSubjectChecker(param.Token)
 	if err != nil {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "授权令牌无效", Err: err}
 	} else {
@@ -154,6 +146,9 @@ func (self *HttpNode) ValidSession() error {
 
 func (self *HttpNode) ValidReplayAttack() error {
 	param := self.Context.Params
+	if param == nil || len(param.Sign) == 0 {
+		return nil
+	}
 	key := util.AddStr(JWT_SIG_, param.Sign)
 	if c, err := self.CacheAware(); err != nil {
 		return err
@@ -206,8 +201,6 @@ func (self *HttpNode) Proxy(ptr *NodePtr) {
 		ptr.Node = ob
 		if err := self.InitContext(ptr); err != nil {
 			return err
-		} else if ob.Customize { // 如设置自定义则跳过以下流程处理
-			return nil
 		}
 		// 2.校验会话有效性
 		if err := ob.ValidSession(); err != nil {
@@ -222,15 +215,15 @@ func (self *HttpNode) Proxy(ptr *NodePtr) {
 			return err
 		}
 		// 5.上下文前置检测方法
-		if err := ob.PreHandle(ob.OverrideFunc.PreHandleFunc); err != nil {
+		if err := ob.PreHandle(); err != nil {
 			return err
 		}
 		// 6.执行业务方法
-		r1 := ptr.Handle(ob.Context) // r1异常格式,建议使用ex模式
+		biz_ret := ptr.Handle(ob.Context) // 抛出业务异常,建议使用ex模式
 		// 7.执行视图控制方法
-		r2 := ob.PostHandle(ob.OverrideFunc.PostHandleFunc, r1)
+		post_ret := ob.PostHandle(biz_ret)
 		// 8.执行释放资源,记录日志方法
-		if err := ob.AfterCompletion(ob.OverrideFunc.AfterCompletionFunc, r2); err != nil {
+		if err := ob.AfterCompletion(post_ret); err != nil {
 			return err
 		}
 		return nil
@@ -239,16 +232,16 @@ func (self *HttpNode) Proxy(ptr *NodePtr) {
 	}
 }
 
-func (self *HttpNode) PreHandle(handle func(ctx *Context) error) error {
-	if handle == nil {
+func (self *HttpNode) PreHandle() error {
+	if self.OverrideFunc.PreHandleFunc == nil {
 		return nil
 	}
-	return handle(self.Context)
+	return self.OverrideFunc.PreHandleFunc(self.Context)
 }
 
-func (self *HttpNode) PostHandle(handle func(resp *Response, err error) error, err error) error {
-	if handle != nil {
-		if err := handle(self.Context.Response, err); err != nil {
+func (self *HttpNode) PostHandle(err error) error {
+	if self.OverrideFunc.PostHandleFunc != nil {
+		if err := self.OverrideFunc.PostHandleFunc(self.Context.Response, err); err != nil {
 			return err
 		}
 	} else if err != nil {
@@ -257,16 +250,14 @@ func (self *HttpNode) PostHandle(handle func(resp *Response, err error) error, e
 	return self.RenderTo()
 }
 
-func (self *HttpNode) AfterCompletion(handle func(ctx *Context, resp *Response, err error) error, err error) error {
-	var handle_err error
-	if handle != nil {
-		handle_err = handle(self.Context, self.Context.Response, err)
-	}
-	if err != nil {
+func (self *HttpNode) AfterCompletion(err error) error {
+	var ret error
+	if self.OverrideFunc.AfterCompletionFunc != nil {
+		ret = self.OverrideFunc.AfterCompletionFunc(self.Context, self.Context.Response, err)
+	} else if err != nil {
 		return err
-	}
-	if handle_err != nil {
-		return handle_err
+	} else if ret != nil {
+		return ret
 	}
 	return nil
 }
@@ -279,28 +270,47 @@ func (self *HttpNode) RenderError(err error) error {
 		out = ex.Throw{Code: out.Code, Msg: out.Msg}
 	}
 	resp := &RespDto{
-		Status:  out.Code,
+		Code:    out.Code,
 		Message: out.Msg,
 		Time:    util.Time(),
 		Data:    make(map[string]interface{}),
 	}
-	if result, err := util.JsonMarshal(resp); err != nil {
-		log.Error(resp.Message, 0, log.AddError(err))
-		return nil
+	if self.Customize {
+		if result, err := util.JsonMarshal(resp.Data); err != nil {
+			log.Error(resp.Message, 0, log.AddError(err))
+			return nil
+		} else {
+			self.Context.Output.Header().Set("Content-Type", TEXT_PLAIN)
+			self.Context.Output.WriteHeader(http_code)
+			self.Context.Output.Write(result)
+		}
 	} else {
-		self.Context.Output.Header().Set("Content-Type", APPLICATION_JSON)
-		self.Context.Output.WriteHeader(http_code)
-		self.Context.Output.Write(result)
+		if result, err := util.JsonMarshal(resp); err != nil {
+			log.Error(resp.Message, 0, log.AddError(err))
+			return nil
+		} else {
+			self.Context.Output.Header().Set("Content-Type", APPLICATION_JSON)
+			self.Context.Output.WriteHeader(http_code)
+			self.Context.Output.Write(result)
+		}
 	}
 	return nil
 }
 
 func (self *HttpNode) RenderTo() error {
 	switch self.Context.Response.ContentType {
-	case TEXT_HTML:
+	case TEXT_PLAIN:
+		content := self.Context.Response.ContentEntity
+		if v, b := content.(string); b {
+			self.Context.Output.Header().Set("Content-Type", TEXT_PLAIN)
+			self.Context.Output.Write(util.Str2Bytes(v))
+		} else {
+			self.Context.Output.Header().Set("Content-Type", TEXT_PLAIN)
+			self.Context.Output.Write(util.Str2Bytes(""))
+		}
 	case APPLICATION_JSON:
 		resp := &RespDto{
-			Status:  http.StatusOK,
+			Code:    http.StatusOK,
 			Message: "success",
 			Time:    util.Time(),
 			Data:    self.Context.Response.ContentEntity,
@@ -308,11 +318,20 @@ func (self *HttpNode) RenderTo() error {
 		if resp.Data == nil {
 			resp.Data = make(map[string]interface{})
 		}
-		if result, err := util.JsonMarshal(resp); err != nil {
-			return ex.Throw{Code: http.StatusInternalServerError, Msg: "响应数据异常", Err: err}
+		if self.Customize {
+			if result, err := util.JsonMarshal(resp.Data); err != nil {
+				return ex.Throw{Code: http.StatusInternalServerError, Msg: "响应数据异常", Err: err}
+			} else {
+				self.Context.Output.Header().Set("Content-Type", APPLICATION_JSON)
+				self.Context.Output.Write(result)
+			}
 		} else {
-			self.Context.Output.Header().Set("Content-Type", APPLICATION_JSON)
-			self.Context.Output.Write(result)
+			if result, err := util.JsonMarshal(resp); err != nil {
+				return ex.Throw{Code: http.StatusInternalServerError, Msg: "响应数据异常", Err: err}
+			} else {
+				self.Context.Output.Header().Set("Content-Type", APPLICATION_JSON)
+				self.Context.Output.Write(result)
+			}
 		}
 	default:
 		return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "无效的响应格式"}
@@ -353,6 +372,11 @@ func (self *HttpNode) Json(ctx *Context, data interface{}) error {
 		data = map[string]interface{}{}
 	}
 	ctx.Response = &Response{UTF8, APPLICATION_JSON, data}
+	return nil
+}
+
+func (self *HttpNode) Text(ctx *Context, data string) error {
+	ctx.Response = &Response{UTF8, TEXT_PLAIN, data}
 	return nil
 }
 

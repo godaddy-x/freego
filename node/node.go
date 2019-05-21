@@ -18,9 +18,8 @@ const (
 	IPAD    = "iPad"
 	WEB     = "Web"
 
-	TEXT_HTML        = "text/html"
-	TEXT_PLAIN       = "text/plain"
-	APPLICATION_JSON = "application/json"
+	TEXT_PLAIN       = "text/plain; charset=utf-8"
+	APPLICATION_JSON = "application/json; charset=utf-8"
 
 	GET    = "GET"
 	POST   = "POST"
@@ -46,6 +45,7 @@ const (
 )
 
 type HookNode struct {
+	CreateAt     int64
 	Context      *Context
 	SessionAware SessionAware
 	CacheAware   func(ds ...string) (cache.ICache, error)
@@ -80,12 +80,14 @@ type ProtocolNode interface {
 	Router(pattern string, handle func(ctx *Context) error, customize ...bool)
 	// json响应模式
 	Json(ctx *Context, data interface{}) error
+	// text响应模式
+	Text(ctx *Context, data string) error
 	// 前置检测方法(业务方法前执行)
-	PreHandle(handle func(ctx *Context) error) error
+	PreHandle() error
 	// 业务执行方法->自定义处理执行方法(业务方法执行后,视图渲染前执行)
-	PostHandle(handle func(resp *Response, err error) error, err error) error
+	PostHandle(err error) error
 	// 最终响应执行方法(视图渲染后执行,可操作资源释放,保存日志等)
-	AfterCompletion(handle func(ctx *Context, resp *Response, err error) error, err error) error
+	AfterCompletion(err error) error
 	// 保存用户会话密钥
 	LoginBySubject(sub, key string, exp int64) error
 	// 删除用户会话密钥
@@ -107,10 +109,10 @@ type ReqDto struct {
 }
 
 type RespDto struct {
-	Status  int         `json:"s"`
+	Code    int         `json:"c"`
+	Data    interface{} `json:"d"`
 	Message string      `json:"m"`
 	Time    int64       `json:"t"`
-	Data    interface{} `json:"d"`
 }
 
 type Permission struct {
@@ -216,21 +218,4 @@ func validSign(req *ReqDto, dataStr string, key *jwt.SecretKey) bool {
 		return req.Sign == util.SHA256(sign_str)
 	}
 	return false
-}
-
-func (ctx *Context) ResponseText(data string) error {
-	ctx.Output.Header().Set("Content-Type", TEXT_PLAIN)
-	ctx.Output.Write(util.Str2Bytes(data))
-	return nil
-}
-
-func (ctx *Context) ResponseJson(data interface{}) error {
-	ctx.Output.Header().Set("Content-Type", APPLICATION_JSON)
-	if b, err := util.JsonMarshal(data); err != nil {
-		ctx.Output.Write(util.Str2Bytes(""))
-		return err
-	} else {
-		ctx.Output.Write(b)
-	}
-	return nil
 }

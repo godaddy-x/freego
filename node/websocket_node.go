@@ -36,6 +36,7 @@ func (self *WebsocketNode) InitContext(ptr *NodePtr) error {
 	if self.WSManager == nil {
 		return ex.Throw{Code: http.StatusInternalServerError, Msg: "WS管理器尚未初始化"}
 	}
+	node.CreateAt = util.Time()
 	node.SessionAware = self.SessionAware
 	node.CacheAware = self.CacheAware
 	node.WSManager = self.WSManager
@@ -114,15 +115,15 @@ func (self *WebsocketNode) wsReadHandle(c *WSClient, rcvd []byte) error {
 	}
 	if err := func() error {
 		// 3.上下文前置检测方法
-		if err := self.PreHandle(self.OverrideFunc.PreHandleFunc); err != nil {
+		if err := self.PreHandle(); err != nil {
 			return err
 		}
 		// 4.执行业务方法
-		r1 := c.biz_handle(self.Context) // r1异常格式,建议使用ex模式
+		biz_ret := c.biz_handle(self.Context) // 抛出业务异常,建议使用ex模式
 		// 5.执行视图控制方法
-		r2 := self.PostHandle(self.OverrideFunc.PostHandleFunc, r1)
+		post_ret := self.PostHandle(biz_ret)
 		// 6.执行释放资源,记录日志方法
-		if err := self.AfterCompletion(self.OverrideFunc.AfterCompletionFunc, r2); err != nil {
+		if err := self.AfterCompletion(post_ret); err != nil {
 			return err
 		}
 		return nil
@@ -230,16 +231,16 @@ func (self *WebsocketNode) Proxy(ptr *NodePtr) {
 	}
 }
 
-func (self *WebsocketNode) PreHandle(handle func(ctx *Context) error) error {
-	if handle == nil {
+func (self *WebsocketNode) PreHandle() error {
+	if self.OverrideFunc.PreHandleFunc == nil {
 		return nil
 	}
-	return handle(self.Context)
+	return self.OverrideFunc.PreHandleFunc(self.Context)
 }
 
-func (self *WebsocketNode) PostHandle(handle func(resp *Response, err error) error, err error) error {
-	if handle != nil {
-		if err := handle(self.Context.Response, err); err != nil {
+func (self *WebsocketNode) PostHandle(err error) error {
+	if self.OverrideFunc.PostHandleFunc != nil {
+		if err := self.OverrideFunc.PostHandleFunc(self.Context.Response, err); err != nil {
 			return err
 		}
 	} else if err != nil {
@@ -248,16 +249,14 @@ func (self *WebsocketNode) PostHandle(handle func(resp *Response, err error) err
 	return self.RenderTo()
 }
 
-func (self *WebsocketNode) AfterCompletion(handle func(ctx *Context, resp *Response, err error) error, err error) error {
-	var handle_err error
-	if handle != nil {
-		handle_err = handle(self.Context, self.Context.Response, err)
-	}
-	if err != nil {
+func (self *WebsocketNode) AfterCompletion(err error) error {
+	var ret error
+	if self.OverrideFunc.AfterCompletionFunc != nil {
+		ret = self.OverrideFunc.AfterCompletionFunc(self.Context, self.Context.Response, err)
+	} else if err != nil {
 		return err
-	}
-	if handle_err != nil {
-		return handle_err
+	} else if ret != nil {
+		return ret
 	}
 	return nil
 }
@@ -269,7 +268,6 @@ func (self *WebsocketNode) RenderError(err error) error {
 
 func (self *WebsocketNode) RenderTo() error {
 	switch self.Context.Response.ContentType {
-	case TEXT_HTML:
 	case TEXT_PLAIN:
 	case APPLICATION_JSON:
 		if data := self.Context.Response.ContentEntity; data == nil {
@@ -324,6 +322,11 @@ func (self *WebsocketNode) Json(ctx *Context, data interface{}) error {
 		data = map[string]interface{}{}
 	}
 	ctx.Response = &Response{UTF8, APPLICATION_JSON, data}
+	return nil
+}
+
+func (self *WebsocketNode) Text(ctx *Context, data string) error {
+	ctx.Response = &Response{UTF8, TEXT_PLAIN, data}
 	return nil
 }
 
