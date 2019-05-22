@@ -56,7 +56,9 @@ func JsonMarshal(v interface{}) ([]byte, error) {
 
 // JSON字符串转对象
 func JsonUnmarshal(data []byte, v interface{}) error {
-	return fgjson.Unmarshal(data, v)
+	d := fgjson.NewDecoder(bytes.NewBuffer(data))
+	d.UseNumber()
+	return d.Decode(v)
 }
 
 // 对象转对象

@@ -25,6 +25,18 @@ type User struct {
 	Utype    int8   `json:"utype" bson:"utype"`
 }
 
+type DxApp struct {
+	Id        int64  `json:"id" bson:"_id" tb:"dx_app"`
+	Name      string `json:"name" bson:"name"`
+	Signature string `json:"signature" bson:"signature"`
+	Secretkey string `json:"secretkey" bson:"secretkey"`
+	Balance   int64  `json:"balance" bson:"balance"`
+	Usestate  int64  `json:"usestate" bson:"usestate"`
+	Ctime     int64  `json:"ctime" bson:"ctime"`
+	Utime     int64  `json:"utime" bson:"utime"`
+	State     int64  `json:"state" bson:"state"`
+}
+
 type OwWallet struct {
 	Id           int64  `json:"id" bson:"_id" tb:"ow_wallet" mg:"true"`
 	AppID        string `json:"appID" bson:"appID"`
@@ -51,6 +63,12 @@ func init() {
 		sqld.Hook{
 			func() interface{} { return &OwWallet{} },
 			func() interface{} { return &[]*OwWallet{} },
+		},
+	)
+	sqld.RegModel(
+		sqld.Hook{
+			func() interface{} { return &DxApp{} },
+			func() interface{} { return &[]*DxApp{} },
 		},
 	)
 	//redis := cache.RedisConfig{}
@@ -199,10 +217,10 @@ func TestMysqlFindOne(t *testing.T) {
 	for i := 0; i < 1; i++ {
 
 	}
-	wallet := OwWallet{
-		Id: 1108290081292026093,
+	wallet := DxApp{
+
 	}
-	if err := db.FindOne(sqlc.M(&OwWallet{}).Eq("id", 1108290081292026093), &wallet); err != nil {
+	if err := db.FindOne(sqlc.M().Eq("id", 1131023802109526016), &wallet); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println("cost: ", util.Time()-l)
@@ -216,7 +234,7 @@ func TestMysqlFindList(t *testing.T) {
 	defer db.Close()
 	l := util.Time()
 	result := []*OwWallet{}
-	if err := db.FindList(sqlc.M(&OwWallet{}).Fields("id").Groupby("id").Orderby("id", sqlc.DESC_).Limit(1, 5), &result); err != nil {
+	if err := db.FindList(sqlc.M().Eq("id", 1124853348080549889).Groupby("id").Orderby("id", sqlc.DESC_).Limit(1, 5), &result); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println("cost: ", util.Time()-l)

@@ -20,9 +20,8 @@ func (self *HttpNode) GetHeader() error {
 
 func (self *HttpNode) GetParams() error {
 	r := self.Context.Input
-	r.ParseForm()
-	req := &ReqDto{}
 	if r.Method == POST {
+		r.ParseForm()
 		result, err := ioutil.ReadAll(r.Body)
 		if err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "获取参数失败", Err: err}
@@ -31,14 +30,40 @@ func (self *HttpNode) GetParams() error {
 		if len(result) > (MAX_VALUE_LEN * 5) {
 			return ex.Throw{Code: http.StatusLengthRequired, Msg: "参数值长度溢出: " + util.AnyToStr(len(result))}
 		}
-		if err := util.JsonUnmarshal(result, req); err != nil {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err}
-		}
-		if err := self.Context.SecurityCheck(req); err != nil {
-			return err
+		if self.Customize {
+			data := map[string]interface{}{}
+			if err := util.JsonUnmarshal(result, &data); err != nil {
+				return ex.Throw{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err}
+			}
+			self.Context.Params = &ReqDto{Data: data}
+		} else {
+			req := &ReqDto{}
+			if err := util.JsonUnmarshal(result, req); err != nil {
+				return ex.Throw{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err}
+			}
+			if err := self.Context.SecurityCheck(req); err != nil {
+				return err
+			}
 		}
 	} else if r.Method == GET {
-		// return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "暂不支持GET类型"}
+		if self.Customize {
+			r.ParseForm()
+			result, err := ioutil.ReadAll(r.Body)
+			if err != nil {
+				return ex.Throw{Code: http.StatusBadRequest, Msg: "获取参数失败", Err: err}
+			}
+			r.Body.Close()
+			if len(result) > (MAX_VALUE_LEN * 5) {
+				return ex.Throw{Code: http.StatusLengthRequired, Msg: "参数值长度溢出: " + util.AnyToStr(len(result))}
+			}
+			data := map[string]interface{}{}
+			if err := util.JsonUnmarshal(result, &data); err != nil {
+				return ex.Throw{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err}
+			}
+			self.Context.Params = &ReqDto{Data: data}
+		} else {
+			return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "暂不支持GET类型"}
+		}
 	} else if r.Method == PUT {
 		return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "暂不支持PUT类型"}
 	} else if r.Method == PATCH {
@@ -78,7 +103,6 @@ func (self *HttpNode) InitContext(ptr *NodePtr) error {
 	}
 	if self.Customize {
 		node.Customize = true
-		return nil
 	}
 	if err := node.GetHeader(); err != nil {
 		return err
@@ -276,14 +300,9 @@ func (self *HttpNode) RenderError(err error) error {
 		Data:    make(map[string]interface{}),
 	}
 	if self.Customize {
-		if result, err := util.JsonMarshal(resp.Data); err != nil {
-			log.Error(resp.Message, 0, log.AddError(err))
-			return nil
-		} else {
-			self.Context.Output.Header().Set("Content-Type", TEXT_PLAIN)
-			self.Context.Output.WriteHeader(http_code)
-			self.Context.Output.Write(result)
-		}
+		self.Context.Output.Header().Set("Content-Type", TEXT_PLAIN)
+		self.Context.Output.WriteHeader(http_code)
+		self.Context.Output.Write(util.Str2Bytes(resp.Message))
 	} else {
 		if result, err := util.JsonMarshal(resp); err != nil {
 			log.Error(resp.Message, 0, log.AddError(err))
