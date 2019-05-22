@@ -15,6 +15,28 @@ type HttpNode struct {
 }
 
 func (self *HttpNode) GetHeader() error {
+	if self.Customize {
+		r := self.Context.Input
+		headers := map[string]string{}
+		if len(r.Header) > 0 {
+			i := 0
+			for k, v := range r.Header {
+				i++
+				if i > MAX_HEADER_SIZE {
+					return ex.Throw{Code: http.StatusLengthRequired, Msg: util.AddStr("请求头数量溢出: ", i)}
+				}
+				if len(k) > MAX_FIELD_LEN {
+					return ex.Throw{Code: http.StatusLengthRequired, Msg: util.AddStr("参数名长度溢出: ", len(k))}
+				}
+				v0 := v[0]
+				if len(v0) > MAX_VALUE_LEN {
+					return ex.Throw{Code: http.StatusLengthRequired, Msg: util.AddStr("参数值长度溢出: ", len(v0))}
+				}
+				headers[k] = v0
+			}
+		}
+		self.Context.Headers = headers
+	}
 	return nil
 }
 
