@@ -96,7 +96,7 @@ func init() {
 }
 
 func TestMysqlSave(t *testing.T) {
-	db, err := new(sqld.MysqlManager).Get(sqld.Option{AutoTx: &sqld.TRUE})
+	db, err := new(sqld.MysqlManager).Get(sqld.Option{OpenTx: &sqld.TRUE})
 	if err != nil {
 		panic(err)
 	}
@@ -123,7 +123,7 @@ func TestMysqlSave(t *testing.T) {
 }
 
 func TestMysqlUpdate(t *testing.T) {
-	db, err := new(sqld.MysqlManager).Get(sqld.Option{AutoTx: &sqld.TRUE})
+	db, err := new(sqld.MysqlManager).Get(sqld.Option{OpenTx: &sqld.TRUE})
 	if err != nil {
 		panic(err)
 	}
@@ -151,7 +151,7 @@ func TestMysqlUpdate(t *testing.T) {
 }
 
 func TestMysqlUpdateByCnd(t *testing.T) {
-	db, err := new(sqld.MysqlManager).Get(sqld.Option{AutoTx: &sqld.TRUE})
+	db, err := new(sqld.MysqlManager).Get(sqld.Option{OpenTx: &sqld.TRUE})
 	if err != nil {
 		panic(err)
 	}
@@ -164,7 +164,7 @@ func TestMysqlUpdateByCnd(t *testing.T) {
 }
 
 func TestMysqlDetele(t *testing.T) {
-	db, err := new(sqld.MysqlManager).Get(sqld.Option{AutoTx: &sqld.TRUE})
+	db, err := new(sqld.MysqlManager).Get(sqld.Option{OpenTx: &sqld.TRUE})
 	if err != nil {
 		panic(err)
 	}
@@ -192,7 +192,7 @@ func TestMysqlDetele(t *testing.T) {
 }
 
 func TestMysqlFindById(t *testing.T) {
-	db, err := new(sqld.MysqlManager).Get(sqld.Option{AutoTx: &sqld.FALSE})
+	db, err := new(sqld.MysqlManager).Get(sqld.Option{OpenTx: &sqld.FALSE})
 	if err != nil {
 		panic(err)
 	}
@@ -208,7 +208,7 @@ func TestMysqlFindById(t *testing.T) {
 }
 
 func TestMysqlFindOne(t *testing.T) {
-	db, err := new(sqld.MysqlManager).Get(sqld.Option{AutoTx: &sqld.FALSE})
+	db, err := new(sqld.MysqlManager).Get(sqld.Option{OpenTx: &sqld.FALSE})
 	if err != nil {
 		panic(err)
 	}
@@ -227,7 +227,7 @@ func TestMysqlFindOne(t *testing.T) {
 }
 
 func TestMysqlFindList(t *testing.T) {
-	db, err := new(sqld.MysqlManager).Get(sqld.Option{AutoTx: &sqld.FALSE})
+	db, err := new(sqld.MysqlManager).Get(sqld.Option{OpenTx: &sqld.FALSE})
 	if err != nil {
 		panic(err)
 	}
@@ -241,7 +241,7 @@ func TestMysqlFindList(t *testing.T) {
 }
 
 func TestMysqlFindListComplex(t *testing.T) {
-	db, err := new(sqld.MysqlManager).Get(sqld.Option{AutoTx: &sqld.FALSE})
+	db, err := new(sqld.MysqlManager).Get(sqld.Option{OpenTx: &sqld.FALSE})
 	if err != nil {
 		panic(err)
 	}
@@ -255,7 +255,7 @@ func TestMysqlFindListComplex(t *testing.T) {
 }
 
 func TestMysqlFindOneComplex(t *testing.T) {
-	db, err := new(sqld.MysqlManager).Get(sqld.Option{AutoTx: &sqld.FALSE})
+	db, err := new(sqld.MysqlManager).Get(sqld.Option{OpenTx: &sqld.FALSE})
 	if err != nil {
 		panic(err)
 	}
@@ -269,7 +269,7 @@ func TestMysqlFindOneComplex(t *testing.T) {
 }
 
 func TestMysqlCount(t *testing.T) {
-	db, err := new(sqld.MysqlManager).Get(sqld.Option{AutoTx: &sqld.FALSE})
+	db, err := new(sqld.MysqlManager).Get(sqld.Option{OpenTx: &sqld.FALSE})
 	if err != nil {
 		panic(err)
 	}
@@ -284,7 +284,7 @@ func TestMysqlCount(t *testing.T) {
 }
 
 func TestMongoSave(t *testing.T) {
-	db, err := new(sqld.MGOManager).Get(sqld.Option{AutoTx: &sqld.TRUE})
+	db, err := new(sqld.MGOManager).Get(sqld.Option{OpenTx: &sqld.TRUE})
 	if err != nil {
 		panic(err)
 	}
@@ -312,7 +312,7 @@ func TestMongoSave(t *testing.T) {
 }
 
 func TestMongoUpdate(t *testing.T) {
-	db, err := new(sqld.MGOManager).Get(sqld.Option{AutoTx: &sqld.TRUE})
+	db, err := new(sqld.MGOManager).Get(sqld.Option{OpenTx: &sqld.TRUE})
 	if err != nil {
 		panic(err)
 	}
@@ -340,7 +340,7 @@ func TestMongoUpdate(t *testing.T) {
 }
 
 func TestMongoDelete(t *testing.T) {
-	db, err := new(sqld.MGOManager).Get(sqld.Option{AutoTx: &sqld.TRUE})
+	db, err := new(sqld.MGOManager).Get(sqld.Option{OpenTx: &sqld.TRUE})
 	if err != nil {
 		panic(err)
 	}
@@ -368,7 +368,7 @@ func TestMongoDelete(t *testing.T) {
 }
 
 func TestMongoCount(t *testing.T) {
-	db, err := new(sqld.MGOManager).Get(sqld.Option{AutoTx: &sqld.FALSE})
+	db, err := new(sqld.MGOManager).Get(sqld.Option{OpenTx: &sqld.FALSE})
 	if err != nil {
 		panic(err)
 	}
@@ -383,7 +383,7 @@ func TestMongoCount(t *testing.T) {
 }
 
 func TestMongoFindOne(t *testing.T) {
-	db, err := new(sqld.MGOManager).Get(sqld.Option{AutoTx: &sqld.TRUE})
+	db, err := new(sqld.MGOManager).Get(sqld.Option{OpenTx: &sqld.TRUE})
 	if err != nil {
 		panic(err)
 	}
@@ -397,7 +397,7 @@ func TestMongoFindOne(t *testing.T) {
 }
 
 func TestMongoFindList(t *testing.T) {
-	db, err := new(sqld.MGOManager).Get(sqld.Option{AutoTx: &sqld.TRUE})
+	db, err := new(sqld.MGOManager).Get(sqld.Option{OpenTx: &sqld.TRUE})
 	if err != nil {
 		panic(err)
 	}

@@ -54,10 +54,10 @@ func (self *MysqlManager) buildByConfig(manager cache.ICache, input ...MysqlConf
 		} else {
 			rdb.Node = v.Node
 		}
-		if v.AutoTx == nil {
-			rdb.AutoTx = &FALSE
+		if v.OpenTx == nil {
+			rdb.OpenTx = &FALSE
 		} else {
-			rdb.AutoTx = v.AutoTx
+			rdb.OpenTx = v.OpenTx
 		}
 		if v.MongoSync == nil {
 			rdb.MongoSync = &FALSE

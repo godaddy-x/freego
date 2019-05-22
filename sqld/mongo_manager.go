@@ -83,7 +83,7 @@ func (self *MGOManager) GetDB(option ...Option) error {
 	self.CacheManager = mgo.CacheManager
 	self.Node = mgo.Node
 	self.DsName = mgo.DsName
-	self.AutoTx = mgo.AutoTx
+	self.OpenTx = mgo.OpenTx
 	self.MongoSync = mgo.MongoSync
 	if ops != nil {
 		if ops.Node != nil {
@@ -92,8 +92,8 @@ func (self *MGOManager) GetDB(option ...Option) error {
 		if ops.DsName != nil {
 			self.DsName = ops.DsName
 		}
-		if ops.AutoTx != nil {
-			self.AutoTx = ops.AutoTx
+		if ops.OpenTx != nil {
+			self.OpenTx = ops.OpenTx
 		}
 		if ops.MongoSync != nil {
 			self.MongoSync = ops.MongoSync
@@ -139,10 +139,10 @@ func (self *MGOManager) buildByConfig(manager cache.ICache, input ...MGOConfig) 
 		} else {
 			mgo.Node = v.Node
 		}
-		if v.AutoTx == nil {
-			mgo.AutoTx = &FALSE
+		if v.OpenTx == nil {
+			mgo.OpenTx = &FALSE
 		} else {
-			mgo.AutoTx = v.AutoTx
+			mgo.OpenTx = v.OpenTx
 		}
 		if v.MongoSync == nil {
 			mgo.MongoSync = &FALSE

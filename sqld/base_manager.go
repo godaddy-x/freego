@@ -43,7 +43,7 @@ type DBConfig struct {
 type Option struct {
 	Node      *int64  // 节点
 	DsName    *string // 数据源,分库时使用
-	AutoTx    *bool   // 是否自动事务提交 true.是 false.否
+	OpenTx    *bool   // 是否开启事务 true.是 false.否
 	MongoSync *bool   // 是否自动同步mongo数据库写入
 }
 
@@ -223,7 +223,7 @@ func (self *RDBManager) GetDB(option ...Option) error {
 	self.CacheManager = rdb.CacheManager
 	self.Node = rdb.Node
 	self.DsName = rdb.DsName
-	self.AutoTx = rdb.AutoTx
+	self.Tx = rdb.Tx
 	self.MongoSync = rdb.MongoSync
 	self.MGOSyncData = make([]*MGOSyncData, 0)
 	if ops != nil {
@@ -233,13 +233,13 @@ func (self *RDBManager) GetDB(option ...Option) error {
 		if ops.DsName != nil {
 			self.DsName = ops.DsName
 		}
-		if ops.AutoTx != nil {
-			self.AutoTx = ops.AutoTx
+		if ops.OpenTx != nil {
+			self.OpenTx = ops.OpenTx
 		}
 		if ops.MongoSync != nil {
 			self.MongoSync = ops.MongoSync
 		}
-		if *ops.AutoTx {
+		if *ops.OpenTx {
 			if txv, err := self.Db.Begin(); err != nil {
 				return self.Error(util.AddStr("数据库开启事务失败: ", err.Error()))
 			} else {
@@ -316,7 +316,7 @@ func (self *RDBManager) Save(data ...interface{}) error {
 			defer log.Debug("mysql数据Save操作日志", util.Time(), log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
 		}
 		var err error
-		if *self.AutoTx {
+		if *self.OpenTx {
 			stmt, err = self.Tx.Prepare(prepare)
 		} else {
 			stmt, err = self.Db.Prepare(prepare)
@@ -404,7 +404,7 @@ func (self *RDBManager) Update(data ...interface{}) error {
 			defer log.Debug("mysql数据Update操作日志", util.Time(), log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
 		}
 		var err error
-		if *self.AutoTx {
+		if *self.OpenTx {
 			stmt, err = self.Tx.Prepare(prepare)
 		} else {
 			stmt, err = self.Db.Prepare(prepare)
@@ -479,7 +479,7 @@ func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) error {
 			defer log.Debug("mysql数据UpdateByCnd操作日志", util.Time(), log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
 		}
 		var err error
-		if *self.AutoTx {
+		if *self.OpenTx {
 			stmt, err = self.Tx.Prepare(prepare)
 		} else {
 			stmt, err = self.Db.Prepare(prepare)
@@ -569,7 +569,7 @@ func (self *RDBManager) Delete(data ...interface{}) error {
 			defer log.Debug("mysql数据Delete操作日志", util.Time(), log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
 		}
 		var err error
-		if *self.AutoTx {
+		if *self.OpenTx {
 			stmt, err = self.Tx.Prepare(prepare)
 		} else {
 			stmt, err = self.Db.Prepare(prepare)
@@ -633,7 +633,7 @@ func (self *RDBManager) FindById(data interface{}) error {
 	var stmt *sql.Stmt
 	var rows *sql.Rows
 	var err error
-	if *self.AutoTx {
+	if *self.OpenTx {
 		stmt, err = self.Tx.Prepare(prepare)
 	} else {
 		stmt, err = self.Db.Prepare(prepare)
@@ -723,7 +723,7 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data interface{}) error {
 	var stmt *sql.Stmt
 	var rows *sql.Rows
 	var err error
-	if *self.AutoTx {
+	if *self.OpenTx {
 		stmt, err = self.Tx.Prepare(prepare)
 	} else {
 		stmt, err = self.Db.Prepare(prepare)
@@ -821,7 +821,7 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	var stmt *sql.Stmt
 	var rows *sql.Rows
 	var err error
-	if *self.AutoTx {
+	if *self.OpenTx {
 		stmt, err = self.Tx.Prepare(prepare)
 	} else {
 		stmt, err = self.Db.Prepare(prepare)
@@ -904,7 +904,7 @@ func (self *RDBManager) Count(cnd *sqlc.Cnd) (int64, error) {
 	var rows *sql.Rows
 	var stmt *sql.Stmt
 	var err error
-	if *self.AutoTx {
+	if *self.OpenTx {
 		stmt, err = self.Tx.Prepare(prepare)
 	} else {
 		stmt, err = self.Db.Prepare(prepare)
@@ -1032,7 +1032,7 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 	var stmt *sql.Stmt
 	var rows *sql.Rows
 	var err error
-	if *self.AutoTx {
+	if *self.OpenTx {
 		stmt, err = self.Tx.Prepare(prepare)
 	} else {
 		stmt, err = self.Db.Prepare(prepare)
@@ -1169,7 +1169,7 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data interface{}) error {
 	var stmt *sql.Stmt
 	var rows *sql.Rows
 	var err error
-	if *self.AutoTx {
+	if *self.OpenTx {
 		stmt, err = self.Tx.Prepare(prepare)
 	} else {
 		stmt, err = self.Db.Prepare(prepare)
@@ -1212,7 +1212,7 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data interface{}) error {
 }
 
 func (self *RDBManager) Close() error {
-	if *self.AutoTx && self.Tx != nil {
+	if *self.OpenTx && self.Tx != nil {
 		if self.Errors == nil && len(self.Errors) == 0 {
 			if err := self.Tx.Commit(); err != nil {
 				log.Error("事务提交失败", 0, log.AddError(err))
@@ -1466,7 +1466,7 @@ func (self *RDBManager) BuildPagination(cnd *sqlc.Cnd, sqlbuf string, values []i
 			return "", err
 		}
 		var rows *sql.Rows
-		if *self.AutoTx {
+		if *self.OpenTx {
 			rows, err = self.Tx.Query(countSql, values...)
 		} else {
 			rows, err = self.Db.Query(countSql, values...)
