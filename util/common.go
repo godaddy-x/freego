@@ -448,18 +448,51 @@ func SHA256(s string, salt ...string) string {
 }
 
 // default base64 - 正向
-func Base64Encode(input []byte) string {
-	return base64.StdEncoding.EncodeToString(input)
+func Base64Encode(input interface{}) string {
+	var dataByte []byte
+	if v, b := input.(string); b {
+		dataByte = Str2Bytes(v)
+	} else if v, b := input.([]byte); b {
+		dataByte = v
+	} else {
+		return ""
+	}
+	if dataByte == nil || len(dataByte) == 0 {
+		return ""
+	}
+	return base64.StdEncoding.EncodeToString(dataByte)
 }
 
 // url base64 - 正向
-func Base64URLEncode(input []byte) string {
-	return base64.URLEncoding.EncodeToString(input)
+func Base64URLEncode(input interface{}) string {
+	var dataByte []byte
+	if v, b := input.(string); b {
+		dataByte = Str2Bytes(v)
+	} else if v, b := input.([]byte); b {
+		dataByte = v
+	} else {
+		return ""
+	}
+	if dataByte == nil || len(dataByte) == 0 {
+		return ""
+	}
+	return base64.URLEncoding.EncodeToString(dataByte)
 }
 
 // default base64 - 逆向
-func Base64Decode(input string) []byte {
-	if r, err := base64.StdEncoding.DecodeString(input); err != nil {
+func Base64Decode(input interface{}) []byte {
+	dataStr := ""
+	if v, b := input.(string); b {
+		dataStr = v
+	} else if v, b := input.([]byte); b {
+		dataStr = Bytes2Str(v)
+	} else {
+		return nil
+	}
+	if len(dataStr) == 0 {
+		return nil
+	}
+	if r, err := base64.StdEncoding.DecodeString(dataStr); err != nil {
 		return nil
 	} else {
 		return r
@@ -467,8 +500,19 @@ func Base64Decode(input string) []byte {
 }
 
 // url base64 - 逆向
-func Base64URLDecode(input string) []byte {
-	if r, err := base64.URLEncoding.DecodeString(input); err != nil {
+func Base64URLDecode(input interface{}) []byte {
+	dataStr := ""
+	if v, b := input.(string); b {
+		dataStr = v
+	} else if v, b := input.([]byte); b {
+		dataStr = Bytes2Str(v)
+	} else {
+		return nil
+	}
+	if len(dataStr) == 0 {
+		return nil
+	}
+	if r, err := base64.URLEncoding.DecodeString(dataStr); err != nil {
 		return nil
 	} else {
 		return r
@@ -573,4 +617,26 @@ func CheckStr(c string, vs ...string) bool {
 		}
 	}
 	return false
+}
+
+// 保留小数位
+func Shift(input interface{}, len int) string {
+	var data decimal.Decimal
+	if v, b := input.(string); b {
+		if ret, err := decimal.NewFromString(v); err != nil {
+			return ""
+		} else {
+			data = ret
+		}
+	} else if v, b := input.(float32); b {
+		data = decimal.NewFromFloat32(v)
+	} else if v, b := input.(float64); b {
+		data = decimal.NewFromFloat(v)
+	} else {
+		return ""
+	}
+	data = data.Shift(int32(len))
+	data = decimal.New(data.IntPart(), 0)
+	data = data.Shift(- int32(len))
+	return data.String()
 }
