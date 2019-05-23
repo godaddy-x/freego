@@ -52,13 +52,7 @@ func (self *HttpNode) GetParams() error {
 		if len(result) > (MAX_VALUE_LEN * 5) {
 			return ex.Throw{Code: http.StatusLengthRequired, Msg: "参数值长度溢出: " + util.AnyToStr(len(result))}
 		}
-		if self.Customize {
-			data := map[string]interface{}{}
-			if err := util.JsonUnmarshal(result, &data); err != nil {
-				return ex.Throw{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err}
-			}
-			self.Context.Params = &ReqDto{Data: data}
-		} else {
+		if !self.Customize {
 			req := &ReqDto{}
 			if err := util.JsonUnmarshal(result, req); err != nil {
 				return ex.Throw{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err}
@@ -66,26 +60,32 @@ func (self *HttpNode) GetParams() error {
 			if err := self.Context.SecurityCheck(req); err != nil {
 				return err
 			}
+			return nil
 		}
+		data := map[string]interface{}{}
+		if err := util.JsonUnmarshal(result, &data); err != nil {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err}
+		}
+		self.Context.Params = &ReqDto{Data: data}
+		return nil
 	} else if r.Method == GET {
-		if self.Customize {
-			r.ParseForm()
-			result, err := ioutil.ReadAll(r.Body)
-			if err != nil {
-				return ex.Throw{Code: http.StatusBadRequest, Msg: "获取参数失败", Err: err}
-			}
-			r.Body.Close()
-			if len(result) > (MAX_VALUE_LEN * 5) {
-				return ex.Throw{Code: http.StatusLengthRequired, Msg: "参数值长度溢出: " + util.AnyToStr(len(result))}
-			}
-			data := map[string]interface{}{}
-			if err := util.JsonUnmarshal(result, &data); err != nil {
-				return ex.Throw{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err}
-			}
-			self.Context.Params = &ReqDto{Data: data}
-		} else {
+		if !self.Customize {
 			return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "暂不支持GET类型"}
 		}
+		r.ParseForm()
+		result, err := ioutil.ReadAll(r.Body)
+		if err != nil {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "获取参数失败", Err: err}
+		}
+		r.Body.Close()
+		if len(result) > (MAX_VALUE_LEN * 5) {
+			return ex.Throw{Code: http.StatusLengthRequired, Msg: "参数值长度溢出: " + util.AnyToStr(len(result))}
+		}
+		data := map[string]interface{}{}
+		if err := util.JsonUnmarshal(result, &data); err != nil {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err}
+		}
+		self.Context.Params = &ReqDto{Data: data}
 	} else if r.Method == PUT {
 		return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "暂不支持PUT类型"}
 	} else if r.Method == PATCH {

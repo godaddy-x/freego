@@ -11,7 +11,6 @@ import (
 	"github.com/godaddy-x/freego/sqld"
 	"github.com/godaddy-x/freego/util"
 	"github.com/gorilla/websocket"
-	"github.com/json-iterator/go"
 	"net/url"
 	"testing"
 	"time"
@@ -591,10 +590,6 @@ func TestRGX1(t *testing.T) {
 }
 
 func TestRGX2(t *testing.T) {
-	a := []string{"1", "2", "3", "546", "7"}
-	var json = jsoniter.ConfigCompatibleWithStandardLibrary
-	for i := 0; i < 20000000; i++ {
-		b, _ := json.Marshal(&a)
-		util.Bytes2Str(b)
-	}
+	s:="0.56899359"
+	fmt.Println(util.Shift(s, 10))
 }
