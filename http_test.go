@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"github.com/godaddy-x/freego/node"
 	"github.com/godaddy-x/freego/util"
@@ -29,7 +28,7 @@ func ToPost(url, token, access_key string, req interface{}) {
 
 // 测试使用的http post示例方法
 func ToPostBy(url string, data interface{}) {
-	bytesData, err := json.Marshal(&data)
+	bytesData, err := util.JsonMarshal(&data)
 	if err != nil {
 		fmt.Println(err)
 		return

@@ -1,9 +1,9 @@
 package rabbitmq
 
 import (
-	"encoding/json"
 	"fmt"
 	"github.com/godaddy-x/freego/component/log"
+	"github.com/godaddy-x/freego/util"
 	"github.com/streadway/amqp"
 	"sync"
 	"time"
@@ -78,7 +78,7 @@ func (self *PublishManager) Publish(data MsgData) error {
 		if b, err := pub.sendToMQ(data); b && err == nil {
 			return nil
 		} else {
-			log.Error("发送MQ数据失败", log.Int("正在尝试次数", i), log.Any("data", data), log.AddError(err))
+			log.Error("发送MQ数据失败", 0, log.Int("正在尝试次数", i), log.Any("data", data), log.AddError(err))
 			time.Sleep(300 * time.Millisecond)
 		}
 		if i >= 3 {
@@ -88,15 +88,15 @@ func (self *PublishManager) Publish(data MsgData) error {
 }
 
 func (self *PublishMQ) sendToMQ(v interface{}) (bool, error) {
-	b, err := json.Marshal(v);
-	if err != nil {
+	if b, err := util.JsonMarshal(v); err != nil {
 		return false, err
+	} else {
+		data := amqp.Publishing{ContentType: "text/plain", Body: b}
+		if err := self.channel.Publish(self.exchange, self.queue, false, false, data); err != nil {
+			return false, err
+		}
+		return true, nil
 	}
-	data := amqp.Publishing{ContentType: "text/plain", Body: b}
-	if err := self.channel.Publish(self.exchange, self.queue, false, false, data); err != nil {
-		return false, err
-	}
-	return true, nil
 }
 
 func (self *PublishMQ) prepareExchange() error {

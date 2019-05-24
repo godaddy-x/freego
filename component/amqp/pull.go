@@ -1,9 +1,9 @@
 package rabbitmq
 
 import (
-	"encoding/json"
 	"fmt"
 	"github.com/godaddy-x/freego/component/log"
+	"github.com/godaddy-x/freego/util"
 	"github.com/streadway/amqp"
 	"sync"
 	"time"
@@ -61,7 +61,7 @@ func (self *PullManager) start(receiver *PullReceiver) {
 		wg.Add(1)
 		go self.listen(receiver)
 		wg.Wait()
-		log.Error("消费通道意外关闭,需要重新连接")
+		log.Error("消费通道意外关闭,需要重新连接", 0)
 		receiver.channel.Close()
 		time.Sleep(3 * time.Second)
 	}
@@ -153,7 +153,7 @@ func (self *PullReceiver) QueueName() string {
 }
 
 func (self *PullReceiver) OnError(err error) {
-	log.Error(err.Error())
+	log.Error(err.Error(), 0)
 }
 
 // 监听对象
@@ -170,14 +170,14 @@ func (self *PullReceiver) OnReceive(b []byte) bool {
 	if b == nil || len(b) == 0 || string(b) == "{}" {
 		return true
 	}
-	log.Debug("消费数据日志", log.String("data", string(b)))
+	log.Debug("消费数据日志", 0, log.String("data", string(b)))
 	message := MsgData{}
-	if err := json.Unmarshal(b, &message); err != nil {
-		log.Error("MQ消费数据转换JSON失败", log.String("exchange", self.Exchange), log.String("queue", self.Queue), log.String("data", string(b)))
+	if err := util.JsonUnmarshal(b, &message); err != nil {
+		log.Error("MQ消费数据转换JSON失败", 0, log.String("exchange", self.Exchange), log.String("queue", self.Queue), log.String("data", string(b)))
 	} else if message.Content == nil {
-		log.Error("MQ消费数据Content为空", log.String("exchange", self.Exchange), log.String("queue", self.Queue), log.Any("data", message))
+		log.Error("MQ消费数据Content为空", 0, log.String("exchange", self.Exchange), log.String("queue", self.Queue), log.Any("data", message))
 	} else if call, err := self.Callback(message); err != nil {
-		log.Error("MQ消费数据处理异常", log.String("exchange", self.Exchange), log.String("queue", self.Queue), log.Any("data", call), log.AddError(err))
+		log.Error("MQ消费数据处理异常", 0, log.String("exchange", self.Exchange), log.String("queue", self.Queue), log.Any("data", call), log.AddError(err))
 		if self.LisData.IsNack {
 			return false
 		}

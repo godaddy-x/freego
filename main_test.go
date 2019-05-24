@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/godaddy-x/freego/cache"
@@ -513,7 +512,7 @@ func goTest(conn *websocket.Conn) {
 	for {
 		time.Sleep(time.Second * 1)
 		data := map[string]interface{}{"token": token}
-		send, _ := json.Marshal(&data)
+		send, _ := util.JsonMarshal(&data)
 		conn.WriteMessage(websocket.TextMessage, send)
 	}
 }
@@ -521,14 +520,14 @@ func goTest(conn *websocket.Conn) {
 func goLogin(conn *websocket.Conn) {
 	time.Sleep(time.Second * 1)
 	data := map[string]interface{}{"user": "zhangsan"}
-	send, _ := json.Marshal(&data)
+	send, _ := util.JsonMarshal(&data)
 	conn.WriteMessage(websocket.TextMessage, send)
 }
 
 func goLogout(conn *websocket.Conn) {
 	time.Sleep(time.Second * 1)
 	data := map[string]interface{}{"token": token}
-	send, _ := json.Marshal(&data)
+	send, _ := util.JsonMarshal(&data)
 	conn.WriteMessage(websocket.TextMessage, send)
 }
 
@@ -576,7 +575,7 @@ func TestRGX(t *testing.T) {
 	a := `["1","2","3","4","5"]`
 	for i := 0; i < 2000000; i++ {
 		b := []string{}
-		json.Unmarshal(util.Str2Bytes(a), &b);
+		util.JsonUnmarshal(util.Str2Bytes(a), &b);
 		util.Str2Bytes(a)
 	}
 }
@@ -584,12 +583,12 @@ func TestRGX(t *testing.T) {
 func TestRGX1(t *testing.T) {
 	a := []string{"1", "2", "3", "546", "7"}
 	for i := 0; i < 20000000; i++ {
-		b, _ := json.Marshal(&a)
+		b, _ := util.JsonMarshal(&a)
 		util.Bytes2Str(b)
 	}
 }
 
 func TestRGX2(t *testing.T) {
-	s:="0.56899359"
+	s := "0.56899359"
 	fmt.Println(util.Shift(s, 10))
 }
