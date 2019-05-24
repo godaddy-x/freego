@@ -24,6 +24,7 @@ type PublishMQ struct {
 	mu       sync.Mutex
 	exchange string
 	queue    string
+	kind     string
 }
 
 func (self *PublishManager) InitConfig(input ...AmqpConfig) *PublishManager {
@@ -55,7 +56,10 @@ func (self *PublishManager) Client(dsname ...string) (*PublishManager, error) {
 	return manager, nil
 }
 
-func (self *PublishManager) Publish(data MsgData) error {
+func (self *PublishManager) Publish(data *MsgData) error {
+	if data == nil {
+		return util.Error("发送数据为空")
+	}
 	pub, ok := self.channels[data.Exchange+data.Queue]
 	if !ok {
 		self.mu.Lock()
@@ -66,7 +70,7 @@ func (self *PublishManager) Publish(data MsgData) error {
 			if err != nil {
 				return err
 			}
-			pub = &PublishMQ{channel: channel, exchange: data.Exchange, queue: data.Queue,}
+			pub = &PublishMQ{channel: channel, exchange: data.Exchange, queue: data.Queue, kind: "direct"}
 			pub.prepareExchange()
 			pub.prepareQueue()
 			self.channels[data.Exchange+data.Queue] = pub
@@ -78,7 +82,7 @@ func (self *PublishManager) Publish(data MsgData) error {
 		if b, err := pub.sendToMQ(data); b && err == nil {
 			return nil
 		} else {
-			log.Error("发送MQ数据失败", 0, log.Int("正在尝试次数", i), log.Any("data", data), log.AddError(err))
+			log.Error("发送MQ数据失败", 0, log.Int("正在尝试次数", i), log.Any("message", data), log.AddError(err))
 			time.Sleep(300 * time.Millisecond)
 		}
 		if i >= 3 {
@@ -100,7 +104,7 @@ func (self *PublishMQ) sendToMQ(v interface{}) (bool, error) {
 }
 
 func (self *PublishMQ) prepareExchange() error {
-	return self.channel.ExchangeDeclare(self.exchange, "direct", true, false, false, false, nil)
+	return self.channel.ExchangeDeclare(self.exchange, self.kind, true, false, false, false, nil)
 }
 
 func (self *PublishMQ) prepareQueue() error {

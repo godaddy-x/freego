@@ -16,6 +16,7 @@ var (
 type PullManager struct {
 	mu        sync.Mutex
 	conn      *amqp.Connection
+	kind      string
 	receivers []*PullReceiver
 }
 
@@ -27,6 +28,7 @@ func (self *PullManager) InitConfig(input ...AmqpConfig) *PullManager {
 		}
 		pull_mgr := &PullManager{
 			conn:      c,
+			kind:      "direct",
 			receivers: make([]*PullReceiver, 0),
 		}
 		if len(v.DsName) == 0 {
@@ -79,7 +81,6 @@ func (self *PullManager) listen(receiver *PullReceiver) {
 	exchange := receiver.ExchangeName()
 	queue := receiver.QueueName()
 	log.Println(fmt.Sprintf("消费队列[%s - %s]服务启动成功...", exchange, queue))
-	// testSend(exchange, queue)
 	if err := self.prepareExchange(channel, exchange); err != nil {
 		receiver.OnError(fmt.Errorf("初始化交换机 [%s] 失败: %s", exchange, err.Error()))
 		return
@@ -88,13 +89,17 @@ func (self *PullManager) listen(receiver *PullReceiver) {
 		receiver.OnError(fmt.Errorf("绑定队列 [%s] 到交换机失败: %s", queue, err.Error()))
 		return
 	}
-	channel.Qos(1, 0, true)
+	count := receiver.LisData.PrefetchCount
+	if count == 0 {
+		count = 1
+	}
+	channel.Qos(count, receiver.LisData.PrefetchSize, false)
 	if msgs, err := channel.Consume(queue, "", false, false, false, false, nil); err != nil {
 		receiver.OnError(fmt.Errorf("获取队列 %s 的消费通道失败: %s", queue, err.Error()))
 	} else {
 		for msg := range msgs {
 			for !receiver.OnReceive(msg.Body) {
-				fmt.Println("receiver 数据处理失败，将要重试")
+				log.Error("receiver 数据处理失败，将要重试", 0)
 				time.Sleep(1 * time.Second)
 			}
 			msg.Ack(false)
@@ -103,7 +108,7 @@ func (self *PullManager) listen(receiver *PullReceiver) {
 }
 
 func (self *PullManager) prepareExchange(channel *amqp.Channel, exchange string) error {
-	return channel.ExchangeDeclare(exchange, "direct", true, false, false, false, nil)
+	return channel.ExchangeDeclare(exchange, self.kind, true, false, false, false, nil)
 }
 
 func (self *PullManager) prepareQueue(channel *amqp.Channel, exchange, queue string) error {
@@ -115,30 +120,6 @@ func (self *PullManager) prepareQueue(channel *amqp.Channel, exchange, queue str
 	}
 	return nil
 }
-
-func testSend(exchange, queue string) {
-	go func() {
-		time.Sleep(3 * time.Second)
-		for i := 0; i < 6; i++ {
-			cli, _ := new(PublishManager).Client()
-			v := map[string]interface{}{"test": 1}
-			cli.Publish(MsgData{
-				Exchange: exchange,
-				Queue:    queue,
-				Content:  &v,
-			})
-		}
-	}()
-}
-
-//type Receiver interface {
-//	Group() *sync.WaitGroup
-//	Channel() *amqp.Channel
-//	ExchangeName() string
-//	QueueName() string
-//	OnError(err error)
-//	OnReceive(b []byte) bool
-//}
 
 func (self *PullReceiver) Channel() *amqp.Channel {
 	return self.channel
@@ -163,21 +144,21 @@ type PullReceiver struct {
 	Exchange string
 	Queue    string
 	LisData  LisData
-	Callback func(msg MsgData) (MsgData, error)
+	Callback func(msg *MsgData) error
 }
 
 func (self *PullReceiver) OnReceive(b []byte) bool {
 	if b == nil || len(b) == 0 || string(b) == "{}" {
 		return true
 	}
-	log.Debug("消费数据日志", 0, log.String("data", string(b)))
+	defer log.Debug("MQ消费数据监控日志", util.Time(), log.String("message", string(b)))
 	message := MsgData{}
 	if err := util.JsonUnmarshal(b, &message); err != nil {
-		log.Error("MQ消费数据转换JSON失败", 0, log.String("exchange", self.Exchange), log.String("queue", self.Queue), log.String("data", string(b)))
+		log.Error("MQ消费数据解析失败", 0, log.String("exchange", self.Exchange), log.String("queue", self.Queue), log.Any("message", message), log.AddError(err))
 	} else if message.Content == nil {
-		log.Error("MQ消费数据Content为空", 0, log.String("exchange", self.Exchange), log.String("queue", self.Queue), log.Any("data", message))
-	} else if call, err := self.Callback(message); err != nil {
-		log.Error("MQ消费数据处理异常", 0, log.String("exchange", self.Exchange), log.String("queue", self.Queue), log.Any("data", call), log.AddError(err))
+		return true
+	} else if err := self.Callback(&message); err != nil {
+		log.Error("MQ消费数据处理失败", 0, log.String("exchange", self.Exchange), log.String("queue", self.Queue), log.Any("message", message), log.AddError(err))
 		if self.LisData.IsNack {
 			return false
 		}
