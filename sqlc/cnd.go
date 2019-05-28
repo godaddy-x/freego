@@ -267,6 +267,20 @@ func (self *Cnd) Orderby(key string, sortby int) *Cnd {
 	return self
 }
 
+// 按字段排序升序
+func (self *Cnd) Asc(key string) *Cnd {
+	condit := Condition{ORDER_BY_, key, ASC_, nil}
+	self.Orderbys = append(self.Orderbys, condit)
+	return self
+}
+
+// 按字段排序倒序
+func (self *Cnd) Desc(key string) *Cnd {
+	condit := Condition{ORDER_BY_, key, DESC_, nil}
+	self.Orderbys = append(self.Orderbys, condit)
+	return self
+}
+
 // 筛选指定字段查询
 func (self *Cnd) Fields(keys ...string) *Cnd {
 	for _, v := range keys {

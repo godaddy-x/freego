@@ -1,7 +1,6 @@
 package sqld
 
 import (
-	"fmt"
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/component/log"
 	"github.com/godaddy-x/freego/sqlc"
@@ -127,7 +126,7 @@ func (self *MGOManager) buildByConfig(manager cache.ICache, input ...MGOConfig) 
 		}
 		session, err := mgo.DialWithInfo(&dialInfo)
 		if err != nil {
-			panic("mongo连接初始化失败: " + err.Error())
+			panic(util.AddStr("mongo连接初始化失败: ", err))
 		}
 		session.SetSocketTimeout(3 * time.Minute)
 		session.SetMode(mgo.Monotonic, true)
@@ -165,10 +164,10 @@ func (self *MGOManager) buildByConfig(manager cache.ICache, input ...MGOConfig) 
 // 保存数据到mongo集合
 func (self *MGOManager) Save(data ...interface{}) error {
 	if data == nil || len(data) == 0 {
-		return self.Error("参数对象为空")
+		return self.Error("[Mongo.Save]参数对象为空")
 	}
 	if len(data) > 2000 {
-		return self.Error("参数对象数量不能超过2000")
+		return self.Error("[Mongo.Save]参数对象数量不能超过2000")
 	}
 	d := data[0]
 	if self.MGOSyncData != nil && len(self.MGOSyncData) > 0 {
@@ -177,9 +176,8 @@ func (self *MGOManager) Save(data ...interface{}) error {
 	obkey := reflect.TypeOf(d).String()
 	obv, ok := reg_models[obkey];
 	if !ok {
-		return self.Error(util.AddStr("没有找到注册对象类型[", obkey, "]"))
+		return self.Error(util.AddStr("[Mongo.Save]没有找到注册对象类型[", obkey, "]"))
 	}
-	start := util.Time()
 	copySession := self.Session.Copy()
 	defer copySession.Close()
 	db, err := self.GetDatabase(copySession, obv.TabelName)
@@ -187,7 +185,7 @@ func (self *MGOManager) Save(data ...interface{}) error {
 		return self.Error(err)
 	}
 	if log.IsDebug() {
-		defer log.Debug("mongo数据Save操作日志", util.Time(), log.Any("data", data), log.Int64("cost", util.Time()-start))
+		defer log.Debug("[Mongo.Save]日志", util.Time(), log.Any("data", data))
 	}
 	for _, v := range data {
 		lastInsertId := util.GetInt64(util.GetPtr(v, obv.PkOffset))
@@ -205,10 +203,10 @@ func (self *MGOManager) Save(data ...interface{}) error {
 // 更新数据到mongo集合
 func (self *MGOManager) Update(data ...interface{}) error {
 	if data == nil || len(data) == 0 {
-		return self.Error("参数对象为空")
+		return self.Error("[Mongo.Update]参数对象为空")
 	}
 	if len(data) > 2000 {
-		return self.Error("参数对象数量不能超过2000")
+		return self.Error("[Mongo.Update]参数对象数量不能超过2000")
 	}
 	d := data[0]
 	if self.MGOSyncData != nil && len(self.MGOSyncData) > 0 {
@@ -217,9 +215,8 @@ func (self *MGOManager) Update(data ...interface{}) error {
 	obkey := reflect.TypeOf(d).String()
 	obv, ok := reg_models[obkey];
 	if !ok {
-		return self.Error(util.AddStr("没有找到注册对象类型[", obkey, "]"))
+		return self.Error(util.AddStr("[Mongo.Update]没有找到注册对象类型[", obkey, "]"))
 	}
-	start := util.Time()
 	copySession := self.Session.Copy()
 	defer copySession.Close()
 	db, err := self.GetDatabase(copySession, obv.TabelName)
@@ -227,16 +224,16 @@ func (self *MGOManager) Update(data ...interface{}) error {
 		return self.Error(err)
 	}
 	if log.IsDebug() {
-		defer log.Debug("mongo数据Update操作日志", util.Time(), log.Any("data", data), log.Int64("cost", util.Time()-start))
+		defer log.Debug("[Mongo.Update]日志", util.Time(), log.Any("data", data))
 	}
 	for _, v := range data {
 		lastInsertId := util.GetInt64(util.GetPtr(v, obv.PkOffset))
 		if lastInsertId == 0 {
-			return self.Error("对象ID为空")
+			return self.Error("[Mongo.Update]对象ID为空")
 		}
 		if err := db.UpdateId(lastInsertId, v); err != nil {
 			if err.Error() == "not found" {
-				return self.Error(util.AddStr("数据ID[", lastInsertId, "]不存在"))
+				return self.Error(util.AddStr("[Mongo.Update]数据ID[", lastInsertId, "]不存在"))
 			}
 			return self.Error(err)
 		}
@@ -246,10 +243,10 @@ func (self *MGOManager) Update(data ...interface{}) error {
 
 func (self *MGOManager) Delete(data ...interface{}) error {
 	if data == nil || len(data) == 0 {
-		return self.Error("参数对象为空")
+		return self.Error("[Mongo.Delete]参数对象为空")
 	}
 	if len(data) > 2000 {
-		return self.Error("参数对象数量不能超过2000")
+		return self.Error("[Mongo.Delete]参数对象数量不能超过2000")
 	}
 	d := data[0]
 	if self.MGOSyncData != nil && len(self.MGOSyncData) > 0 {
@@ -258,9 +255,8 @@ func (self *MGOManager) Delete(data ...interface{}) error {
 	obkey := reflect.TypeOf(d).String()
 	obv, ok := reg_models[obkey];
 	if !ok {
-		return self.Error(util.AddStr("没有找到注册对象类型[", obkey, "]"))
+		return self.Error(util.AddStr("[Mongo.Delete]没有找到注册对象类型[", obkey, "]"))
 	}
-	start := util.Time()
 	copySession := self.Session.Copy()
 	defer copySession.Close()
 	db, err := self.GetDatabase(copySession, obv.TabelName)
@@ -268,16 +264,16 @@ func (self *MGOManager) Delete(data ...interface{}) error {
 		return self.Error(err)
 	}
 	if log.IsDebug() {
-		defer log.Debug("mongo数据Delete操作日志", util.Time(), log.Any("data", data), log.Int64("cost", util.Time()-start))
+		defer log.Debug("[Mongo.Delete]日志", util.Time(), log.Any("data", data))
 	}
 	for _, v := range data {
 		lastInsertId := util.GetInt64(util.GetPtr(v, obv.PkOffset))
 		if lastInsertId == 0 {
-			return self.Error("对象ID为空")
+			return self.Error("[Mongo.Delete]对象ID为空")
 		}
 		if err := db.RemoveId(lastInsertId); err != nil {
 			if err.Error() == "not found" {
-				return self.Error(util.AddStr("数据ID[", lastInsertId, "]不存在"))
+				return self.Error(util.AddStr("[Mongo.Delete]数据ID[", lastInsertId, "]不存在"))
 			}
 			return self.Error(err)
 		}
@@ -288,37 +284,36 @@ func (self *MGOManager) Delete(data ...interface{}) error {
 // 统计数据
 func (self *MGOManager) Count(cnd *sqlc.Cnd) (int64, error) {
 	if cnd.Model == nil {
-		return 0, self.Error("ORM对象类型不能为空,请通过M(...)方法设置对象类型")
+		return 0, self.Error("[Mongo.Count]ORM对象类型不能为空,请通过M(...)方法设置对象类型")
 	}
-	copySession := self.Session.Copy()
-	defer copySession.Close()
 	obkey := reflect.TypeOf(cnd.Model).String()
 	obv, ok := reg_models[obkey];
 	if !ok {
-		return 0, self.Error(util.AddStr("没有找到注册对象类型[", obkey, "]"))
+		return 0, self.Error(util.AddStr("[Mongo.Count]没有找到注册对象类型[", obkey, "]"))
 	}
-	start := util.Time()
+	copySession := self.Session.Copy()
+	defer copySession.Close()
 	db, err := self.GetDatabase(copySession, obv.TabelName)
 	if err != nil {
 		return 0, err
 	}
 	pipe, err := self.buildPipeCondition(cnd, true)
 	if err != nil {
-		return 0, util.Error("mongo构建查询命令失败: ", err.Error())
+		return 0, util.Error("[Mongo.Count]构建查询命令失败: ", err)
 	}
 	if log.IsDebug() {
-		defer log.Debug("mongo数据Count操作日志", util.Time(), log.Any("pipe", pipe), log.Int64("cost", util.Time()-start))
+		defer log.Debug("[Mongo.Count]日志", util.Time(), log.Any("pipe", pipe))
 	}
 	result := make(map[string]int64)
 	if err := db.Pipe(pipe).One(&result); err != nil {
 		if err.Error() == "not found" {
 			return 0, nil
 		}
-		return 0, util.Error("mongo查询数据失败: ", err.Error())
+		return 0, util.Error("[Mongo.Count]查询数据失败: ", err)
 	}
 	pageTotal, ok := result[COUNT_BY]
 	if !ok {
-		return 0, util.Error("获取记录数失败")
+		return 0, util.Error("[Mongo.Count]获取记录数失败")
 	}
 	if pageTotal > 0 && cnd.Pagination.PageSize > 0 {
 		var pageCount int64
@@ -338,30 +333,29 @@ func (self *MGOManager) Count(cnd *sqlc.Cnd) (int64, error) {
 // 查询单条数据
 func (self *MGOManager) FindOne(cnd *sqlc.Cnd, data interface{}) error {
 	if data == nil {
-		return self.Error("参数对象为空")
+		return self.Error("[Mongo.FindOne]参数对象为空")
 	}
 	obkey := reflect.TypeOf(data).String()
 	obv, ok := reg_models[obkey];
 	if !ok {
-		return self.Error(util.AddStr("没有找到注册对象类型[", obkey, "]"))
+		return self.Error(util.AddStr("[Mongo.FindOne]没有找到注册对象类型[", obkey, "]"))
 	}
-	start := util.Time()
 	copySession := self.Session.Copy()
 	defer copySession.Close()
 	db, err := self.GetDatabase(copySession, obv.TabelName)
 	if err != nil {
 		return self.Error(err)
 	}
-	if log.IsDebug() {
-		defer log.Debug("mongo数据FindOne操作日志", util.Time(), log.Int64("cost", util.Time()-start))
-	}
 	pipe, err := self.buildPipeCondition(cnd, false)
 	if err != nil {
-		return util.Error("mongo构建查询命令失败: ", err.Error())
+		return util.Error("[Mongo.FindOne]构建查询命令失败: ", err)
+	}
+	if log.IsDebug() {
+		defer log.Debug("[Mongo.FindOne]日志", util.Time(), log.Any("pipe", pipe))
 	}
 	if err := db.Pipe(pipe).One(data); err != nil {
 		if err.Error() != "not found" {
-			return util.Error("mongo查询数据失败: ", err.Error())
+			return util.Error("[Mongo.FindOne]查询数据失败: ", err)
 		}
 	}
 	return nil
@@ -370,43 +364,40 @@ func (self *MGOManager) FindOne(cnd *sqlc.Cnd, data interface{}) error {
 // 查询多条数据
 func (self *MGOManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	if data == nil {
-		return self.Error("返回参数对象为空")
+		return self.Error("[Mongo.FindList]返回参数对象为空")
 	}
 	obkey := reflect.TypeOf(cnd.Model).String()
 	if !strings.HasPrefix(obkey, "*[]") {
-		return self.Error("返回参数必须为数组指针类型")
+		return self.Error("[Mongo.FindList]返回参数必须为数组指针类型")
 	} else {
 		obkey = util.Substr(obkey, 3, len(obkey))
 	}
 	obv, ok := reg_models[obkey];
 	if !ok {
-		return self.Error(util.AddStr("没有找到注册对象类型[", obkey, "]"))
+		return self.Error(util.AddStr("[Mongo.FindList]没有找到注册对象类型[", obkey, "]"))
 	}
-	start := util.Time()
 	copySession := self.Session.Copy()
 	defer copySession.Close()
 	db, err := self.GetDatabase(copySession, obv.TabelName)
 	if err != nil {
 		return self.Error(err)
 	}
-	if log.IsDebug() {
-		defer log.Debug("mongo数据FindList操作日志", util.Time(), log.Int64("cost", util.Time()-start))
-	}
 	pipe, err := self.buildPipeCondition(cnd, false)
 	if err != nil {
-		return util.Error("mongo构建查询命令失败: ", err.Error())
+		return util.Error("[Mongo.FindList]构建查询命令失败: ", err)
+	}
+	if log.IsDebug() {
+		defer log.Debug("[Mongo.FindList]日志", util.Time(), log.Any("pipe", pipe))
 	}
 	if err := db.Pipe(pipe).All(data); err != nil {
 		if err.Error() != "not found" {
-			return util.Error("mongo查询数据失败: ", err.Error())
+			return util.Error("[Mongo.FindList]查询数据失败: ", err)
 		}
 	}
-	fmt.Println(111)
 	return nil
 }
 
 func (self *MGOManager) Close() error {
-	// self.Session.Close()
 	return nil
 }
 

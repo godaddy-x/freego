@@ -2,6 +2,7 @@ package sqld
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/component/log"
@@ -11,6 +12,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"time"
 )
 
 var (
@@ -45,6 +47,7 @@ type Option struct {
 	DsName    *string // 数据源,分库时使用
 	OpenTx    *bool   // 是否开启事务 true.是 false.否
 	MongoSync *bool   // 是否自动同步mongo数据库写入
+	Timeout   int64   // 请求超时设置/毫秒,默认3000毫秒
 }
 
 type MGOSyncData struct {
@@ -220,12 +223,13 @@ func (self *RDBManager) GetDB(option ...Option) error {
 		return self.Error(util.AddStr("SQL数据源[", *ds, "]未找到,请检查..."))
 	}
 	self.Db = rdb.Db
-	self.CacheManager = rdb.CacheManager
 	self.Node = rdb.Node
 	self.DsName = rdb.DsName
-	self.Tx = rdb.Tx
+	self.Timeout = 5000
 	self.MongoSync = rdb.MongoSync
 	self.MGOSyncData = make([]*MGOSyncData, 0)
+	self.CacheManager = rdb.CacheManager
+	self.OpenTx = &FALSE
 	if ops != nil {
 		if ops.Node != nil {
 			self.Node = ops.Node
@@ -239,9 +243,12 @@ func (self *RDBManager) GetDB(option ...Option) error {
 		if ops.MongoSync != nil {
 			self.MongoSync = ops.MongoSync
 		}
+		if ops.Timeout > 0 {
+			self.Timeout = ops.Timeout
+		}
 		if *ops.OpenTx {
 			if txv, err := self.Db.Begin(); err != nil {
-				return self.Error(util.AddStr("数据库开启事务失败: ", err.Error()))
+				return self.Error(util.AddStr("数据库开启事务失败: ", err))
 			} else {
 				self.Tx = txv
 			}
@@ -252,19 +259,17 @@ func (self *RDBManager) GetDB(option ...Option) error {
 
 func (self *RDBManager) Save(data ...interface{}) error {
 	if data == nil || len(data) == 0 {
-		return self.Error("参数对象为空")
+		return self.Error("[Mysql.Save]参数对象为空")
 	}
 	if len(data) > 2000 {
-		return self.Error("参数对象数量不能超过2000")
+		return self.Error("[Mysql.Save]参数对象数量不能超过2000")
 	}
-	start := util.Time()
 	var fready bool
-	var prepare string
 	var fpart, vpart bytes.Buffer
 	obkey := reflect.TypeOf(data[0]).String()
 	obv, ok := reg_models[obkey];
 	if !ok {
-		return self.Error(util.AddStr("没有找到注册对象类型[", obkey, "]"))
+		return self.Error(util.AddStr("[Mysql.Save]没有找到注册对象类型[", obkey, "]"))
 	}
 	parameter := make([]interface{}, 0, len(obv.FieldElem)*len(data))
 	fpart.Grow(10 * len(obv.FieldElem))
@@ -280,7 +285,7 @@ func (self *RDBManager) Save(data ...interface{}) error {
 			} else {
 				fval, err := GetValue(v, vv);
 				if err != nil {
-					log.Error("参数值获取异常", 0, log.String("field", vv.FieldName), log.AddError(err))
+					log.Error("[Mysql.Save]参数值获取异常", 0, log.String("field", vv.FieldName), log.AddError(err))
 					continue
 				}
 				parameter = append(parameter, fval)
@@ -300,7 +305,6 @@ func (self *RDBManager) Save(data ...interface{}) error {
 	}
 	str1 := util.Bytes2Str(fpart.Bytes())
 	str2 := util.Bytes2Str(vpart.Bytes())
-	var stmt *sql.Stmt
 	var sqlbuf bytes.Buffer
 	sqlbuf.Grow(len(str1) + len(str2) + 64)
 	sqlbuf.WriteString("insert into ")
@@ -310,28 +314,30 @@ func (self *RDBManager) Save(data ...interface{}) error {
 	sqlbuf.WriteString(")")
 	sqlbuf.WriteString(" values ")
 	sqlbuf.WriteString(util.Substr(str2, 0, len(str2)-1))
-	if len(prepare) == 0 {
-		prepare = util.Bytes2Str(sqlbuf.Bytes())
-		if log.IsDebug() {
-			defer log.Debug("mysql数据Save操作日志", util.Time(), log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
-		}
-		var err error
-		if *self.OpenTx {
-			stmt, err = self.Tx.Prepare(prepare)
-		} else {
-			stmt, err = self.Db.Prepare(prepare)
-		}
-		if err != nil {
-			return self.Error(util.AddStr("预编译sql[", prepare, "]失败: ", err.Error()))
-		}
-		defer stmt.Close()
+
+	prepare := util.Bytes2Str(sqlbuf.Bytes())
+	if log.IsDebug() {
+		defer log.Debug("[Mysql.Save]日志", util.Time(), log.String("sql", prepare), log.Any("values", parameter))
 	}
-	if ret, err := stmt.Exec(parameter...); err != nil {
-		return self.Error(util.Error("保存数据失败: ", err.Error()))
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
+	defer cancel()
+	var err error
+	var stmt *sql.Stmt
+	if *self.OpenTx {
+		stmt, err = self.Tx.PrepareContext(ctx, prepare)
+	} else {
+		stmt, err = self.Db.PrepareContext(ctx, prepare)
+	}
+	if err != nil {
+		return self.Error(util.AddStr("[Mysql.Save]编译[ ", prepare, " ]失败: ", err))
+	}
+	defer stmt.Close()
+	if ret, err := stmt.ExecContext(ctx, parameter...); err != nil {
+		return self.Error(util.Error("[Mysql.Save]保存数据失败: ", err))
 	} else if rowsAffected, err := ret.RowsAffected(); err != nil {
-		return self.Error(util.Error("获取受影响行数失败: ", err.Error()))
+		return self.Error(util.Error("[Mysql.Save]获取受影响行数失败: ", err))
 	} else if rowsAffected <= 0 {
-		return self.Error(util.Error("保存操作受影响行数 -> ", rowsAffected))
+		return self.Error(util.Error("[Mysql.Save]保存操作受影响行数 -> ", rowsAffected))
 	}
 	if *self.MongoSync && obv.ToMongo {
 		sdata := &MGOSyncData{SAVE, obv.Hook.NewObj(), data}
@@ -342,18 +348,16 @@ func (self *RDBManager) Save(data ...interface{}) error {
 
 func (self *RDBManager) Update(data ...interface{}) error {
 	if data == nil || len(data) == 0 {
-		return self.Error("参数对象为空")
+		return self.Error("[Mysql.Update]参数对象为空")
 	}
 	if len(data) > 2000 {
-		return self.Error("参数对象数量不能超过2000")
+		return self.Error("[Mysql.Update]参数对象数量不能超过2000")
 	}
-	start := util.Time()
-	var prepare string
 	var fpart, vpart bytes.Buffer
 	obkey := reflect.TypeOf(data[0]).String()
 	obv, ok := reg_models[obkey];
 	if !ok {
-		return self.Error(util.AddStr("没有找到注册对象类型[", obkey, "]"))
+		return self.Error(util.AddStr("[Mysql.Update]没有找到注册对象类型[", obkey, "]"))
 	}
 	parameter := make([]interface{}, 0, len(obv.FieldElem)*len(data))
 	fpart.Grow(45 * len(data) * len(obv.FieldElem))
@@ -367,13 +371,13 @@ func (self *RDBManager) Update(data ...interface{}) error {
 			if vv.Primary {
 				lastInsertId := util.GetInt64(util.GetPtr(v, obv.PkOffset))
 				if lastInsertId == 0 {
-					return self.Error("对象ID为空")
+					return self.Error("[Mysql.Update]对象ID为空")
 				}
 				vpart.WriteString(strconv.FormatInt(lastInsertId, 10))
 				vpart.WriteString(",")
 			}
 			if val, err := GetValue(v, vv); err != nil {
-				log.Error("参数值获取异常", 0, log.String("field", vv.FieldName), log.AddError(err))
+				log.Error("[Mysql.Update]参数值获取异常", 0, log.String("field", vv.FieldName), log.AddError(err))
 				return err
 			} else {
 				parameter = append(parameter, val)
@@ -386,7 +390,6 @@ func (self *RDBManager) Update(data ...interface{}) error {
 	}
 	str1 := util.Bytes2Str(fpart.Bytes())
 	str2 := util.Bytes2Str(vpart.Bytes())
-	var stmt *sql.Stmt
 	var sqlbuf bytes.Buffer
 	sqlbuf.Grow(len(str1) + len(str2) + 64)
 	sqlbuf.WriteString("update ")
@@ -398,28 +401,30 @@ func (self *RDBManager) Update(data ...interface{}) error {
 	sqlbuf.WriteString(" in (")
 	sqlbuf.WriteString(util.Substr(str2, 0, len(str2)-1))
 	sqlbuf.WriteString(")")
-	if len(prepare) == 0 {
-		prepare = util.Bytes2Str(sqlbuf.Bytes())
-		if log.IsDebug() {
-			defer log.Debug("mysql数据Update操作日志", util.Time(), log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
-		}
-		var err error
-		if *self.OpenTx {
-			stmt, err = self.Tx.Prepare(prepare)
-		} else {
-			stmt, err = self.Db.Prepare(prepare)
-		}
-		if err != nil {
-			return self.Error(util.AddStr("预编译sql[", prepare, "]失败: ", err.Error()))
-		}
-		defer stmt.Close()
+
+	prepare := util.Bytes2Str(sqlbuf.Bytes())
+	if log.IsDebug() {
+		defer log.Debug("[Mysql.Update]日志", util.Time(), log.String("sql", prepare), log.Any("values", parameter))
 	}
-	if ret, err := stmt.Exec(parameter...); err != nil {
-		return self.Error(util.Error("更新数据失败: ", err.Error()))
+	var err error
+	var stmt *sql.Stmt
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
+	defer cancel()
+	if *self.OpenTx {
+		stmt, err = self.Tx.PrepareContext(ctx, prepare)
+	} else {
+		stmt, err = self.Db.PrepareContext(ctx, prepare)
+	}
+	if err != nil {
+		return self.Error(util.AddStr("[Mysql.Update]编译[ ", prepare, " ]失败: ", err))
+	}
+	defer stmt.Close()
+	if ret, err := stmt.ExecContext(ctx, parameter...); err != nil {
+		return self.Error(util.Error("[Mysql.Update]更新数据失败: ", err))
 	} else if rowsAffected, err := ret.RowsAffected(); err != nil {
-		return self.Error(util.Error("获取受影响行数失败: ", err.Error()))
+		return self.Error(util.Error("[Mysql.Update]获取受影响行数失败: ", err))
 	} else if rowsAffected <= 0 {
-		log.Warn(util.AddStr("Update -> 更新操作受影响行数 -> ", rowsAffected), 0, log.String("sql", prepare))
+		log.Warn(util.AddStr("[Mysql.Update]受影响行数 -> ", rowsAffected), 0, log.String("sql", prepare))
 		return nil
 	}
 	if *self.MongoSync && obv.ToMongo {
@@ -431,22 +436,20 @@ func (self *RDBManager) Update(data ...interface{}) error {
 
 func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) error {
 	if cnd.Model == nil {
-		return self.Error("参数对象为空")
+		return self.Error("[Mysql.UpdateByCnd]参数对象为空")
 	}
 	if cnd.UpdateKV == nil || len(cnd.UpdateKV) == 0 {
-		return self.Error("更新字段不能为空")
+		return self.Error("[Mysql.UpdateByCnd]更新字段不能为空")
 	}
-	start := util.Time()
 	obkey := reflect.TypeOf(cnd.Model).String()
 	obv, ok := reg_models[obkey];
 	if !ok {
-		return self.Error(util.AddStr("没有找到注册对象类型[", obkey, "]"))
+		return self.Error(util.AddStr("[Mysql.UpdateByCnd]没有找到注册对象类型[", obkey, "]"))
 	}
-	var prepare string
 	var fpart, vpart bytes.Buffer
 	case_part, case_arg := self.BuildWhereCase(cnd)
 	if case_part.Len() == 0 || len(case_arg) == 0 {
-		return self.Error("更新条件不能为空")
+		return self.Error("[Mysql.UpdateByCnd]更新条件不能为空")
 	}
 	parameter := make([]interface{}, 0, len(cnd.UpdateKV)+len(case_arg))
 	for k, v := range cnd.UpdateKV { // 遍历对象字段
@@ -464,7 +467,6 @@ func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) error {
 	vpart.WriteString(util.Substr(str, 0, len(str)-3))
 	str1 := util.Bytes2Str(fpart.Bytes())
 	str2 := util.Bytes2Str(vpart.Bytes())
-	var stmt *sql.Stmt
 	var sqlbuf bytes.Buffer
 	sqlbuf.Grow(len(str1) + len(str2) + 64)
 	sqlbuf.WriteString("update ")
@@ -473,44 +475,46 @@ func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) error {
 	sqlbuf.WriteString(util.Substr(str1, 0, len(str1)-1))
 	sqlbuf.WriteString(" ")
 	sqlbuf.WriteString(util.Substr(str2, 0, len(str2)-1))
-	if len(prepare) == 0 {
-		prepare = util.Bytes2Str(sqlbuf.Bytes())
-		if log.IsDebug() {
-			defer log.Debug("mysql数据UpdateByCnd操作日志", util.Time(), log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
-		}
-		var err error
-		if *self.OpenTx {
-			stmt, err = self.Tx.Prepare(prepare)
-		} else {
-			stmt, err = self.Db.Prepare(prepare)
-		}
-		if err != nil {
-			return self.Error(util.AddStr("预编译sql[", prepare, "]失败: ", err.Error()))
-		}
-		defer stmt.Close()
+
+	prepare := util.Bytes2Str(sqlbuf.Bytes())
+	if log.IsDebug() {
+		defer log.Debug("[Mysql.UpdateByCnd]日志", util.Time(), log.String("sql", prepare), log.Any("values", parameter))
 	}
-	if ret, err := stmt.Exec(parameter...); err != nil {
-		return self.Error(util.Error("更新数据失败: ", err.Error()))
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
+	defer cancel()
+	var err error
+	var stmt *sql.Stmt
+	if *self.OpenTx {
+		stmt, err = self.Tx.PrepareContext(ctx, prepare)
+	} else {
+		stmt, err = self.Db.PrepareContext(ctx, prepare)
+	}
+	if err != nil {
+		return self.Error(util.AddStr("[Mysql.UpdateByCnd]编译[ ", prepare, " ]失败: ", err))
+	}
+	defer stmt.Close()
+	if ret, err := stmt.ExecContext(ctx, parameter...); err != nil {
+		return self.Error(util.Error("[Mysql.UpdateByCnd]更新数据失败: ", err))
 	} else if rowsAffected, err := ret.RowsAffected(); err != nil {
-		return self.Error(util.Error("获取受影响行数失败: ", err.Error()))
+		return self.Error(util.Error("[Mysql.UpdateByCnd]获取受影响行数失败: ", err))
 	} else if rowsAffected <= 0 {
-		log.Warn(util.AddStr("UpdateByCnd -> 更新操作受影响行数 -> ", rowsAffected), 0, log.String("sql", prepare))
+		log.Warn(util.AddStr("[Mysql.UpdateByCnd]受影响行数 -> ", rowsAffected), 0, log.String("sql", prepare))
 		return nil
 	}
 	if *self.MongoSync && obv.ToMongo {
 		data := obv.Hook.NewObjArr()
 		if err := self.FindList(cnd, data); err != nil {
-			return self.Error(util.Error("获取更新数据集合失败:  ", err.Error()))
+			return self.Error(util.Error("[Mysql.UpdateByCnd]获取更新数据集合失败:  ", err))
 		}
 		result := make([]interface{}, 0)
 		if err := util.JsonToAny(data, &result); err != nil {
-			return self.Error(util.Error("数据转换map集合失败:  ", err.Error()))
+			return self.Error(util.Error("[Mysql.UpdateByCnd]数据转换map集合失败:  ", err))
 		}
 		cdata := make([]interface{}, 0, len(result))
 		for _, v := range result {
 			o := obv.Hook.NewObj()
 			if err := util.JsonToAny(v, o); err != nil {
-				return self.Error(util.Error("map数据转对象失败:  ", err.Error()))
+				return self.Error(util.Error("[Mysql.UpdateByCnd]map数据转对象失败:  ", err))
 			}
 			cdata = append(cdata, o)
 		}
@@ -522,18 +526,16 @@ func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) error {
 
 func (self *RDBManager) Delete(data ...interface{}) error {
 	if data == nil || len(data) == 0 {
-		return self.Error("参数对象为空")
+		return self.Error("[Mysql.Delete]参数对象为空")
 	}
 	if len(data) > 2000 {
-		return self.Error("参数对象数量不能超过2000")
+		return self.Error("[Mysql.Delete]参数对象数量不能超过2000")
 	}
-	start := util.Time()
-	var prepare string
 	var vpart bytes.Buffer
 	obkey := reflect.TypeOf(data[0]).String()
 	obv, ok := reg_models[obkey];
 	if !ok {
-		return self.Error(util.AddStr("没有找到注册对象类型[", obkey, "]"))
+		return self.Error(util.AddStr("[Mysql.Delete]没有找到注册对象类型[", obkey, "]"))
 	}
 	parameter := make([]interface{}, 0, len(data))
 	vpart.Grow(2 * len(data))
@@ -543,17 +545,16 @@ func (self *RDBManager) Delete(data ...interface{}) error {
 		}
 		obv, ok := reg_models[obkey];
 		if !ok {
-			return self.Error(util.AddStr("没有找到注册对象类型[", obkey, "]"))
+			return self.Error(util.AddStr("[Mysql.Delete]没有找到注册对象类型[", obkey, "]"))
 		}
 		lastInsertId := util.GetInt64(util.GetPtr(v, obv.PkOffset))
 		if lastInsertId == 0 {
-			return self.Error("对象ID为空")
+			return self.Error("[Mysql.Delete]对象ID为空")
 		}
 		parameter = append(parameter, lastInsertId)
 		vpart.WriteString("?,")
 	}
 	str2 := util.Bytes2Str(vpart.Bytes())
-	var stmt *sql.Stmt
 	var sqlbuf bytes.Buffer
 	sqlbuf.Grow(len(str2) + 64)
 	sqlbuf.WriteString("delete from ")
@@ -563,28 +564,30 @@ func (self *RDBManager) Delete(data ...interface{}) error {
 	sqlbuf.WriteString(" in (")
 	sqlbuf.WriteString(util.Substr(str2, 0, len(str2)-1))
 	sqlbuf.WriteString(")")
-	if len(prepare) == 0 {
-		prepare = util.Bytes2Str(sqlbuf.Bytes())
-		if log.IsDebug() {
-			defer log.Debug("mysql数据Delete操作日志", util.Time(), log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
-		}
-		var err error
-		if *self.OpenTx {
-			stmt, err = self.Tx.Prepare(prepare)
-		} else {
-			stmt, err = self.Db.Prepare(prepare)
-		}
-		if err != nil {
-			return self.Error(util.AddStr("预编译sql[", prepare, "]失败: ", err.Error()))
-		}
-		defer stmt.Close()
+
+	prepare := util.Bytes2Str(sqlbuf.Bytes())
+	if log.IsDebug() {
+		defer log.Debug("[Mysql.Delete]日志", util.Time(), log.String("sql", prepare), log.Any("values", parameter))
 	}
-	if ret, err := stmt.Exec(parameter...); err != nil {
-		return self.Error(util.Error("删除数据失败: ", err.Error()))
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
+	defer cancel()
+	var err error
+	var stmt *sql.Stmt
+	if *self.OpenTx {
+		stmt, err = self.Tx.PrepareContext(ctx, prepare)
+	} else {
+		stmt, err = self.Db.PrepareContext(ctx, prepare)
+	}
+	if err != nil {
+		return self.Error(util.AddStr("[Mysql.Delete]编译[ ", prepare, " ]失败: ", err))
+	}
+	defer stmt.Close()
+	if ret, err := stmt.ExecContext(ctx, parameter...); err != nil {
+		return self.Error(util.Error("[Mysql.Delete]删除数据失败: ", err))
 	} else if rowsAffected, err := ret.RowsAffected(); err != nil {
-		return self.Error(util.Error("获取受影响行数失败: ", err.Error()))
+		return self.Error(util.Error("[Mysql.Delete]获取受影响行数失败: ", err))
 	} else if rowsAffected <= 0 {
-		log.Warn(util.AddStr("Delete -> 删除操作受影响行数 -> ", rowsAffected), 0, log.String("sql", prepare))
+		log.Warn(util.AddStr("[Mysql.Delete]受影响行数 -> ", rowsAffected), 0, log.String("sql", prepare))
 		return nil
 	}
 	if *self.MongoSync && obv.ToMongo {
@@ -597,17 +600,16 @@ func (self *RDBManager) Delete(data ...interface{}) error {
 // 按ID查询单条数据
 func (self *RDBManager) FindById(data interface{}) error {
 	if data == nil {
-		return self.Error("参数对象为空")
+		return self.Error("[Mysql.FindById]参数对象为空")
 	}
-	start := util.Time()
 	obkey := reflect.TypeOf(data).String()
 	obv, ok := reg_models[obkey];
 	if !ok {
-		return self.Error(util.AddStr("没有找到注册对象类型[", obkey, "]"))
+		return self.Error(util.AddStr("[Mysql.FindById]没有找到注册对象类型[", obkey, "]"))
 	}
 	lastInsertId := util.GetInt64(util.GetPtr(data, obv.PkOffset))
 	if lastInsertId == 0 {
-		return self.Error("对象ID为空")
+		return self.Error("[Mysql.FindById]对象ID为空")
 	}
 	parameter := []interface{}{lastInsertId}
 	var fpart bytes.Buffer
@@ -628,32 +630,34 @@ func (self *RDBManager) FindById(data interface{}) error {
 	sqlbuf.WriteString(" = ?")
 	prepare := util.Bytes2Str(sqlbuf.Bytes())
 	if log.IsDebug() {
-		defer log.Debug("mysql数据FindById操作日志", util.Time(), log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
+		defer log.Debug("[Mysql.FindById]日志", util.Time(), log.String("sql", prepare), log.Any("values", parameter))
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
+	defer cancel()
+	var err error
 	var stmt *sql.Stmt
 	var rows *sql.Rows
-	var err error
 	if *self.OpenTx {
-		stmt, err = self.Tx.Prepare(prepare)
+		stmt, err = self.Tx.PrepareContext(ctx, prepare)
 	} else {
-		stmt, err = self.Db.Prepare(prepare)
+		stmt, err = self.Db.PrepareContext(ctx, prepare)
 	}
 	if err != nil {
-		return self.Error(util.AddStr("预编译sql[", prepare, "]失败: ", err.Error()))
+		return self.Error(util.AddStr("[Mysql.FindById]编译[", prepare, "]失败: ", err))
 	}
 	defer stmt.Close()
-	rows, err = stmt.Query(parameter...)
+	rows, err = stmt.QueryContext(ctx, parameter...)
 	if err != nil {
-		return self.Error(util.Error("查询失败: ", err.Error()))
+		return self.Error(util.Error("[Mysql.FindById]查询失败: ", err))
 	}
 	defer rows.Close()
 	cols, err := rows.Columns()
 	if err != nil {
-		return self.Error(util.Error("读取结果列长度失败: ", err.Error()))
+		return self.Error(util.Error("[Mysql.FindById]读取结果列长度失败: ", err))
 	}
 	var first [][]byte
 	if out, err := OutDest(rows, len(cols)); err != nil {
-		return self.Error(util.Error("读取查询结果失败: ", err.Error()))
+		return self.Error(util.Error("[Mysql.FindById]读取查询结果失败: ", err))
 	} else if len(out) == 0 {
 		return nil
 	} else {
@@ -671,13 +675,12 @@ func (self *RDBManager) FindById(data interface{}) error {
 // 按条件查询单条数据
 func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data interface{}) error {
 	if data == nil {
-		return self.Error("参数对象为空")
+		return self.Error("[Mysql.FindOne]参数对象为空")
 	}
-	start := util.Time()
 	obkey := reflect.TypeOf(data).String()
 	obv, ok := reg_models[obkey];
 	if !ok {
-		return self.Error(util.AddStr("没有找到注册对象类型[", obkey, "]"))
+		return self.Error(util.AddStr("[Mysql.FindOne]没有找到注册对象类型[", obkey, "]"))
 	}
 	parameter := []interface{}{}
 	var fpart, vpart bytes.Buffer
@@ -699,7 +702,6 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data interface{}) error {
 	str1 := util.Bytes2Str(fpart.Bytes())
 	str2 := util.Bytes2Str(vpart.Bytes())
 	sortby := self.BuilSortBy(cnd)
-	var prepare string
 	var sqlbuf bytes.Buffer
 	sqlbuf.Grow(len(str1) + len(str2) + len(sortby) + 32)
 	sqlbuf.WriteString("select ")
@@ -712,38 +714,38 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data interface{}) error {
 		sqlbuf.WriteString(sortby)
 	}
 	cnd.Pagination = dialect.Dialect{PageNo: 1, PageSize: 1}
-	if limitSql, err := self.BuildPagination(cnd, util.Bytes2Str(sqlbuf.Bytes()), parameter); err != nil {
+	prepare, err := self.BuildPagination(cnd, util.Bytes2Str(sqlbuf.Bytes()), parameter)
+	if err != nil {
 		return self.Error(err)
-	} else {
-		prepare = limitSql
 	}
 	if log.IsDebug() {
-		defer log.Debug("mysql数据数据FindOne操作日志", util.Time(), log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
+		defer log.Debug("[Mysql.FindOne]日志", util.Time(), log.String("sql", prepare), log.Any("values", parameter))
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
+	defer cancel()
 	var stmt *sql.Stmt
 	var rows *sql.Rows
-	var err error
 	if *self.OpenTx {
-		stmt, err = self.Tx.Prepare(prepare)
+		stmt, err = self.Tx.PrepareContext(ctx, prepare)
 	} else {
-		stmt, err = self.Db.Prepare(prepare)
+		stmt, err = self.Db.PrepareContext(ctx, prepare)
 	}
 	if err != nil {
-		return self.Error(util.AddStr("预编译sql[", prepare, "]失败: ", err.Error()))
+		return self.Error(util.AddStr("[Mysql.FindOne]编译[ ", prepare, " ]失败: ", err))
 	}
 	defer stmt.Close()
-	rows, err = stmt.Query(parameter...)
+	rows, err = stmt.QueryContext(ctx, parameter...)
 	if err != nil {
-		return self.Error(util.Error("查询失败: ", err.Error()))
+		return self.Error(util.Error("[Mysql.FindOne]查询失败: ", err))
 	}
 	defer rows.Close()
 	cols, err := rows.Columns()
 	if err != nil {
-		return self.Error(util.Error("读取结果列长度失败: ", err.Error()))
+		return self.Error(util.Error("[Mysql.FindOne]读取结果列长度失败: ", err))
 	}
 	var first [][]byte
 	if out, err := OutDest(rows, len(cols)); err != nil {
-		return self.Error(util.Error("读取查询结果失败: ", err.Error()))
+		return self.Error(util.Error("[Mysql.FindOne]读取查询结果失败: ", err))
 	} else if len(out) == 0 {
 		return nil
 	} else {
@@ -761,18 +763,17 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data interface{}) error {
 // 按条件查询多条数据
 func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	if data == nil {
-		return self.Error("参数对象为空")
+		return self.Error("[Mysql.FindList]参数对象为空")
 	}
-	start := util.Time()
 	obkey := reflect.TypeOf(data).String()
 	if !strings.HasPrefix(obkey, "*[]") {
-		return self.Error("返回参数必须为数组指针类型")
+		return self.Error("[Mysql.FindList]返回参数必须为数组指针类型")
 	} else {
 		obkey = util.Substr(obkey, 3, len(obkey))
 	}
 	obv, ok := reg_models[obkey];
 	if !ok {
-		return self.Error(util.AddStr("没有找到注册对象类型[", obkey, "]"))
+		return self.Error(util.AddStr("[Mysql.FindList]没有找到注册对象类型[", obkey, "]"))
 	}
 	var fpart, vpart bytes.Buffer
 	fpart.Grow(12 * len(obv.FieldElem))
@@ -795,7 +796,6 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	str2 := util.Bytes2Str(vpart.Bytes())
 	groupby := self.BuilGroupBy(cnd)
 	sortby := self.BuilSortBy(cnd)
-	var prepare string
 	var sqlbuf bytes.Buffer
 	sqlbuf.Grow(len(str1) + len(str2) + len(groupby) + len(sortby) + 32)
 	sqlbuf.WriteString("select ")
@@ -810,38 +810,38 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	if len(sortby) > 0 {
 		sqlbuf.WriteString(sortby)
 	}
-	if limitSql, err := self.BuildPagination(cnd, util.Bytes2Str(sqlbuf.Bytes()), parameter); err != nil {
+	prepare, err := self.BuildPagination(cnd, util.Bytes2Str(sqlbuf.Bytes()), parameter)
+	if err != nil {
 		return self.Error(err)
-	} else {
-		prepare = limitSql
 	}
 	if log.IsDebug() {
-		defer log.Debug("mysql数据FindList操作日志", util.Time(), log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
+		defer log.Debug("[Mysql.FindList]日志", util.Time(), log.String("sql", prepare), log.Any("values", parameter))
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
+	defer cancel()
 	var stmt *sql.Stmt
 	var rows *sql.Rows
-	var err error
 	if *self.OpenTx {
-		stmt, err = self.Tx.Prepare(prepare)
+		stmt, err = self.Tx.PrepareContext(ctx, prepare)
 	} else {
-		stmt, err = self.Db.Prepare(prepare)
+		stmt, err = self.Db.PrepareContext(ctx, prepare)
 	}
 	if err != nil {
-		return self.Error(util.AddStr("预编译sql[", prepare, "]失败: ", err.Error()))
+		return self.Error(util.AddStr("[Mysql.FindList]编译[ ", prepare, " ]失败: ", err))
 	}
 	defer stmt.Close()
-	rows, err = stmt.Query(parameter...)
+	rows, err = stmt.QueryContext(ctx, parameter...)
 	if err != nil {
-		return self.Error(util.Error("查询失败: ", err.Error()))
+		return self.Error(util.Error("[Mysql.FindList]查询失败: ", err))
 	}
 	defer rows.Close()
 	cols, err := rows.Columns()
 	if err != nil {
-		return self.Error(util.Error("读取查询列失败: ", err.Error()))
+		return self.Error(util.Error("[Mysql.FindList]读取查询列失败: ", err))
 	}
 	out, err := OutDest(rows, len(cols));
 	if err != nil {
-		return self.Error(util.Error("读取查询结果失败: ", err.Error()))
+		return self.Error(util.Error("[Mysql.FindList]读取查询结果失败: ", err))
 	} else if len(out) == 0 {
 		return nil
 	}
@@ -866,13 +866,12 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 // 根据条件统计查询
 func (self *RDBManager) Count(cnd *sqlc.Cnd) (int64, error) {
 	if cnd.Model == nil {
-		return 0, self.Error("参数对象为空")
+		return 0, self.Error("[Mysql.Count]参数对象为空")
 	}
-	start := util.Time()
 	obkey := reflect.TypeOf(cnd.Model).String()
 	obv, ok := reg_models[obkey];
 	if !ok {
-		return 0, self.Error(util.AddStr("没有找到注册对象类型[", obkey, "]"))
+		return 0, self.Error(util.AddStr("[Mysql.Count]没有找到注册对象类型[", obkey, "]"))
 	}
 	var fpart, vpart bytes.Buffer
 	fpart.WriteString("count(1)")
@@ -897,35 +896,38 @@ func (self *RDBManager) Count(cnd *sqlc.Cnd) (int64, error) {
 	sqlbuf.WriteString(obv.TabelName)
 	sqlbuf.WriteString(" ")
 	sqlbuf.WriteString(util.Substr(str2, 0, len(str2)-1))
+
 	prepare := util.Bytes2Str(sqlbuf.Bytes())
 	if log.IsDebug() {
-		defer log.Debug("mysql数据Count操作日志", util.Time(), log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
+		defer log.Debug("[Mysql.Count]日志", util.Time(), log.String("sql", prepare), log.Any("values", parameter))
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
+	defer cancel()
+	var err error
 	var rows *sql.Rows
 	var stmt *sql.Stmt
-	var err error
 	if *self.OpenTx {
-		stmt, err = self.Tx.Prepare(prepare)
+		stmt, err = self.Tx.PrepareContext(ctx, prepare)
 	} else {
-		stmt, err = self.Db.Prepare(prepare)
+		stmt, err = self.Db.PrepareContext(ctx, prepare)
 	}
 	if err != nil {
-		return 0, self.Error(util.AddStr("预编译sql[", prepare, "]失败: ", err.Error()))
+		return 0, self.Error(util.AddStr("[Mysql.Count]编译[ ", prepare, " ]失败: ", err))
 	}
 	defer stmt.Close()
-	rows, err = stmt.Query(parameter...)
+	rows, err = stmt.QueryContext(ctx, parameter...)
 	if err != nil {
-		return 0, util.Error("数据结果匹配异常: ", err.Error())
+		return 0, util.Error("[Mysql.Count]数据结果匹配异常: ", err)
 	}
 	defer rows.Close()
 	var pageTotal int64
 	for rows.Next() {
 		if err := rows.Scan(&pageTotal); err != nil {
-			return 0, self.Error(util.AddStr("匹配结果异常: ", err.Error()))
+			return 0, self.Error(util.AddStr("[Mysql.Count]匹配结果异常: ", err))
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return 0, self.Error(util.Error("读取查询结果失败: ", err.Error()))
+		return 0, self.Error(util.Error("[Mysql.Count]读取查询结果失败: ", err))
 	}
 	if pageTotal > 0 && cnd.Pagination.PageSize > 0 {
 		var pageCount int64
@@ -944,24 +946,23 @@ func (self *RDBManager) Count(cnd *sqlc.Cnd) (int64, error) {
 
 func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 	if data == nil {
-		return self.Error("参数对象为空")
+		return self.Error("[Mysql.FindListComplex]参数对象为空")
 	}
 	if cnd.FromCond == nil || len(cnd.FromCond.Table) == 0 {
-		return self.Error("查询表名不能为空")
+		return self.Error("[Mysql.FindListComplex]查询表名不能为空")
 	}
 	if cnd.AnyFields == nil || len(cnd.AnyFields) == 0 {
-		return self.Error("查询字段不能为空")
+		return self.Error("[Mysql.FindListComplex]查询字段不能为空")
 	}
-	start := util.Time()
 	obkey := reflect.TypeOf(data).String()
 	if !strings.HasPrefix(obkey, "*[]") {
-		return self.Error("返回参数必须为数组指针类型")
+		return self.Error("[Mysql.FindListComplex]返回参数必须为数组指针类型")
 	} else {
 		obkey = util.Substr(obkey, 3, len(obkey))
 	}
 	obv, ok := reg_models[obkey];
 	if !ok {
-		return self.Error(util.AddStr("没有找到注册对象类型[", obkey, "]"))
+		return self.Error(util.AddStr("[Mysql.FindListComplex]没有找到注册对象类型[", obkey, "]"))
 	}
 	var fpart, vpart bytes.Buffer
 	fpart.Grow(30 * len(cnd.AnyFields))
@@ -984,7 +985,6 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 	str2 := util.Bytes2Str(vpart.Bytes())
 	groupby := self.BuilGroupBy(cnd)
 	sortby := self.BuilSortBy(cnd)
-	var prepare string
 	var sqlbuf bytes.Buffer
 	sqlbuf.Grow(len(str1) + len(str2) + len(groupby) + len(sortby) + 32)
 	sqlbuf.WriteString("select ")
@@ -1021,41 +1021,42 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 	if len(sortby) > 0 {
 		sqlbuf.WriteString(sortby)
 	}
-	if limitSql, err := self.BuildPagination(cnd, util.Bytes2Str(sqlbuf.Bytes()), parameter); err != nil {
+
+	prepare, err := self.BuildPagination(cnd, util.Bytes2Str(sqlbuf.Bytes()), parameter)
+	if err != nil {
 		return self.Error(err)
-	} else {
-		prepare = limitSql
 	}
 	if log.IsDebug() {
-		defer log.Debug("mysql数据FindListComplex操作日志", util.Time(), log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
+		defer log.Debug("[Mysql.FindListComplex]日志", util.Time(), log.String("sql", prepare), log.Any("values", parameter))
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
+	defer cancel()
 	var stmt *sql.Stmt
 	var rows *sql.Rows
-	var err error
 	if *self.OpenTx {
-		stmt, err = self.Tx.Prepare(prepare)
+		stmt, err = self.Tx.PrepareContext(ctx, prepare)
 	} else {
-		stmt, err = self.Db.Prepare(prepare)
+		stmt, err = self.Db.PrepareContext(ctx, prepare)
 	}
 	if err != nil {
-		return self.Error(util.AddStr("预编译sql[", prepare, "]失败: ", err.Error()))
+		return self.Error(util.AddStr("[Mysql.FindListComplex]编译[ ", prepare, " ]失败: ", err))
 	}
 	defer stmt.Close()
-	rows, err = stmt.Query(parameter...)
+	rows, err = stmt.QueryContext(ctx, parameter...)
 	if err != nil {
-		return self.Error(util.Error("查询失败: ", err.Error()))
+		return self.Error(util.Error("[Mysql.FindListComplex]查询失败: ", err))
 	}
 	defer rows.Close()
 	cols, err := rows.Columns()
 	if err != nil {
-		return self.Error(util.Error("读取查询列失败: ", err.Error()))
+		return self.Error(util.Error("[Mysql.FindListComplex]读取查询列失败: ", err))
 	}
 	if len(cols) != len(cnd.AnyFields) {
-		return self.Error(util.Error("查询列长度异常"))
+		return self.Error(util.Error("[Mysql.FindListComplex]查询列长度异常"))
 	}
 	out, err := OutDest(rows, len(cols));
 	if err != nil {
-		return self.Error(util.Error("读取查询结果失败: ", err.Error()))
+		return self.Error(util.Error("[Mysql.FindListComplex]读取查询结果失败: ", err))
 	} else if len(out) == 0 {
 		return nil
 	}
@@ -1083,22 +1084,21 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 
 func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data interface{}) error {
 	if data == nil {
-		return self.Error("参数对象为空")
+		return self.Error("[Mysql.FindOneComplex]参数对象为空")
 	}
 	if cnd.FromCond == nil || len(cnd.FromCond.Table) == 0 {
-		return self.Error("查询表名不能为空")
+		return self.Error("[Mysql.FindOneComplex]查询表名不能为空")
 	}
 	if cnd.AnyFields == nil || len(cnd.AnyFields) == 0 {
-		return self.Error("查询字段不能为空")
+		return self.Error("[Mysql.FindOneComplex]查询字段不能为空")
 	}
 	if data == nil {
-		return self.Error("参数对象为空")
+		return self.Error("[Mysql.FindOneComplex]参数对象为空")
 	}
-	start := util.Time()
 	obkey := reflect.TypeOf(data).String()
 	obv, ok := reg_models[obkey];
 	if !ok {
-		return self.Error(util.AddStr("没有找到注册对象类型[", obkey, "]"))
+		return self.Error(util.AddStr("[Mysql.FindOneComplex]没有找到注册对象类型[", obkey, "]"))
 	}
 	var fpart, vpart bytes.Buffer
 	fpart.Grow(30 * len(cnd.AnyFields))
@@ -1158,41 +1158,41 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data interface{}) error {
 	if len(sortby) > 0 {
 		sqlbuf.WriteString(sortby)
 	}
-	if limitSql, err := self.BuildPagination(cnd, util.Bytes2Str(sqlbuf.Bytes()), parameter); err != nil {
+	prepare, err := self.BuildPagination(cnd, util.Bytes2Str(sqlbuf.Bytes()), parameter)
+	if err != nil {
 		return self.Error(err)
-	} else {
-		prepare = limitSql
 	}
 	if log.IsDebug() {
-		defer log.Debug("mysql数据FindOneComplex操作日志", util.Time(), log.String("sql", prepare), log.Any("values", parameter), log.Int64("cost", util.Time()-start))
+		defer log.Debug("[Mysql.FindOneComplex]日志", util.Time(), log.String("sql", prepare), log.Any("values", parameter))
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
+	defer cancel()
 	var stmt *sql.Stmt
 	var rows *sql.Rows
-	var err error
 	if *self.OpenTx {
-		stmt, err = self.Tx.Prepare(prepare)
+		stmt, err = self.Tx.PrepareContext(ctx, prepare)
 	} else {
-		stmt, err = self.Db.Prepare(prepare)
+		stmt, err = self.Db.PrepareContext(ctx, prepare)
 	}
 	if err != nil {
-		return self.Error(util.AddStr("预编译sql[", prepare, "]失败: ", err.Error()))
+		return self.Error(util.AddStr("[Mysql.FindOneComplex]编译[ ", prepare, " ]失败: ", err))
 	}
 	defer stmt.Close()
-	rows, err = stmt.Query(parameter...)
+	rows, err = stmt.QueryContext(ctx, parameter...)
 	if err != nil {
-		return self.Error(util.Error("查询失败: ", err.Error()))
+		return self.Error(util.Error("[Mysql.FindOneComplex]查询失败: ", err))
 	}
 	defer rows.Close()
 	cols, err := rows.Columns()
 	if err != nil {
-		return self.Error(util.Error("读取查询列失败: ", err.Error()))
+		return self.Error(util.Error("[Mysql.FindOneComplex]读取查询列失败: ", err))
 	}
 	if len(cols) != len(cnd.AnyFields) {
-		return self.Error(util.Error("查询列长度异常"))
+		return self.Error(util.Error("[Mysql.FindOneComplex]查询列长度异常"))
 	}
 	var first [][]byte
 	if out, err := OutDest(rows, len(cols)); err != nil {
-		return self.Error(util.Error("读取查询结果失败: ", err.Error()))
+		return self.Error(util.Error("[Mysql.FindOneComplex]读取查询结果失败: ", err))
 	} else if len(out) == 0 {
 		return nil
 	} else {
@@ -1241,7 +1241,7 @@ func (self *RDBManager) Close() error {
 func (self *RDBManager) mongoSyncData(option int, model interface{}, data ...interface{}) error {
 	mongo, err := new(MGOManager).Get(self.Option);
 	if err != nil {
-		return util.Error("获取mongo连接失败: ", err.Error())
+		return util.Error("获取mongo连接失败: ", err)
 	}
 	defer mongo.Close()
 	mongo.MGOSyncData = []*MGOSyncData{
@@ -1268,12 +1268,12 @@ func OutDest(rows *sql.Rows, flen int) ([][][]byte, error) {
 			dest[i] = &rets[i]
 		}
 		if err := rows.Scan(dest...); err != nil {
-			return nil, util.Error("数据结果匹配异常: ", err.Error())
+			return nil, util.Error("数据结果匹配异常: ", err)
 		}
 		out = append(out, rets)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, util.Error("遍历查询结果异常: ", err.Error())
+		return nil, util.Error("遍历查询结果异常: ", err)
 	}
 	return out, nil
 }
@@ -1472,17 +1472,17 @@ func (self *RDBManager) BuildPagination(cnd *sqlc.Cnd, sqlbuf string, values []i
 			rows, err = self.Db.Query(countSql, values...)
 		}
 		if err != nil {
-			return "", self.Error(util.AddStr("Count查询失败: ", err.Error()))
+			return "", self.Error(util.AddStr("Count查询失败: ", err))
 		}
 		defer rows.Close()
 		var pageTotal int64
 		for rows.Next() {
 			if err := rows.Scan(&pageTotal); err != nil {
-				return "", self.Error(util.AddStr("匹配结果异常: ", err.Error()))
+				return "", self.Error(util.AddStr("匹配结果异常: ", err))
 			}
 		}
 		if err := rows.Err(); err != nil {
-			return "", self.Error(util.Error("读取查询结果失败: ", err.Error()))
+			return "", self.Error(util.Error("读取查询结果失败: ", err))
 		}
 		var pageCount int64
 		if pageTotal%cnd.Pagination.PageSize == 0 {
