@@ -7,7 +7,7 @@ import (
 )
 
 var (
-	reg_models = make(map[string]*ModelElem, 0)
+	modelDrivers = make(map[string]*MdlDriver, 0)
 )
 
 type FieldElem struct {
@@ -29,7 +29,7 @@ type Hook struct {
 	NewObjArr func() (interface{})
 }
 
-type ModelElem struct {
+type MdlDriver struct {
 	Hook       Hook
 	TabelName  string
 	ModelName  string
@@ -44,7 +44,7 @@ func Model(v interface{}) func() interface{} {
 	return func() interface{} { return v }
 }
 
-func RegModel(hook ...Hook) {
+func ModelDriver(hook ...Hook) {
 	if hook == nil || len(hook) == 0 {
 		panic("注册对象函数不能为空")
 	}
@@ -56,7 +56,7 @@ func RegModel(hook ...Hook) {
 		if reflect.ValueOf(model).Kind() != reflect.Ptr {
 			panic("注册对象必须为指针类型")
 		}
-		v := &ModelElem{
+		v := &MdlDriver{
 			Hook:      v,
 			ModelName: reflect.TypeOf(model).String(),
 			FieldElem: []*FieldElem{},
@@ -95,7 +95,7 @@ func RegModel(hook ...Hook) {
 			}
 			v.FieldElem = append(v.FieldElem, f)
 		}
-		reg_models[v.ModelName] = v
+		modelDrivers[v.ModelName] = v
 	}
 }
 

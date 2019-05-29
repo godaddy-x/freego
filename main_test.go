@@ -57,13 +57,13 @@ type OwWallet struct {
 
 func init() {
 	// 注册对象
-	sqld.RegModel(
+	sqld.ModelDriver(
 		sqld.Hook{
 			func() interface{} { return &OwWallet{} },
 			func() interface{} { return &[]*OwWallet{} },
 		},
 	)
-	sqld.RegModel(
+	sqld.ModelDriver(
 		sqld.Hook{
 			func() interface{} { return &DxApp{} },
 			func() interface{} { return &[]*DxApp{} },

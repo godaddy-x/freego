@@ -72,6 +72,7 @@ type FromCond struct {
 
 // 数据库操作汇总逻辑条件对象
 type Cnd struct {
+	ConditPart  []string
 	Conditions  []Condition
 	AnyFields   []string
 	Distincts   []string
@@ -96,6 +97,7 @@ type CacheConfig struct {
 // args[0]=对象类型
 func M(model ...interface{}) *Cnd {
 	c := &Cnd{
+		ConditPart: make([]string, 0),
 		Conditions: make([]Condition, 0),
 		AnyFields:  make([]string, 0),
 		Distincts:  make([]string, 0),
@@ -197,6 +199,14 @@ func (self *Cnd) Like(key string, value interface{}) *Cnd {
 func (self *Cnd) NotLike(key string, value interface{}) *Cnd {
 	condit := Condition{NO_TLIKE_, key, value, nil}
 	return addDefaultCondit(self, condit)
+}
+
+// add other
+func (self *Cnd) AddOther(part string) *Cnd {
+	if len(part) > 0 {
+		self.ConditPart = append(self.ConditPart, part)
+	}
+	return self
 }
 
 // or

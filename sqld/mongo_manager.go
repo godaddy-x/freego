@@ -76,7 +76,7 @@ func (self *MGOManager) GetDB(option ...Option) error {
 	}
 	mgo := mgo_sessions[*ds]
 	if mgo == nil {
-		return self.Error(util.AddStr("mongo数据源[", ds, "]未找到,请检查..."))
+		return self.Error("mongo数据源[", ds, "]未找到,请检查...")
 	}
 	self.Session = mgo.Session
 	self.CacheManager = mgo.CacheManager
@@ -174,9 +174,9 @@ func (self *MGOManager) Save(data ...interface{}) error {
 		d = self.MGOSyncData[0].CacheModel
 	}
 	obkey := reflect.TypeOf(d).String()
-	obv, ok := reg_models[obkey];
+	obv, ok := modelDrivers[obkey];
 	if !ok {
-		return self.Error(util.AddStr("[Mongo.Save]没有找到注册对象类型[", obkey, "]"))
+		return self.Error("[Mongo.Save]没有找到注册对象类型[", obkey, "]")
 	}
 	copySession := self.Session.Copy()
 	defer copySession.Close()
@@ -213,9 +213,9 @@ func (self *MGOManager) Update(data ...interface{}) error {
 		d = self.MGOSyncData[0].CacheModel
 	}
 	obkey := reflect.TypeOf(d).String()
-	obv, ok := reg_models[obkey];
+	obv, ok := modelDrivers[obkey];
 	if !ok {
-		return self.Error(util.AddStr("[Mongo.Update]没有找到注册对象类型[", obkey, "]"))
+		return self.Error("[Mongo.Update]没有找到注册对象类型[", obkey, "]")
 	}
 	copySession := self.Session.Copy()
 	defer copySession.Close()
@@ -233,7 +233,7 @@ func (self *MGOManager) Update(data ...interface{}) error {
 		}
 		if err := db.UpdateId(lastInsertId, v); err != nil {
 			if err.Error() == "not found" {
-				return self.Error(util.AddStr("[Mongo.Update]数据ID[", lastInsertId, "]不存在"))
+				return self.Error("[Mongo.Update]数据ID[", lastInsertId, "]不存在")
 			}
 			return self.Error(err)
 		}
@@ -253,9 +253,9 @@ func (self *MGOManager) Delete(data ...interface{}) error {
 		d = self.MGOSyncData[0].CacheModel
 	}
 	obkey := reflect.TypeOf(d).String()
-	obv, ok := reg_models[obkey];
+	obv, ok := modelDrivers[obkey];
 	if !ok {
-		return self.Error(util.AddStr("[Mongo.Delete]没有找到注册对象类型[", obkey, "]"))
+		return self.Error("[Mongo.Delete]没有找到注册对象类型[", obkey, "]")
 	}
 	copySession := self.Session.Copy()
 	defer copySession.Close()
@@ -273,7 +273,7 @@ func (self *MGOManager) Delete(data ...interface{}) error {
 		}
 		if err := db.RemoveId(lastInsertId); err != nil {
 			if err.Error() == "not found" {
-				return self.Error(util.AddStr("[Mongo.Delete]数据ID[", lastInsertId, "]不存在"))
+				return self.Error("[Mongo.Delete]数据ID[", lastInsertId, "]不存在")
 			}
 			return self.Error(err)
 		}
@@ -287,7 +287,7 @@ func (self *MGOManager) Count(cnd *sqlc.Cnd) (int64, error) {
 		return 0, self.Error("[Mongo.Count]ORM对象类型不能为空,请通过M(...)方法设置对象类型")
 	}
 	obkey := reflect.TypeOf(cnd.Model).String()
-	obv, ok := reg_models[obkey];
+	obv, ok := modelDrivers[obkey];
 	if !ok {
 		return 0, self.Error(util.AddStr("[Mongo.Count]没有找到注册对象类型[", obkey, "]"))
 	}
@@ -336,9 +336,9 @@ func (self *MGOManager) FindOne(cnd *sqlc.Cnd, data interface{}) error {
 		return self.Error("[Mongo.FindOne]参数对象为空")
 	}
 	obkey := reflect.TypeOf(data).String()
-	obv, ok := reg_models[obkey];
+	obv, ok := modelDrivers[obkey];
 	if !ok {
-		return self.Error(util.AddStr("[Mongo.FindOne]没有找到注册对象类型[", obkey, "]"))
+		return self.Error("[Mongo.FindOne]没有找到注册对象类型[", obkey, "]")
 	}
 	copySession := self.Session.Copy()
 	defer copySession.Close()
@@ -372,9 +372,9 @@ func (self *MGOManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	} else {
 		obkey = util.Substr(obkey, 3, len(obkey))
 	}
-	obv, ok := reg_models[obkey];
+	obv, ok := modelDrivers[obkey];
 	if !ok {
-		return self.Error(util.AddStr("[Mongo.FindList]没有找到注册对象类型[", obkey, "]"))
+		return self.Error("[Mongo.FindList]没有找到注册对象类型[", obkey, "]")
 	}
 	copySession := self.Session.Copy()
 	defer copySession.Close()
