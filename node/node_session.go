@@ -213,7 +213,7 @@ func (self *DefaultCacheSessionAware) CreateSession(s Session) error {
 func (self *DefaultCacheSessionAware) ReadSession(s string) (Session, error) {
 	var session Session
 	if v, b, err := self.c.Get(s, session); err != nil {
-		return nil, util.Error("session[", s, "] read err: ", err.Error())
+		return nil, util.Error("session[", s, "] read err: ", err)
 	} else if b && v != nil {
 		if r, ok := v.(Session); ok {
 			if r.Invalid() {

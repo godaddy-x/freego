@@ -201,19 +201,19 @@ type RDBManager struct {
 }
 
 func (self *RDBManager) GetDB(option ...Option) error {
-	ds := &MASTER
+	dsName := &MASTER
 	var ops *Option
 	if option != nil && len(option) > 0 {
 		ops = &option[0]
 		if ops.DsName != nil && len(*ops.DsName) > 0 {
-			ds = ops.DsName
+			dsName = ops.DsName
 		} else {
-			ops.DsName = ds
+			ops.DsName = dsName
 		}
 	}
-	rdb := rdbs[*ds]
+	rdb := rdbs[*dsName]
 	if rdb == nil {
-		return self.Error("SQL数据源[", *ds, "]未找到,请检查...")
+		return self.Error("SQL数据源[", *dsName, "]未找到,请检查...")
 	}
 	self.Db = rdb.Db
 	self.Node = rdb.Node

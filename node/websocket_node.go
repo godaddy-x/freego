@@ -284,7 +284,7 @@ func (self *WebsocketNode) RenderTo() error {
 }
 
 func (self *WebsocketNode) sendJsonConvertError(err error) error {
-	out := ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "系统发生未知错误", Err: util.Error("JSON对象转换失败: ", err.Error())}
+	out := ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "系统发生未知错误", Err: util.Error("JSON对象转换失败: ", err)}
 	return self.RenderError(out)
 }
 

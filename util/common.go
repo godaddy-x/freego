@@ -308,10 +308,10 @@ func AnyToStr(any interface{}) string {
 func GobCopy(src, dst interface{}) error {
 	var buf bytes.Buffer
 	if err := gob.NewEncoder(&buf).Encode(src); err != nil {
-		return Error("GOB序列化异常: ", err.Error())
+		return Error("GOB序列化异常: ", err)
 	}
 	if err := gob.NewDecoder(bytes.NewBuffer(buf.Bytes())).Decode(dst); err != nil {
-		return Error("GOB反序列异常: ", err.Error())
+		return Error("GOB反序列异常: ", err)
 	}
 	return nil
 }
@@ -393,7 +393,7 @@ func ReadFile(path string) ([]byte, error) {
 		return nil, Error("文件路径不能为空")
 	}
 	if b, err := ioutil.ReadFile(path); err != nil {
-		return nil, Error("读取文件[", path, "]失败: ", err.Error())
+		return nil, Error("读取文件[", path, "]失败: ", err)
 	} else {
 		return b, nil
 	}

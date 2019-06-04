@@ -69,14 +69,14 @@ func (c *gobServerCodec) ReadRequestBody(body interface{}) error {
 func (c *gobServerCodec) WriteResponse(r *rpc.Response, body interface{}) (err error) {
 	if err = TimeoutCoder(c.enc.Encode, r, "server write response"); err != nil {
 		if c.encBuf.Flush() == nil {
-			log.Error("rpc: gob error encoding response", log.String("error", err.Error()))
+			log.Error("rpc: gob error encoding response", 0, log.AddError(err))
 			c.Close()
 		}
 		return
 	}
 	if err = TimeoutCoder(c.enc.Encode, body, "server write response body"); err != nil {
 		if c.encBuf.Flush() == nil {
-			log.Error("rpc: gob error encoding body", log.String("error", err.Error()))
+			log.Error("rpc: gob error encoding body", 0, log.AddError(err))
 			c.Close()
 		}
 		return
