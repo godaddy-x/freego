@@ -13,8 +13,7 @@ import (
 	"encoding/gob"
 	"errors"
 	"fmt"
-	"github.com/bwmarrin/snowflake"
-	"github.com/godaddy-x/freego/sqlc"
+	"github.com/godaddy-x/freego/component/snowflake"
 	"github.com/json-iterator/go"
 	"github.com/shopspring/decimal"
 	"io/ioutil"
@@ -23,7 +22,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -76,20 +74,17 @@ func JsonToAny(src interface{}, target interface{}) error {
 
 // 获取当前时间/毫秒
 func Time(t ...time.Time) int64 {
-	if len(t) > 0 {
-		return t[0].In(cst_sh).UnixNano() / 1e6
-	}
-	return time.Now().In(cst_sh).UnixNano() / 1e6
+	return Millisecond(t ...)
 }
 
 // 时间戳转time
 func Int2Time(t int64) time.Time {
-	return time.Unix(t/1000, 0).In(cst_sh)
+	return time.Unix(t/1000, 0)
 }
 
 // 时间戳转格式字符串/毫秒
 func Time2Str(t int64) string {
-	return Int2Time(t).Format(time_formt)
+	return Int2Time(t).In(cst_sh).Format(time_formt)
 }
 
 // 格式字符串转时间戳/毫秒
@@ -102,8 +97,16 @@ func Str2Time(s string) (int64, error) {
 }
 
 // 获取当前时间/纳秒
-func Nano() int64 {
-	return time.Now().In(cst_sh).UnixNano()
+func Nanosecond(t ...time.Time) int64 {
+	if len(t) > 0 {
+		return t[0].UnixNano()
+	}
+	return time.Now().UnixNano()
+}
+
+// 获取当前时间/毫秒
+func Millisecond(t ...time.Time) int64 {
+	return Nanosecond(t ...) / 1e6
 }
 
 // 截取字符串 start 起点下标 length 需要截取的长度
@@ -356,8 +359,7 @@ func LowerFirst(str string) string {
 
 // 获取雪花string ID,默认为0区
 func GetSnowFlakeStrID(sec ...int64) string {
-	i64 := GetSnowFlakeIntID(sec...)
-	return AnyToStr(i64)
+	return AnyToStr(GetSnowFlakeIntID(sec...))
 }
 
 // 获取雪花int64 ID,默认为0区
@@ -377,14 +379,6 @@ func GetSnowFlakeIntID(sec ...int64) int64 {
 		mu.Unlock()
 	}
 	return node.Generate().Int64()
-}
-
-// 校验是否跳过入库字段
-func ValidIgnore(field reflect.StructField) bool {
-	if field.Tag.Get(sqlc.Ignore) == sqlc.True {
-		return true
-	}
-	return false
 }
 
 // 读取文件

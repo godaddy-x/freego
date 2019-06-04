@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/component/auth"
+	"github.com/godaddy-x/freego/component/log"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/sqlc"
 	"github.com/godaddy-x/freego/sqld"
@@ -581,14 +582,13 @@ func TestRGX(t *testing.T) {
 }
 
 func TestRGX1(t *testing.T) {
-	a := []string{"1", "2", "3", "546", "7"}
+	var a int64
+	defer log.Info("耗时", util.Time(), log.Int64("a", a))
 	for i := 0; i < 20000000; i++ {
-		b, _ := util.JsonMarshal(&a)
-		util.Bytes2Str(b)
+		a = util.Time()
 	}
 }
 
 func TestRGX2(t *testing.T) {
-	s := "0.56899359"
-	fmt.Println(util.Shift(s, 10))
+	fmt.Println(util.GetSnowFlakeIntID())
 }
