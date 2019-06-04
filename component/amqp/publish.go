@@ -27,11 +27,14 @@ type PublishMQ struct {
 	kind     string
 }
 
-func (self *PublishManager) InitConfig(input ...AmqpConfig) *PublishManager {
+func (self *PublishManager) InitConfig(input ...AmqpConfig) (*PublishManager, error) {
 	for _, v := range input {
+		if _, b := publish_mgrs[v.DsName]; b {
+			return nil, util.Error("RabbitMQ初始化失败: [", v.DsName, "]已存在")
+		}
 		c, err := amqp.Dial(fmt.Sprintf("amqp://%s:%s@%s:%d/", v.Username, v.Password, v.Host, v.Port))
 		if err != nil {
-			panic("RabbitMQ初始化失败: " + err.Error())
+			return nil, util.Error("RabbitMQ初始化失败: ", err)
 		}
 		publish_mgr := &PublishManager{
 			conn:     c,
@@ -42,7 +45,7 @@ func (self *PublishManager) InitConfig(input ...AmqpConfig) *PublishManager {
 		}
 		publish_mgrs[v.DsName] = publish_mgr
 	}
-	return self
+	return self, nil
 }
 
 func (self *PublishManager) Client(dsname ...string) (*PublishManager, error) {

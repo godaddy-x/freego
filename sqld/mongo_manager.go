@@ -111,6 +111,13 @@ func (self *MGOManager) InitConfigAndCache(manager cache.ICache, input ...MGOCon
 
 func (self *MGOManager) buildByConfig(manager cache.ICache, input ...MGOConfig) error {
 	for _, v := range input {
+		dsName := &MASTER
+		if v.DsName != nil && len(*v.DsName) > 0 {
+			dsName = v.DsName
+		}
+		if _, b := mgo_sessions[*dsName]; b {
+			return util.Error("mongo连接初始化失败: [", *v.DsName, "]已存在")
+		}
 		dialInfo := mgo.DialInfo{
 			Addrs:     v.Addrs,
 			Direct:    v.Direct,
@@ -126,13 +133,14 @@ func (self *MGOManager) buildByConfig(manager cache.ICache, input ...MGOConfig) 
 		}
 		session, err := mgo.DialWithInfo(&dialInfo)
 		if err != nil {
-			panic(util.AddStr("mongo连接初始化失败: ", err))
+			return util.Error("mongo连接初始化失败: ", err)
 		}
 		session.SetSocketTimeout(3 * time.Minute)
 		session.SetMode(mgo.Monotonic, true)
 		mgo := &MGOManager{}
 		mgo.Session = session
 		mgo.CacheManager = manager
+		mgo.DsName = dsName
 		if v.Node == nil {
 			mgo.Node = &ZERO
 		} else {
@@ -148,15 +156,10 @@ func (self *MGOManager) buildByConfig(manager cache.ICache, input ...MGOConfig) 
 		} else {
 			mgo.MongoSync = v.MongoSync
 		}
-		if v.DsName == nil || len(*v.DsName) == 0 {
-			mgo.DsName = &MASTER
-		} else {
-			mgo.DsName = v.DsName
-		}
 		mgo_sessions[*mgo.DsName] = mgo
 	}
 	if len(mgo_sessions) == 0 {
-		panic("mongo连接初始化失败: 数据源为0")
+		return util.Error("mongo连接初始化失败: 数据源为0")
 	}
 	return nil
 }

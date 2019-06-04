@@ -34,6 +34,13 @@ type RedisManager struct {
 
 func (self *RedisManager) InitConfig(input ...RedisConfig) (*RedisManager, error) {
 	for _, v := range input {
+		dsName := MASTER
+		if len(v.DsName) > 0 {
+			dsName = v.DsName
+		}
+		if _, b := redis_sessions[dsName]; b {
+			return nil, util.Error("初始化redis连接池失败: [", v.DsName, "]已存在")
+		}
 		pool := &redis.Pool{MaxIdle: v.MaxIdle, MaxActive: v.MaxActive, IdleTimeout: time.Duration(v.IdleTimeout) * time.Second, Dial: func() (redis.Conn, error) {
 			c, err := redis.Dial(v.Network, util.AddStr(v.Host, ":", util.AnyToStr(v.Port)))
 			if err != nil {
@@ -47,14 +54,10 @@ func (self *RedisManager) InitConfig(input ...RedisConfig) (*RedisManager, error
 			}
 			return c, err
 		}}
-		if len(v.DsName) > 0 {
-			redis_sessions[v.DsName] = &RedisManager{Pool: pool, DsName: v.DsName, LockTimeout: v.LockTimeout}
-		} else {
-			redis_sessions[MASTER] = &RedisManager{Pool: pool, DsName: MASTER, LockTimeout: v.LockTimeout}
-		}
+		redis_sessions[dsName] = &RedisManager{Pool: pool, DsName: dsName, LockTimeout: v.LockTimeout}
 	}
 	if len(redis_sessions) == 0 {
-		panic("初始化redis连接池失败: 数据源为0")
+		return nil, util.Error("初始化redis连接池失败: 数据源为0")
 	}
 	return self, nil
 }

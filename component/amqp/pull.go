@@ -20,11 +20,14 @@ type PullManager struct {
 	receivers []*PullReceiver
 }
 
-func (self *PullManager) InitConfig(input ...AmqpConfig) *PullManager {
+func (self *PullManager) InitConfig(input ...AmqpConfig) (*PullManager, error) {
 	for _, v := range input {
+		if _, b := pull_mgrs[v.DsName]; b {
+			return nil, util.Error("RabbitMQ初始化失败: [", v.DsName, "]已存在")
+		}
 		c, err := amqp.Dial(fmt.Sprintf("amqp://%s:%s@%s:%d/", v.Username, v.Password, v.Host, v.Port))
 		if err != nil {
-			panic("RabbitMQ初始化失败: " + err.Error())
+			return nil, util.Error("RabbitMQ初始化失败: ", err)
 		}
 		pull_mgr := &PullManager{
 			conn:      c,
@@ -36,7 +39,7 @@ func (self *PullManager) InitConfig(input ...AmqpConfig) *PullManager {
 		}
 		pull_mgrs[v.DsName] = pull_mgr
 	}
-	return self
+	return self, nil
 }
 
 func (self *PullManager) Client(dsname ...string) (*PullManager, error) {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/godaddy-x/freego/cache"
+	"github.com/godaddy-x/freego/util"
 	"time"
 )
 
@@ -38,16 +39,24 @@ func (self *MysqlManager) InitConfigAndCache(manager cache.ICache, input ...Mysq
 
 func (self *MysqlManager) buildByConfig(manager cache.ICache, input ...MysqlConfig) error {
 	for _, v := range input {
+		dsName := &MASTER
+		if v.DsName != nil && len(*v.DsName) > 0 {
+			dsName = v.DsName
+		}
+		if _, b := rdbs[*dsName]; b {
+			return util.Error("mysql初始化失败: [", *v.DsName, "]已存在")
+		}
 		link := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8", v.Username, v.Password, v.Host, v.Port, v.Database)
 		db, err := sql.Open("mysql", link)
 		if err != nil {
-			panic(fmt.Sprintf("mysql初始化失败: %s", err.Error()))
+			return util.Error("mysql初始化失败: ", err)
 		}
 		db.SetMaxIdleConns(v.MaxIdleConns)
 		db.SetMaxOpenConns(v.MaxOpenConns)
 		db.SetConnMaxLifetime(time.Second * time.Duration(v.ConnMaxLifetime))
 		rdb := &RDBManager{}
 		rdb.Db = db
+		rdb.DsName = dsName
 		rdb.CacheManager = manager
 		if v.Node == nil {
 			rdb.Node = &ZERO
@@ -64,15 +73,10 @@ func (self *MysqlManager) buildByConfig(manager cache.ICache, input ...MysqlConf
 		} else {
 			rdb.MongoSync = v.MongoSync
 		}
-		if v.DsName == nil || len(*v.DsName) == 0 {
-			rdb.DsName = &MASTER
-		} else {
-			rdb.DsName = v.DsName
-		}
 		rdbs[*rdb.DsName] = rdb
 	}
 	if len(rdbs) == 0 {
-		panic("mysql连接初始化失败: 数据源为0")
+		return util.Error("mysql连接初始化失败: 数据源为0")
 	}
 	return nil
 }
