@@ -22,12 +22,6 @@
 			"revisionTime": "2018-10-16T21:04:51Z"
 		},
 		{
-			"checksumSHA1": "aye2fEJgs1/aMqreUmFdiHOGZEY=",
-			"path": "github.com/bwmarrin/snowflake",
-			"revision": "68117e6bbede4dd72d70c7a58d73348ead068509",
-			"revisionTime": "2018-04-12T01:05:44Z"
-		},
-		{
 			"checksumSHA1": "CSPbwbyzqA6sfORicn4HFtIhF/c=",
 			"path": "github.com/davecgh/go-spew/spew",
 			"revision": "d8f796af33cc11cb798c1aaeb27a4ebc5099927d",
@@ -123,12 +117,6 @@
 			"revisionTime": "2018-10-16T21:04:51Z"
 		},
 		{
-			"checksumSHA1": "W4cByvvu+jwClgwuAKbJn8vlDwI=",
-			"path": "github.com/json-iterator/go",
-			"revision": "05d041de1043ba04b678fb046bd35455a9b1b33b",
-			"revisionTime": "2018-10-24T15:28:41Z"
-		},
-		{
 			"checksumSHA1": "V/quM7+em2ByJbWBLOsEwnY3j/Q=",
 			"origin": "github.com/hashicorp/consul/vendor/github.com/mitchellh/go-homedir",
 			"path": "github.com/mitchellh/go-homedir",
@@ -141,24 +129,6 @@
 			"path": "github.com/mitchellh/mapstructure",
 			"revision": "307d91934c7f6c46141d5f3eed35050b939211db",
 			"revisionTime": "2018-10-16T21:04:51Z"
-		},
-		{
-			"checksumSHA1": "ZTcgWKWHsrX0RXYVXn5Xeb8Q0go=",
-			"path": "github.com/modern-go/concurrent",
-			"revision": "bacd9c7ef1dd9b15be4a9909b8ac7a4e313eec94",
-			"revisionTime": "2018-03-06T01:26:44Z"
-		},
-		{
-			"checksumSHA1": "qvH48wzTIV3QKSDqI0dLFtVjaDI=",
-			"path": "github.com/modern-go/reflect2",
-			"revision": "94122c33edd36123c84d5368cfb2b69df93a0ec8",
-			"revisionTime": "2018-07-18T01:23:57Z"
-		},
-		{
-			"checksumSHA1": "W8mzTLRjnooGtHwWaxSX8eq8hlY=",
-			"path": "github.com/patrickmn/go-cache",
-			"revision": "5633e0862627c011927fa39556acae8b1f1df58a",
-			"revisionTime": "2018-08-15T05:31:27Z"
 		},
 		{
 			"checksumSHA1": "eUQ5LpPgbXtTHoNH/jeSLBH6BRs=",
@@ -177,12 +147,6 @@
 			"path": "github.com/rcrowley/go-metrics",
 			"revision": "3113b8401b8a98917cde58f8bbd42a1b1c03b1fd",
 			"revisionTime": "2018-10-16T18:43:25Z"
-		},
-		{
-			"checksumSHA1": "dhcoAs6YFyvXiG55mx5WDxg+/4g=",
-			"path": "github.com/shopspring/decimal",
-			"revision": "cd690d0c9e2447b1ef2a129a6b7b49077da89b8e",
-			"revisionTime": "2018-07-09T20:31:17Z"
 		},
 		{
 			"checksumSHA1": "JPPv7nnUo01Mlyqb0g+Qk5/URR4=",
