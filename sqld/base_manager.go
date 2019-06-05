@@ -93,9 +93,9 @@ type IDBase interface {
 	// 按复杂条件查询数据列表
 	FindListComplex(cnd *sqlc.Cnd, data interface{}) error
 	// 构建数据表别名
-	BuildCondKey(cnd *sqlc.Cnd, key string) string
+	BuildCondKey(cnd *sqlc.Cnd, key string) []byte
 	// 构建逻辑条件
-	BuildWhereCase(cnd *sqlc.Cnd) (bytes.Buffer, []interface{})
+	BuildWhereCase(cnd *sqlc.Cnd) (*bytes.Buffer, []interface{})
 	// 构建分组条件
 	BuilGroupBy(cnd *sqlc.Cnd) string
 	// 构建排序条件
@@ -158,15 +158,14 @@ func (self *DBManager) Close() error {
 	return util.Error("No implementation method [Close] was found")
 }
 
-func (self *DBManager) BuildCondKey(cnd *sqlc.Cnd, key string) string {
+func (self *DBManager) BuildCondKey(cnd *sqlc.Cnd, key string) []byte {
 	log.Warn("No implementation method [BuildCondKey] was found", 0)
-	return ""
+	return nil
 }
 
-func (self *DBManager) BuildWhereCase(cnd *sqlc.Cnd) (bytes.Buffer, []interface{}) {
+func (self *DBManager) BuildWhereCase(cnd *sqlc.Cnd) (*bytes.Buffer, []interface{}) {
 	log.Warn("No implementation method [BuildWhereCase] was found", 0)
-	var b bytes.Buffer
-	return b, nil
+	return nil, nil
 }
 
 func (self *DBManager) BuilGroupBy(cnd *sqlc.Cnd) string {
@@ -257,18 +256,17 @@ func (self *RDBManager) Save(data ...interface{}) error {
 	if len(data) > 2000 {
 		return self.Error("[Mysql.Save]参数对象数量不能超过2000")
 	}
-	var fready bool
-	var fpart, vpart bytes.Buffer
 	obkey := reflect.TypeOf(data[0]).String()
 	obv, ok := modelDrivers[obkey];
 	if !ok {
 		return self.Error("[Mysql.Save]没有找到注册对象类型[", obkey, "]")
 	}
+	var fready bool
 	parameter := make([]interface{}, 0, len(obv.FieldElem)*len(data))
-	fpart.Grow(10 * len(obv.FieldElem))
-	vpart.Grow(64 * len(data))
+	fpart := bytes.NewBuffer(make([]byte, 0, 10*len(obv.FieldElem)))
+	vpart := bytes.NewBuffer(make([]byte, 0, 64*len(data)))
 	for _, v := range data {
-		var vpart_ bytes.Buffer
+		vpart_ := bytes.NewBuffer(make([]byte, 0, 64))
 		vpart_.WriteString(" (")
 		for _, vv := range obv.FieldElem {
 			if vv.Ignore {
@@ -301,8 +299,7 @@ func (self *RDBManager) Save(data ...interface{}) error {
 	}
 	str1 := util.Bytes2Str(fpart.Bytes())
 	str2 := util.Bytes2Str(vpart.Bytes())
-	var sqlbuf bytes.Buffer
-	sqlbuf.Grow(len(str1) + len(str2) + 64)
+	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str1)+len(str2)+64))
 	sqlbuf.WriteString("insert into ")
 	sqlbuf.WriteString(obv.TabelName)
 	sqlbuf.WriteString(" (")
@@ -349,15 +346,14 @@ func (self *RDBManager) Update(data ...interface{}) error {
 	if len(data) > 2000 {
 		return self.Error("[Mysql.Update]参数对象数量不能超过2000")
 	}
-	var fpart, vpart bytes.Buffer
 	obkey := reflect.TypeOf(data[0]).String()
 	obv, ok := modelDrivers[obkey];
 	if !ok {
 		return self.Error("[Mysql.Update]没有找到注册对象类型[", obkey, "]")
 	}
 	parameter := make([]interface{}, 0, len(obv.FieldElem)*len(data))
-	fpart.Grow(45 * len(data) * len(obv.FieldElem))
-	vpart.Grow(32 * len(data))
+	fpart := bytes.NewBuffer(make([]byte, 0, 45*len(data)*len(obv.FieldElem)))
+	vpart := bytes.NewBuffer(make([]byte, 0, 32*len(data)))
 	for _, vv := range obv.FieldElem { // 遍历对象字段
 		if vv.Ignore {
 			continue
@@ -389,8 +385,7 @@ func (self *RDBManager) Update(data ...interface{}) error {
 	}
 	str1 := util.Bytes2Str(fpart.Bytes())
 	str2 := util.Bytes2Str(vpart.Bytes())
-	var sqlbuf bytes.Buffer
-	sqlbuf.Grow(len(str1) + len(str2) + 64)
+	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str1)+len(str2)+64))
 	sqlbuf.WriteString("update ")
 	sqlbuf.WriteString(obv.TabelName)
 	sqlbuf.WriteString(" set ")
@@ -445,12 +440,12 @@ func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) error {
 	if !ok {
 		return self.Error("[Mysql.UpdateByCnd]没有找到注册对象类型[", obkey, "]")
 	}
-	var fpart, vpart bytes.Buffer
 	case_part, case_arg := self.BuildWhereCase(cnd)
 	if case_part.Len() == 0 || len(case_arg) == 0 {
 		return self.Error("[Mysql.UpdateByCnd]更新条件不能为空")
 	}
 	parameter := make([]interface{}, 0, len(cnd.UpdateKV)+len(case_arg))
+	fpart := bytes.NewBuffer(make([]byte, 0, 64))
 	for k, v := range cnd.UpdateKV { // 遍历对象字段
 		fpart.WriteString(" ")
 		fpart.WriteString(k)
@@ -460,14 +455,13 @@ func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) error {
 	for _, v := range case_arg {
 		parameter = append(parameter, v)
 	}
-	vpart.Grow(case_part.Len() + 16)
+	vpart := bytes.NewBuffer(make([]byte, 0, case_part.Len()+16))
 	vpart.WriteString("where")
 	str := case_part.String()
 	vpart.WriteString(util.Substr(str, 0, len(str)-3))
 	str1 := util.Bytes2Str(fpart.Bytes())
 	str2 := util.Bytes2Str(vpart.Bytes())
-	var sqlbuf bytes.Buffer
-	sqlbuf.Grow(len(str1) + len(str2) + 64)
+	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str1)+len(str2)+64))
 	sqlbuf.WriteString("update ")
 	sqlbuf.WriteString(obv.TabelName)
 	sqlbuf.WriteString(" set ")
@@ -530,14 +524,13 @@ func (self *RDBManager) Delete(data ...interface{}) error {
 	if len(data) > 2000 {
 		return self.Error("[Mysql.Delete]参数对象数量不能超过2000")
 	}
-	var vpart bytes.Buffer
 	obkey := reflect.TypeOf(data[0]).String()
 	obv, ok := modelDrivers[obkey];
 	if !ok {
 		return self.Error("[Mysql.Delete]没有找到注册对象类型[", obkey, "]")
 	}
 	parameter := make([]interface{}, 0, len(data))
-	vpart.Grow(2 * len(data))
+	vpart := bytes.NewBuffer(make([]byte, 0, 2*len(data)))
 	for _, v := range data {
 		if len(obkey) == 0 {
 			obkey = reflect.TypeOf(v).String()
@@ -554,8 +547,7 @@ func (self *RDBManager) Delete(data ...interface{}) error {
 		vpart.WriteString("?,")
 	}
 	str2 := util.Bytes2Str(vpart.Bytes())
-	var sqlbuf bytes.Buffer
-	sqlbuf.Grow(len(str2) + 64)
+	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str2)+64))
 	sqlbuf.WriteString("delete from ")
 	sqlbuf.WriteString(obv.TabelName)
 	sqlbuf.WriteString(" where ")
@@ -611,8 +603,7 @@ func (self *RDBManager) FindById(data interface{}) error {
 		return self.Error("[Mysql.FindById]对象ID为空")
 	}
 	parameter := []interface{}{lastInsertId}
-	var fpart bytes.Buffer
-	fpart.Grow(12 * len(obv.FieldElem))
+	fpart := bytes.NewBuffer(make([]byte, 0, 12*len(obv.FieldElem)))
 	for _, vv := range obv.FieldElem {
 		if vv.Ignore {
 			continue
@@ -621,8 +612,7 @@ func (self *RDBManager) FindById(data interface{}) error {
 		fpart.WriteString(",")
 	}
 	str1 := util.Bytes2Str(fpart.Bytes())
-	var sqlbuf bytes.Buffer
-	sqlbuf.Grow(len(str1) + 64)
+	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str1)+64))
 	sqlbuf.WriteString("select ")
 	sqlbuf.WriteString(util.Substr(str1, 0, len(str1)-1))
 	sqlbuf.WriteString(" from ")
@@ -687,8 +677,7 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data interface{}) error {
 		return self.Error("[Mysql.FindOne]没有找到注册对象类型[", obkey, "]")
 	}
 	parameter := []interface{}{}
-	var fpart, vpart bytes.Buffer
-	fpart.Grow(12 * len(obv.FieldElem))
+	fpart := bytes.NewBuffer(make([]byte, 0, 12*len(obv.FieldElem)))
 	for _, vv := range obv.FieldElem {
 		if vv.Ignore {
 			continue
@@ -700,17 +689,19 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data interface{}) error {
 	for _, v := range case_arg {
 		parameter = append(parameter, v)
 	}
+	var vpart *bytes.Buffer
 	if case_part.Len() > 0 {
-		vpart.Grow(case_part.Len() + 16)
+		vpart = bytes.NewBuffer(make([]byte, 0, case_part.Len()+16))
 		vpart.WriteString("where")
 		str := case_part.String()
 		vpart.WriteString(util.Substr(str, 0, len(str)-3))
+	} else {
+		vpart = bytes.NewBuffer(make([]byte, 0, 0))
 	}
 	str1 := util.Bytes2Str(fpart.Bytes())
 	str2 := util.Bytes2Str(vpart.Bytes())
 	sortby := self.BuilSortBy(cnd)
-	var sqlbuf bytes.Buffer
-	sqlbuf.Grow(len(str1) + len(str2) + len(sortby) + 32)
+	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str1)+len(str2)+len(sortby)+32))
 	sqlbuf.WriteString("select ")
 	sqlbuf.WriteString(util.Substr(str1, 0, len(str1)-1))
 	sqlbuf.WriteString(" from ")
@@ -784,8 +775,7 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	if !ok {
 		return self.Error("[Mysql.FindList]没有找到注册对象类型[", obkey, "]")
 	}
-	var fpart, vpart bytes.Buffer
-	fpart.Grow(12 * len(obv.FieldElem))
+	fpart := bytes.NewBuffer(make([]byte, 0, 12*len(obv.FieldElem)))
 	for _, vv := range obv.FieldElem {
 		if vv.Ignore {
 			continue
@@ -798,18 +788,20 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	for _, v := range case_arg {
 		parameter = append(parameter, v)
 	}
+	var vpart *bytes.Buffer
 	if case_part.Len() > 0 {
-		vpart.Grow(case_part.Len() + 16)
+		vpart = bytes.NewBuffer(make([]byte, 0, case_part.Len()+16))
 		vpart.WriteString("where")
 		str := case_part.String()
 		vpart.WriteString(util.Substr(str, 0, len(str)-3))
+	} else {
+		vpart = bytes.NewBuffer(make([]byte, 0, 0))
 	}
 	str1 := util.Bytes2Str(fpart.Bytes())
 	str2 := util.Bytes2Str(vpart.Bytes())
 	groupby := self.BuilGroupBy(cnd)
 	sortby := self.BuilSortBy(cnd)
-	var sqlbuf bytes.Buffer
-	sqlbuf.Grow(len(str1) + len(str2) + len(groupby) + len(sortby) + 32)
+	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str1)+len(str2)+len(groupby)+len(sortby)+32))
 	sqlbuf.WriteString("select ")
 	sqlbuf.WriteString(util.Substr(str1, 0, len(str1)-1))
 	sqlbuf.WriteString(" from ")
@@ -888,23 +880,25 @@ func (self *RDBManager) Count(cnd *sqlc.Cnd) (int64, error) {
 	if !ok {
 		return 0, self.Error("[Mysql.Count]没有找到注册对象类型[", obkey, "]")
 	}
-	var fpart, vpart bytes.Buffer
+	fpart := bytes.NewBuffer(make([]byte, 0, 32))
 	fpart.WriteString("count(1)")
 	case_part, case_arg := self.BuildWhereCase(cnd)
 	parameter := make([]interface{}, 0, len(case_arg))
 	for _, v := range case_arg {
 		parameter = append(parameter, v)
 	}
+	var vpart *bytes.Buffer
 	if case_part.Len() > 0 {
-		vpart.Grow(case_part.Len() + 16)
+		vpart = bytes.NewBuffer(make([]byte, 0, case_part.Len()+16))
 		vpart.WriteString("where")
 		str := case_part.String()
 		vpart.WriteString(util.Substr(str, 0, len(str)-3))
+	} else {
+		vpart = bytes.NewBuffer(make([]byte, 0, 0))
 	}
 	str1 := util.Bytes2Str(fpart.Bytes())
 	str2 := util.Bytes2Str(vpart.Bytes())
-	var sqlbuf bytes.Buffer
-	sqlbuf.Grow(len(str1) + len(str2) + 32)
+	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str1)+len(str2)+32))
 	sqlbuf.WriteString("select ")
 	sqlbuf.WriteString(str1)
 	sqlbuf.WriteString(" from ")
@@ -979,8 +973,7 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 	if !ok {
 		return self.Error("[Mysql.FindListComplex]没有找到注册对象类型[", obkey, "]")
 	}
-	var fpart, vpart bytes.Buffer
-	fpart.Grow(30 * len(cnd.AnyFields))
+	fpart := bytes.NewBuffer(make([]byte, 0, 30*len(cnd.AnyFields)))
 	for _, vv := range cnd.AnyFields {
 		fpart.WriteString(vv)
 		fpart.WriteString(",")
@@ -990,18 +983,20 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 	for _, v := range case_arg {
 		parameter = append(parameter, v)
 	}
+	var vpart *bytes.Buffer
 	if case_part.Len() > 0 {
-		vpart.Grow(case_part.Len() + 16)
+		vpart = bytes.NewBuffer(make([]byte, 0, case_part.Len()+16))
 		vpart.WriteString("where")
 		str := case_part.String()
 		vpart.WriteString(util.Substr(str, 0, len(str)-3))
+	} else {
+		vpart = bytes.NewBuffer(make([]byte, 0, 0))
 	}
 	str1 := util.Bytes2Str(fpart.Bytes())
 	str2 := util.Bytes2Str(vpart.Bytes())
 	groupby := self.BuilGroupBy(cnd)
 	sortby := self.BuilSortBy(cnd)
-	var sqlbuf bytes.Buffer
-	sqlbuf.Grow(len(str1) + len(str2) + len(groupby) + len(sortby) + 32)
+	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str1)+len(str2)+len(groupby)+len(sortby)+32))
 	sqlbuf.WriteString("select ")
 	sqlbuf.WriteString(util.Substr(str1, 0, len(str1)-1))
 	sqlbuf.WriteString(" from ")
@@ -1115,8 +1110,7 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data interface{}) error {
 	if !ok {
 		return self.Error("[Mysql.FindOneComplex]没有找到注册对象类型[", obkey, "]")
 	}
-	var fpart, vpart bytes.Buffer
-	fpart.Grow(30 * len(cnd.AnyFields))
+	fpart := bytes.NewBuffer(make([]byte, 0, 30*len(cnd.AnyFields)))
 	for _, vv := range cnd.AnyFields {
 		fpart.WriteString(vv)
 		fpart.WriteString(",")
@@ -1126,19 +1120,20 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data interface{}) error {
 	for _, v := range case_arg {
 		parameter = append(parameter, v)
 	}
+	var vpart *bytes.Buffer
 	if case_part.Len() > 0 {
-		vpart.Grow(case_part.Len() + 16)
+		vpart = bytes.NewBuffer(make([]byte, 0, case_part.Len()+16))
 		vpart.WriteString("where")
 		str := case_part.String()
 		vpart.WriteString(util.Substr(str, 0, len(str)-3))
+	} else {
+		vpart = bytes.NewBuffer(make([]byte, 0, 0))
 	}
 	str1 := util.Bytes2Str(fpart.Bytes())
 	str2 := util.Bytes2Str(vpart.Bytes())
 	groupby := self.BuilGroupBy(cnd)
 	sortby := self.BuilSortBy(cnd)
-	var prepare string
-	var sqlbuf bytes.Buffer
-	sqlbuf.Grow(len(str1) + len(str2) + len(groupby) + len(sortby) + 32)
+	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str1)+len(str2)+len(groupby)+len(sortby)+32))
 	sqlbuf.WriteString("select ")
 	sqlbuf.WriteString(util.Substr(str1, 0, len(str1)-1))
 	sqlbuf.WriteString(" from ")
@@ -1293,21 +1288,20 @@ func OutDest(rows *sql.Rows, flen int) ([][][]byte, error) {
 	return out, nil
 }
 
-func (self *RDBManager) BuildCondKey(cnd *sqlc.Cnd, key string) string {
-	var fieldPart bytes.Buffer
+func (self *RDBManager) BuildCondKey(cnd *sqlc.Cnd, key string) []byte {
+	fieldPart := bytes.NewBuffer(make([]byte, 0, 16))
 	fieldPart.WriteString(" ")
 	fieldPart.WriteString(key)
-	return util.Bytes2Str(fieldPart.Bytes())
+	return fieldPart.Bytes()
 }
 
 // 构建where条件
-func (self *RDBManager) BuildWhereCase(cnd *sqlc.Cnd) (bytes.Buffer, []interface{}) {
-	var case_part bytes.Buffer
-	case_part.Grow(128)
+func (self *RDBManager) BuildWhereCase(cnd *sqlc.Cnd) (*bytes.Buffer, []interface{}) {
 	var case_arg []interface{}
 	if cnd == nil {
-		return case_part, case_arg
+		return bytes.NewBuffer(make([]byte, 0, 64)), case_arg
 	}
+	case_part := bytes.NewBuffer(make([]byte, 0, 128))
 	for _, v := range cnd.Conditions {
 		key := v.Key
 		value := v.Value
@@ -1315,47 +1309,47 @@ func (self *RDBManager) BuildWhereCase(cnd *sqlc.Cnd) (bytes.Buffer, []interface
 		switch v.Logic {
 		// case condition
 		case sqlc.EQ_:
-			case_part.WriteString(self.BuildCondKey(cnd, key))
+			case_part.Write(self.BuildCondKey(cnd, key))
 			case_part.WriteString(" = ? and")
 			case_arg = append(case_arg, value)
 		case sqlc.NOT_EQ_:
-			case_part.WriteString(self.BuildCondKey(cnd, key))
+			case_part.Write(self.BuildCondKey(cnd, key))
 			case_part.WriteString(" <> ? and")
 			case_arg = append(case_arg, value)
 		case sqlc.LT_:
-			case_part.WriteString(self.BuildCondKey(cnd, key))
+			case_part.Write(self.BuildCondKey(cnd, key))
 			case_part.WriteString(" < ? and")
 			case_arg = append(case_arg, value)
 		case sqlc.LTE_:
-			case_part.WriteString(self.BuildCondKey(cnd, key))
+			case_part.Write(self.BuildCondKey(cnd, key))
 			case_part.WriteString(" <= ? and")
 			case_arg = append(case_arg, value)
 		case sqlc.GT_:
-			case_part.WriteString(self.BuildCondKey(cnd, key))
+			case_part.Write(self.BuildCondKey(cnd, key))
 			case_part.WriteString(" > ? and")
 			case_arg = append(case_arg, value)
 		case sqlc.GTE_:
-			case_part.WriteString(self.BuildCondKey(cnd, key))
+			case_part.Write(self.BuildCondKey(cnd, key))
 			case_part.WriteString(" >= ? and")
 			case_arg = append(case_arg, value)
 		case sqlc.IS_NULL_:
-			case_part.WriteString(self.BuildCondKey(cnd, key))
+			case_part.Write(self.BuildCondKey(cnd, key))
 			case_part.WriteString(" is null and")
 		case sqlc.IS_NOT_NULL_:
-			case_part.WriteString(self.BuildCondKey(cnd, key))
+			case_part.Write(self.BuildCondKey(cnd, key))
 			case_part.WriteString(" is not null and")
 		case sqlc.BETWEEN_:
-			case_part.WriteString(self.BuildCondKey(cnd, key))
+			case_part.Write(self.BuildCondKey(cnd, key))
 			case_part.WriteString(" between ? and ? and")
 			case_arg = append(case_arg, values[0])
 			case_arg = append(case_arg, values[1])
 		case sqlc.NOT_BETWEEN_:
-			case_part.WriteString(self.BuildCondKey(cnd, key))
+			case_part.Write(self.BuildCondKey(cnd, key))
 			case_part.WriteString(" not between ? and ? and")
 			case_arg = append(case_arg, values[0])
 			case_arg = append(case_arg, values[1])
 		case sqlc.IN_:
-			case_part.WriteString(self.BuildCondKey(cnd, key))
+			case_part.Write(self.BuildCondKey(cnd, key))
 			case_part.WriteString(" in(")
 			var buf bytes.Buffer
 			for _, v := range values {
@@ -1366,7 +1360,7 @@ func (self *RDBManager) BuildWhereCase(cnd *sqlc.Cnd) (bytes.Buffer, []interface
 			case_part.WriteString(util.Substr(s, 0, len(s)-1))
 			case_part.WriteString(") and")
 		case sqlc.NOT_IN_:
-			case_part.WriteString(self.BuildCondKey(cnd, key))
+			case_part.Write(self.BuildCondKey(cnd, key))
 			case_part.WriteString(" not in(")
 			var buf bytes.Buffer
 			for _, v := range values {
@@ -1377,11 +1371,11 @@ func (self *RDBManager) BuildWhereCase(cnd *sqlc.Cnd) (bytes.Buffer, []interface
 			case_part.WriteString(util.Substr(s, 0, len(s)-1))
 			case_part.WriteString(") and")
 		case sqlc.LIKE_:
-			case_part.WriteString(self.BuildCondKey(cnd, key))
+			case_part.Write(self.BuildCondKey(cnd, key))
 			case_part.WriteString(" like concat('%',?,'%') and")
 			case_arg = append(case_arg, value)
 		case sqlc.NO_TLIKE_:
-			case_part.WriteString(self.BuildCondKey(cnd, key))
+			case_part.Write(self.BuildCondKey(cnd, key))
 			case_part.WriteString(" not like concat('%',?,'%') and")
 			case_arg = append(case_arg, value)
 		case sqlc.OR_:
@@ -1419,7 +1413,7 @@ func (self *RDBManager) BuilGroupBy(cnd *sqlc.Cnd) string {
 	if cnd == nil || len(cnd.Groupbys) <= 0 {
 		return ""
 	}
-	var groupby = bytes.Buffer{}
+	groupby := bytes.NewBuffer(make([]byte, 0, 64))
 	groupby.WriteString(" group by")
 	for _, v := range cnd.Groupbys {
 		if len(v) == 0 {
@@ -1430,8 +1424,7 @@ func (self *RDBManager) BuilGroupBy(cnd *sqlc.Cnd) string {
 		groupby.WriteString(",")
 	}
 	s := util.Bytes2Str(groupby.Bytes())
-	s = util.Substr(s, 0, len(s)-1)
-	return s
+	return util.Substr(s, 0, len(s)-1)
 }
 
 // 构建排序命令
@@ -1451,8 +1444,7 @@ func (self *RDBManager) BuilSortBy(cnd *sqlc.Cnd) string {
 		}
 	}
 	s := util.Bytes2Str(sortby.Bytes())
-	s = util.Substr(s, 0, len(s)-1)
-	return s
+	return util.Substr(s, 0, len(s)-1)
 }
 
 // 构建分页命令
@@ -1480,11 +1472,13 @@ func (self *RDBManager) BuildPagination(cnd *sqlc.Cnd, sqlbuf string, values []i
 		if err != nil {
 			return "", err
 		}
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
+		defer cancel()
 		var rows *sql.Rows
 		if *self.OpenTx {
-			rows, err = self.Tx.Query(countSql, values...)
+			rows, err = self.Tx.QueryContext(ctx, countSql, values...)
 		} else {
-			rows, err = self.Db.Query(countSql, values...)
+			rows, err = self.Db.QueryContext(ctx, countSql, values...)
 		}
 		if err != nil {
 			return "", self.Error("Count查询失败: ", err)

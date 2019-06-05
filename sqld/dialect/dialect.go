@@ -58,8 +58,7 @@ func (self *MysqlDialect) Support() (bool, error) {
 }
 
 func (self *MysqlDialect) GetCountSql(sql string) (string, error) {
-	var sqlbuf bytes.Buffer
-	sqlbuf.Grow(len(sql) + 50)
+	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(sql)+50))
 	sqlbuf.WriteString("select count(1) from (")
 	sqlbuf.WriteString(sql)
 	sqlbuf.WriteString(") as cba1")
@@ -76,8 +75,7 @@ func (self *MysqlDialect) GetLimitSql(sql string) (string, error) {
 		offset = strconv.FormatInt(self.PageNo, 10)
 		limit = strconv.FormatInt(self.PageSize, 10)
 	}
-	var sqlbuf bytes.Buffer
-	sqlbuf.Grow(len(sql) + 50)
+	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(sql)+50))
 	sqlbuf.WriteString(sql)
 	sqlbuf.WriteString(" limit ")
 	sqlbuf.WriteString(offset)

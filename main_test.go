@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"github.com/godaddy-x/freego/cache"
@@ -590,5 +591,6 @@ func TestRGX1(t *testing.T) {
 }
 
 func TestRGX2(t *testing.T) {
-	fmt.Println(util.GetSnowFlakeIntID())
+	var b *bytes.Buffer
+	fmt.Println(b.Len())
 }
