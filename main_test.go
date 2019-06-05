@@ -198,7 +198,7 @@ func TestMysqlFindById(t *testing.T) {
 	defer db.Close()
 	l := util.Time()
 	wallet := OwWallet{
-		Id: 1110165805422608385,
+		Id: 1124853348080549889,
 	}
 	if err := db.FindById(&wallet); err != nil {
 		fmt.Println(err)

@@ -271,6 +271,9 @@ func (self *RDBManager) Save(data ...interface{}) error {
 		var vpart_ bytes.Buffer
 		vpart_.WriteString(" (")
 		for _, vv := range obv.FieldElem {
+			if vv.Ignore {
+				continue
+			}
 			if vv.Primary {
 				lastInsertId := util.GetSnowFlakeIntID(*self.Node)
 				util.SetInt64(util.GetPtr(v, vv.FieldOffset), lastInsertId)
@@ -356,6 +359,9 @@ func (self *RDBManager) Update(data ...interface{}) error {
 	fpart.Grow(45 * len(data) * len(obv.FieldElem))
 	vpart.Grow(32 * len(data))
 	for _, vv := range obv.FieldElem { // 遍历对象字段
+		if vv.Ignore {
+			continue
+		}
 		fpart.WriteString(" ")
 		fpart.WriteString(vv.FieldJsonName)
 		fpart.WriteString("=case ")
@@ -608,6 +614,9 @@ func (self *RDBManager) FindById(data interface{}) error {
 	var fpart bytes.Buffer
 	fpart.Grow(12 * len(obv.FieldElem))
 	for _, vv := range obv.FieldElem {
+		if vv.Ignore {
+			continue
+		}
 		fpart.WriteString(vv.FieldJsonName)
 		fpart.WriteString(",")
 	}
@@ -656,8 +665,10 @@ func (self *RDBManager) FindById(data interface{}) error {
 	} else {
 		first = out[0]
 	}
-	for i := 0; i < len(obv.FieldElem); i++ {
-		vv := obv.FieldElem[i]
+	for i, vv := range obv.FieldElem {
+		if vv.Ignore {
+			continue
+		}
 		if err := SetValue(data, vv, first[i]); err != nil {
 			return self.Error(err)
 		}
@@ -679,6 +690,9 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data interface{}) error {
 	var fpart, vpart bytes.Buffer
 	fpart.Grow(12 * len(obv.FieldElem))
 	for _, vv := range obv.FieldElem {
+		if vv.Ignore {
+			continue
+		}
 		fpart.WriteString(vv.FieldJsonName)
 		fpart.WriteString(",")
 	}
@@ -744,8 +758,10 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data interface{}) error {
 	} else {
 		first = out[0]
 	}
-	for i := 0; i < len(obv.FieldElem); i++ {
-		vv := obv.FieldElem[i]
+	for i, vv := range obv.FieldElem {
+		if vv.Ignore {
+			continue
+		}
 		if err := SetValue(data, vv, first[i]); err != nil {
 			return self.Error(err)
 		}
@@ -771,6 +787,9 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	var fpart, vpart bytes.Buffer
 	fpart.Grow(12 * len(obv.FieldElem))
 	for _, vv := range obv.FieldElem {
+		if vv.Ignore {
+			continue
+		}
 		fpart.WriteString(vv.FieldJsonName)
 		fpart.WriteString(",")
 	}
@@ -845,6 +864,9 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 		model := obv.Hook.NewObj()
 		for i := 0; i < len(obv.FieldElem); i++ {
 			vv := obv.FieldElem[i]
+			if vv.Ignore {
+				continue
+			}
 			if err := SetValue(model, vv, v[i]); err != nil {
 				return self.Error(err)
 			}

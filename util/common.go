@@ -11,11 +11,11 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/gob"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/godaddy-x/freego/component/decimal"
 	"github.com/godaddy-x/freego/component/snowflake"
-	"github.com/json-iterator/go"
-	"github.com/shopspring/decimal"
 	"io/ioutil"
 	"log"
 	"math/rand"
@@ -34,7 +34,6 @@ var (
 	time_formt = "2006-01-02 15:04:05"
 	snowflakes = make(map[int64]*snowflake.Node, 0)
 	mu         sync.Mutex
-	fgjson     = jsoniter.ConfigCompatibleWithStandardLibrary
 )
 
 const (
@@ -49,12 +48,12 @@ func init() {
 
 // 对象转JSON字符串
 func JsonMarshal(v interface{}) ([]byte, error) {
-	return fgjson.Marshal(v)
+	return json.Marshal(v)
 }
 
 // JSON字符串转对象
 func JsonUnmarshal(data []byte, v interface{}) error {
-	d := fgjson.NewDecoder(bytes.NewBuffer(data))
+	d := json.NewDecoder(bytes.NewBuffer(data))
 	d.UseNumber()
 	return d.Decode(v)
 }
@@ -400,15 +399,6 @@ func ReadLocalJsonConfig(path string, result interface{}) error {
 	} else {
 		return JsonUnmarshal(data, result)
 	}
-}
-
-//只用于计算10的n次方，转换string
-func PowString(n int) string {
-	target := "1"
-	for i := 0; i < n; i++ {
-		target = AddStr(target, "0")
-	}
-	return target
 }
 
 // 转换成小数
