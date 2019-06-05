@@ -107,6 +107,9 @@ func GetValue(obj interface{}, elem *FieldElem) (interface{}, error) {
 	case reflect.Int:
 		ret := util.GetInt(ptr)
 		if elem.IsDate {
+			if ret < 0 {
+				ret = 0
+			}
 			return util.Time2Str(int64(ret)), nil
 		}
 		return ret, nil
@@ -117,12 +120,18 @@ func GetValue(obj interface{}, elem *FieldElem) (interface{}, error) {
 	case reflect.Int32:
 		ret := util.GetInt32(ptr)
 		if elem.IsDate {
+			if ret < 0 {
+				ret = 0
+			}
 			return util.Time2Str(int64(ret)), nil
 		}
 		return ret, nil
 	case reflect.Int64:
 		ret := util.GetInt64(ptr)
 		if elem.IsDate {
+			if ret < 0 {
+				ret = 0
+			}
 			return util.Time2Str(ret), nil
 		}
 		return ret, nil
@@ -549,7 +558,7 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 			}
 			reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(v))
 			return nil
-		case "map[stringbool":
+		case "map[string]bool":
 			if b == nil || len(b) == 0 {
 				return nil
 			}
