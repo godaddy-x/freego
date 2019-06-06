@@ -60,30 +60,28 @@ func (self *MGOManager) GetDatabase(copySession *mgo.Session, tb string) (*mgo.C
 }
 
 func (self *MGOManager) GetDB(option ...Option) error {
-	ds := &MASTER
+	dsName := &MASTER
 	var ops *Option
 	if option != nil && len(option) > 0 {
 		ops = &option[0]
 		if ops.DsName != nil && len(*ops.DsName) > 0 {
-			ds = ops.DsName
+			dsName = ops.DsName
 		} else {
-			ops.DsName = ds
+			ops.DsName = dsName
 		}
 	}
-	if len(mgo_sessions) == 0 {
-		log.Warn("mongo session is nil", 0)
-		return nil
-	}
-	mgo := mgo_sessions[*ds]
+	mgo := mgo_sessions[*dsName]
 	if mgo == nil {
-		return self.Error("mongo数据源[", ds, "]未找到,请检查...")
+		return self.Error("mongo数据源[", dsName, "]未找到,请检查...")
 	}
 	self.Session = mgo.Session
-	self.CacheManager = mgo.CacheManager
 	self.Node = mgo.Node
 	self.DsName = mgo.DsName
-	self.OpenTx = mgo.OpenTx
+	self.Timeout = 10000
 	self.MongoSync = mgo.MongoSync
+	self.MGOSyncData = make([]*MGOSyncData, 0)
+	self.CacheManager = mgo.CacheManager
+	self.OpenTx = &FALSE
 	if ops != nil {
 		if ops.Node != nil {
 			self.Node = ops.Node
@@ -96,6 +94,9 @@ func (self *MGOManager) GetDB(option ...Option) error {
 		}
 		if ops.MongoSync != nil {
 			self.MongoSync = ops.MongoSync
+		}
+		if ops.Timeout > 0 {
+			self.Timeout = ops.Timeout
 		}
 	}
 	return nil
@@ -369,7 +370,7 @@ func (self *MGOManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	if data == nil {
 		return self.Error("[Mongo.FindList]返回参数对象为空")
 	}
-	obkey := reflect.TypeOf(cnd.Model).String()
+	obkey := reflect.TypeOf(data).String()
 	if !strings.HasPrefix(obkey, "*[]") {
 		return self.Error("[Mongo.FindList]返回参数必须为数组指针类型")
 	} else {
@@ -434,7 +435,7 @@ func (self *MGOManager) buildPipeCondition(cnd *sqlc.Cnd, countby bool) ([]inter
 	project := buildMongoProject(cnd)
 	sortby := buildMongoSortBy(cnd)
 	pageinfo := buildMongoLimit(cnd)
-	pipe := make([]interface{}, 0)
+	pipe := make([]interface{}, 0, 6)
 	if len(match) > 0 {
 		tmp := make(map[string]interface{})
 		tmp["$match"] = match
@@ -482,9 +483,8 @@ func (self *MGOManager) buildPipeCondition(cnd *sqlc.Cnd, countby bool) ([]inter
 
 // 构建mongo逻辑条件命令
 func buildMongoMatch(cnd *sqlc.Cnd) map[string]interface{} {
-	var query = make(map[string]interface{})
-	condits := cnd.Conditions
-	for _, v := range condits {
+	query := make(map[string]interface{})
+	for _, v := range cnd.Conditions {
 		key := v.Key
 		value := v.Value
 		values := v.Values
@@ -557,9 +557,8 @@ func buildMongoMatch(cnd *sqlc.Cnd) map[string]interface{} {
 
 // 构建mongo字段筛选命令
 func buildMongoProject(cnd *sqlc.Cnd) map[string]int {
-	var project = make(map[string]int)
-	anyFields := cnd.AnyFields
-	for _, v := range anyFields {
+	project := make(map[string]int)
+	for _, v := range cnd.AnyFields {
 		project[v] = 1
 	}
 	return project
@@ -567,9 +566,8 @@ func buildMongoProject(cnd *sqlc.Cnd) map[string]int {
 
 // 构建mongo排序命令
 func buildMongoSortBy(cnd *sqlc.Cnd) map[string]int {
-	var sortby = make(map[string]int)
-	orderbys := cnd.Orderbys
-	for _, v := range orderbys {
+	sortby := make(map[string]int)
+	for _, v := range cnd.Orderbys {
 		if v.Value == sqlc.DESC_ {
 			sortby[v.Key] = -1
 		} else if v.Value == sqlc.ASC_ {
