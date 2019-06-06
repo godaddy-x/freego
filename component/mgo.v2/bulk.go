@@ -2,9 +2,8 @@ package mgo
 
 import (
 	"bytes"
+	"github.com/godaddy-x/freego/component/mgo.v2/bson"
 	"sort"
-
-	"gopkg.in/mgo.v2/bson"
 )
 
 // Bulk represents an operation that can be prepared with several

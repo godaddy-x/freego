@@ -3,9 +3,9 @@ package sqld
 import (
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/component/log"
+	"github.com/godaddy-x/freego/component/mgo.v2"
 	"github.com/godaddy-x/freego/sqlc"
 	"github.com/godaddy-x/freego/util"
-	"gopkg.in/mgo.v2"
 	"reflect"
 	"strings"
 	"time"

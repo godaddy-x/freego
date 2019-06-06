@@ -33,7 +33,7 @@ import (
 	"sync"
 	"time"
 
-	"gopkg.in/mgo.v2/bson"
+	"github.com/godaddy-x/freego/component/mgo.v2/bson"
 )
 
 type replyFunc func(err error, reply *replyOp, docNum int, docData []byte)

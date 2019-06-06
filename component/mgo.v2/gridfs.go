@@ -30,13 +30,12 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"errors"
+	"github.com/godaddy-x/freego/component/mgo.v2/bson"
 	"hash"
 	"io"
 	"os"
 	"sync"
 	"time"
-
-	"gopkg.in/mgo.v2/bson"
 )
 
 type GridFS struct {

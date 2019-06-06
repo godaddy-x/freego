@@ -29,13 +29,12 @@ package mgo
 import (
 	"errors"
 	"fmt"
+	"github.com/godaddy-x/freego/component/mgo.v2/bson"
 	"net"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
-
-	"gopkg.in/mgo.v2/bson"
 )
 
 // ---------------------------------------------------------------------------
