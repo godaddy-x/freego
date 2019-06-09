@@ -4,6 +4,7 @@ import (
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/component/log"
 	"github.com/godaddy-x/freego/component/mgo.v2"
+	"github.com/godaddy-x/freego/component/mgo.v2/bson"
 	"github.com/godaddy-x/freego/sqlc"
 	"github.com/godaddy-x/freego/util"
 	"reflect"
@@ -24,13 +25,14 @@ const (
 // 数据库配置
 type MGOConfig struct {
 	DBConfig
-	Addrs     []string
-	Direct    bool
-	Timeout   int64
-	Database  string
-	Username  string
-	Password  string
-	PoolLimit int
+	Addrs          []string
+	Direct         bool
+	ConnectTimeout int64
+	SocketTimeout  int64
+	Database       string
+	Username       string
+	Password       string
+	PoolLimit      int
 }
 
 // 数据库管理器
@@ -123,7 +125,7 @@ func (self *MGOManager) buildByConfig(manager cache.ICache, input ...MGOConfig) 
 		dialInfo := mgo.DialInfo{
 			Addrs:     v.Addrs,
 			Direct:    v.Direct,
-			Timeout:   time.Second * time.Duration(v.Timeout),
+			Timeout:   time.Second * time.Duration(v.ConnectTimeout),
 			Database:  v.Database,
 			PoolLimit: v.PoolLimit,
 		}
@@ -137,7 +139,7 @@ func (self *MGOManager) buildByConfig(manager cache.ICache, input ...MGOConfig) 
 		if err != nil {
 			return util.Error("mongo连接初始化失败: ", err)
 		}
-		session.SetSocketTimeout(3 * time.Minute)
+		session.SetSocketTimeout(time.Second * time.Duration(v.SocketTimeout))
 		session.SetMode(mgo.Monotonic, true)
 		mgo := &MGOManager{}
 		mgo.Session = session
@@ -201,7 +203,7 @@ func (self *MGOManager) Save(data ...interface{}) error {
 		}
 	}
 	if err := db.Insert(data ...); err != nil {
-		return self.Error(err)
+		return self.Error("[Mongo.Save]保存数据失败: ", err)
 	}
 	return nil
 }
@@ -241,7 +243,7 @@ func (self *MGOManager) Update(data ...interface{}) error {
 			if err.Error() == "not found" {
 				return self.Error("[Mongo.Update]数据ID[", lastInsertId, "]不存在")
 			}
-			return self.Error(err)
+			return self.Error("[Mongo.Update]更新数据失败: ", err)
 		}
 	}
 	return nil
@@ -272,17 +274,16 @@ func (self *MGOManager) Delete(data ...interface{}) error {
 	if log.IsDebug() {
 		defer log.Debug("[Mongo.Delete]日志", util.Time(), log.Any("data", data))
 	}
+	selector := bson.D{}
 	for _, v := range data {
 		lastInsertId := util.GetInt64(util.GetPtr(v, obv.PkOffset))
 		if lastInsertId == 0 {
 			return self.Error("[Mongo.Delete]对象ID为空")
 		}
-		if err := db.RemoveId(lastInsertId); err != nil {
-			if err.Error() == "not found" {
-				return self.Error("[Mongo.Delete]数据ID[", lastInsertId, "]不存在")
-			}
-			return self.Error(err)
-		}
+		selector = append(selector, bson.DocElem{"_id", lastInsertId})
+	}
+	if _, err := db.RemoveAll(selector); err != nil {
+		return self.Error("[Mongo.Delete]删除数据失败: ", err)
 	}
 	return nil
 }
@@ -381,6 +382,8 @@ func (self *MGOManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	obv, ok := modelDrivers[obkey];
 	if !ok {
 		return self.Error("[Mongo.FindList]没有找到注册对象类型[", obkey, "]")
+	} else {
+		cnd.Model = obv.Hook.NewObj()
 	}
 	copySession := self.Session.Copy()
 	defer copySession.Close()

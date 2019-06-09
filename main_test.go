@@ -95,14 +95,14 @@ func init() {
 		panic(util.AddStr("读取mongo配置失败: ", err.Error()))
 	}
 	new(sqld.MGOManager).InitConfigAndCache(nil, mongo1)
-	opts := &options.ClientOptions{Hosts: []string{"192.168.27.124:27017"}}
-	// opts.SetAuth(options.Credential{AuthMechanism: "SCRAM-SHA-1", AuthSource: "test", Username: "test", Password: "123456"})
-	client, err := mongo.Connect(context.Background(), opts)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-	MyClient = client
+	//opts := &options.ClientOptions{Hosts: []string{"192.168.27.124:27017"}}
+	//// opts.SetAuth(options.Credential{AuthMechanism: "SCRAM-SHA-1", AuthSource: "test", Username: "test", Password: "123456"})
+	//client, err := mongo.Connect(context.Background(), opts)
+	//if err != nil {
+	//	fmt.Println(err)
+	//	return
+	//}
+	//MyClient = client
 }
 
 var MyClient *mongo.Client
@@ -360,7 +360,7 @@ func TestMongoDelete(t *testing.T) {
 	vs := []interface{}{}
 	for i := 0; i < 1; i++ {
 		wallet := OwWallet{
-			Id: 1110013123152052225,
+			Id: 1136806872108498948,
 			// AppID:        map[string]interface{}{"test": 1},
 			WalletID:     util.GetSnowFlakeStrID(),
 			PasswordType: 1,

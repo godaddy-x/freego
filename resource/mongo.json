@@ -4,7 +4,8 @@
     "127.0.0.1:27017"
   ],
   "Direct": false,
-  "Timeout": 5,
+  "ConnectTimeout": 10,
+  "SocketTimeout": 10,
   "Database": "openwallet",
   "Username": "",
   "Password": "",
