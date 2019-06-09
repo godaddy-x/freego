@@ -77,6 +77,7 @@ func (self *MGOManager) GetDB(option ...Option) error {
 	self.Session = mgo.Session
 	self.Node = mgo.Node
 	self.DsName = mgo.DsName
+	self.Database = mgo.Database
 	self.Timeout = 10000
 	self.MongoSync = mgo.MongoSync
 	self.MGOSyncData = make([]*MGOSyncData, 0)
@@ -142,6 +143,7 @@ func (self *MGOManager) buildByConfig(manager cache.ICache, input ...MGOConfig) 
 		mgo.Session = session
 		mgo.CacheManager = manager
 		mgo.DsName = dsName
+		mgo.Database = v.Database
 		if v.Node == nil {
 			mgo.Node = &ZERO
 		} else {

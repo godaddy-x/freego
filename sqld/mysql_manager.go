@@ -57,6 +57,7 @@ func (self *MysqlManager) buildByConfig(manager cache.ICache, input ...MysqlConf
 		rdb := &RDBManager{}
 		rdb.Db = db
 		rdb.DsName = dsName
+		rdb.Database = v.Database
 		rdb.CacheManager = manager
 		if v.Node == nil {
 			rdb.Node = &ZERO

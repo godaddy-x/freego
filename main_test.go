@@ -396,16 +396,14 @@ func TestMongoCount(t *testing.T) {
 
 func TestMongoFindOne(t *testing.T) {
 	l := util.Time()
-	for i:=0;i<20000 ;i++  {
-		db, err := new(sqld.MGOManager).Get(sqld.Option{OpenTx: &sqld.TRUE})
-		if err != nil {
-			panic(err)
-		}
-		defer db.Close()
-		o := &OwWallet{}
-		if err := db.FindOne(sqlc.M(o).Eq("_id", 8266), o); err != nil {
-			fmt.Println(err)
-		}
+	db, err := new(sqld.MGOManager).Get(sqld.Option{OpenTx: &sqld.TRUE})
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+	o := &OwWallet{}
+	if err := db.FindOne(sqlc.M(o).Eq("_id", 8266), o); err != nil {
+		fmt.Println(err)
 	}
 	fmt.Println("cost: ", util.Time()-l)
 }

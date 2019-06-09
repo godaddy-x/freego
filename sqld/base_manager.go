@@ -36,7 +36,6 @@ type DBConfig struct {
 	Option
 	Host     string // 地址IP
 	Port     int    // 数据库端口
-	Database string // 数据库名称
 	Username string // 账号
 	Password string // 密码
 }
@@ -45,6 +44,7 @@ type DBConfig struct {
 type Option struct {
 	Node      *int64  // 节点
 	DsName    *string // 数据源,分库时使用
+	Database  string  // 数据库名称
 	OpenTx    *bool   // 是否开启事务 true.是 false.否
 	MongoSync *bool   // 是否自动同步mongo数据库写入
 	Timeout   int64   // 请求超时设置/毫秒,默认10000
@@ -217,6 +217,7 @@ func (self *RDBManager) GetDB(option ...Option) error {
 	self.Db = rdb.Db
 	self.Node = rdb.Node
 	self.DsName = rdb.DsName
+	self.Database = rdb.Database
 	self.Timeout = 10000
 	self.MongoSync = rdb.MongoSync
 	self.MGOSyncData = make([]*MGOSyncData, 0)
