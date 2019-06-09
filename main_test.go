@@ -1,7 +1,7 @@
 package main
 
 import (
-	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"github.com/godaddy-x/freego/cache"
@@ -12,6 +12,8 @@ import (
 	"github.com/godaddy-x/freego/sqld"
 	"github.com/godaddy-x/freego/util"
 	"github.com/gorilla/websocket"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 	"net/url"
 	"testing"
 	"time"
@@ -88,12 +90,22 @@ func init() {
 		panic(util.AddStr("读取mysql配置失败: ", err.Error()))
 	}
 	new(sqld.MysqlManager).InitConfigAndCache(nil, mysql)
-	//mongo := sqld.MGOConfig{}
-	//if err := util.ReadLocalJsonConfig("resource/mongo.json", &mongo); err != nil {
-	//	panic(util.AddStr("读取mongo配置失败: ", err.Error()))
-	//}
-	//new(sqld.MGOManager).InitConfigAndCache(nil, mongo)
+	mongo1 := sqld.MGOConfig{}
+	if err := util.ReadLocalJsonConfig("resource/mongo.json", &mongo1); err != nil {
+		panic(util.AddStr("读取mongo配置失败: ", err.Error()))
+	}
+	new(sqld.MGOManager).InitConfigAndCache(nil, mongo1)
+	opts := &options.ClientOptions{Hosts: []string{"192.168.27.124:27017"}}
+	// opts.SetAuth(options.Credential{AuthMechanism: "SCRAM-SHA-1", AuthSource: "test", Username: "test", Password: "123456"})
+	client, err := mongo.Connect(context.Background(), opts)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	MyClient = client
 }
+
+var MyClient *mongo.Client
 
 func TestMysqlSave(t *testing.T) {
 	db, err := new(sqld.MysqlManager).Get(sqld.Option{OpenTx: &sqld.TRUE})
@@ -220,7 +232,7 @@ func TestMysqlFindOne(t *testing.T) {
 	wallet := DxApp{
 
 	}
-	if err := db.FindOne(sqlc.M().Eq("id", 1131023802109526016), &wallet); err != nil {
+	if err := db.FindOne(sqlc.M().Eq("id", 8266), &wallet); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println("cost: ", util.Time()-l)
@@ -383,15 +395,17 @@ func TestMongoCount(t *testing.T) {
 }
 
 func TestMongoFindOne(t *testing.T) {
-	db, err := new(sqld.MGOManager).Get(sqld.Option{OpenTx: &sqld.TRUE})
-	if err != nil {
-		panic(err)
-	}
-	defer db.Close()
 	l := util.Time()
-	o := &OwWallet{}
-	if err := db.FindOne(sqlc.M(o).Eq("_id", 1110012978914131969), o); err != nil {
-		fmt.Println(err)
+	for i:=0;i<20000 ;i++  {
+		db, err := new(sqld.MGOManager).Get(sqld.Option{OpenTx: &sqld.TRUE})
+		if err != nil {
+			panic(err)
+		}
+		defer db.Close()
+		o := &OwWallet{}
+		if err := db.FindOne(sqlc.M(o).Eq("_id", 8266), o); err != nil {
+			fmt.Println(err)
+		}
 	}
 	fmt.Println("cost: ", util.Time()-l)
 }
@@ -403,8 +417,8 @@ func TestMongoFindList(t *testing.T) {
 	}
 	defer db.Close()
 	l := util.Time()
-	o := &[]*OwWallet{}
-	if err := db.FindList(sqlc.M(&OwWallet{}).Eq("_id", 1110012978914131969).Limit(1, 10), o); err != nil {
+	o := []*OwWallet{}
+	if err := db.FindList(sqlc.M().Eq("_id", 8622).Limit(1, 10), &o); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println("cost: ", util.Time()-l)
@@ -591,6 +605,25 @@ func TestRGX1(t *testing.T) {
 }
 
 func TestRGX2(t *testing.T) {
-	var b *bytes.Buffer
-	fmt.Println(b.Len())
+	start := util.Time()
+	for i := 0; i < 20000; i++ {
+		// MyClient.Connect(context.Background())
+		c := MyClient.Database("openwallet").Collection("ow_wallet")
+		pipeline := []map[string]interface{}{{"$match": map[string]interface{}{"_id": 8266}}}
+		//pipeline := []map[string]interface{}{}
+		batchSize := int32(5)
+		cursor, err := c.Aggregate(context.Background(), pipeline, &options.AggregateOptions{BatchSize: &batchSize})
+		if err != nil {
+			fmt.Println(err)
+			return
+		}
+		for cursor.Next(context.Background()) {
+			//fmt.Println(cursor.Current.String())
+			o := OwWallet{}
+			cursor.Decode(&o)
+			//fmt.Println(o)
+		}
+		// MyClient.Disconnect(context.Background())
+	}
+	fmt.Println("cost: ", util.Time()-start)
 }
