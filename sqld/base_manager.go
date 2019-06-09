@@ -186,8 +186,9 @@ func (self *DBManager) Error(data ...interface{}) error {
 	if data == nil || len(data) == 0 {
 		return nil
 	}
-	self.Errors = append(self.Errors, util.Error(data ...))
-	return nil
+	err := util.Error(data ...)
+	self.Errors = append(self.Errors, err)
+	return err
 }
 
 /********************************** 关系数据库ORM默认实现 -> MySQL(如需实现其他类型数据库则自行实现IDBase接口) **********************************/

@@ -240,7 +240,7 @@ func (self *MGOManager) Update(data ...interface{}) error {
 			return self.Error("[Mongo.Update]对象ID为空")
 		}
 		if err := db.UpdateId(lastInsertId, v); err != nil {
-			if err.Error() == "not found" {
+			if err == mgo.ErrNotFound {
 				return self.Error("[Mongo.Update]数据ID[", lastInsertId, "]不存在")
 			}
 			return self.Error("[Mongo.Update]更新数据失败: ", err)
@@ -313,7 +313,7 @@ func (self *MGOManager) Count(cnd *sqlc.Cnd) (int64, error) {
 	}
 	result := make(map[string]int64)
 	if err := db.Pipe(pipe).One(&result); err != nil {
-		if err.Error() == "not found" {
+		if err == mgo.ErrNotFound {
 			return 0, nil
 		}
 		return 0, util.Error("[Mongo.Count]查询数据失败: ", err)
@@ -361,9 +361,10 @@ func (self *MGOManager) FindOne(cnd *sqlc.Cnd, data interface{}) error {
 		defer log.Debug("[Mongo.FindOne]日志", util.Time(), log.Any("pipe", pipe))
 	}
 	if err := db.Pipe(pipe).One(data); err != nil {
-		if err.Error() != "not found" {
-			return util.Error("[Mongo.FindOne]查询数据失败: ", err)
+		if err == mgo.ErrNotFound {
+			return nil
 		}
+		return util.Error("[Mongo.FindOne]查询数据失败: ", err)
 	}
 	return nil
 }
@@ -399,9 +400,10 @@ func (self *MGOManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 		defer log.Debug("[Mongo.FindList]日志", util.Time(), log.Any("pipe", pipe))
 	}
 	if err := db.Pipe(pipe).All(data); err != nil {
-		if err.Error() != "not found" {
-			return util.Error("[Mongo.FindList]查询数据失败: ", err)
+		if err == mgo.ErrNotFound {
+			return nil
 		}
+		return util.Error("[Mongo.FindList]查询数据失败: ", err)
 	}
 	return nil
 }

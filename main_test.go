@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"github.com/godaddy-x/freego/cache"
@@ -12,8 +11,6 @@ import (
 	"github.com/godaddy-x/freego/sqld"
 	"github.com/godaddy-x/freego/util"
 	"github.com/gorilla/websocket"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 	"net/url"
 	"testing"
 	"time"
@@ -104,8 +101,6 @@ func init() {
 	//}
 	//MyClient = client
 }
-
-var MyClient *mongo.Client
 
 func TestMysqlSave(t *testing.T) {
 	db, err := new(sqld.MysqlManager).Get(sqld.Option{OpenTx: &sqld.TRUE})
@@ -352,7 +347,7 @@ func TestMongoUpdate(t *testing.T) {
 }
 
 func TestMongoDelete(t *testing.T) {
-	db, err := new(sqld.MGOManager).Get(sqld.Option{OpenTx: &sqld.TRUE})
+	db, err := new(sqld.MGOManager).Get(sqld.Option{OpenTx: &sqld.TRUE, Timeout: 3000})
 	if err != nil {
 		panic(err)
 	}
@@ -603,25 +598,25 @@ func TestRGX1(t *testing.T) {
 }
 
 func TestRGX2(t *testing.T) {
-	start := util.Time()
-	for i := 0; i < 20000; i++ {
-		// MyClient.Connect(context.Background())
-		c := MyClient.Database("openwallet").Collection("ow_wallet")
-		pipeline := []map[string]interface{}{{"$match": map[string]interface{}{"_id": 8266}}}
-		//pipeline := []map[string]interface{}{}
-		batchSize := int32(5)
-		cursor, err := c.Aggregate(context.Background(), pipeline, &options.AggregateOptions{BatchSize: &batchSize})
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-		for cursor.Next(context.Background()) {
-			//fmt.Println(cursor.Current.String())
-			o := OwWallet{}
-			cursor.Decode(&o)
-			//fmt.Println(o)
-		}
-		// MyClient.Disconnect(context.Background())
-	}
-	fmt.Println("cost: ", util.Time()-start)
+	//start := util.Time()
+	//for i := 0; i < 20000; i++ {
+	//	// MyClient.Connect(context.Background())
+	//	c := MyClient.Database("openwallet").Collection("ow_wallet")
+	//	pipeline := []map[string]interface{}{{"$match": map[string]interface{}{"_id": 8266}}}
+	//	//pipeline := []map[string]interface{}{}
+	//	batchSize := int32(5)
+	//	cursor, err := c.Aggregate(context.Background(), pipeline, &options.AggregateOptions{BatchSize: &batchSize})
+	//	if err != nil {
+	//		fmt.Println(err)
+	//		return
+	//	}
+	//	for cursor.Next(context.Background()) {
+	//		//fmt.Println(cursor.Current.String())
+	//		o := OwWallet{}
+	//		cursor.Decode(&o)
+	//		//fmt.Println(o)
+	//	}
+	//	// MyClient.Disconnect(context.Background())
+	//}
+	//fmt.Println("cost: ", util.Time()-start)
 }
