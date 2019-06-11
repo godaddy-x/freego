@@ -2,6 +2,7 @@ package node
 
 import (
 	"github.com/godaddy-x/freego/component/jwt"
+	"github.com/godaddy-x/freego/component/log"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/util"
 	"github.com/gorilla/websocket"
@@ -53,6 +54,41 @@ func (self *WebsocketNode) InitContext(ptr *NodePtr) error {
 		Storage:   make(map[string]interface{}),
 	}
 	return nil
+}
+
+func (self *WebsocketNode) validateRequest(pattern string, node *WebsocketNode) error {
+	if v, b := self.Urlex[pattern]; b {
+		node.Customize = v.Customize
+		if v.MaxRequestSize == 0 {
+			return nil
+		}
+		if v.RequestSize >= v.MaxRequestSize {
+			return RequestFullError
+		}
+		self.Muex.Lock()
+		defer self.Muex.Unlock()
+		self.Urlex[pattern].RequestSize = v.RequestSize + 1
+	}
+	return nil
+}
+
+func (self *WebsocketNode) releaseRequest(pattern string, node *WebsocketNode, err error) error {
+	if err == RequestFullError {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "请求人数过多,请稍后再尝试", Err: err}
+	}
+	if v, b := self.Urlex[pattern]; b {
+		if v.MaxRequestSize == 0 {
+			return err
+		}
+		self.Muex.Lock()
+		defer self.Muex.Unlock()
+		requestSize := v.RequestSize - 1
+		if requestSize < 0 {
+			requestSize = 0
+		}
+		self.Urlex[pattern].RequestSize = requestSize
+	}
+	return err
 }
 
 func (self *WebsocketNode) InitWebsocket(ptr *NodePtr) error {
@@ -224,9 +260,15 @@ func (self *WebsocketNode) Proxy(ptr *NodePtr) {
 	ob := &WebsocketNode{}
 	ptr.Node = ob
 	if err := self.InitContext(ptr); err != nil {
+		log.Error(err.Error(), 0)
 		return
 	}
 	if err := ob.InitWebsocket(ptr); err != nil {
+		log.Error(err.Error(), 0)
+		return
+	}
+	if err := self.validateRequest(ptr.Pattern, ob); err != nil {
+		log.Error(err.Error(), 0)
 		return
 	}
 }
@@ -302,7 +344,9 @@ func (self *WebsocketNode) StartServer() {
 	}()
 }
 
-func (self *WebsocketNode) Router(pattern string, handle func(ctx *Context) error, customize ...bool) {
+func (self *WebsocketNode) Router(pattern string, handle func(ctx *Context) error, option *Option) {
+	self.Muex.Lock()
+	defer self.Muex.Unlock()
 	if !strings.HasPrefix(pattern, "/") {
 		pattern = util.AddStr("/", pattern)
 	}
@@ -312,6 +356,13 @@ func (self *WebsocketNode) Router(pattern string, handle func(ctx *Context) erro
 	if self.CacheAware == nil {
 		panic("缓存服务尚未初始化")
 	}
+	if option == nil {
+		option = &Option{}
+	}
+	if self.Urlex == nil {
+		self.Urlex = make(map[string]*UrlValid)
+	}
+	self.Urlex[pattern] = &UrlValid{pattern, 0, option.MaxRequest, option.Customize}
 	http.DefaultServeMux.HandleFunc(pattern, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		self.Proxy(&NodePtr{self, r, w, pattern, handle})
 	}))

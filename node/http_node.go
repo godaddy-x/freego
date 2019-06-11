@@ -10,6 +10,10 @@ import (
 	"strings"
 )
 
+var (
+	RequestFullError = util.Error("request full error")
+)
+
 type HttpNode struct {
 	HookNode
 }
@@ -123,8 +127,8 @@ func (self *HttpNode) InitContext(ptr *NodePtr) error {
 		PermissionKey: self.Context.PermissionKey,
 		Storage:       make(map[string]interface{}),
 	}
-	if self.Customize {
-		node.Customize = true
+	if err := self.validateRequest(ptr.Pattern, node); err != nil {
+		return err
 	}
 	if err := node.GetHeader(); err != nil {
 		return err
@@ -246,7 +250,9 @@ func (self *HttpNode) Proxy(ptr *NodePtr) {
 	if err := func() error {
 		ptr.Node = ob
 		if err := self.InitContext(ptr); err != nil {
-			return err
+			return self.releaseRequest(ptr.Pattern, ob, err)
+		} else {
+			defer self.releaseRequest(ptr.Pattern, ob, nil)
 		}
 		// 2.校验会话有效性
 		if err := ob.ValidSession(); err != nil {
@@ -276,6 +282,41 @@ func (self *HttpNode) Proxy(ptr *NodePtr) {
 	}(); err != nil {
 		ob.RenderError(err)
 	}
+}
+
+func (self *HttpNode) validateRequest(pattern string, node *HttpNode) error {
+	if v, b := self.Urlex[pattern]; b {
+		node.Customize = v.Customize
+		if v.MaxRequestSize == 0 {
+			return nil
+		}
+		if v.RequestSize >= v.MaxRequestSize {
+			return RequestFullError
+		}
+		self.Muex.Lock()
+		defer self.Muex.Unlock()
+		self.Urlex[pattern].RequestSize = v.RequestSize + 1
+	}
+	return nil
+}
+
+func (self *HttpNode) releaseRequest(pattern string, node *HttpNode, err error) error {
+	if err == RequestFullError {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "请求人数过多,请稍后再尝试", Err: err}
+	}
+	if v, b := self.Urlex[pattern]; b {
+		if v.MaxRequestSize == 0 {
+			return err
+		}
+		self.Muex.Lock()
+		defer self.Muex.Unlock()
+		requestSize := v.RequestSize - 1
+		if requestSize < 0 {
+			requestSize = 0
+		}
+		self.Urlex[pattern].RequestSize = requestSize
+	}
+	return err
 }
 
 func (self *HttpNode) PreHandle() error {
@@ -388,7 +429,9 @@ func (self *HttpNode) StartServer() {
 	}()
 }
 
-func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, customize ...bool) {
+func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, option *Option) {
+	self.Muex.Lock()
+	defer self.Muex.Unlock()
 	if !strings.HasPrefix(pattern, "/") {
 		pattern = util.AddStr("/", pattern)
 	}
@@ -398,11 +441,13 @@ func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, cu
 	if self.CacheAware == nil {
 		panic("缓存服务尚未初始化")
 	}
-	if customize != nil && len(customize) > 0 {
-		if customize[0] {
-			self.Customize = true
-		}
+	if option == nil {
+		option = &Option{}
 	}
+	if self.Urlex == nil {
+		self.Urlex = make(map[string]*UrlValid)
+	}
+	self.Urlex[pattern] = &UrlValid{pattern, 0, option.MaxRequest, option.Customize}
 	http.DefaultServeMux.HandleFunc(pattern, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		self.Proxy(&NodePtr{self, r, w, pattern, handle})
 	}))

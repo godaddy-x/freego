@@ -48,11 +48,17 @@ func init() {
 
 // 对象转JSON字符串
 func JsonMarshal(v interface{}) ([]byte, error) {
+	if v == nil {
+		return nil, errors.New("参数不能为空")
+	}
 	return json.Marshal(v)
 }
 
 // JSON字符串转对象
 func JsonUnmarshal(data []byte, v interface{}) error {
+	if data == nil || len(data) == 0 {
+		return nil
+	}
 	d := json.NewDecoder(bytes.NewBuffer(data))
 	d.UseNumber()
 	return d.Decode(v)

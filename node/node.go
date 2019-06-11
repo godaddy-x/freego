@@ -6,6 +6,7 @@ import (
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/util"
 	"net/http"
+	"sync"
 )
 
 const (
@@ -51,6 +52,8 @@ type HookNode struct {
 	CacheAware   func(ds ...string) (cache.ICache, error)
 	OverrideFunc *OverrideFunc
 	Customize    bool
+	Muex         sync.RWMutex
+	Urlex        map[string]*UrlValid
 }
 
 type NodePtr struct {
@@ -59,6 +62,18 @@ type NodePtr struct {
 	Output  http.ResponseWriter
 	Pattern string
 	Handle  func(ctx *Context) error
+}
+
+type Option struct {
+	Customize  bool
+	MaxRequest int64
+}
+
+type UrlValid struct {
+	Url            string
+	RequestSize    int64
+	MaxRequestSize int64
+	Customize      bool
 }
 
 type ProtocolNode interface {
@@ -77,7 +92,7 @@ type ProtocolNode interface {
 	// 核心代理方法
 	Proxy(ptr *NodePtr)
 	// 核心绑定路由方法, customize=true自定义不执行默认流程
-	Router(pattern string, handle func(ctx *Context) error, customize ...bool)
+	Router(pattern string, handle func(ctx *Context) error, option *Option)
 	// json响应模式
 	Json(ctx *Context, data interface{}) error
 	// text响应模式

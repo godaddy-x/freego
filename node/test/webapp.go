@@ -125,9 +125,9 @@ func StartHttpNode() *MyWebNode {
 		//},
 		//RenderErrorFunc: nil,
 	}
-	my.Router("/test1", my.test)
-	my.Router("/login1", my.login)
-	my.Router("/logout1", my.logout)
+	my.Router("/test1", my.test, &node.Option{MaxRequest: 10})
+	my.Router("/login1", my.login, &node.Option{MaxRequest: 3, Customize: true})
+	my.Router("/logout1", my.logout, &node.Option{MaxRequest: 10})
 	my.StartServer()
 	return my
 }
@@ -140,9 +140,9 @@ func StartWsNode() *MyWsNode {
 		SecretKey: GetSecretKey,
 	}
 	my.CacheAware = GetCacheAware
-	my.Router("/test2", my.test)
-	my.Router("/login2", my.login)
-	my.Router("/logout2", my.logout)
+	my.Router("/test2", my.test, nil)
+	my.Router("/login2", my.login, nil)
+	my.Router("/logout2", my.logout, nil)
 	my.StartServer()
 	return my
 }
