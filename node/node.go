@@ -6,7 +6,6 @@ import (
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/util"
 	"net/http"
-	"sync"
 )
 
 const (
@@ -51,9 +50,9 @@ type HookNode struct {
 	SessionAware SessionAware
 	CacheAware   func(ds ...string) (cache.ICache, error)
 	OverrideFunc *OverrideFunc
-	Customize    bool
-	Muex         sync.RWMutex
-	Urlex        map[string]*UrlValid
+	Handler      *http.ServeMux
+	Option       *Option
+	OptionMap    map[string]*Option
 }
 
 type NodePtr struct {
@@ -65,15 +64,7 @@ type NodePtr struct {
 }
 
 type Option struct {
-	Customize  bool
-	MaxRequest int64
-}
-
-type UrlValid struct {
-	Url            string
-	RequestSize    int64
-	MaxRequestSize int64
-	Customize      bool
+	Customize bool
 }
 
 type ProtocolNode interface {

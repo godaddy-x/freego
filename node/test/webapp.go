@@ -4,13 +4,15 @@ import (
 	"fmt"
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/component/jwt"
+	"github.com/godaddy-x/freego/component/limiter"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/node"
 	"github.com/godaddy-x/freego/util"
 )
 
 var (
-	local_cache = new(cache.LocalMapManager).NewCache(30, 10)
+	local_cache  = new(cache.LocalMapManager).NewCache(30, 10)
+	rate_limiter = rate.NewRateLimiter(30, 10)
 )
 
 type MyWebNode struct {
@@ -113,9 +115,12 @@ func StartHttpNode() *MyWebNode {
 	}
 	my.CacheAware = GetCacheAware
 	my.OverrideFunc = &node.OverrideFunc{
-		//PreHandleFunc: func(ctx *node.Context) error {
-		//	return nil
-		//},
+		PreHandleFunc: func(ctx *node.Context) error {
+			if rate_limiter.Validate(ctx.Method, 2, 5, 30) {
+				return ex.Throw{Code: 429, Msg: "系统正繁忙"}
+			}
+			return nil
+		},
 		//PostHandleFunc: func(resp *node.Response, err error) error {
 		//	// resp.RespEntity = map[string]interface{}{"sssss": 3}
 		//	return err
@@ -125,9 +130,9 @@ func StartHttpNode() *MyWebNode {
 		//},
 		//RenderErrorFunc: nil,
 	}
-	my.Router("/test1", my.test, &node.Option{MaxRequest: 10})
-	my.Router("/login1", my.login, &node.Option{MaxRequest: 3, Customize: true})
-	my.Router("/logout1", my.logout, &node.Option{MaxRequest: 10})
+	my.Router("/test1", my.test, &node.Option{})
+	my.Router("/login1", my.login, &node.Option{true})
+	my.Router("/logout1", my.logout, &node.Option{})
 	my.StartServer()
 	return my
 }

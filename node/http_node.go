@@ -10,16 +10,12 @@ import (
 	"strings"
 )
 
-var (
-	RequestFullError = util.Error("request full error")
-)
-
 type HttpNode struct {
 	HookNode
 }
 
 func (self *HttpNode) GetHeader() error {
-	if self.Customize {
+	if self.Option.Customize {
 		r := self.Context.Input
 		headers := map[string]string{}
 		if len(r.Header) > 0 {
@@ -56,7 +52,7 @@ func (self *HttpNode) GetParams() error {
 		if len(result) > (MAX_VALUE_LEN * 5) {
 			return ex.Throw{Code: http.StatusLengthRequired, Msg: "参数值长度溢出: " + util.AnyToStr(len(result))}
 		}
-		if !self.Customize {
+		if !self.Option.Customize {
 			req := &ReqDto{}
 			if err := util.JsonUnmarshal(result, req); err != nil {
 				return ex.Throw{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err}
@@ -73,7 +69,7 @@ func (self *HttpNode) GetParams() error {
 		self.Context.Params = &ReqDto{Data: data}
 		return nil
 	} else if r.Method == GET {
-		if !self.Customize {
+		if !self.Option.Customize {
 			return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "暂不支持GET类型"}
 		}
 		r.ParseForm()
@@ -115,7 +111,7 @@ func (self *HttpNode) InitContext(ptr *NodePtr) error {
 	node.SessionAware = self.SessionAware
 	node.CacheAware = self.CacheAware
 	node.Context = &Context{
-		Host:          util.GetClientIp(input),
+		Host:          util.ClientIP(input),
 		Port:          self.Context.Port,
 		Style:         HTTP,
 		Method:        ptr.Pattern,
@@ -127,8 +123,10 @@ func (self *HttpNode) InitContext(ptr *NodePtr) error {
 		PermissionKey: self.Context.PermissionKey,
 		Storage:       make(map[string]interface{}),
 	}
-	if err := self.validateRequest(ptr.Pattern, node); err != nil {
-		return err
+	if v, b := self.OptionMap[ptr.Pattern]; b {
+		node.Option = v
+	} else {
+		node.Option = &Option{}
 	}
 	if err := node.GetHeader(); err != nil {
 		return err
@@ -250,9 +248,7 @@ func (self *HttpNode) Proxy(ptr *NodePtr) {
 	if err := func() error {
 		ptr.Node = ob
 		if err := self.InitContext(ptr); err != nil {
-			return self.releaseRequest(ptr.Pattern, ob, err)
-		} else {
-			defer self.releaseRequest(ptr.Pattern, ob, nil)
+			return err
 		}
 		// 2.校验会话有效性
 		if err := ob.ValidSession(); err != nil {
@@ -282,41 +278,6 @@ func (self *HttpNode) Proxy(ptr *NodePtr) {
 	}(); err != nil {
 		ob.RenderError(err)
 	}
-}
-
-func (self *HttpNode) validateRequest(pattern string, node *HttpNode) error {
-	if v, b := self.Urlex[pattern]; b {
-		node.Customize = v.Customize
-		if v.MaxRequestSize == 0 {
-			return nil
-		}
-		if v.RequestSize >= v.MaxRequestSize {
-			return RequestFullError
-		}
-		self.Muex.Lock()
-		defer self.Muex.Unlock()
-		self.Urlex[pattern].RequestSize = v.RequestSize + 1
-	}
-	return nil
-}
-
-func (self *HttpNode) releaseRequest(pattern string, node *HttpNode, err error) error {
-	if err == RequestFullError {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "请求人数过多,请稍后再尝试", Err: err}
-	}
-	if v, b := self.Urlex[pattern]; b {
-		if v.MaxRequestSize == 0 {
-			return err
-		}
-		self.Muex.Lock()
-		defer self.Muex.Unlock()
-		requestSize := v.RequestSize - 1
-		if requestSize < 0 {
-			requestSize = 0
-		}
-		self.Urlex[pattern].RequestSize = requestSize
-	}
-	return err
 }
 
 func (self *HttpNode) PreHandle() error {
@@ -362,7 +323,7 @@ func (self *HttpNode) RenderError(err error) error {
 		Time:    util.Time(),
 		Data:    make(map[string]interface{}),
 	}
-	if self.Customize {
+	if self.Option.Customize {
 		self.Context.Output.Header().Set("Content-Type", TEXT_PLAIN)
 		self.Context.Output.WriteHeader(http_code)
 		self.Context.Output.Write(util.Str2Bytes(resp.Message))
@@ -400,7 +361,7 @@ func (self *HttpNode) RenderTo() error {
 		if resp.Data == nil {
 			resp.Data = make(map[string]interface{})
 		}
-		if self.Customize {
+		if self.Option.Customize {
 			if result, err := util.JsonMarshal(resp.Data); err != nil {
 				return ex.Throw{Code: http.StatusInternalServerError, Msg: "响应数据异常", Err: err}
 			} else {
@@ -423,15 +384,13 @@ func (self *HttpNode) RenderTo() error {
 
 func (self *HttpNode) StartServer() {
 	go func() {
-		if err := http.ListenAndServe(util.AddStr(self.Context.Host, ":", self.Context.Port), nil); err != nil {
+		if err := http.ListenAndServe(util.AddStr(self.Context.Host, ":", self.Context.Port), self.Handler); err != nil {
 			panic(err)
 		}
 	}()
 }
 
 func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, option *Option) {
-	self.Muex.Lock()
-	defer self.Muex.Unlock()
 	if !strings.HasPrefix(pattern, "/") {
 		pattern = util.AddStr("/", pattern)
 	}
@@ -444,11 +403,14 @@ func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, op
 	if option == nil {
 		option = &Option{}
 	}
-	if self.Urlex == nil {
-		self.Urlex = make(map[string]*UrlValid)
+	if self.OptionMap == nil {
+		self.OptionMap = make(map[string]*Option)
 	}
-	self.Urlex[pattern] = &UrlValid{pattern, 0, option.MaxRequest, option.Customize}
-	http.DefaultServeMux.HandleFunc(pattern, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	if self.Handler == nil {
+		self.Handler = http.NewServeMux()
+	}
+	self.OptionMap[pattern] = option
+	self.Handler.Handle(pattern, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		self.Proxy(&NodePtr{self, r, w, pattern, handle})
 	}))
 }
