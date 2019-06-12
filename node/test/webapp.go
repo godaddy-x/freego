@@ -11,9 +11,25 @@ import (
 )
 
 var (
-	local_cache  = new(cache.LocalMapManager).NewCache(30, 10)
-	rate_limiter = rate.NewRateLimiter(30, 10)
+	local_cache = new(cache.LocalMapManager).NewCache(30, 10)
+	limiter     = rate.NewLocalLimiter(local_cache)
 )
+
+func init() {
+	//redisConf := cache.RedisConfig{
+	//	Host:        "192.168.27.160",
+	//	Port:        6379,
+	//	Password:    "wallet828",
+	//	MaxIdle:     150,
+	//	MaxActive:   150,
+	//	IdleTimeout: 240,
+	//	Network:     "tcp",
+	//	LockTimeout: 15,
+	//}
+	//new(cache.RedisManager).InitConfig(redisConf)
+	//redis_cache, _ := new(cache.RedisManager).Client()
+	//limiter = rate.NewRedisLimiter(redis_cache)
+}
 
 type MyWebNode struct {
 	node.HttpNode
@@ -116,8 +132,8 @@ func StartHttpNode() *MyWebNode {
 	my.CacheAware = GetCacheAware
 	my.OverrideFunc = &node.OverrideFunc{
 		PreHandleFunc: func(ctx *node.Context) error {
-			if rate_limiter.Validate(ctx.Method, 2, 5, 30) {
-				return ex.Throw{Code: 429, Msg: "系统正繁忙"}
+			if limiter.Validate(ctx.Method, 2, 5, 30) {
+				return ex.Throw{Code: 429, Msg: "系统正繁忙,人数过多"}
 			}
 			return nil
 		},

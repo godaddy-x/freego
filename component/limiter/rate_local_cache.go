@@ -10,8 +10,11 @@ type RateLimiter struct {
 	cache cache.ICache
 }
 
-func NewRateLimiter(a, b int) *RateLimiter {
-	return &RateLimiter{cache: new(cache.LocalMapManager).NewCache(a, b)}
+func NewLocalLimiter(c cache.ICache) *RateLimiter {
+	if c == nil {
+		return &RateLimiter{cache: new(cache.LocalMapManager).NewCache(30, 3)}
+	}
+	return &RateLimiter{cache: c}
 }
 
 // key=过滤关键词 limit=速率 bucket=容量 expire=过期时间/秒
