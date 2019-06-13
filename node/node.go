@@ -3,6 +3,7 @@ package node
 import (
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/component/jwt"
+	"github.com/godaddy-x/freego/component/limiter"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/util"
 	"net/http"
@@ -50,6 +51,7 @@ type HookNode struct {
 	SessionAware SessionAware
 	CacheAware   func(ds ...string) (cache.ICache, error)
 	OverrideFunc *OverrideFunc
+	Limiter      *rate.RateLimiter
 	Handler      *http.ServeMux
 	Option       *Option
 	OptionMap    map[string]*Option

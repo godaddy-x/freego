@@ -129,10 +129,11 @@ func StartHttpNode() *MyWebNode {
 		Port:      8090,
 		SecretKey: GetSecretKey,
 	}
+	my.Limiter = rate.NewLocalLimiterByOption(local_cache, &rate.RateOpetion{"gateway", 2, 5, 30})
 	my.CacheAware = GetCacheAware
 	my.OverrideFunc = &node.OverrideFunc{
 		PreHandleFunc: func(ctx *node.Context) error {
-			if limiter.Validate(ctx.Method, 2, 5, 30) {
+			if limiter.Validate(&rate.RateOpetion{ctx.Method, 2, 5, 30}) {
 				return ex.Throw{Code: 429, Msg: "系统正繁忙,人数过多"}
 			}
 			return nil

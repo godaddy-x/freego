@@ -384,10 +384,26 @@ func (self *HttpNode) RenderTo() error {
 
 func (self *HttpNode) StartServer() {
 	go func() {
-		if err := http.ListenAndServe(util.AddStr(self.Context.Host, ":", self.Context.Port), self.Handler); err != nil {
-			panic(err)
+		if self.Limiter == nil {
+			if err := http.ListenAndServe(util.AddStr(self.Context.Host, ":", self.Context.Port), self.Handler); err != nil {
+				panic(err)
+			}
+		} else {
+			if err := http.ListenAndServe(util.AddStr(self.Context.Host, ":", self.Context.Port), self.limiterHandler()); err != nil {
+				panic(err)
+			}
 		}
 	}()
+}
+
+func (self *HttpNode) limiterHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if self.Limiter.Validate(nil) {
+			http.Error(w, http.StatusText(429), http.StatusTooManyRequests)
+			return
+		}
+		self.Handler.ServeHTTP(w, r)
+	})
 }
 
 func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, option *Option) {
