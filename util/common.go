@@ -610,7 +610,7 @@ func CheckStr(c string, vs ...string) bool {
 }
 
 // 保留小数位
-func Shift(input interface{}, len int) string {
+func Shift(input interface{}, ln int) string {
 	var data decimal.Decimal
 	if v, b := input.(string); b {
 		if ret, err := decimal.NewFromString(v); err != nil {
@@ -625,8 +625,15 @@ func Shift(input interface{}, len int) string {
 	} else {
 		return ""
 	}
-	data = data.Shift(int32(len))
-	data = decimal.New(data.IntPart(), 0)
-	data = data.Shift(- int32(len))
-	return data.String()
+	dataStr := data.String()
+	if ln > 0 && strings.Index(dataStr, ".") != -1 {
+		dataStr_ := strings.Split(dataStr, ".")
+		part1 := dataStr_[0]
+		part2 := dataStr_[1]
+		if len(part2) > ln {
+			part2 = Substr(part2, 0, ln)
+		}
+		return AddStr(part1, ".", part2)
+	}
+	return dataStr
 }

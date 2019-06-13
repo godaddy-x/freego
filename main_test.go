@@ -620,3 +620,8 @@ func TestRGX2(t *testing.T) {
 	//}
 	//fmt.Println("cost: ", util.Time()-start)
 }
+
+func TestRGX3(t *testing.T) {
+	s := "1.045"
+	fmt.Println(util.Shift(s, 2))
+}
