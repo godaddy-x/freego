@@ -621,7 +621,16 @@ func TestRGX2(t *testing.T) {
 	//fmt.Println("cost: ", util.Time()-start)
 }
 
-func TestRGX3(t *testing.T) {
-	s := "1.045"
-	fmt.Println(util.Shift(s, 2))
+func BenchmarkLoopsParallel(b *testing.B) {
+	i := float64(1)
+	// b.SetParallelism(1000)
+	b.N = 50000
+	b.ReportAllocs()
+	b.RunParallel(func(pb *testing.PB) { //并发
+		for pb.Next() {
+			s:= 145647.454564
+			s = s+i
+			util.Shift(s, 10,true)
+		}
+	})
 }

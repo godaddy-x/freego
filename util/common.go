@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"github.com/godaddy-x/freego/component/decimal"
 	"github.com/godaddy-x/freego/component/snowflake"
+	"github.com/godaddy-x/jorm/util"
 	"io/ioutil"
 	"log"
 	"math/rand"
@@ -610,7 +611,7 @@ func CheckStr(c string, vs ...string) bool {
 }
 
 // 保留小数位
-func Shift(input interface{}, ln int) string {
+func Shift(input interface{}, ln int, fz bool) string {
 	var data decimal.Decimal
 	if v, b := input.(string); b {
 		if ret, err := decimal.NewFromString(v); err != nil {
@@ -625,15 +626,23 @@ func Shift(input interface{}, ln int) string {
 	} else {
 		return ""
 	}
-	dataStr := data.String()
-	if ln > 0 && strings.Index(dataStr, ".") != -1 {
-		dataStr_ := strings.Split(dataStr, ".")
-		part1 := dataStr_[0]
-		part2 := dataStr_[1]
+	part1 := data.String()
+	part2 := ""
+	if strings.Index(part1, ".") != -1 {
+		dataStr_ := strings.Split(part1, ".")
+		part1 = dataStr_[0]
+		part2 = dataStr_[1]
 		if len(part2) > ln {
 			part2 = Substr(part2, 0, ln)
 		}
-		return AddStr(part1, ".", part2)
 	}
-	return dataStr
+	if fz && ln > 0 && len(part2) < ln {
+		for i := 0; i <= ln-len(part2); i++ {
+			part2 = util.AddStr(part2, "0")
+		}
+	}
+	if len(part2) > 0 {
+		part1 = util.AddStr(part1, ".", part2)
+	}
+	return part1
 }
