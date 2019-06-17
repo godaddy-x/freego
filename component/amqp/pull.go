@@ -81,22 +81,31 @@ func (self *PullManager) listen(receiver *PullReceiver) {
 	} else {
 		receiver.channel = channel
 	}
-	exchange := receiver.ExchangeName()
-	queue := receiver.QueueName()
+	exchange := receiver.LisData.Option.Exchange
+	queue := receiver.LisData.Option.Queue
+	kind := receiver.LisData.Option.Kind
+	router := receiver.LisData.Option.Router
+	prefetchCount := receiver.LisData.PrefetchCount
+	prefetchSize := receiver.LisData.PrefetchSize
+	if len(kind) == 0 {
+		kind = DIRECT
+	}
+	if len(router) == 0 {
+		router = queue
+	}
+	if prefetchCount == 0 {
+		prefetchCount = 1
+	}
 	log.Println(fmt.Sprintf("消费队列[%s - %s]服务启动成功...", exchange, queue))
 	if err := self.prepareExchange(channel, exchange); err != nil {
 		receiver.OnError(fmt.Errorf("初始化交换机 [%s] 失败: %s", exchange, err.Error()))
 		return
 	}
-	if err := self.prepareQueue(channel, exchange, queue); err != nil {
+	if err := self.prepareQueue(channel, exchange, queue, router); err != nil {
 		receiver.OnError(fmt.Errorf("绑定队列 [%s] 到交换机失败: %s", queue, err.Error()))
 		return
 	}
-	count := receiver.LisData.PrefetchCount
-	if count == 0 {
-		count = 1
-	}
-	channel.Qos(count, receiver.LisData.PrefetchSize, false)
+	channel.Qos(prefetchCount, prefetchSize, false)
 	if msgs, err := channel.Consume(queue, "", false, false, false, false, nil); err != nil {
 		receiver.OnError(fmt.Errorf("获取队列 %s 的消费通道失败: %s", queue, err.Error()))
 	} else {
@@ -114,26 +123,14 @@ func (self *PullManager) prepareExchange(channel *amqp.Channel, exchange string)
 	return channel.ExchangeDeclare(exchange, self.kind, true, false, false, false, nil)
 }
 
-func (self *PullManager) prepareQueue(channel *amqp.Channel, exchange, queue string) error {
+func (self *PullManager) prepareQueue(channel *amqp.Channel, exchange, queue, router string) error {
 	if _, err := channel.QueueDeclare(queue, true, false, false, false, nil); err != nil {
 		return err
 	}
-	if err := channel.QueueBind(queue, queue, exchange, false, nil); err != nil {
+	if err := channel.QueueBind(queue, router, exchange, false, nil); err != nil {
 		return err
 	}
 	return nil
-}
-
-func (self *PullReceiver) Channel() *amqp.Channel {
-	return self.channel
-}
-
-func (self *PullReceiver) ExchangeName() string {
-	return self.Exchange
-}
-
-func (self *PullReceiver) QueueName() string {
-	return self.Queue
 }
 
 func (self *PullReceiver) OnError(err error) {
@@ -144,9 +141,7 @@ func (self *PullReceiver) OnError(err error) {
 type PullReceiver struct {
 	group    sync.WaitGroup
 	channel  *amqp.Channel
-	Exchange string
-	Queue    string
-	LisData  LisData
+	LisData  *LisData
 	Callback func(msg *MsgData) error
 }
 

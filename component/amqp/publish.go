@@ -20,11 +20,9 @@ type PublishManager struct {
 }
 
 type PublishMQ struct {
-	channel  *amqp.Channel
-	mu       sync.Mutex
-	exchange string
-	queue    string
-	kind     string
+	channel *amqp.Channel
+	option  Option
+	mu      sync.Mutex
 }
 
 func (self *PublishManager) InitConfig(input ...AmqpConfig) (*PublishManager, error) {
@@ -63,20 +61,27 @@ func (self *PublishManager) Publish(data *MsgData) error {
 	if data == nil {
 		return util.Error("发送数据为空")
 	}
-	pub, ok := self.channels[data.Exchange+data.Queue]
+	chanKey := data.Option.Exchange + data.Option.Router
+	pub, ok := self.channels[chanKey]
 	if !ok {
 		self.mu.Lock()
 		defer self.mu.Unlock()
-		pub, ok = self.channels[data.Exchange+data.Queue]
+		pub, ok = self.channels[chanKey]
 		if !ok {
 			channel, err := self.conn.Channel()
 			if err != nil {
 				return err
 			}
-			pub = &PublishMQ{channel: channel, exchange: data.Exchange, queue: data.Queue, kind: "direct"}
+			if len(data.Option.Kind) == 0 {
+				data.Option.Kind = DIRECT
+			}
+			if len(data.Option.Router) == 0 {
+				data.Option.Router = data.Option.Queue
+			}
+			pub = &PublishMQ{channel: channel, option: data.Option}
 			pub.prepareExchange()
-			pub.prepareQueue()
-			self.channels[data.Exchange+data.Queue] = pub
+			// pub.prepareQueue()
+			self.channels[chanKey] = pub
 		}
 	}
 	i := 0
@@ -99,7 +104,7 @@ func (self *PublishMQ) sendToMQ(v interface{}) (bool, error) {
 		return false, err
 	} else {
 		data := amqp.Publishing{ContentType: "text/plain", Body: b}
-		if err := self.channel.Publish(self.exchange, self.queue, false, false, data); err != nil {
+		if err := self.channel.Publish(self.option.Exchange, self.option.Router, false, false, data); err != nil {
 			return false, err
 		}
 		return true, nil
@@ -107,14 +112,15 @@ func (self *PublishMQ) sendToMQ(v interface{}) (bool, error) {
 }
 
 func (self *PublishMQ) prepareExchange() error {
-	return self.channel.ExchangeDeclare(self.exchange, self.kind, true, false, false, false, nil)
+	fmt.Errorf("初始化交换机 [%s - %s]成功", self.option.Exchange, self.option.Kind)
+	return self.channel.ExchangeDeclare(self.option.Exchange, self.option.Kind, true, false, false, false, nil)
 }
 
 func (self *PublishMQ) prepareQueue() error {
-	if _, err := self.channel.QueueDeclare(self.queue, true, false, false, false, nil); err != nil {
+	if _, err := self.channel.QueueDeclare(self.option.Queue, true, false, false, false, nil); err != nil {
 		return err
 	}
-	if err := self.channel.QueueBind(self.queue, self.queue, self.exchange, false, nil); err != nil {
+	if err := self.channel.QueueBind(self.option.Queue, self.option.Router, self.option.Exchange, false, nil); err != nil {
 		return err
 	}
 	return nil
