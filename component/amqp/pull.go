@@ -16,7 +16,6 @@ var (
 type PullManager struct {
 	mu        sync.Mutex
 	conn      *amqp.Connection
-	kind      string
 	receivers []*PullReceiver
 }
 
@@ -31,7 +30,6 @@ func (self *PullManager) InitConfig(input ...AmqpConfig) (*PullManager, error) {
 		}
 		pull_mgr := &PullManager{
 			conn:      c,
-			kind:      "direct",
 			receivers: make([]*PullReceiver, 0),
 		}
 		if len(v.DsName) == 0 {
@@ -96,13 +94,13 @@ func (self *PullManager) listen(receiver *PullReceiver) {
 	if prefetchCount == 0 {
 		prefetchCount = 1
 	}
-	log.Println(fmt.Sprintf("消费队列[%s - %s]服务启动成功...", exchange, queue))
-	if err := self.prepareExchange(channel, exchange); err != nil {
+	log.Println(fmt.Sprintf("消费队列 [%s - %s - %s - %s] 服务启动成功...", kind, exchange, router, queue))
+	if err := self.prepareExchange(channel, exchange, kind); err != nil {
 		receiver.OnError(fmt.Errorf("初始化交换机 [%s] 失败: %s", exchange, err.Error()))
 		return
 	}
 	if err := self.prepareQueue(channel, exchange, queue, router); err != nil {
-		receiver.OnError(fmt.Errorf("绑定队列 [%s] 到交换机失败: %s", queue, err.Error()))
+		receiver.OnError(fmt.Errorf("绑定队列 [%s] 到交换机 [%s] 失败: %s", queue, exchange, err.Error()))
 		return
 	}
 	channel.Qos(prefetchCount, prefetchSize, false)
@@ -119,8 +117,8 @@ func (self *PullManager) listen(receiver *PullReceiver) {
 	}
 }
 
-func (self *PullManager) prepareExchange(channel *amqp.Channel, exchange string) error {
-	return channel.ExchangeDeclare(exchange, self.kind, true, false, false, false, nil)
+func (self *PullManager) prepareExchange(channel *amqp.Channel, exchange, kind string) error {
+	return channel.ExchangeDeclare(exchange, kind, true, false, false, false, nil)
 }
 
 func (self *PullManager) prepareQueue(channel *amqp.Channel, exchange, queue, router string) error {
@@ -149,14 +147,14 @@ func (self *PullReceiver) OnReceive(b []byte) bool {
 	if b == nil || len(b) == 0 || string(b) == "{}" {
 		return true
 	}
-	defer log.Debug("MQ消费数据监控日志", util.Time(), log.String("message", string(b)))
+	defer log.Debug("MQ消费数据监控日志", util.Time(), log.String("message", util.Bytes2Str(b)))
 	message := MsgData{}
 	if err := util.JsonUnmarshal(b, &message); err != nil {
-		log.Error("MQ消费数据解析失败", 0, log.String("exchange", self.Exchange), log.String("queue", self.Queue), log.Any("message", message), log.AddError(err))
+		log.Error("MQ消费数据解析失败", 0, log.Any("option", self.LisData.Option), log.Any("message", message), log.AddError(err))
 	} else if message.Content == nil {
 		return true
 	} else if err := self.Callback(&message); err != nil {
-		log.Error("MQ消费数据处理失败", 0, log.String("exchange", self.Exchange), log.String("queue", self.Queue), log.Any("message", message), log.AddError(err))
+		log.Error("MQ消费数据处理失败", 0, log.Any("option", self.LisData.Option), log.Any("message", message), log.AddError(err))
 		if self.LisData.IsNack {
 			return false
 		}

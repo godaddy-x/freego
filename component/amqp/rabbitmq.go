@@ -1,8 +1,10 @@
 package rabbitmq
 
 const (
-	MASTER        = "MASTER"
-	DIRECT        = "direct"
+	MASTER = "MASTER"
+	DIRECT = "direct"
+	TOPIC  = "topic"
+	FANOUT = "fanout"
 )
 
 // Amqp配置参数

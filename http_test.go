@@ -3,10 +3,13 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"github.com/godaddy-x/freego/component/amqp"
 	"github.com/godaddy-x/freego/node"
 	"github.com/godaddy-x/freego/util"
 	"io/ioutil"
 	"net/http"
+	"testing"
+	"time"
 )
 
 func ToPost(url, token, access_key string, req interface{}) {
@@ -58,3 +61,54 @@ func ToPostBy(url string, data interface{}) {
 	fmt.Println(util.Bytes2Str(respBytes))
 }
 
+var (
+	publish_option = rabbitmq.Option{Exchange: "topic.test.exchange", Router: "topic.test.router", Kind: rabbitmq.DIRECT}
+	pull_option1    = rabbitmq.Option{Exchange: "topic.test.exchange", Router: "topic.test.router", Queue: "topic.test.queue1", Kind: rabbitmq.DIRECT}
+	pull_option2    = rabbitmq.Option{Exchange: "topic.test.exchange", Router: "topic.test.#", Queue: "topic.test.queue2", Kind: rabbitmq.DIRECT}
+	amqp           = rabbitmq.AmqpConfig{
+		Host:     "192.168.27.160",
+		Port:     5672,
+		Username: "admin",
+		Password: "admin",
+	}
+)
+
+func TestPublish(t *testing.T) {
+	v, _ := new(rabbitmq.PublishManager).InitConfig(amqp)
+	client, _ := v.Client()
+	client.Publish(&rabbitmq.MsgData{
+		Option:  publish_option,
+		Content: map[string]string{"username": "张三"},
+	})
+	// new(rabbitmq.PullManager).InitConfig(amqp)
+}
+
+func TestPull1(t *testing.T) {
+	v, _ := new(rabbitmq.PullManager).InitConfig(amqp)
+	client, _ := v.Client()
+	pull := &rabbitmq.PullReceiver{
+		LisData: &rabbitmq.LisData{Option: pull_option1},
+		Callback: func(msg *rabbitmq.MsgData) error {
+			b, _ := util.JsonMarshal(msg)
+			fmt.Println("消费读取数据1: ", util.Bytes2Str(b))
+			return nil
+		},
+	}
+	client.AddPullReceiver(pull)
+	time.Sleep(1 * time.Hour)
+}
+
+func TestPull2(t *testing.T) {
+	v, _ := new(rabbitmq.PullManager).InitConfig(amqp)
+	client, _ := v.Client()
+	pull := &rabbitmq.PullReceiver{
+		LisData: &rabbitmq.LisData{Option: pull_option2},
+		Callback: func(msg *rabbitmq.MsgData) error {
+			b, _ := util.JsonMarshal(msg)
+			fmt.Println("消费读取数据2: ", util.Bytes2Str(b))
+			return nil
+		},
+	}
+	client.AddPullReceiver(pull)
+	time.Sleep(1 * time.Hour)
+}

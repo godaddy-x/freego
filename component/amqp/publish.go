@@ -80,7 +80,7 @@ func (self *PublishManager) Publish(data *MsgData) error {
 			}
 			pub = &PublishMQ{channel: channel, option: data.Option}
 			pub.prepareExchange()
-			// pub.prepareQueue()
+			pub.prepareQueue()
 			self.channels[chanKey] = pub
 		}
 	}
@@ -112,11 +112,14 @@ func (self *PublishMQ) sendToMQ(v interface{}) (bool, error) {
 }
 
 func (self *PublishMQ) prepareExchange() error {
-	fmt.Errorf("初始化交换机 [%s - %s]成功", self.option.Exchange, self.option.Kind)
+	log.Println(fmt.Sprintf("初始化交换机 [%s - %s]成功", self.option.Kind, self.option.Exchange))
 	return self.channel.ExchangeDeclare(self.option.Exchange, self.option.Kind, true, false, false, false, nil)
 }
 
 func (self *PublishMQ) prepareQueue() error {
+	if len(self.option.Queue) == 0 {
+		return nil
+	}
 	if _, err := self.channel.QueueDeclare(self.option.Queue, true, false, false, false, nil); err != nil {
 		return err
 	}
