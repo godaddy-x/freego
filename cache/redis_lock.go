@@ -1,8 +1,6 @@
 package cache
 
 import (
-	"errors"
-	"fmt"
 	"github.com/garyburd/redigo/redis"
 	"github.com/godaddy-x/freego/util"
 	"time"
@@ -46,7 +44,7 @@ func (lock *Lock) unlock() (err error) {
 }
 
 func (lock *Lock) key() string {
-	return fmt.Sprintf("redislock:%s", lock.resource)
+	return util.AddStr("redislock:", lock.resource)
 }
 
 func (self *RedisManager) getLock(conn redis.Conn, resource string) (lock *Lock, ok bool, err error) {
@@ -72,10 +70,10 @@ func (self *RedisManager) TryLockWithTimeout(resource string, timeout int, call 
 	client := self.Pool.Get()
 	lock, ok, err := self.getLockkWithTimeout(client, resource, time.Duration(timeout)*time.Second)
 	if err != nil {
-		return errors.New("获取凭证失败: " + err.Error())
+		return util.Error("获取凭证失败: ", err)
 	}
 	if !ok {
-		return errors.New("您的请求[" + resource + "]正在处理,请耐心等待")
+		return util.Error("您的请求[", resource, "]正在处理,请耐心等待")
 	}
 	err = call()
 	lock.unlock()
