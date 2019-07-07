@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"github.com/godaddy-x/freego/component/decimal"
 	"github.com/godaddy-x/freego/component/snowflake"
-	"github.com/godaddy-x/jorm/util"
 	"io/ioutil"
 	"log"
 	"math/rand"
@@ -638,11 +637,11 @@ func Shift(input interface{}, ln int, fz bool) string {
 	}
 	if fz && ln > 0 && len(part2) < ln {
 		for i := 0; i <= ln-len(part2); i++ {
-			part2 = util.AddStr(part2, "0")
+			part2 = AddStr(part2, "0")
 		}
 	}
 	if len(part2) > 0 {
-		part1 = util.AddStr(part1, ".", part2)
+		part1 = AddStr(part1, ".", part2)
 	}
 	return part1
 }

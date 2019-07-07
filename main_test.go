@@ -598,6 +598,12 @@ func TestRGX1(t *testing.T) {
 }
 
 func TestRGX2(t *testing.T) {
+	x := "世界上最邪恶最专制的现代奴隶制国家--朝鲜"
+	key :=util.Substr( util.MD5("hgfedcba87654321"), 0, 16)
+	x1 := util.AesEncrypt(x, key)
+	fmt.Println(x1)
+	x2 := util.AesDecrypt(x1, key)
+	fmt.Print(string(x2))
 	//start := util.Time()
 	//for i := 0; i < 20000; i++ {
 	//	// MyClient.Connect(context.Background())
@@ -628,9 +634,9 @@ func BenchmarkLoopsParallel(b *testing.B) {
 	b.ReportAllocs()
 	b.RunParallel(func(pb *testing.PB) { //并发
 		for pb.Next() {
-			s:= 145647.454564
-			s = s+i
-			util.Shift(s, 10,true)
+			s := 145647.454564
+			s = s + i
+			util.Shift(s, 10, true)
 		}
 	})
 }
