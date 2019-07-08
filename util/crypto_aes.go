@@ -13,6 +13,11 @@ func padding(src []byte, blocksize int) []byte {
 }
 
 func unpadding(src []byte) []byte {
+	defer func() {
+		if r := recover(); r != nil {
+			// log.Debug("Aes解密失败", 0, log.String("src", string(src)))
+		}
+	}()
 	n := len(src)
 	unpadnum := int(src[n-1])
 	return src[:n-unpadnum]
