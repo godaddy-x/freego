@@ -78,6 +78,22 @@ func (self *PublishManager) Publish(data *MsgData) error {
 			if len(data.Option.Router) == 0 {
 				data.Option.Router = data.Option.Queue
 			}
+			if data.Option.Safety > 0 {
+				if len(data.Option.SigKey) == 0 {
+					return util.Error("签名密钥为空")
+				}
+				b, err := util.JsonMarshal(data.Content);
+				if err != nil {
+					return err
+				}
+				ret := util.Base64URLEncode(b)
+				if len(ret) == 0 {
+					return util.Error("发送数据编码为空")
+				}
+				data.Content = ret
+				data.Signature = util.MD5(ret, data.Option.SigKey)
+				data.Option.SigKey = ""
+			}
 			pub = &PublishMQ{channel: channel, option: data.Option}
 			pub.prepareExchange()
 			pub.prepareQueue()

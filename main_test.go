@@ -598,12 +598,17 @@ func TestRGX1(t *testing.T) {
 }
 
 func TestRGX2(t *testing.T) {
-	x := "世界上最邪恶最专制的现代奴隶制国家--朝鲜"
-	key :=util.Substr( util.MD5("hgfedcba87654321"), 0, 16)
-	x1 := util.AesEncrypt(x, key)
-	fmt.Println(x1)
-	x2 := util.AesDecrypt(x1, key)
-	fmt.Print(string(x2))
+	m := map[string]int{"test":1}
+	b, _ := util.JsonMarshal(m)
+	r := map[string]interface{}{}
+	util.JsonUnmarshal(b, &r)
+	fmt.Println(r)
+	//x := "世界上最邪恶最专制的现代奴隶制国家--朝鲜"
+	//key :=util.Substr( util.MD5("hgfedcba87654321"), 0, 16)
+	//x1 := util.AesEncrypt(x, key)
+	//fmt.Println(x1)
+	//x2 := util.AesDecrypt(x1, key)
+	//fmt.Print(string(x2))
 	//start := util.Time()
 	//for i := 0; i < 20000; i++ {
 	//	// MyClient.Connect(context.Background())

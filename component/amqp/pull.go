@@ -85,6 +85,12 @@ func (self *PullManager) listen(receiver *PullReceiver) {
 	router := receiver.LisData.Option.Router
 	prefetchCount := receiver.LisData.PrefetchCount
 	prefetchSize := receiver.LisData.PrefetchSize
+	safety := receiver.LisData.Option.Safety
+	sigkey := receiver.LisData.Option.SigKey
+	if safety > 0 && len(sigkey) == 0 {
+		log.Println(fmt.Sprintf("消费队列 [%s - %s - %s - %s] 服务启动失败: 签名密钥为空", kind, exchange, router, queue))
+		return
+	}
 	if len(kind) == 0 {
 		kind = DIRECT
 	}
@@ -151,9 +157,37 @@ func (self *PullReceiver) OnReceive(b []byte) bool {
 	message := MsgData{}
 	if err := util.JsonUnmarshal(b, &message); err != nil {
 		log.Error("MQ消费数据解析失败", 0, log.Any("option", self.LisData.Option), log.Any("message", message), log.AddError(err))
-	} else if message.Content == nil {
+	}
+	if message.Content == nil {
 		return true
-	} else if err := self.Callback(&message); err != nil {
+	}
+	if self.LisData.Option.Safety > 0 {
+		if len(message.Signature) == 0 {
+			log.Error("MQ消费数据签名为空", 0, log.Any("option", self.LisData.Option), log.Any("message", message))
+			return true
+		}
+		v, b := message.Content.(string)
+		if !b {
+			log.Error("MQ消费数据非string类型", 0, log.Any("option", self.LisData.Option), log.Any("message", message))
+			return true
+		}
+		if message.Signature != util.MD5(v, self.LisData.Option.SigKey) {
+			log.Error("MQ消费数据签名校验失败", 0, log.Any("option", self.LisData.Option), log.Any("message", message))
+			return true
+		}
+		btv := util.Base64URLDecode(v)
+		if btv == nil || len(btv) == 0 {
+			log.Error("MQ消费数据base64解码失败", 0, log.Any("option", self.LisData.Option), log.Any("message", message))
+			return true
+		}
+		content := map[string]interface{}{}
+		if err := util.JsonUnmarshal(btv, &content); err != nil {
+			log.Error("MQ消费数据处理失败", 0, log.Any("option", self.LisData.Option), log.Any("message", message), log.AddError(err))
+			return true
+		}
+		message.Content = content
+	}
+	if err := self.Callback(&message); err != nil {
 		log.Error("MQ消费数据处理失败", 0, log.Any("option", self.LisData.Option), log.Any("message", message), log.AddError(err))
 		if self.LisData.IsNack {
 			return false

@@ -21,16 +21,19 @@ type Option struct {
 	Queue    string `json:"queue"`
 	Kind     string `json:"kind"`
 	Router   string `json:"router"`
+	Safety   int    `json:"safety"`
+	SigKey   string `json:"-"`
 }
 
 // Amqp消息参数
 type MsgData struct {
-	Option  Option      `json:"option"`
-	Durable bool        `json:"durable"`
-	Content interface{} `json:"content"`
-	Type    int64       `json:"type"`
-	Delay   int64       `json:"delay"`
-	Retries int64       `json:"retries"`
+	Option    Option      `json:"option"`
+	Durable   bool        `json:"durable"`
+	Content   interface{} `json:"content"`
+	Type      int64       `json:"type"`
+	Delay     int64       `json:"delay"`
+	Retries   int64       `json:"retries"`
+	Signature string      `json:"signature"`
 }
 
 // Amqp延迟发送配置
