@@ -1,10 +1,14 @@
 package rabbitmq
 
 const (
-	MASTER = "MASTER"
-	DIRECT = "direct"
-	TOPIC  = "topic"
-	FANOUT = "fanout"
+	MASTER     = "MASTER"
+	DIRECT     = "direct"
+	TOPIC      = "topic"
+	FANOUT     = "fanout"
+	MD5        = 1
+	SHA256     = 2
+	MD5_AES    = 11
+	SHA256_AES = 21
 )
 
 // Amqp配置参数
@@ -21,7 +25,7 @@ type Option struct {
 	Queue    string `json:"queue"`
 	Kind     string `json:"kind"`
 	Router   string `json:"router"`
-	Safety   int    `json:"safety"`
+	SigTyp   int    `json:"sigTyp"` // 1.MD5 2.SHA256 11.MD5+AES 21.SHA256+AES
 	SigKey   string `json:"-"`
 }
 

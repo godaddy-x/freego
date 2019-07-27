@@ -85,11 +85,17 @@ func (self *PullManager) listen(receiver *PullReceiver) {
 	router := receiver.LisData.Option.Router
 	prefetchCount := receiver.LisData.PrefetchCount
 	prefetchSize := receiver.LisData.PrefetchSize
-	safety := receiver.LisData.Option.Safety
-	sigkey := receiver.LisData.Option.SigKey
-	if safety > 0 && len(sigkey) == 0 {
-		log.Println(fmt.Sprintf("消费队列 [%s - %s - %s - %s] 服务启动失败: 签名密钥为空", kind, exchange, router, queue))
-		return
+	sigTyp := receiver.LisData.Option.SigTyp
+	sigKey := receiver.LisData.Option.SigKey
+	if sigTyp > 0 {
+		if len(sigKey) == 0 {
+			log.Println(fmt.Sprintf("消费队列 [%s - %s - %s - %s] 服务启动失败: 签名密钥为空", kind, exchange, router, queue))
+			return
+		}
+		if sigTyp == 2 && len(sigKey) != 16 {
+			log.Println(fmt.Sprintf("消费队列 [%s - %s - %s - %s] 服务启动失败: 签名密钥无效,应为16个字符长度", kind, exchange, router, queue))
+			return
+		}
 	}
 	if len(kind) == 0 {
 		kind = DIRECT
@@ -161,7 +167,9 @@ func (self *PullReceiver) OnReceive(b []byte) bool {
 	if message.Content == nil {
 		return true
 	}
-	if self.LisData.Option.Safety > 0 {
+	sigTyp := self.LisData.Option.SigTyp
+	sigKey := self.LisData.Option.SigKey
+	if sigTyp > 0 {
 		if len(message.Signature) == 0 {
 			log.Error("MQ消费数据签名为空", 0, log.Any("option", self.LisData.Option), log.Any("message", message))
 			return true
@@ -171,8 +179,42 @@ func (self *PullReceiver) OnReceive(b []byte) bool {
 			log.Error("MQ消费数据非string类型", 0, log.Any("option", self.LisData.Option), log.Any("message", message))
 			return true
 		}
-		if message.Signature != util.MD5(v, self.LisData.Option.SigKey) {
-			log.Error("MQ消费数据签名校验失败", 0, log.Any("option", self.LisData.Option), log.Any("message", message))
+		if len(v) == 0 {
+			log.Error("MQ消费数据消息内容为空", 0, log.Any("option", self.LisData.Option), log.Any("message", message))
+			return true
+		}
+		if sigTyp == MD5 {
+			if message.Signature != util.MD5(v, sigKey) {
+				log.Error("MQ消费数据MD5签名校验失败", 0, log.Any("option", self.LisData.Option), log.Any("message", message))
+				return true
+			}
+		} else if sigTyp == SHA256 {
+			if message.Signature != util.SHA256(v, sigKey) {
+				log.Error("MQ消费数据SHA256签名校验失败", 0, log.Any("option", self.LisData.Option), log.Any("message", message))
+				return true
+			}
+		} else if sigTyp == MD5_AES {
+			if message.Signature != util.MD5(v, util.MD5(util.Substr(sigKey, 2, 10))) {
+				log.Error("MQ消费数据MD5签名校验失败", 0, log.Any("option", self.LisData.Option), log.Any("message", message))
+				return true
+			}
+			v = util.AesDecrypt(v, sigKey)
+			if len(v) == 0 {
+				log.Error("MQ消费解密数据消息内容为空", 0, log.Any("option", self.LisData.Option), log.Any("message", message))
+				return true
+			}
+		} else if sigTyp == SHA256_AES {
+			if message.Signature != util.SHA256(v, util.SHA256(util.Substr(sigKey, 2, 10))) {
+				log.Error("MQ消费数据SHA256签名校验失败", 0, log.Any("option", self.LisData.Option), log.Any("message", message))
+				return true
+			}
+			v = util.AesDecrypt(v, sigKey)
+			if len(v) == 0 {
+				log.Error("MQ消费解密数据消息内容为空", 0, log.Any("option", self.LisData.Option), log.Any("message", message))
+				return true
+			}
+		} else {
+			log.Error("MQ消费数据签名类型无效", 0, log.Any("option", self.LisData.Option), log.Any("message", message))
 			return true
 		}
 		btv := util.Base64URLDecode(v)

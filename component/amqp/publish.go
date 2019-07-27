@@ -78,8 +78,10 @@ func (self *PublishManager) Publish(data *MsgData) error {
 			if len(data.Option.Router) == 0 {
 				data.Option.Router = data.Option.Queue
 			}
-			if data.Option.Safety > 0 {
-				if len(data.Option.SigKey) == 0 {
+			sigTyp := data.Option.SigTyp
+			sigKey := data.Option.SigKey
+			if sigTyp > 0 {
+				if len(sigKey) == 0 {
 					return util.Error("签名密钥为空")
 				}
 				b, err := util.JsonMarshal(data.Content);
@@ -90,8 +92,29 @@ func (self *PublishManager) Publish(data *MsgData) error {
 				if len(ret) == 0 {
 					return util.Error("发送数据编码为空")
 				}
-				data.Content = ret
-				data.Signature = util.MD5(ret, data.Option.SigKey)
+				if sigTyp == MD5 { // MD5模式
+					data.Content = ret
+					data.Signature = util.MD5(ret, sigKey)
+				} else if sigTyp == SHA256 { // SHA256模式
+					data.Content = ret
+					data.Signature = util.SHA256(ret, sigKey)
+				} else if sigTyp == MD5_AES { // AES+MD5模式
+					if len(sigKey) != 16 {
+						return util.Error("签名密钥无效,必须为16个字符长度")
+					}
+					ret = util.AesEncrypt(ret, sigKey)
+					data.Content = ret
+					data.Signature = util.MD5(ret, util.MD5(util.Substr(sigKey, 2, 10)))
+				} else if sigTyp == SHA256_AES { // AES+MD5模式
+					if len(sigKey) != 16 {
+						return util.Error("签名密钥无效,必须为16个字符长度")
+					}
+					ret = util.AesEncrypt(ret, sigKey)
+					data.Content = ret
+					data.Signature = util.SHA256(ret, util.SHA256(util.Substr(sigKey, 2, 10)))
+				} else {
+					return util.Error("签名类型无效")
+				}
 				data.Option.SigKey = ""
 			}
 			pub = &PublishMQ{channel: channel, option: data.Option}
