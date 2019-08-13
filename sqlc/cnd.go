@@ -43,7 +43,7 @@ const (
 	Json   = "json"
 	Mg     = "mg"
 	True   = "true"
-	BsonId = "id"
+	BsonId = "_id"
 	Date   = "date"
 	Dtype  = "dtype"
 )
@@ -119,36 +119,54 @@ func addDefaultCondit(cnd *Cnd, condit Condition) *Cnd {
 
 // =
 func (self *Cnd) Eq(key string, value interface{}) *Cnd {
+	if value == nil {
+		return self
+	}
 	condit := Condition{EQ_, key, value, nil}
 	return addDefaultCondit(self, condit)
 }
 
 // <>
 func (self *Cnd) NotEq(key string, value interface{}) *Cnd {
+	if value == nil {
+		return self
+	}
 	condit := Condition{NOT_EQ_, key, value, nil}
 	return addDefaultCondit(self, condit)
 }
 
 // <
 func (self *Cnd) Lt(key string, value interface{}) *Cnd {
+	if value == nil {
+		return self
+	}
 	condit := Condition{LT_, key, value, nil}
 	return addDefaultCondit(self, condit)
 }
 
 // <=
 func (self *Cnd) Lte(key string, value interface{}) *Cnd {
+	if value == nil {
+		return self
+	}
 	condit := Condition{LTE_, key, value, nil}
 	return addDefaultCondit(self, condit)
 }
 
 // >
 func (self *Cnd) Gt(key string, value interface{}) *Cnd {
+	if value == nil {
+		return self
+	}
 	condit := Condition{GT_, key, value, nil}
 	return addDefaultCondit(self, condit)
 }
 
 // >=
 func (self *Cnd) Gte(key string, value interface{}) *Cnd {
+	if value == nil {
+		return self
+	}
 	condit := Condition{GTE_, key, value, nil}
 	return addDefaultCondit(self, condit)
 }
@@ -167,36 +185,54 @@ func (self *Cnd) IsNotNull(key string) *Cnd {
 
 // between
 func (self *Cnd) Between(key string, value1 interface{}, value2 interface{}) *Cnd {
+	if value1 == nil || value2 == nil {
+		return self
+	}
 	condit := Condition{BETWEEN_, key, nil, []interface{}{value1, value2}}
 	return addDefaultCondit(self, condit)
 }
 
 // not between
 func (self *Cnd) NotBetween(key string, value1 interface{}, value2 interface{}) *Cnd {
+	if value1 == nil || value2 == nil {
+		return self
+	}
 	condit := Condition{NOT_BETWEEN_, key, nil, []interface{}{value1, value2}}
 	return addDefaultCondit(self, condit)
 }
 
 // in
 func (self *Cnd) In(key string, values ...interface{}) *Cnd {
+	if values == nil || len(values) == 0 {
+		return self
+	}
 	condit := Condition{IN_, key, nil, values}
 	return addDefaultCondit(self, condit)
 }
 
 // not in
 func (self *Cnd) NotIn(key string, values ...interface{}) *Cnd {
+	if values == nil || len(values) == 0 {
+		return self
+	}
 	condit := Condition{NOT_IN_, key, nil, values}
 	return addDefaultCondit(self, condit)
 }
 
 // like
 func (self *Cnd) Like(key string, value interface{}) *Cnd {
+	if value == nil {
+		return self
+	}
 	condit := Condition{LIKE_, key, value, nil}
 	return addDefaultCondit(self, condit)
 }
 
 // not like
 func (self *Cnd) NotLike(key string, value interface{}) *Cnd {
+	if value == nil {
+		return self
+	}
 	condit := Condition{NO_TLIKE_, key, value, nil}
 	return addDefaultCondit(self, condit)
 }
@@ -211,6 +247,9 @@ func (self *Cnd) AddOther(part string) *Cnd {
 
 // or
 func (self *Cnd) Or(cnds ...interface{}) *Cnd {
+	if cnds == nil || len(cnds) == 0 {
+		return self
+	}
 	condit := Condition{OR_, "", nil, cnds}
 	return addDefaultCondit(self, condit)
 }
@@ -257,6 +296,9 @@ func (self *Cnd) Offset(offset int64, limit int64) *Cnd {
 // 筛选字段去重
 func (self *Cnd) Distinct(keys ...string) *Cnd {
 	for _, v := range keys {
+		if len(v) == 0 {
+			continue
+		}
 		self.Distincts = append(self.Distincts, v)
 	}
 	return self
@@ -265,6 +307,9 @@ func (self *Cnd) Distinct(keys ...string) *Cnd {
 // 按字段分组
 func (self *Cnd) Groupby(keys ...string) *Cnd {
 	for _, v := range keys {
+		if len(v) == 0 {
+			continue
+		}
 		self.Groupbys = append(self.Groupbys, v)
 	}
 	return self
@@ -293,6 +338,9 @@ func (self *Cnd) Desc(key string) *Cnd {
 
 // 筛选指定字段查询
 func (self *Cnd) Fields(keys ...string) *Cnd {
+	if keys == nil || len(keys) == 0 {
+		return self
+	}
 	for _, v := range keys {
 		self.AnyFields = append(self.AnyFields, v)
 	}
@@ -308,6 +356,9 @@ func (self *Cnd) Cache(config CacheConfig) *Cnd {
 
 // 指定更新字段
 func (self *Cnd) UpdateKeyValue(keys []string, values ...interface{}) *Cnd {
+	if values == nil || len(values) == 0 {
+		return self
+	}
 	if len(keys) == 0 || len(keys) != len(values) {
 		println("keys和values参数下标不对等")
 		return self
