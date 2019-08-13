@@ -44,17 +44,17 @@ func Model(v interface{}) func() interface{} {
 	return func() interface{} { return v }
 }
 
-func ModelDriver(hook ...Hook) {
+func ModelDriver(hook ...Hook) error {
 	if hook == nil || len(hook) == 0 {
-		panic("注册对象函数不能为空")
+		return util.Error("注册对象函数不能为空")
 	}
 	for _, v := range hook {
 		model := v.NewObj()
 		if model == nil {
-			panic("注册对象不能为空")
+			return util.Error("注册对象不能为空")
 		}
 		if reflect.ValueOf(model).Kind() != reflect.Ptr {
-			panic("注册对象必须为指针类型")
+			return util.Error("注册对象必须为指针类型")
 		}
 		v := &MdlDriver{
 			Hook:      v,
@@ -97,6 +97,7 @@ func ModelDriver(hook ...Hook) {
 		}
 		modelDrivers[v.ModelName] = v
 	}
+	return nil
 }
 
 func GetValue(obj interface{}, elem *FieldElem) (interface{}, error) {

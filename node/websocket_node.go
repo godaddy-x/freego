@@ -300,7 +300,7 @@ func (self *WebsocketNode) StartServer() {
 	go self.WSManager.start()
 	go func() {
 		if err := http.ListenAndServe(util.AddStr(self.Context.Host, ":", self.Context.Port), nil); err != nil {
-			panic(err)
+			log.Error("初始化websocket失败", 0, log.AddError(err))
 		}
 	}()
 }
@@ -313,7 +313,8 @@ func (self *WebsocketNode) Router(pattern string, handle func(ctx *Context) erro
 		pattern = util.AddStr("/", self.Context.Version, pattern)
 	}
 	if self.CacheAware == nil {
-		panic("缓存服务尚未初始化")
+		log.Error("缓存服务尚未初始化", 0)
+		return
 	}
 	if option == nil {
 		option = &Option{}

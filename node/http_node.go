@@ -386,11 +386,11 @@ func (self *HttpNode) StartServer() {
 	go func() {
 		if self.Limiter == nil {
 			if err := http.ListenAndServe(util.AddStr(self.Context.Host, ":", self.Context.Port), self.Handler); err != nil {
-				panic(err)
+				log.Error("初始化http服务失败", 0, log.AddError(err))
 			}
 		} else {
 			if err := http.ListenAndServe(util.AddStr(self.Context.Host, ":", self.Context.Port), self.limiterHandler()); err != nil {
-				panic(err)
+				log.Error("初始化http服务失败", 0, log.AddError(err))
 			}
 		}
 	}()
@@ -414,7 +414,8 @@ func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, op
 		pattern = util.AddStr("/", self.Context.Version, pattern)
 	}
 	if self.CacheAware == nil {
-		panic("缓存服务尚未初始化")
+		log.Error("缓存服务尚未初始化", 0)
+		return
 	}
 	if option == nil {
 		option = &Option{}
