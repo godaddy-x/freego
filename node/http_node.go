@@ -299,22 +299,17 @@ func (self *HttpNode) PostHandle(err error) error {
 }
 
 func (self *HttpNode) AfterCompletion(err error) error {
-	var ret error
 	if self.OverrideFunc.AfterCompletionFunc != nil {
-		ret = self.OverrideFunc.AfterCompletionFunc(self.Context, self.Context.Response, err)
-	} else if err != nil {
-		return err
-	} else if ret != nil {
-		return ret
+		return self.OverrideFunc.AfterCompletionFunc(self.Context, self.Context.Response, err)
 	}
-	return nil
+	return err
 }
 
 func (self *HttpNode) RenderError(err error) error {
 	out := ex.Catch(err)
 	http_code := out.Code
 	if http_code > http.StatusInternalServerError { // 大于500的都属于业务异常代码,重定义http错误代码为600
-		http_code = 600
+		http_code = 200
 		out = ex.Throw{Code: out.Code, Msg: out.Msg}
 	}
 	resp := &RespDto{
