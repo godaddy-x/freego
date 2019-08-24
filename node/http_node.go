@@ -307,11 +307,6 @@ func (self *HttpNode) AfterCompletion(err error) error {
 
 func (self *HttpNode) RenderError(err error) error {
 	out := ex.Catch(err)
-	http_code := out.Code
-	if http_code > http.StatusInternalServerError { // 大于500的都属于业务异常代码,重定义http错误代码为600
-		http_code = 200
-		out = ex.Throw{Code: out.Code, Msg: out.Msg}
-	}
 	resp := &RespDto{
 		Code:    out.Code,
 		Message: out.Msg,
@@ -320,7 +315,7 @@ func (self *HttpNode) RenderError(err error) error {
 	}
 	if self.Option.Customize {
 		self.Context.Output.Header().Set("Content-Type", TEXT_PLAIN)
-		self.Context.Output.WriteHeader(http_code)
+		self.Context.Output.WriteHeader(http.StatusOK)
 		self.Context.Output.Write(util.Str2Bytes(resp.Message))
 	} else {
 		if result, err := util.JsonMarshal(resp); err != nil {
@@ -328,7 +323,7 @@ func (self *HttpNode) RenderError(err error) error {
 			return nil
 		} else {
 			self.Context.Output.Header().Set("Content-Type", APPLICATION_JSON)
-			self.Context.Output.WriteHeader(http_code)
+			self.Context.Output.WriteHeader(http.StatusOK)
 			self.Context.Output.Write(result)
 		}
 	}

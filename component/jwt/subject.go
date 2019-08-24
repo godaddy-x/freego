@@ -45,6 +45,7 @@ type Authorization struct {
 	Signature    string `json:"signature"`    // Token签名
 	AccessKey    string `json:"accessKey"`    // 授权签名密钥
 	SignatureKey string `json:"signatureKey"` // Token签名密钥
+	ExpireDate   int64  `json:"expireDate"`   // 授权签名过期时间
 }
 
 type Header struct {
@@ -109,6 +110,7 @@ func (self *Subject) GetAuthorization(key *SecretKey) (*Authorization, error) {
 		Signature:    signature,
 		AccessKey:    access_key,
 		SignatureKey: signature_key,
+		ExpireDate:   self.Payload.Exp,
 	}, nil
 }
 
