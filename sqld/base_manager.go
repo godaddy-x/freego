@@ -275,9 +275,17 @@ func (self *RDBManager) Save(data ...interface{}) error {
 				continue
 			}
 			if vv.Primary {
-				lastInsertId := util.GetSnowFlakeIntID(*self.Node)
-				util.SetInt64(util.GetPtr(v, vv.FieldOffset), lastInsertId)
-				parameter = append(parameter, lastInsertId)
+				if vv.FieldKind == reflect.Int64 {
+					lastInsertId := util.GetSnowFlakeIntID(*self.Node)
+					util.SetInt64(util.GetPtr(v, vv.FieldOffset), lastInsertId)
+					parameter = append(parameter, lastInsertId)
+				} else if vv.FieldKind == reflect.String {
+					lastInsertId := util.GetSnowFlakeStrID(*self.Node)
+					util.SetString(util.GetPtr(v, vv.FieldOffset), lastInsertId)
+					parameter = append(parameter, lastInsertId)
+				} else {
+					return util.Error("支持int64和string类型ID")
+				}
 			} else {
 				fval, err := GetValue(v, vv);
 				if err != nil {
@@ -366,11 +374,21 @@ func (self *RDBManager) Update(data ...interface{}) error {
 		fpart.WriteString(obv.PkName)
 		for _, v := range data {
 			if vv.Primary {
-				lastInsertId := util.GetInt64(util.GetPtr(v, obv.PkOffset))
-				if lastInsertId == 0 {
-					return self.Error("[Mysql.Update]对象ID为空")
+				if vv.FieldKind == reflect.Int64 {
+					lastInsertId := util.GetInt64(util.GetPtr(v, obv.PkOffset))
+					if lastInsertId == 0 {
+						return self.Error("[Mysql.Update]对象ID为空")
+					}
+					vpart.WriteString(strconv.FormatInt(lastInsertId, 10))
+				} else if vv.FieldKind == reflect.String {
+					lastInsertId := util.GetString(util.GetPtr(v, obv.PkOffset))
+					if len(lastInsertId) == 0 {
+						return self.Error("[Mysql.Update]对象ID为空")
+					}
+					vpart.WriteString(lastInsertId)
+				} else {
+					return util.Error("只支持int64和string类型ID")
 				}
-				vpart.WriteString(strconv.FormatInt(lastInsertId, 10))
 				vpart.WriteString(",")
 			}
 			if val, err := GetValue(v, vv); err != nil {
@@ -541,11 +559,19 @@ func (self *RDBManager) Delete(data ...interface{}) error {
 		if !ok {
 			return self.Error("[Mysql.Delete]没有找到注册对象类型[", obkey, "]")
 		}
-		lastInsertId := util.GetInt64(util.GetPtr(v, obv.PkOffset))
-		if lastInsertId == 0 {
-			return self.Error("[Mysql.Delete]对象ID为空")
+		if obv.PkKind == reflect.Int64 {
+			lastInsertId := util.GetInt64(util.GetPtr(v, obv.PkOffset))
+			if lastInsertId == 0 {
+				return self.Error("[Mysql.Delete]对象ID为空")
+			}
+			parameter = append(parameter, lastInsertId)
+		} else if obv.PkKind == reflect.String {
+			lastInsertId := util.GetString(util.GetPtr(v, obv.PkOffset))
+			if len(lastInsertId) == 0 {
+				return self.Error("[Mysql.Delete]对象ID为空")
+			}
+			parameter = append(parameter, lastInsertId)
 		}
-		parameter = append(parameter, lastInsertId)
 		vpart.WriteString("?,")
 	}
 	str2 := util.Bytes2Str(vpart.Bytes())
@@ -600,11 +626,20 @@ func (self *RDBManager) FindById(data interface{}) error {
 	if !ok {
 		return self.Error("[Mysql.FindById]没有找到注册对象类型[", obkey, "]")
 	}
-	lastInsertId := util.GetInt64(util.GetPtr(data, obv.PkOffset))
-	if lastInsertId == 0 {
-		return self.Error("[Mysql.FindById]对象ID为空")
+	parameter := []interface{}{}
+	if obv.PkKind == reflect.Int64 {
+		lastInsertId := util.GetInt64(util.GetPtr(data, obv.PkOffset))
+		if lastInsertId == 0 {
+			return self.Error("[Mysql.FindById]对象ID为空")
+		}
+		parameter = append(parameter, lastInsertId)
+	} else if obv.PkKind == reflect.String {
+		lastInsertId := util.GetString(util.GetPtr(data, obv.PkOffset))
+		if len(lastInsertId) == 0 {
+			return self.Error("[Mysql.FindById]对象ID为空")
+		}
+		parameter = append(parameter, lastInsertId)
 	}
-	parameter := []interface{}{lastInsertId}
 	fpart := bytes.NewBuffer(make([]byte, 0, 12*len(obv.FieldElem)))
 	for _, vv := range obv.FieldElem {
 		if vv.Ignore {

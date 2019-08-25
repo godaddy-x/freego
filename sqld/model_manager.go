@@ -35,6 +35,7 @@ type MdlDriver struct {
 	ModelName  string
 	ToMongo    bool
 	PkOffset   uintptr
+	PkKind     reflect.Kind
 	PkName     string
 	PkBsonName string
 	FieldElem  []*FieldElem
@@ -78,6 +79,7 @@ func ModelDriver(hook ...Hook) error {
 				f.Primary = true
 				v.TabelName = field.Tag.Get(sqlc.Table)
 				v.PkOffset = field.Offset
+				v.PkKind = value.Kind()
 				v.PkName = field.Tag.Get(sqlc.Json)
 				v.PkBsonName = field.Tag.Get(sqlc.Bson)
 				tomg := field.Tag.Get(sqlc.Mg)

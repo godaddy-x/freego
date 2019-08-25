@@ -196,11 +196,22 @@ func (self *MGOManager) Save(data ...interface{}) error {
 		defer log.Debug("[Mongo.Save]日志", util.Time(), log.Any("data", data))
 	}
 	for _, v := range data {
-		lastInsertId := util.GetInt64(util.GetPtr(v, obv.PkOffset))
-		if lastInsertId == 0 {
-			lastInsertId = util.GetSnowFlakeIntID(*self.Node)
-			util.SetInt64(util.GetPtr(v, obv.PkOffset), lastInsertId)
+		if obv.PkKind == reflect.Int64 {
+			lastInsertId := util.GetInt64(util.GetPtr(v, obv.PkOffset))
+			if lastInsertId == 0 {
+				lastInsertId = util.GetSnowFlakeIntID(*self.Node)
+				util.SetInt64(util.GetPtr(v, obv.PkOffset), lastInsertId)
+			}
+		} else if obv.PkKind == reflect.String {
+			lastInsertId := util.GetString(util.GetPtr(v, obv.PkOffset))
+			if len(lastInsertId) == 0 {
+				lastInsertId = util.GetSnowFlakeStrID(*self.Node)
+				util.SetString(util.GetPtr(v, obv.PkOffset), lastInsertId)
+			}
+		} else {
+			return util.Error("只支持int64和string类型ID")
 		}
+
 	}
 	if err := db.Insert(data ...); err != nil {
 		return self.Error("[Mongo.Save]保存数据失败: ", err)
@@ -235,15 +246,30 @@ func (self *MGOManager) Update(data ...interface{}) error {
 		defer log.Debug("[Mongo.Update]日志", util.Time(), log.Any("data", data))
 	}
 	for _, v := range data {
-		lastInsertId := util.GetInt64(util.GetPtr(v, obv.PkOffset))
-		if lastInsertId == 0 {
-			return self.Error("[Mongo.Update]对象ID为空")
-		}
-		if err := db.UpdateId(lastInsertId, v); err != nil {
-			if err == mgo.ErrNotFound {
-				return self.Error("[Mongo.Update]数据ID[", lastInsertId, "]不存在")
+		if obv.PkKind == reflect.Int64 {
+			lastInsertId := util.GetInt64(util.GetPtr(v, obv.PkOffset))
+			if lastInsertId == 0 {
+				return self.Error("[Mongo.Update]对象ID为空")
 			}
-			return self.Error("[Mongo.Update]更新数据失败: ", err)
+			if err := db.UpdateId(lastInsertId, v); err != nil {
+				if err == mgo.ErrNotFound {
+					return self.Error("[Mongo.Update]数据ID[", lastInsertId, "]不存在")
+				}
+				return self.Error("[Mongo.Update]更新数据失败: ", err)
+			}
+		} else if obv.PkKind == reflect.String {
+			lastInsertId := util.GetString(util.GetPtr(v, obv.PkOffset))
+			if len(lastInsertId) == 0 {
+				return self.Error("[Mongo.Update]对象ID为空")
+			}
+			if err := db.UpdateId(lastInsertId, v); err != nil {
+				if err == mgo.ErrNotFound {
+					return self.Error("[Mongo.Update]数据ID[", lastInsertId, "]不存在")
+				}
+				return self.Error("[Mongo.Update]更新数据失败: ", err)
+			}
+		} else {
+			return util.Error("只支持int64和string类型ID")
 		}
 	}
 	return nil
@@ -276,11 +302,21 @@ func (self *MGOManager) Delete(data ...interface{}) error {
 	}
 	selector := bson.D{}
 	for _, v := range data {
-		lastInsertId := util.GetInt64(util.GetPtr(v, obv.PkOffset))
-		if lastInsertId == 0 {
-			return self.Error("[Mongo.Delete]对象ID为空")
+		if obv.PkKind == reflect.Int64 {
+			lastInsertId := util.GetInt64(util.GetPtr(v, obv.PkOffset))
+			if lastInsertId == 0 {
+				return self.Error("[Mongo.Delete]对象ID为空")
+			}
+			selector = append(selector, bson.DocElem{"_id", lastInsertId})
+		} else if obv.PkKind == reflect.String {
+			lastInsertId := util.GetString(util.GetPtr(v, obv.PkOffset))
+			if len(lastInsertId) == 0 {
+				return self.Error("[Mongo.Delete]对象ID为空")
+			}
+			selector = append(selector, bson.DocElem{"_id", lastInsertId})
+		} else {
+			return util.Error("只支持int64和string类型ID")
 		}
-		selector = append(selector, bson.DocElem{"_id", lastInsertId})
 	}
 	if _, err := db.RemoveAll(selector); err != nil {
 		return self.Error("[Mongo.Delete]删除数据失败: ", err)

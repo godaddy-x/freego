@@ -143,7 +143,7 @@ type Context struct {
 	Input         *http.Request
 	Output        http.ResponseWriter
 	SecretKey     func() *jwt.SecretKey
-	UserId        int64
+	UserId        string
 	Storage       map[string]interface{}
 	Roles         []string
 	PermissionKey func(url string) (*Permission, error)

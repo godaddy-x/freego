@@ -602,7 +602,7 @@ func TestRGX2(t *testing.T) {
 	b, _ := util.JsonMarshal(m)
 	r := map[string]interface{}{}
 	util.JsonUnmarshal(b, &r)
-	fmt.Println(r)
+	fmt.Println(len("1566722843972"))
 	//x := "世界上最邪恶最专制的现代奴隶制国家--朝鲜"
 	//key :=util.Substr( util.MD5("hgfedcba87654321"), 0, 16)
 	//x1 := util.AesEncrypt(x, key)

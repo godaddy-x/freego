@@ -168,8 +168,7 @@ func (self *WebsocketNode) ValidSession() error {
 	} else if session.IsTimeout() {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "会话已过期"}
 	}
-	userId, _ := util.StrToInt64(sub)
-	self.Context.UserId = userId
+	self.Context.UserId = sub
 	self.Context.Session = session
 	return nil
 }
