@@ -155,6 +155,9 @@ func (self *HttpNode) PaddDevice() error {
 func (self *HttpNode) ValidSession() error {
 	param := self.Context.Params
 	if param == nil || len(param.Token) == 0 {
+		if self.Option.Authenticate {
+			return ex.Throw{Code: http.StatusUnauthorized, Msg: "授权令牌为空"}
+		}
 		return nil
 	}
 	checker, err := new(jwt.Subject).GetSubjectChecker(param.Token)

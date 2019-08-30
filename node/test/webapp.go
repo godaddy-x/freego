@@ -148,7 +148,7 @@ func StartHttpNode() *MyWebNode {
 		//RenderErrorFunc: nil,
 	}
 	my.Router("/test1", my.test, &node.Option{})
-	my.Router("/login1", my.login, &node.Option{true})
+	my.Router("/login1", my.login, &node.Option{Customize: true})
 	my.Router("/logout1", my.logout, &node.Option{})
 	my.StartServer()
 	return my

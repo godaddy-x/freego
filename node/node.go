@@ -66,7 +66,8 @@ type NodePtr struct {
 }
 
 type Option struct {
-	Customize bool
+	Customize    bool
+	Authenticate bool
 }
 
 type ProtocolNode interface {
