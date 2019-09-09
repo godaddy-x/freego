@@ -590,10 +590,9 @@ func TestRGX(t *testing.T) {
 }
 
 func TestRGX1(t *testing.T) {
-	var a int64
-	defer log.Info("耗时", util.Time(), log.Int64("a", a))
-	for i := 0; i < 20000000; i++ {
-		a = util.Time()
+	defer log.Info("耗时", util.Time())
+	for i := 0; i < 20000; i++ {
+		fmt.Println(util.GetRandStr(16, true))
 	}
 }
 

@@ -30,15 +30,19 @@ import (
 )
 
 var (
-	cst_sh, _  = time.LoadLocation("Asia/Shanghai") //上海
-	time_formt = "2006-01-02 15:04:05"
-	snowflakes = make(map[int64]*snowflake.Node, 0)
-	mu         sync.Mutex
+	cst_sh, _          = time.LoadLocation("Asia/Shanghai") //上海
+	snowflakes         = make(map[int64]*snowflake.Node, 0)
+	mu                 sync.Mutex
+	random_byte        = Str2Bytes("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+	random_byte_len    = len(random_byte)
+	random_byte_sp     = Str2Bytes("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!@#$%^&*")
+	random_byte_sp_len = len(random_byte_sp)
 )
 
 const (
 	XForwardedFor = "X-Forwarded-For"
 	XRealIP       = "X-Real-IP"
+	time_formt    = "2006-01-02 15:04:05"
 )
 
 func init() {
@@ -644,4 +648,20 @@ func Shift(input interface{}, ln int, fz bool) string {
 		part1 = AddStr(part1, ".", part2)
 	}
 	return part1
+}
+
+// 雪花算法种子,高效随机值生成,sp=true复杂组合模式
+func GetRandStr(n int, sp ...bool) string {
+	result := []byte{}
+	r := rand.New(rand.NewSource(GetSnowFlakeIntID()))
+	if sp == nil || len(sp) != 1 {
+		for i := 0; i < n; i++ {
+			result = append(result, random_byte[r.Intn(random_byte_len)])
+		}
+	} else {
+		for i := 0; i < n; i++ {
+			result = append(result, random_byte_sp[r.Intn(random_byte_sp_len)])
+		}
+	}
+	return Bytes2Str(result)
 }

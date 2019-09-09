@@ -1,7 +1,9 @@
 package main
 
 import (
+	"fmt"
 	"github.com/godaddy-x/freego/node/test"
+	"github.com/godaddy-x/freego/util"
 	"time"
 )
 
@@ -14,6 +16,7 @@ func websocket_test() {
 }
 
 func main() {
+	fmt.Println(util.GetRandStr(16))
 	websocket_test()
 	http_test()
 	time.Sleep(1 * time.Hour)
