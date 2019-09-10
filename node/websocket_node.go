@@ -143,7 +143,7 @@ func (self *WebsocketNode) ValidSession() error {
 	if err != nil {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "授权令牌无效", Err: err}
 	} else {
-		self.Context.Roles = checker.GetRole()
+		self.Context.Roles = checker.Subject.GetRole()
 	}
 	// 获取缓存的sub->signature key
 	sub := checker.Subject.Payload.Sub

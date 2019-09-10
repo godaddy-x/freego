@@ -55,15 +55,14 @@ type Header struct {
 }
 
 type Payload struct {
-	Sub string `json:"sub"` // 用户主体
-	Dev string `json:"dev"` // 设备类型
-	Aud string `json:"aud"` // 接收token主体
-	Iss string `json:"iss"` // 签发token主体
-	Iat int64  `json:"iat"` // 授权token时间1
-	Exp int64  `json:"exp"` // 授权token过期时间
-	Nbf int64  `json:"nbf"` // 定义在什么时间之前,该token都是不可用的
-	Jti string `json:"jti"` // 唯一身份标识,主要用来作为一次性token,从而回避重放攻击
-	Rol string `json:"rol"` // 角色ID列表
+	Sub string            `json:"sub"` // 用户主体
+	Aud string            `json:"aud"` // 接收token主体
+	Iss string            `json:"iss"` // 签发token主体
+	Iat int64             `json:"iat"` // 授权token时间1
+	Exp int64             `json:"exp"` // 授权token过期时间
+	Nbf int64             `json:"nbf"` // 定义在什么时间之前,该token都是不可用的
+	Jti string            `json:"jti"` // 唯一身份标识,主要用来作为一次性token,从而回避重放攻击
+	Ext map[string]string `json:"ext"` // 扩展信息
 }
 
 func (self *Subject) GetAuthorization(key *SecretKey) (*Authorization, error) {
@@ -145,12 +144,16 @@ func (self *Subject) GetSubjectChecker(access_token string) (*SubjectChecker, er
 	}, nil
 }
 
-func (self *SubjectChecker) GetRole() []string {
-	rol := self.Subject.Payload.Rol
-	if len(rol) == 0 {
+func (self *Subject) GetRole() []string {
+	ext := self.Payload.Ext
+	if len(ext) == 0 {
 		return make([]string, 0)
 	}
-	spl := strings.Split(self.Subject.Payload.Rol, ",")
+	val, ok := ext["rol"]
+	if !ok {
+		return make([]string, 0)
+	}
+	spl := strings.Split(val, ",")
 	role := make([]string, 0, len(spl))
 	for _, v := range spl {
 		if len(v) > 0 {
@@ -158,6 +161,10 @@ func (self *SubjectChecker) GetRole() []string {
 		}
 	}
 	return role
+}
+
+func (self *Subject) SetRole(roleList string) {
+	self.Payload.Ext["rol"] = roleList
 }
 
 func (self *SubjectChecker) Authentication(signature_key, jwt_secret_key string) error {

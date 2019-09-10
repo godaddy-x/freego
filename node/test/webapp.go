@@ -61,7 +61,6 @@ func (self *MyWebNode) login(ctx *node.Context) error {
 		},
 		Payload: &jwt.Payload{
 			Sub: "zhangsan",
-			Dev: ctx.Device,
 			Aud: ctx.Host,
 			Iss: "localhost",
 			Iat: time,
@@ -84,7 +83,6 @@ func (self *MyWsNode) login(ctx *node.Context) error {
 	subject := &jwt.Subject{
 		Payload: &jwt.Payload{
 			Sub: "zhangsan",
-			Dev: ctx.Device,
 			Aud: ctx.Host,
 			Iss: "localhost",
 			Iat: time,
