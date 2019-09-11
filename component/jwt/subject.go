@@ -146,7 +146,7 @@ func (self *Subject) GetSubjectChecker(access_token string) (*SubjectChecker, er
 
 func (self *Subject) GetRole() []string {
 	ext := self.Payload.Ext
-	if len(ext) == 0 {
+	if ext == nil || len(ext) == 0 {
 		return make([]string, 0)
 	}
 	val, ok := ext["rol"]
@@ -164,7 +164,11 @@ func (self *Subject) GetRole() []string {
 }
 
 func (self *Subject) SetRole(roleList string) {
-	self.Payload.Ext["rol"] = roleList
+	if self.Payload.Ext == nil {
+		self.Payload.Ext = map[string]string{"rol": roleList}
+	} else {
+		self.Payload.Ext["rol"] = roleList
+	}
 }
 
 func (self *SubjectChecker) Authentication(signature_key, jwt_secret_key string) error {
