@@ -23,7 +23,6 @@ const (
 )
 
 type Subject struct {
-	Header  *Header
 	Payload *Payload
 }
 
@@ -48,12 +47,6 @@ type Authorization struct {
 	ExpireDate   int64  `json:"expireDate"`   // 授权签名过期时间
 }
 
-type Header struct {
-	Nod int64  `json:"nod"` // 认证节点
-	Typ string `json:"typ"` // 认证类型
-	Alg string `json:"alg"` // 算法类型,默认MD5
-}
-
 type Payload struct {
 	Sub string            `json:"sub"` // 用户主体
 	Aud string            `json:"aud"` // 接收token主体
@@ -68,42 +61,23 @@ type Payload struct {
 func (self *Subject) GetAuthorization(key *SecretKey) (*Authorization, error) {
 	jwt_secret_key := key.JwtSecretKey
 	api_secret_key := key.ApiSecretKey
-	secret_key_alg := key.SecretKeyAlg
 	if len(jwt_secret_key) == 0 {
 		return nil, util.Error("secret key is nil")
-	}
-	if self.Header == nil {
-		return nil, util.Error("header is nil")
 	}
 	if self.Payload == nil {
 		return nil, util.Error("payload is nil")
 	}
 	var content, signature, access_token, signature_key, access_key string
-	if self.Header.Alg == MD5 && secret_key_alg == MD5 { // jti,signature计算值使用MD5算法
-		self.Payload.Jti = util.MD5(util.GetSnowFlakeStrID(self.Header.Nod), self.Payload.Sub)
-		if msg, err := util.JsonMarshal(self); err != nil {
-			return nil, err
-		} else if content = util.Base64URLEncode(msg); len(content) == 0 {
-			return nil, util.Error("content is nil")
-		}
-		signature_key = util.MD5(jwt_secret_key, content, ".")                 // 生成数据签名密钥
-		signature = util.MD5(jwt_secret_key, signature_key, ".", content, ".") // 通过密钥获得数据签名
-		access_token = util.AddStr(content, ".", signature)
-		access_key = util.GetApiAccessKeyByMD5(access_token, api_secret_key)
-	} else if self.Header.Alg == SHA256 && secret_key_alg == SHA256 { // jti,signature计算值使用SHA256算法
-		self.Payload.Jti = util.SHA256(util.GetSnowFlakeStrID(self.Header.Nod), self.Payload.Sub)
-		if msg, err := util.JsonMarshal(self); err != nil {
-			return nil, err
-		} else if content = util.Base64URLEncode(msg); len(content) == 0 {
-			return nil, util.Error("content is nil")
-		}
-		signature_key = util.SHA256(jwt_secret_key, content, ".")                 // 生成数据签名密钥
-		signature = util.SHA256(jwt_secret_key, signature_key, ".", content, ".") // 通过密钥获得数据签名
-		access_token = util.AddStr(content, ".", signature)
-		access_key = util.GetApiAccessKeyBySHA256(access_token, api_secret_key)
-	} else {
-		return nil, util.Error("alg [", self.Header.Alg, "] error")
+	self.Payload.Jti = util.MD5(util.GetSnowFlakeStrID(), util.GetRandStr(6, true), self.Payload.Sub)
+	if msg, err := util.JsonMarshal(self.Payload); err != nil {
+		return nil, err
+	} else if content = util.Base64Encode(msg); len(content) == 0 {
+		return nil, util.Error("content is nil")
 	}
+	signature_key = util.MD5(jwt_secret_key, content, ".")                 // 生成数据签名密钥
+	signature = util.MD5(jwt_secret_key, signature_key, ".", content, ".") // 通过密钥获得数据签名
+	access_token = util.AddStr(content, ".", signature)
+	access_key = util.GetApiAccessKeyByMD5(access_token, api_secret_key)
 	return &Authorization{
 		AccessToken:  access_token,
 		Signature:    signature,
@@ -117,22 +91,25 @@ func (self *Subject) GetSubjectChecker(access_token string) (*SubjectChecker, er
 	if len(access_token) == 0 {
 		return nil, util.Error("access token is nil")
 	}
-	spl := strings.Split(access_token, ".")
-	if len(spl) != 2 {
+	token_str := strings.Split(access_token, ".")
+	if len(token_str) != 2 {
 		return nil, util.Error("access token invalid")
 	}
-	content := spl[0]
-	signature := spl[1]
+	var content, signature string
+	for i, v := range token_str {
+		if i == 0 {
+			content = v
+		} else {
+			signature = v
+		}
+	}
 	if len(signature) < 32 {
 		return nil, util.Error("signature invalid")
 	}
-	if b := util.Base64URLDecode(content); b == nil {
+	if b := util.Base64Decode(content); b == nil {
 		return nil, util.Error("content invalid")
-	} else if err := util.JsonUnmarshal(b, self); err != nil {
+	} else if err := util.JsonUnmarshal(b, self.Payload); err != nil {
 		return nil, util.Error("content error")
-	}
-	if self.Header == nil {
-		return nil, util.Error("header is nil")
 	}
 	if self.Payload == nil {
 		return nil, util.Error("payload is nil")
@@ -172,26 +149,15 @@ func (self *Subject) SetRole(roleList string) {
 }
 
 func (self *SubjectChecker) Authentication(signature_key, jwt_secret_key string) error {
-	subject := self.Subject
 	content := self.Content
 	signature := self.Signature
 	if len(signature_key) < 32 {
 		return util.Error("signature invalid")
 	}
-	if subject.Header.Alg == MD5 { // MD5算法校验签名
-		if signature_key != util.MD5(jwt_secret_key, content, ".") {
-			return util.Error("signature_key invalid")
-		} else if signature != util.MD5(jwt_secret_key, signature_key, ".", content, ".") {
-			return util.Error("signature error")
-		}
-	} else if subject.Header.Alg == SHA256 { //  SHA256算法校验签名
-		if signature_key != util.SHA256(jwt_secret_key, content, ".") {
-			return util.Error("signature_key invalid")
-		} else if signature != util.SHA256(jwt_secret_key, signature_key, ".", content, ".") {
-			return util.Error("signature error")
-		}
-	} else {
-		return util.Error("alg [", subject.Header.Alg, "] error")
+	if signature_key != util.MD5(jwt_secret_key, content, ".") {
+		return util.Error("signature_key invalid")
+	} else if signature != util.MD5(jwt_secret_key, signature_key, ".", content, ".") {
+		return util.Error("signature error")
 	}
 	self.SignatureKey = signature_key
 	return nil

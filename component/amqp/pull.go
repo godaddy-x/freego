@@ -217,7 +217,7 @@ func (self *PullReceiver) OnReceive(b []byte) bool {
 			log.Error("MQ消费数据签名类型无效", 0, log.Any("option", self.LisData.Option), log.Any("message", message))
 			return true
 		}
-		btv := util.Base64URLDecode(v)
+		btv := util.Base64Decode(v)
 		if btv == nil || len(btv) == 0 {
 			log.Error("MQ消费数据base64解码失败", 0, log.Any("option", self.LisData.Option), log.Any("message", message))
 			return true

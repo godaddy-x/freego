@@ -14,7 +14,7 @@ import (
 
 func ToPost(url, token, access_key string, req interface{}) {
 	content, _ := util.JsonMarshal(req)
-	data := util.Base64URLEncode(content)
+	data := util.Base64Encode(content)
 	nonce := util.GetSnowFlakeStrID()
 	time := util.Time()
 	sign_str := util.AddStr("a=", token, "&", "d=", data, "&", "k=", access_key, "&", "n=", nonce, "&", "t=", time)

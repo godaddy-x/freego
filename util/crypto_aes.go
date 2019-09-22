@@ -33,7 +33,7 @@ func AesEncrypt(s string, k string) string {
 	src = padding(src, block.BlockSize())
 	blockmode := cipher.NewCBCEncrypter(block, key)
 	blockmode.CryptBlocks(src, src)
-	return Base64URLEncode(src)
+	return Base64Encode(src)
 }
 
 func AesDecrypt(s string, k string) string {
@@ -41,7 +41,7 @@ func AesDecrypt(s string, k string) string {
 		return ""
 	}
 	key := Str2Bytes(k)
-	src := Base64URLDecode(s)
+	src := Base64Decode(s)
 	block, _ := aes.NewCipher(key)
 	blockmode := cipher.NewCBCDecrypter(block, key)
 	blockmode.CryptBlocks(src, src)

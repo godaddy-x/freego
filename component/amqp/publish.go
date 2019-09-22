@@ -88,7 +88,7 @@ func (self *PublishManager) Publish(data *MsgData) error {
 				if err != nil {
 					return err
 				}
-				ret := util.Base64URLEncode(b)
+				ret := util.Base64Encode(b)
 				if len(ret) == 0 {
 					return util.Error("发送数据编码为空")
 				}

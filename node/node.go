@@ -201,7 +201,7 @@ func (self *Context) SecurityCheck(req *ReqDto) error {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "API签名校验失败"}
 	}
 	data := make(map[string]interface{})
-	if ret := util.Base64URLDecode(d); ret == nil {
+	if ret := util.Base64Decode(d); ret == nil {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "业务参数解码失败"}
 	} else if err := util.JsonUnmarshal(ret, &data); err != nil {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "业务参数解析失败"}

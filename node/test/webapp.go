@@ -54,11 +54,6 @@ func (self *MyWebNode) login(ctx *node.Context) error {
 	time := util.Time()
 	exp := jwt.TWO_WEEK
 	subject := &jwt.Subject{
-		Header: &jwt.Header{
-			Nod: 0,
-			Typ: jwt.JWT,
-			Alg: jwt.SHA256,
-		},
 		Payload: &jwt.Payload{
 			Sub: "zhangsan",
 			Aud: ctx.Host,
