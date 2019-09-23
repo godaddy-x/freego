@@ -37,6 +37,8 @@ const (
 	JWT_SUB_ = "jwt_sub_"
 	JWT_SIG_ = "jwt_sig_"
 
+	TEXTPLAIN_ACCESS_KEY = "textplain_access_key"
+
 	Token = "a"
 	Data  = "d"
 	Key   = "k"
@@ -68,6 +70,7 @@ type NodePtr struct {
 type Option struct {
 	Customize    bool
 	Authenticate bool
+	Textplain    string
 }
 
 type ProtocolNode interface {
@@ -181,9 +184,9 @@ func (self *Context) Authorized() bool {
 }
 
 // 按指定规则进行数据解码,校验参数安全
-func (self *Context) SecurityCheck(req *ReqDto) error {
-	d, _ := req.Data.(string)
-	if len(d) == 0 {
+func (self *Context) SecurityCheck(req *ReqDto, textplain string) error {
+	d, b := req.Data.(string)
+	if !b || len(d) == 0 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "业务参数无效"}
 	}
 	if len(req.Sign) == 0 || len(req.Sign) < 32 {
@@ -197,10 +200,17 @@ func (self *Context) SecurityCheck(req *ReqDto) error {
 	} else if req.Time+jwt.FIVE_MINUTES < util.Time() { // 判断时间是否超过5分钟
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "时间参数已过期"}
 	}
-	if !validSign(req, d, self.SecretKey()) {
+	key, b := validSign(req, d, self.SecretKey())
+	if !b {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "API签名校验失败"}
 	}
 	data := make(map[string]interface{})
+	if textplain == jwt.AES {
+		d = util.AesDecrypt(d, util.Substr(util.MD5(key), 0, 16))
+		self.Storage[TEXTPLAIN_ACCESS_KEY] = key
+	} else if textplain == jwt.RSA {
+
+	}
 	if ret := util.Base64Decode(d); ret == nil {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "业务参数解码失败"}
 	} else if err := util.JsonUnmarshal(ret, &data); err != nil {
@@ -213,18 +223,12 @@ func (self *Context) SecurityCheck(req *ReqDto) error {
 }
 
 // 校验签名有效性
-func validSign(req *ReqDto, dataStr string, key *jwt.SecretKey) bool {
+func validSign(req *ReqDto, dataStr string, key *jwt.SecretKey) (string, bool) {
 	token := req.Token
 	nonce := req.Nonce
 	time := req.Time
 	api_secret_key := key.ApiSecretKey
-	secret_key_alg := key.SecretKeyAlg
-	if secret_key_alg == jwt.MD5 {
-		sign_str := util.AddStr(token, dataStr, util.GetApiAccessKeyByMD5(token, api_secret_key), nonce, time)
-		return req.Sign == util.MD5(sign_str)
-	} else if secret_key_alg == jwt.SHA256 {
-		sign_str := util.AddStr(token, dataStr, util.GetApiAccessKeyBySHA256(token, api_secret_key), nonce, time)
-		return req.Sign == util.SHA256(sign_str)
-	}
-	return false
+	access_key := util.GetApiAccessKeyByMD5(token, api_secret_key)
+	sign_str := util.AddStr(token, dataStr, access_key, nonce, time)
+	return access_key, req.Sign == util.MD5(sign_str)
 }

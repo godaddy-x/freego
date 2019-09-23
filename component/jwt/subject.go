@@ -14,6 +14,8 @@ const (
 	JWT    = "JWT"
 	SHA256 = "SHA256"
 	MD5    = "MD5"
+	AES    = "AES"
+	RSA    = "RSA"
 
 	FIVE_MINUTES = int64(300000);
 	QUARTER_HOUR = int64(900000);
@@ -78,6 +80,7 @@ func (self *Subject) GetAuthorization(key *SecretKey) (*Authorization, error) {
 	signature = util.MD5(jwt_secret_key, signature_key, ".", content, ".") // 通过密钥获得数据签名
 	access_token = util.AddStr(content, ".", signature)
 	access_key = util.GetApiAccessKeyByMD5(access_token, api_secret_key)
+	access_key = reverse(access_key)
 	return &Authorization{
 		AccessToken:  access_token,
 		Signature:    signature,
@@ -85,6 +88,13 @@ func (self *Subject) GetAuthorization(key *SecretKey) (*Authorization, error) {
 		SignatureKey: signature_key,
 		ExpireDate:   self.Payload.Exp,
 	}, nil
+}
+
+func reverse(s string) string {
+	a := util.Substr(s, 0, 12)
+	b := util.Substr(s, 12, 12)
+	c := util.Substr(s, 24, 8)
+	return util.Base64Encode(util.Reverse(util.AddStr(c, a, b)))
 }
 
 func (self *Subject) GetSubjectChecker(access_token string) (*SubjectChecker, error) {
@@ -106,9 +116,10 @@ func (self *Subject) GetSubjectChecker(access_token string) (*SubjectChecker, er
 	if len(signature) < 32 {
 		return nil, util.Error("signature invalid")
 	}
+
 	if b := util.Base64Decode(content); b == nil {
 		return nil, util.Error("content invalid")
-	} else if err := util.JsonUnmarshal(b, self.Payload); err != nil {
+	} else if err := util.JsonUnmarshal(b, &self.Payload); err != nil {
 		return nil, util.Error("content error")
 	}
 	if self.Payload == nil {

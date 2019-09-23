@@ -57,7 +57,7 @@ func (self *HttpNode) GetParams() error {
 			if err := util.JsonUnmarshal(result, req); err != nil {
 				return ex.Throw{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err}
 			}
-			if err := self.Context.SecurityCheck(req); err != nil {
+			if err := self.Context.SecurityCheck(req, self.Option.Textplain); err != nil {
 				return err
 			}
 			return nil
@@ -349,6 +349,20 @@ func (self *HttpNode) RenderTo() error {
 			Message: "success",
 			Time:    util.Time(),
 			Data:    self.Context.Response.ContentEntity,
+		}
+		if self.Option.Textplain == jwt.AES {
+			access_key, b := self.Context.Storage[TEXTPLAIN_ACCESS_KEY]
+			if !b {
+				return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "无效的签名数据"}
+			}
+			d := self.Context.Response.ContentEntity
+			if d == nil {
+				d = map[string]interface{}{}
+			}
+			respByte, _ := util.JsonMarshal(d)
+			resp.Data = util.AesEncrypt(util.Bytes2Str(respByte), util.Substr(util.MD5(access_key.(string)), 0, 16))
+		} else if self.Option.Textplain == jwt.RSA {
+
 		}
 		if resp.Data == nil {
 			resp.Data = make(map[string]interface{})

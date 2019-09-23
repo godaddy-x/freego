@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/component/auth"
-	"github.com/godaddy-x/freego/component/log"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/sqlc"
 	"github.com/godaddy-x/freego/sqld"
@@ -590,14 +589,11 @@ func TestRGX(t *testing.T) {
 }
 
 func TestRGX1(t *testing.T) {
-	defer log.Info("耗时", util.Time())
-	for i := 0; i < 20000; i++ {
-		fmt.Println(util.GetRandStr(16, true))
-	}
+
 }
 
 func TestRGX2(t *testing.T) {
-	m := map[string]int{"test":1}
+	m := map[string]int{"test": 1}
 	b, _ := util.JsonMarshal(m)
 	r := map[string]interface{}{}
 	util.JsonUnmarshal(b, &r)

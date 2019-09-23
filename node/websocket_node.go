@@ -95,7 +95,7 @@ func (self *WebsocketNode) wsReadHandle(c *WSClient, rcvd []byte) error {
 	if err := util.JsonUnmarshal(rcvd, req); err != nil {
 		return self.RenderError(ex.Throw{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err})
 	}
-	if err := self.Context.SecurityCheck(req); err != nil {
+	if err := self.Context.SecurityCheck(req, self.Option.Textplain); err != nil {
 		return err
 	}
 	// 2.判定或校验会话
