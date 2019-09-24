@@ -300,26 +300,28 @@ func (self *MGOManager) Delete(data ...interface{}) error {
 	if log.IsDebug() {
 		defer log.Debug("[Mongo.Delete]日志", util.Time(), log.Any("data", data))
 	}
-	selector := bson.D{}
+	delIds := make([]interface{}, 0, len(data))
 	for _, v := range data {
 		if obv.PkKind == reflect.Int64 {
 			lastInsertId := util.GetInt64(util.GetPtr(v, obv.PkOffset))
 			if lastInsertId == 0 {
 				return self.Error("[Mongo.Delete]对象ID为空")
 			}
-			selector = append(selector, bson.DocElem{"_id", lastInsertId})
+			delIds = append(delIds, lastInsertId)
 		} else if obv.PkKind == reflect.String {
 			lastInsertId := util.GetString(util.GetPtr(v, obv.PkOffset))
 			if len(lastInsertId) == 0 {
 				return self.Error("[Mongo.Delete]对象ID为空")
 			}
-			selector = append(selector, bson.DocElem{"_id", lastInsertId})
+			delIds = append(delIds, lastInsertId)
 		} else {
 			return util.Error("只支持int64和string类型ID")
 		}
 	}
-	if _, err := db.RemoveAll(selector); err != nil {
-		return self.Error("[Mongo.Delete]删除数据失败: ", err)
+	if len(delIds) > 0 {
+		if _, err := db.RemoveAll(bson.M{"_id": bson.M{"$in": delIds}}); err != nil {
+			return self.Error("[Mongo.Delete]删除数据失败: ", err)
+		}
 	}
 	return nil
 }
