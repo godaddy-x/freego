@@ -7,6 +7,7 @@ import (
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/util"
 	"net/http"
+	"net/url"
 )
 
 const (
@@ -211,9 +212,15 @@ func (self *Context) SecurityCheck(req *ReqDto, textplain string) error {
 	} else if textplain == jwt.RSA {
 
 	}
-	if ret := util.Base64Decode(d); ret == nil {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "业务参数解码失败"}
-	} else if err := util.JsonUnmarshal(ret, &data); err != nil {
+	ret := util.Base64Decode(d)
+	if ret == nil {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "业务参数BASE64解码失败"}
+	}
+	str, err := url.PathUnescape(util.Bytes2Str(ret))
+	if err != nil {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "业务参数URL解码失败"}
+	}
+	if err := util.JsonUnmarshal(util.Str2Bytes(str), &data); err != nil {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "业务参数解析失败"}
 	} else {
 		req.Data = data
