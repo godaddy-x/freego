@@ -6,45 +6,64 @@ import (
 	"crypto/cipher"
 )
 
-func padding(src []byte, blocksize int) []byte {
-	padnum := blocksize - len(src)%blocksize
-	pad := bytes.Repeat([]byte{byte(padnum)}, padnum)
-	return append(src, pad...)
+func PKCS5Padding(ciphertext []byte, blockSize int) []byte {
+	padding := blockSize - len(ciphertext)%blockSize
+	padtext := bytes.Repeat([]byte{byte(padding)}, padding)
+	return append(ciphertext, padtext...)
 }
 
-func unpadding(src []byte) []byte {
+func PKCS5UnPadding(data []byte) []byte {
 	defer func() {
 		if r := recover(); r != nil {
 			// log.Debug("Aes解密失败", 0, log.String("src", string(src)))
 		}
 	}()
-	n := len(src)
-	unpadnum := int(src[n-1])
-	return src[:n-unpadnum]
+	length := len(data)
+	unpadding := int(data[length-1])
+	return data[:(length - unpadding)]
 }
 
-func AesEncrypt(s string, k string) string {
-	if len(s) == 0 || len(k) != 16 {
+func AesEncrypt(c, k string) string {
+	if len(k) == 0 {
+		return ""
+	}
+	if len(k) != 16 {
 		return ""
 	}
 	key := Str2Bytes(k)
-	src := Str2Bytes(s)
-	block, _ := aes.NewCipher(key)
-	src = padding(src, block.BlockSize())
-	blockmode := cipher.NewCBCEncrypter(block, key)
-	blockmode.CryptBlocks(src, src)
-	return Base64Encode(src)
+	data := Str2Bytes(c)
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return ""
+	}
+	blockSize := block.BlockSize()
+	data = PKCS5Padding(data, blockSize)
+	blockMode := cipher.NewCBCEncrypter(block, key[:blockSize])
+	crypted := make([]byte, len(data))
+	blockMode.CryptBlocks(crypted, data)
+	return Base64Encode(crypted)
 }
 
-func AesDecrypt(s string, k string) string {
-	if len(s) == 0 || len(k) != 16 {
+func AesDecrypt(c, k string) string {
+	if len(k) == 0 {
+		return ""
+	}
+	if len(k) != 16 {
 		return ""
 	}
 	key := Str2Bytes(k)
-	src := Base64Decode(s)
-	block, _ := aes.NewCipher(key)
-	blockmode := cipher.NewCBCDecrypter(block, key)
-	blockmode.CryptBlocks(src, src)
-	src = unpadding(src)
-	return Bytes2Str(src)
+	crypted := Base64Decode(c)
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return ""
+	}
+	blockSize := block.BlockSize()
+	blockMode := cipher.NewCBCDecrypter(block, key[:blockSize])
+	data := make([]byte, len(crypted))
+	blockMode.CryptBlocks(data, crypted)
+	data = PKCS5UnPadding(data)
+	if data == nil {
+		return ""
+	}
+	return Bytes2Str(data)
 }

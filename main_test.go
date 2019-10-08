@@ -589,7 +589,15 @@ func TestRGX(t *testing.T) {
 }
 
 func TestRGX1(t *testing.T) {
+	var aeskey = "x4kkptzFsUOVnuya"
+	fmt.Println("密钥: ", aeskey)
+	pass := "123456"
+	xpass := util.AesEncrypt(pass, aeskey)
 
+	fmt.Printf("加密后:%v\n", xpass)
+
+	tpass := util.AesDecrypt(xpass, string(aeskey))
+	fmt.Printf("解密后:%s\n", tpass)
 }
 
 func TestRGX2(t *testing.T) {
