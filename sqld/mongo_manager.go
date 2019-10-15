@@ -17,6 +17,8 @@ var (
 )
 
 const (
+	JID      = "id"
+	BID      = "_id"
 	COUNT_BY = "COUNT_BY"
 )
 
@@ -398,6 +400,30 @@ func (self *MGOManager) FindOne(cnd *sqlc.Cnd, data interface{}) error {
 	if log.IsDebug() {
 		defer log.Debug("[Mongo.FindOne]日志", util.Time(), log.Any("pipe", pipe))
 	}
+	if len(cnd.Summaries) > 0 {
+		hasBID := false
+		for k, _ := range cnd.Summaries {
+			if k == BID {
+				hasBID = true
+				break
+			}
+		}
+		if hasBID {
+			result := map[string]interface{}{}
+			err = db.Pipe(pipe).One(&result)
+			if err != nil {
+				if err != mgo.ErrNotFound {
+					return util.Error("[Mongo.FindOne]查询数据失败: ", err)
+				}
+			}
+			idv, _ := result[JID]
+			result[BID] = idv
+			if err := util.JsonToAny(&result, data); err != nil {
+				return util.Error("[Mongo.FindOne]查询数据转换失败: ", err)
+			}
+			return nil
+		}
+	}
 	if err := db.Pipe(pipe).One(data); err != nil {
 		if err == mgo.ErrNotFound {
 			return nil
@@ -480,6 +506,7 @@ func (self *MGOManager) buildPipeCondition(cnd *sqlc.Cnd, countby bool) ([]inter
 	project := buildMongoProject(cnd)
 	sortby := buildMongoSortBy(cnd)
 	pageinfo := buildMongoLimit(cnd)
+	summary := buildSummary(cnd)
 	pipe := make([]interface{}, 0, 6)
 	if len(match) > 0 {
 		tmp := make(map[string]interface{})
@@ -495,6 +522,9 @@ func (self *MGOManager) buildPipeCondition(cnd *sqlc.Cnd, countby bool) ([]inter
 		tmp := make(map[string]interface{})
 		tmp["$sort"] = sortby
 		pipe = append(pipe, tmp)
+	}
+	if len(summary) > 0 {
+		pipe = append(pipe, summary)
 	}
 	if !countby && pageinfo != nil {
 		tmp := make(map[string]interface{})
@@ -639,4 +669,30 @@ func buildMongoLimit(cnd *sqlc.Cnd) []int64 {
 		return []int64{(pageNo - 1) * pageSize, pageSize}
 	}
 	return nil
+}
+
+// 构建mongo聚合命令
+func buildSummary(cnd *sqlc.Cnd) map[string]interface{} {
+	var query = make(map[string]interface{})
+	tmp := make(map[string]interface{})
+	tmp[BID] = 0
+	for k, v := range cnd.Summaries {
+		key := k
+		if key == BID {
+			key = JID
+		}
+		if v == sqlc.SUM_ {
+			tmp[key] = map[string]interface{}{"$sum": util.AddStr("$", k)}
+		} else if v == sqlc.MAX_ {
+			tmp[key] = map[string]interface{}{"$max": util.AddStr("$", k)}
+		} else if v == sqlc.MIN_ {
+			tmp[key] = map[string]interface{}{"$min": util.AddStr("$", k)}
+		} else if v == sqlc.AVG_ {
+			tmp[key] = map[string]interface{}{"$avg": util.AddStr("$", k)}
+		} else {
+			return query
+		}
+	}
+	query["$group"] = tmp
+	return query
 }

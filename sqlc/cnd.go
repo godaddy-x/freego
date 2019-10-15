@@ -30,6 +30,10 @@ const (
 	LEFT_
 	RIGHT_
 	INNER_
+	SUM_
+	AVG_
+	MIN_
+	MAX_
 )
 
 const ASC_ = 1
@@ -78,6 +82,7 @@ type Cnd struct {
 	Distincts   []string
 	Groupbys    []string
 	Orderbys    []Condition
+	Summaries   map[string]int
 	UpdateKV    map[string]interface{}
 	Model       interface{}
 	Pagination  dialect.Dialect
@@ -102,6 +107,7 @@ func M(model ...interface{}) *Cnd {
 		AnyFields:  make([]string, 0),
 		Distincts:  make([]string, 0),
 		Groupbys:   make([]string, 0),
+		Summaries:  make(map[string]int, 0),
 		Orderbys:   make([]Condition, 0),
 		UpdateKV:   make(map[string]interface{}),
 	}
@@ -366,5 +372,11 @@ func (self *Cnd) UpdateKeyValue(keys []string, values ...interface{}) *Cnd {
 	for i := 0; i < len(keys); i++ {
 		self.UpdateKV[keys[i]] = values[i]
 	}
+	return self
+}
+
+// summary
+func (self *Cnd) Summary(logic int, key string) *Cnd {
+	self.Summaries[key] = logic
 	return self
 }
