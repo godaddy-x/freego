@@ -16,6 +16,10 @@ var (
 	mgo_sessions = make(map[string]*MGOManager)
 )
 
+type CountResult struct {
+	Total int64 `bson:"COUNT_BY"`
+}
+
 const (
 	JID      = "id"
 	BID      = "_id"
@@ -351,17 +355,14 @@ func (self *MGOManager) Count(cnd *sqlc.Cnd) (int64, error) {
 	if log.IsDebug() {
 		defer log.Debug("[Mongo.Count]日志", util.Time(), log.Any("pipe", pipe))
 	}
-	result := make(map[string]int64)
+	result := CountResult{}
 	if err := db.Pipe(pipe).One(&result); err != nil {
 		if err == mgo.ErrNotFound {
 			return 0, nil
 		}
 		return 0, util.Error("[Mongo.Count]查询数据失败: ", err)
 	}
-	pageTotal, ok := result[COUNT_BY]
-	if !ok {
-		return 0, util.Error("[Mongo.Count]获取记录数失败")
-	}
+	pageTotal := result.Total
 	if pageTotal > 0 && cnd.Pagination.PageSize > 0 {
 		var pageCount int64
 		if pageTotal%cnd.Pagination.PageSize == 0 {
@@ -674,6 +675,9 @@ func buildMongoLimit(cnd *sqlc.Cnd) []int64 {
 // 构建mongo聚合命令
 func buildSummary(cnd *sqlc.Cnd) map[string]interface{} {
 	var query = make(map[string]interface{})
+	if len(cnd.Summaries) > 0 {
+		return query
+	}
 	tmp := make(map[string]interface{})
 	tmp[BID] = 0
 	for k, v := range cnd.Summaries {
