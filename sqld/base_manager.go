@@ -34,20 +34,24 @@ const (
 // 数据库配置
 type DBConfig struct {
 	Option
-	Host     string // 地址IP
-	Port     int    // 数据库端口
-	Username string // 账号
-	Password string // 密码
+	Host        string // 地址IP
+	Port        int    // 数据库端口
+	Username    string // 账号
+	Password    string // 密码
+	SlowQuery   int64  // 0.不开启筛选 >0开启筛选查询 毫秒
+	SlowLogPath string // 慢查询写入地址
 }
 
 // 数据选项
 type Option struct {
-	Node      *int64  // 节点
-	DsName    *string // 数据源,分库时使用
-	Database  string  // 数据库名称
-	OpenTx    *bool   // 是否开启事务 true.是 false.否
-	MongoSync *bool   // 是否自动同步mongo数据库写入
-	Timeout   int64   // 请求超时设置/毫秒,默认10000
+	Node        *int64  // 节点
+	DsName      *string // 数据源,分库时使用
+	Database    string  // 数据库名称
+	OpenTx      *bool   // 是否开启事务 true.是 false.否
+	MongoSync   *bool   // 是否自动同步mongo数据库写入
+	Timeout     int64   // 请求超时设置/毫秒,默认10000
+	SlowQuery   int64   // 0.不开启筛选 >0开启筛选查询 毫秒
+	SlowLogPath string  // 慢查询写入地址
 }
 
 type MGOSyncData struct {

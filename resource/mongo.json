@@ -6,7 +6,7 @@
   "Direct": false,
   "ConnectTimeout": 5,
   "SocketTimeout": 5,
-  "Database": "openwallet",
+  "Database": "pgwj",
   "Username": "",
   "Password": "",
   "PoolLimit": 4096,

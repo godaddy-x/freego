@@ -7,6 +7,7 @@ import (
 	"github.com/godaddy-x/freego/component/mgo.v2/bson"
 	"github.com/godaddy-x/freego/sqlc"
 	"github.com/godaddy-x/freego/util"
+	"go.uber.org/zap"
 	"reflect"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ import (
 
 var (
 	mgo_sessions = make(map[string]*MGOManager)
+	mgo_slowlog  *zap.Logger
 )
 
 type CountResult struct {
@@ -88,6 +90,8 @@ func (self *MGOManager) GetDB(option ...Option) error {
 	self.Database = mgo.Database
 	self.Timeout = 10000
 	self.MongoSync = mgo.MongoSync
+	self.SlowQuery = mgo.SlowQuery
+	self.SlowLogPath = mgo.SlowLogPath
 	self.MGOSyncData = make([]*MGOSyncData, 0)
 	self.CacheManager = mgo.CacheManager
 	self.OpenTx = &FALSE
@@ -152,6 +156,8 @@ func (self *MGOManager) buildByConfig(manager cache.ICache, input ...MGOConfig) 
 		mgo.CacheManager = manager
 		mgo.DsName = dsName
 		mgo.Database = v.Database
+		mgo.SlowQuery = v.SlowQuery
+		mgo.SlowLogPath = v.SlowLogPath
 		if v.Node == nil {
 			mgo.Node = &ZERO
 		} else {
@@ -167,12 +173,36 @@ func (self *MGOManager) buildByConfig(manager cache.ICache, input ...MGOConfig) 
 		} else {
 			mgo.MongoSync = v.MongoSync
 		}
+		mgo.initSlowLog()
 		mgo_sessions[*mgo.DsName] = mgo
 	}
 	if len(mgo_sessions) == 0 {
 		return util.Error("mongo连接初始化失败: 数据源为0")
 	}
 	return nil
+}
+
+func (self *MGOManager) initSlowLog() {
+	if self.SlowQuery == 0 || len(self.SlowLogPath) == 0 {
+		return
+	}
+	if mgo_slowlog == nil {
+		mgo_slowlog = log.InitNewLog(&log.ZapConfig{
+			Level:   "warn",
+			Console: false,
+			FileConfig: &log.FileConfig{
+				Compress:   true,
+				Filename:   self.SlowLogPath,
+				MaxAge:     7,
+				MaxBackups: 7,
+				MaxSize:    512,
+			}})
+		mgo_slowlog.Info("MGO查询监控日志服务启动成功...")
+	}
+}
+
+func (self *MGOManager) getSlowLog() *zap.Logger {
+	return mgo_slowlog
 }
 
 // 保存数据到mongo集合
@@ -199,7 +229,7 @@ func (self *MGOManager) Save(data ...interface{}) error {
 		return self.Error(err)
 	}
 	if log.IsDebug() {
-		defer log.Debug("[Mongo.Save]日志", util.Time(), log.Any("data", data))
+		defer log.Debug("[Mongo.Save]", util.Time(), log.Any("data", data))
 	}
 	for _, v := range data {
 		if obv.PkKind == reflect.Int64 {
@@ -249,7 +279,7 @@ func (self *MGOManager) Update(data ...interface{}) error {
 		return self.Error(err)
 	}
 	if log.IsDebug() {
-		defer log.Debug("[Mongo.Update]日志", util.Time(), log.Any("data", data))
+		defer log.Debug("[Mongo.Update]", util.Time(), log.Any("data", data))
 	}
 	for _, v := range data {
 		if obv.PkKind == reflect.Int64 {
@@ -304,7 +334,7 @@ func (self *MGOManager) Delete(data ...interface{}) error {
 		return self.Error(err)
 	}
 	if log.IsDebug() {
-		defer log.Debug("[Mongo.Delete]日志", util.Time(), log.Any("data", data))
+		defer log.Debug("[Mongo.Delete]", util.Time(), log.Any("data", data))
 	}
 	delIds := make([]interface{}, 0, len(data))
 	for _, v := range data {
@@ -352,9 +382,7 @@ func (self *MGOManager) Count(cnd *sqlc.Cnd) (int64, error) {
 	if err != nil {
 		return 0, util.Error("[Mongo.Count]构建查询命令失败: ", err)
 	}
-	if log.IsDebug() {
-		defer log.Debug("[Mongo.Count]日志", util.Time(), log.Any("pipe", pipe))
-	}
+	defer self.writeLog("[Mongo.Count]", util.Time(), pipe)
 	result := CountResult{}
 	if err := db.Pipe(pipe).One(&result); err != nil {
 		if err == mgo.ErrNotFound {
@@ -398,9 +426,7 @@ func (self *MGOManager) FindOne(cnd *sqlc.Cnd, data interface{}) error {
 	if err != nil {
 		return util.Error("[Mongo.FindOne]构建查询命令失败: ", err)
 	}
-	if log.IsDebug() {
-		defer log.Debug("[Mongo.FindOne]日志", util.Time(), log.Any("pipe", pipe))
-	}
+	defer self.writeLog("[Mongo.FindOne]", util.Time(), pipe)
 	if len(cnd.Summaries) > 0 {
 		hasBID := false
 		for k, _ := range cnd.Summaries {
@@ -461,9 +487,7 @@ func (self *MGOManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	if err != nil {
 		return util.Error("[Mongo.FindList]构建查询命令失败: ", err)
 	}
-	if log.IsDebug() {
-		defer log.Debug("[Mongo.FindList]日志", util.Time(), log.Any("pipe", pipe))
-	}
+	defer self.writeLog("[Mongo.FindList]", util.Time(), pipe)
 	if err := db.Pipe(pipe).All(data); err != nil {
 		if err == mgo.ErrNotFound {
 			return nil
@@ -699,4 +723,17 @@ func buildSummary(cnd *sqlc.Cnd) map[string]interface{} {
 	}
 	query["$group"] = tmp
 	return query
+}
+
+func (self *MGOManager) writeLog(title string, start int64, pipe interface{}) {
+	cost := util.Time() - start
+	if self.SlowQuery > 0 && cost > self.SlowQuery {
+		l := self.getSlowLog()
+		if l != nil {
+			l.Warn(title, log.Int64("cost", cost), log.Any("pipe", pipe))
+		}
+	}
+	if log.IsDebug() {
+		defer log.Debug(title, start, log.Any("pipe", pipe))
+	}
 }
