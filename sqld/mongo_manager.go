@@ -699,7 +699,7 @@ func buildMongoLimit(cnd *sqlc.Cnd) []int64 {
 // 构建mongo聚合命令
 func buildSummary(cnd *sqlc.Cnd) map[string]interface{} {
 	var query = make(map[string]interface{})
-	if len(cnd.Summaries) > 0 {
+	if len(cnd.Summaries) == 0 {
 		return query
 	}
 	tmp := make(map[string]interface{})
