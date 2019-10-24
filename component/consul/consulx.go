@@ -9,6 +9,7 @@ import (
 	"github.com/godaddy-x/freego/util"
 	consulapi "github.com/hashicorp/consul/api"
 	"go.uber.org/zap"
+	"math/rand"
 	"net"
 	"net/http"
 	"net/rpc"
@@ -24,9 +25,10 @@ var (
 )
 
 type ConsulManager struct {
-	Host    string
-	Consulx *consulapi.Client
-	Config  *ConsulConfig
+	Host      string
+	Consulx   *consulapi.Client
+	Config    *ConsulConfig
+	Selection func([]*consulapi.AgentService) *consulapi.AgentService
 }
 
 // Consulx配置参数
@@ -61,13 +63,26 @@ type MonitorLog struct {
 	Error       error
 }
 
+// RPC参数对象
+type CallInfo struct {
+	Tags     []string    // 服务标签名称
+	Domain   string      // 自定义访问域名,为空时自动填充内网IP
+	Iface    interface{} // 接口实现类实例
+	Service  string      // RPC服务名称
+	Method   string      // RPC方法名称
+	Protocol string      // RPC访问协议,默认TCP
+	Request  interface{} // 请求参数对象
+	Response interface{} // 响应参数对象
+	Timeout  int64       // 连接请求超时,默认10秒
+}
+
 func (self *ConsulManager) InitConfig(input ...ConsulConfig) (*ConsulManager, error) {
 	for _, conf := range input {
 		config := consulapi.DefaultConfig()
 		config.Address = conf.Host
 		client, err := consulapi.NewClient(config)
 		if err != nil {
-			panic(util.AddStr("连接", conf.Host, "Consul配置中心失败: ", err.Error()))
+			panic(util.AddStr("连接[", conf.Host, "]Consul配置中心失败: ", err))
 		}
 		manager := &ConsulManager{Consulx: client, Host: conf.Host}
 		data, err := manager.GetKV(conf.Node, client)
@@ -88,7 +103,7 @@ func (self *ConsulManager) InitConfig(input ...ConsulConfig) (*ConsulManager, er
 		}
 	}
 	if len(consul_sessions) == 0 {
-		log.Println("consul连接初始化失败: 数据源为0")
+		log.Printf("consul连接初始化失败: 数据源为0")
 	}
 	return self, nil
 }
@@ -108,7 +123,7 @@ func (self *ConsulManager) initSlowLog() {
 				MaxBackups: 7,
 				MaxSize:    512,
 			}})
-		log.Println("Consul监控日志服务启动成功...")
+		fmt.Println("Consul监控日志服务启动成功...")
 	}
 }
 
@@ -128,22 +143,6 @@ func (self *ConsulManager) Client(dsname ...string) (*ConsulManager, error) {
 		return nil, util.Error("consul数据源[", ds, "]未找到,请检查...")
 	}
 	return manager, nil
-}
-
-// 通过Consul中心获取指定配置数据 - aes加密数据
-func (self *ConsulManager) ReadNodeDataByAes(node string, result interface{}, aeskey string) error {
-	data, err := self.GetKV(node)
-	if err != nil {
-		return err
-	}
-	rs := util.AesDecrypt(util.Bytes2Str(data), aeskey)
-	if len(rs) == 0 {
-		return nil
-	}
-	if err := util.JsonUnmarshal(util.Str2Bytes(rs), result); err != nil {
-		return util.Error("读取[", node, "]配置文件解析失败")
-	}
-	return nil
 }
 
 // 通过Consul中心获取指定配置数据
@@ -176,13 +175,16 @@ func (self *ConsulManager) ReadJsonConfig(node string, result interface{}) error
 }
 
 // 中心注册接口服务
-func (self *ConsulManager) AddRegistration(name string, iface interface{}) {
+func (self *ConsulManager) AddRegistration(name string, iface interface{}, ipname ...string) {
 	tof := reflect.TypeOf(iface)
 	vof := reflect.ValueOf(iface)
 	registration := new(consulapi.AgentServiceRegistration)
 	ip := util.GetLocalIP()
 	if ip == "" {
 		panic("内网IP读取失败,请检查...")
+	}
+	if ipname != nil && len(ipname) > 0 && len(ipname[0]) > 0 {
+		ip = ipname[0]
 	}
 	orname := reflect.Indirect(vof).Type().Name()
 	sname := orname
@@ -247,6 +249,109 @@ func (self *ConsulManager) StartListenAndServe() {
 	}()
 	http.HandleFunc("/check", self.healthCheck)
 	http.ListenAndServe(fmt.Sprintf(":%d", self.Config.CheckPort), nil)
+}
+
+func (self *ConsulManager) RemoveService(serviceIDs ...string) {
+	services, err := self.Consulx.Agent().Services()
+	if err != nil {
+		panic(err)
+	}
+	if len(serviceIDs) > 0 {
+		for _, v := range services {
+			for _, ID := range serviceIDs {
+				if ID == v.ID {
+					if err := self.Consulx.Agent().ServiceDeregister(v.ID); err != nil {
+						log.Println(err)
+					}
+					log.Println("移除服务成功: ", v.Service, " - ", v.ID)
+				}
+			}
+		}
+		return
+	}
+	for _, v := range services {
+		if err := self.Consulx.Agent().ServiceDeregister(v.ID); err != nil {
+			log.Println(err)
+		}
+		log.Println("移除服务成功: ", v.Service, " - ", v.ID)
+	}
+}
+
+// 根据服务名获取可用列表
+func (self *ConsulManager) GetService(service string) ([]*consulapi.AgentService, error) {
+	result := []*consulapi.AgentService{}
+	services, err := self.Consulx.Agent().Services()
+	if err != nil {
+		return result, err
+	}
+	if len(service) == 0 {
+		for _, v := range services {
+			result = append(result, v)
+		}
+		return result, nil
+	}
+	for _, v := range services {
+		if service == v.Service {
+			result = append(result, v)
+		}
+	}
+	return result, nil
+}
+
+// 中心注册接口服务
+func (self *ConsulManager) AddRPC(callInfo ...*CallInfo) {
+	if len(callInfo) == 0 {
+		panic("服务对象列表为空,请检查...")
+	}
+	services, err := self.GetService("")
+	if err != nil {
+		panic(err)
+	}
+	for _, info := range callInfo {
+		tof := reflect.TypeOf(info.Iface)
+		vof := reflect.ValueOf(info.Iface)
+		registration := new(consulapi.AgentServiceRegistration)
+		addr := util.GetLocalIP()
+		if addr == "" {
+			panic("内网IP读取失败,请检查...")
+		}
+		if len(info.Domain) > 0 {
+			addr = info.Domain
+		}
+		srvName := reflect.Indirect(vof).Type().Name()
+		methods := []string{}
+		for m := 0; m < tof.NumMethod(); m++ {
+			method := tof.Method(m)
+			methods = append(methods, method.Name)
+		}
+		if len(methods) == 0 {
+			panic(util.AddStr("服务对象[", srvName, "]尚未有方法..."))
+		}
+		exist := false
+		for _, v := range services {
+			if v.Service == srvName && v.Address == addr {
+				exist = true
+				log.Println(util.AddStr("Consul服务[", v.Service, "][", v.Address, "]已存在,跳过注册"))
+				break
+			}
+		}
+		if exist {
+			continue
+		}
+		registration.ID = util.GetSnowFlakeStrID()
+		registration.Name = srvName
+		registration.Tags = info.Tags
+		registration.Address = addr
+		registration.Port = self.Config.RpcPort
+		registration.Meta = make(map[string]string)
+		registration.Check = &consulapi.AgentServiceCheck{HTTP: fmt.Sprintf("http://%s:%d%s", registration.Address, self.Config.CheckPort, "/check"), Timeout: self.Config.Timeout, Interval: self.Config.Interval, DeregisterCriticalServiceAfter: self.Config.DestroyAfter,}
+		// 启动RPC服务
+		log.Println(util.AddStr("Consul服务[", registration.Name, "][", registration.Address, "]注册成功"))
+		if err := self.Consulx.Agent().ServiceRegister(registration); err != nil {
+			panic(util.AddStr("Consul注册[", srvName, "]服务失败: ", err.Error()))
+		}
+		rpc.Register(info.Iface)
+	}
 }
 
 // 获取RPC服务,并执行访问 args参数不可变,reply参数可变
@@ -324,7 +429,7 @@ func (self *ConsulManager) CallService(srv string, args interface{}, reply inter
 	conn, err = net.DialTimeout(protocol, host, time.Second*10)
 	if err != nil {
 		log.Error("consul服务连接失败", 0, log.String("ID", agentID), log.String("host", host), log.String("srv", srv), log.AddError(err))
-		return util.Error("[", agentID, "][", host, "]", "[", srv, "]连接失败: ", err)
+		return util.Error("[", host, "]", "[", srv, "]连接失败: ", err)
 	}
 	encBuf := bufio.NewWriter(conn)
 	codec := &gobClientCodec{conn, gob.NewDecoder(conn), gob.NewEncoder(encBuf), encBuf}
@@ -332,13 +437,77 @@ func (self *ConsulManager) CallService(srv string, args interface{}, reply inter
 	err1 = cli.Call(srv, args, reply)
 	err2 = cli.Close()
 	if err1 != nil {
-		err = util.Error("[", agentID, "][", host, "]", "[", srv, "]访问失败: ", err1)
 		log.Error("consul服务访问失败", 0, log.String("ID", agentID), log.String("host", host), log.String("srv", srv), log.AddError(err1))
-		return err
+		return util.Error("[", host, "]", "[", srv, "]访问失败: ", err1)
 	} else if err2 != nil {
-		err = util.Error("[", agentID, "][", host, "]", "[", srv, "]关闭失败: ", err2)
 		log.Error("consul服务关闭失败", 0, log.String("ID", agentID), log.String("host", host), log.String("srv", srv), log.AddError(err2))
-		return err
+		return util.Error("[", host, "]", "[", srv, "]关闭失败: ", err2)
+	}
+	return nil
+}
+
+// 获取RPC服务,并执行访问 args参数不可变,reply参数可变
+func (self *ConsulManager) CallRPC(callInfo *CallInfo) error {
+	if callInfo.Service == "" {
+		return errors.New("服务名称为空")
+	}
+	if callInfo.Method == "" {
+		return errors.New("方法名称为空")
+	}
+	if callInfo.Request == nil {
+		return errors.New("请求对象为空")
+	}
+	if callInfo.Response == nil {
+		return errors.New("响应对象为空")
+	}
+	if len(callInfo.Protocol) == 0 {
+		callInfo.Protocol = "tcp"
+	}
+	if callInfo.Timeout == 0 {
+		callInfo.Timeout = 10
+	}
+	services, err := self.GetService(callInfo.Service)
+	if err != nil {
+		return util.Error("读取[", callInfo.Service, "]服务失败: ", err)
+	}
+	if len(services) == 0 {
+		return util.Error("没有找到可用[", callInfo.Service, "]服务")
+	}
+	var service *consulapi.AgentService
+	if self.Selection == nil { // 选取规则为空则默认随机
+		r := rand.New(rand.NewSource(util.GetSnowFlakeIntID()))
+		service = services[r.Intn(len(services))]
+	} else {
+		service = self.Selection(services)
+	}
+	monitor := MonitorLog{
+		ConsulHost:  self.Config.Host,
+		ServiceName: callInfo.Service,
+		MethodName:  callInfo.Method,
+		RpcPort:     service.Port,
+		RpcHost:     service.Address,
+		AgentID:     service.ID,
+		BeginTime:   util.Time(),
+	}
+	defer self.rpcMonitor(monitor, err, callInfo.Request, callInfo.Response)
+	var conn net.Conn
+	var err1, err2 error
+	conn, err = net.DialTimeout(callInfo.Protocol, util.AddStr(service.Address, ":", self.Config.ListenProt), time.Second*time.Duration(callInfo.Timeout))
+	if err != nil {
+		log.Error("consul服务连接失败", 0, log.String("ID", service.ID), log.String("host", service.Address), log.String("srv", service.Service), log.AddError(err))
+		return util.Error("[", service.Address, "]", "[", service.Service, "]连接失败: ", err)
+	}
+	encBuf := bufio.NewWriter(conn)
+	codec := &gobClientCodec{conn, gob.NewDecoder(conn), gob.NewEncoder(encBuf), encBuf}
+	cli := rpc.NewClientWithCodec(codec)
+	err1 = cli.Call(util.AddStr(callInfo.Service, ".", callInfo.Method), callInfo.Request, callInfo.Response)
+	err2 = cli.Close()
+	if err1 != nil {
+		log.Error("consul服务访问失败", 0, log.String("ID", service.ID), log.String("host", service.Address), log.String("srv", service.Service), log.AddError(err1))
+		return util.Error("[", service.Address, "]", "[", service.Service, "]访问失败: ", err1)
+	} else if err2 != nil {
+		log.Error("consul服务关闭失败", 0, log.String("ID", service.ID), log.String("host", service.Address), log.String("srv", service.Service), log.AddError(err2))
+		return util.Error("[", service.Address, "]", "[", service.Service, "]关闭失败: ", err2)
 	}
 	return nil
 }
