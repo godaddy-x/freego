@@ -107,19 +107,35 @@ func NewNode(node int64) (*Node, error) {
 	}, nil
 }
 
+func (n *Node) GetNow() int64 {
+	return time.Now().UnixNano() / 1000000
+}
+
+func (n *Node) GetValidNow() int64 {
+	now := n.GetNow()
+	if n.time > now {
+		time.Sleep(time.Duration(((n.time - now) + 1)) * time.Millisecond)
+	}
+	return n.GetNow()
+}
+
 // Generate creates and returns a unique snowflake ID
 func (n *Node) Generate() ID {
 
 	n.mu.Lock()
 
-	now := time.Now().UnixNano() / 1000000
+	now := n.GetNow()
+
+	if n.time > now {
+		now = n.GetValidNow()
+	}
 
 	if n.time == now {
 		n.step = (n.step + 1) & stepMask
 
 		if n.step == 0 {
 			for now <= n.time {
-				now = time.Now().UnixNano() / 1000000
+				now = n.GetNow()
 			}
 		}
 	} else {

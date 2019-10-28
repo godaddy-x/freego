@@ -27,7 +27,7 @@ type ConsulManager struct {
 	Host      string
 	Consulx   *consulapi.Client
 	Config    *ConsulConfig
-	Selection func([]*consulapi.AgentService) *consulapi.AgentService
+	Selection func([]*consulapi.ServiceEntry) *consulapi.ServiceEntry
 }
 
 // Consulx配置参数
@@ -234,7 +234,7 @@ func (self *ConsulManager) RemoveService(serviceIDs ...string) {
 }
 
 // 根据服务名获取可用列表
-func (self *ConsulManager) GetService(service string) ([]*consulapi.AgentService, error) {
+func (self *ConsulManager) GetAllService(service string) ([]*consulapi.AgentService, error) {
 	result := []*consulapi.AgentService{}
 	services, err := self.Consulx.Agent().Services()
 	if err != nil {
@@ -254,12 +254,20 @@ func (self *ConsulManager) GetService(service string) ([]*consulapi.AgentService
 	return result, nil
 }
 
+func (self *ConsulManager) GetHealthService(service string) ([]*consulapi.ServiceEntry, error) {
+	serviceEntry, _, err := self.Consulx.Health().Service(service, "", false, &consulapi.QueryOptions{})
+	if err != nil {
+		return []*consulapi.ServiceEntry{}, err
+	}
+	return serviceEntry, nil
+}
+
 // 中心注册接口服务
 func (self *ConsulManager) AddRPC(callInfo ...*CallInfo) {
 	if len(callInfo) == 0 {
 		panic("服务对象列表为空,请检查...")
 	}
-	services, err := self.GetService("")
+	services, err := self.GetAllService("")
 	if err != nil {
 		panic(err)
 	}
@@ -337,7 +345,7 @@ func (self *ConsulManager) CallRPC(callInfo *CallInfo) error {
 	if len(callInfo.Package) > 0 {
 		serviceName = util.AddStr(callInfo.Package, ".", callInfo.Service)
 	}
-	services, err := self.GetService(serviceName)
+	services, err := self.GetHealthService(serviceName)
 	if err != nil {
 		return util.Error("读取[", serviceName, "]服务失败: ", err)
 	}
@@ -347,9 +355,9 @@ func (self *ConsulManager) CallRPC(callInfo *CallInfo) error {
 	var service *consulapi.AgentService
 	if self.Selection == nil { // 选取规则为空则默认随机
 		r := rand.New(rand.NewSource(util.GetSnowFlakeIntID()))
-		service = services[r.Intn(len(services))]
+		service = services[r.Intn(len(services))].Service
 	} else {
-		service = self.Selection(services)
+		service = self.Selection(services).Service
 	}
 	monitor := MonitorLog{
 		ConsulHost:  self.Config.Host,
