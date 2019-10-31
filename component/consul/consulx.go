@@ -299,6 +299,7 @@ func (self *ConsulManager) AddRPC(callInfo ...*CallInfo) {
 			if v.Service == srvName && v.Address == addr {
 				exist = true
 				log.Println(util.AddStr("Consul服务[", v.Service, "][", v.Address, "]已存在,跳过注册"))
+				rpc.Register(info.Iface)
 				break
 			}
 		}
@@ -374,8 +375,10 @@ func (self *ConsulManager) CallRPC(callInfo *CallInfo) error {
 	conn, err = net.DialTimeout(callInfo.Protocol, util.AddStr(service.Address, ":", self.Config.ListenProt), time.Second*time.Duration(callInfo.Timeout))
 	if err != nil {
 		log.Error("consul服务连接失败", 0, log.String("ID", service.ID), log.String("host", service.Address), log.String("srv", service.Service), log.AddError(err))
-		return util.Error("[", service.Address, "]", "[", service.Service, "]连接失败: ", err)
+		return util.Error("RPC连接失败: ", err)
 	}
+	defer conn.Close()
+	conn.SetReadDeadline(time.Now().Add(time.Second * time.Duration(callInfo.Timeout)))
 	encBuf := bufio.NewWriter(conn)
 	codec := &gobClientCodec{conn, gob.NewDecoder(conn), gob.NewEncoder(encBuf), encBuf}
 	cli := rpc.NewClientWithCodec(codec)
@@ -383,10 +386,10 @@ func (self *ConsulManager) CallRPC(callInfo *CallInfo) error {
 	err2 = cli.Close()
 	if err1 != nil {
 		log.Error("consul服务访问失败", 0, log.String("ID", service.ID), log.String("host", service.Address), log.String("srv", service.Service), log.AddError(err1))
-		return util.Error("[", service.Address, "]", "[", service.Service, "]访问失败: ", err1)
+		return util.Error("RPC访问失败: ", err1)
 	} else if err2 != nil {
 		log.Error("consul服务关闭失败", 0, log.String("ID", service.ID), log.String("host", service.Address), log.String("srv", service.Service), log.AddError(err2))
-		return util.Error("[", service.Address, "]", "[", service.Service, "]关闭失败: ", err2)
+		return util.Error("RPC关闭失败: ", err2)
 	}
 	return nil
 }
