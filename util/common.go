@@ -673,3 +673,29 @@ func Reverse(s string) string {
 	}
 	return string(runes)
 }
+
+func GetMonthFirstAndLast() (int64, int64) {
+	now := time.Now()
+	currentYear, currentMonth, _ := now.Date()
+	firstOfMonth := time.Date(currentYear, currentMonth, 1, 0, 0, 0, 0, now.Location())
+	lastOfMonth := firstOfMonth.AddDate(0, 1, -1)
+	return Time(firstOfMonth), Time(lastOfMonth) + 86400000
+}
+
+func GetWeekFirstAndLast() (int64, int64) {
+	now := time.Now()
+	offset := int(time.Monday - now.Weekday())
+	if offset > 0 {
+		offset = -6
+	}
+	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).AddDate(0, 0, offset)
+	first := Time(start)
+	return first, first + 604800000
+}
+
+func GetDayFirstAndLast() (int64, int64) {
+	now := time.Now()
+	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	first := Time(start)
+	return first, first + 86400000
+}
