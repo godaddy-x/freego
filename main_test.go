@@ -580,12 +580,7 @@ func TestB(t *testing.T) {
 }
 
 func TestRGX(t *testing.T) {
-	a := `["1","2","3","4","5"]`
-	for i := 0; i < 2000000; i++ {
-		b := []string{}
-		util.JsonUnmarshal(util.Str2Bytes(a), &b);
-		util.Str2Bytes(a)
-	}
+	fmt.Println(util.GetAnyMonthFirstAndLast(13))
 }
 
 func TestRGX1(t *testing.T) {

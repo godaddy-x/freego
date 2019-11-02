@@ -679,7 +679,20 @@ func GetMonthFirstAndLast() (int64, int64) {
 	currentYear, currentMonth, _ := now.Date()
 	firstOfMonth := time.Date(currentYear, currentMonth, 1, 0, 0, 0, 0, now.Location())
 	lastOfMonth := firstOfMonth.AddDate(0, 1, -1)
-	return Time(firstOfMonth), Time(lastOfMonth) + 86400000
+	return Time(firstOfMonth), Time(lastOfMonth) + 86400000 - 1
+}
+
+func GetAnyMonthFirstAndLast(month int) (int64, int64) {
+	now := time.Now()
+	currentYear, currentMonth, _ := now.Date()
+	cmonth := int(currentMonth)
+	offset := month - cmonth
+	if month < 1 || month > 12 {
+		offset = 0
+	}
+	firstOfMonth := time.Date(currentYear, currentMonth, 1, 0, 0, 0, 0, now.Location()).AddDate(0, offset, 0)
+	lastOfMonth := firstOfMonth.AddDate(0, 1, -1)
+	return Time(firstOfMonth), Time(lastOfMonth) + 86400000 - 1
 }
 
 func GetWeekFirstAndLast() (int64, int64) {
@@ -690,12 +703,12 @@ func GetWeekFirstAndLast() (int64, int64) {
 	}
 	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).AddDate(0, 0, offset)
 	first := Time(start)
-	return first, first + 604800000
+	return first, first + 604800000 - 1
 }
 
 func GetDayFirstAndLast() (int64, int64) {
 	now := time.Now()
 	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 	first := Time(start)
-	return first, first + 86400000
+	return first, first + 86400000 - 1
 }
