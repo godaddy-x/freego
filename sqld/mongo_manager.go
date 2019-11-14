@@ -515,19 +515,14 @@ func (self *MGOManager) UpdateByCnd(cnd *sqlc.Cnd) error {
 	}
 	match := buildMongoMatch(cnd)
 	upset := buildMongoUpset(cnd)
+	if len(match) == 0 {
+		return util.Error("筛选条件不能为空")
+	}
 	if len(upset) == 0 {
 		return util.Error("更新条件不能为空")
 	}
-	a := bson.M{}
-	b := bson.M{}
-	if err := util.JsonToAny(&match, &a); err != nil {
-		return err
-	}
-	if err := util.JsonToAny(&upset, &b); err != nil {
-		return err
-	}
 	defer self.writeLog("[Mongo.UpdateByCnd]", util.Time(), map[string]interface{}{"match": match, "upset": upset})
-	if _, err := db.UpdateAll(a, b); err != nil {
+	if _, err := db.UpdateAll(match, upset); err != nil {
 		return util.Error("[Mongo.UpdateByCnd]更新数据失败: ", err)
 	}
 	return nil
