@@ -806,6 +806,4 @@ func (self *MGOManager) writeLog(title string, start int64, pipe interface{}) {
 		pipeStr, _ := util.JsonMarshal(pipe)
 		defer log.Debug(title, start, log.String("pipe", util.Bytes2Str(pipeStr)))
 	}
-	pipeStr, _ := util.JsonMarshal(pipe)
-	log.Println(util.Bytes2Str(pipeStr))
 }
