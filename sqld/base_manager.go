@@ -24,9 +24,10 @@ var (
 )
 
 const (
-	SAVE   = 1
-	UPDATE = 2
-	DELETE = 3
+	SAVE          = 1
+	UPDATE        = 2
+	DELETE        = 3
+	UPDATE_BY_CND = 4
 )
 
 /********************************** 数据库配置参数 **********************************/
@@ -519,23 +520,7 @@ func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) error {
 		return nil
 	}
 	if *self.MongoSync && obv.ToMongo {
-		data := obv.Hook.NewObjArr()
-		if err := self.FindList(cnd, data); err != nil {
-			return self.Error("[Mysql.UpdateByCnd]获取更新数据集合失败:  ", err)
-		}
-		result := make([]interface{}, 0)
-		if err := util.JsonToAny(data, &result); err != nil {
-			return self.Error("[Mysql.UpdateByCnd]数据转换map集合失败:  ", err)
-		}
-		cdata := make([]interface{}, 0, len(result))
-		for _, v := range result {
-			o := obv.Hook.NewObj()
-			if err := util.JsonToAny(v, o); err != nil {
-				return self.Error("[Mysql.UpdateByCnd]map数据转对象失败:  ", err)
-			}
-			cdata = append(cdata, o)
-		}
-		sdata := &MGOSyncData{UPDATE, obv.Hook.NewObj(), cdata}
+		sdata := &MGOSyncData{UPDATE_BY_CND, obv.Hook.NewObj(), []interface{}{cnd}}
 		self.MGOSyncData = append(self.MGOSyncData, sdata)
 	}
 	return nil
@@ -1305,6 +1290,15 @@ func (self *RDBManager) mongoSyncData(option int, model interface{}, data ...int
 		return mongo.Update(data...)
 	case DELETE:
 		return mongo.Delete(data...)
+	case UPDATE_BY_CND:
+		if data == nil || len(data) == 0 {
+			return util.Error("同步条件对象为空")
+		}
+		cnd, ok := data[0].(*sqlc.Cnd)
+		if !ok {
+			return util.Error("无效的同步条件对象")
+		}
+		return mongo.UpdateByCnd(cnd)
 	}
 	return nil
 }

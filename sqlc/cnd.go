@@ -1,6 +1,7 @@
 package sqlc
 
 import (
+	"fmt"
 	"github.com/godaddy-x/freego/sqld/dialect"
 )
 
@@ -109,7 +110,7 @@ func M(model ...interface{}) *Cnd {
 		Groupbys:   make([]string, 0),
 		Summaries:  make(map[string]int, 0),
 		Orderbys:   make([]Condition, 0),
-		UpdateKV:   make(map[string]interface{}),
+		UpdateKV:   make(map[string]interface{}, 0),
 	}
 	if model != nil && len(model) > 0 {
 		c.Model = model[0]
@@ -366,7 +367,7 @@ func (self *Cnd) UpdateKeyValue(keys []string, values ...interface{}) *Cnd {
 		return self
 	}
 	if len(keys) == 0 || len(keys) != len(values) {
-		println("keys和values参数下标不对等")
+		fmt.Println("keys和values参数下标不对等")
 		return self
 	}
 	for i := 0; i < len(keys); i++ {

@@ -497,6 +497,42 @@ func (self *MGOManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	return nil
 }
 
+// 根据条件更新数据
+func (self *MGOManager) UpdateByCnd(cnd *sqlc.Cnd) error {
+	if cnd.Model == nil {
+		return self.Error("[Mongo.UpdateByCnd]ORM对象类型不能为空,请通过M(...)方法设置对象类型")
+	}
+	obkey := reflect.TypeOf(cnd.Model).String()
+	obv, ok := modelDrivers[obkey];
+	if !ok {
+		return self.Error(util.AddStr("[Mongo.UpdateByCnd]没有找到注册对象类型[", obkey, "]"))
+	}
+	copySession := self.Session.Copy()
+	defer copySession.Close()
+	db, err := self.GetDatabase(copySession, obv.TabelName)
+	if err != nil {
+		return err
+	}
+	match := buildMongoMatch(cnd)
+	upset := buildMongoUpset(cnd)
+	if len(upset) == 0 {
+		return util.Error("更新条件不能为空")
+	}
+	a := bson.M{}
+	b := bson.M{}
+	if err := util.JsonToAny(&match, &a); err != nil {
+		return err
+	}
+	if err := util.JsonToAny(&upset, &b); err != nil {
+		return err
+	}
+	defer self.writeLog("[Mongo.UpdateByCnd]", util.Time(), map[string]interface{}{"match": match, "upset": upset})
+	if _, err := db.UpdateAll(a, b); err != nil {
+		return util.Error("[Mongo.UpdateByCnd]更新数据失败: ", err)
+	}
+	return nil
+}
+
 func (self *MGOManager) Close() error {
 	return nil
 }
@@ -528,6 +564,7 @@ func (self *MGOManager) putByCache(cnd *sqlc.Cnd, data interface{}) error {
 // 获取最终pipe条件集合,包含$match $project $sort $skip $limit,未实现$group
 func (self *MGOManager) buildPipeCondition(cnd *sqlc.Cnd, countby bool) ([]interface{}, error) {
 	match := buildMongoMatch(cnd)
+	upset := buildMongoUpset(cnd)
 	project := buildMongoProject(cnd)
 	sortby := buildMongoSortBy(cnd)
 	pageinfo := buildMongoLimit(cnd)
@@ -536,6 +573,11 @@ func (self *MGOManager) buildPipeCondition(cnd *sqlc.Cnd, countby bool) ([]inter
 	if len(match) > 0 {
 		tmp := make(map[string]interface{})
 		tmp["$match"] = match
+		pipe = append(pipe, tmp)
+	}
+	if len(upset) > 0 {
+		tmp := make(map[string]interface{})
+		tmp["$set"] = upset
 		pipe = append(pipe, tmp)
 	}
 	if len(project) > 0 {
@@ -586,6 +628,9 @@ func buildMongoMatch(cnd *sqlc.Cnd) map[string]interface{} {
 	query := make(map[string]interface{})
 	for _, v := range cnd.Conditions {
 		key := v.Key
+		if key == JID {
+			key = BID
+		}
 		value := v.Value
 		values := v.Values
 		switch v.Logic {
@@ -659,9 +704,30 @@ func buildMongoMatch(cnd *sqlc.Cnd) map[string]interface{} {
 func buildMongoProject(cnd *sqlc.Cnd) map[string]int {
 	project := make(map[string]int)
 	for _, v := range cnd.AnyFields {
-		project[v] = 1
+		if v == JID {
+			project[BID] = 1
+		} else {
+			project[v] = 1
+		}
 	}
 	return project
+}
+
+// 构建mongo字段更新命令
+func buildMongoUpset(cnd *sqlc.Cnd) map[string]interface{} {
+	query := make(map[string]interface{})
+	if len(cnd.UpdateKV) > 0 {
+		tmp := map[string]interface{}{}
+		for k, v := range cnd.UpdateKV {
+			if k == JID {
+				tmp[BID] = v
+			} else {
+				tmp[k] = v
+			}
+		}
+		query["$set"] = tmp
+	}
+	return query
 }
 
 // 构建mongo排序命令
@@ -669,9 +735,17 @@ func buildMongoSortBy(cnd *sqlc.Cnd) map[string]int {
 	sortby := make(map[string]int)
 	for _, v := range cnd.Orderbys {
 		if v.Value == sqlc.DESC_ {
-			sortby[v.Key] = -1
+			if v.Key == JID {
+				sortby[BID] = -1
+			} else {
+				sortby[v.Key] = -1
+			}
 		} else if v.Value == sqlc.ASC_ {
-			sortby[v.Key] = 1
+			if v.Key == JID {
+				sortby[BID] = 1
+			} else {
+				sortby[v.Key] = 1
+			}
 		}
 	}
 	return sortby
@@ -734,6 +808,9 @@ func (self *MGOManager) writeLog(title string, start int64, pipe interface{}) {
 		}
 	}
 	if log.IsDebug() {
-		defer log.Debug(title, start, log.Any("pipe", pipe))
+		pipeStr, _ := util.JsonMarshal(pipe)
+		defer log.Debug(title, start, log.String("pipe", util.Bytes2Str(pipeStr)))
 	}
+	pipeStr, _ := util.JsonMarshal(pipe)
+	log.Println(util.Bytes2Str(pipeStr))
 }
