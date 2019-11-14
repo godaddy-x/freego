@@ -36,7 +36,7 @@ type DxApp struct {
 }
 
 type OwWallet struct {
-	Id           int64  `json:"id" bson:"_id" tb:"ow_wallet" mg:"true"`
+	Id           int64  `json:"id" bson:"_id" tb:"ow_wallet_2" mg:"true"`
 	AppID        string `json:"appID" bson:"appID"`
 	WalletID     string `json:"walletID" bson:"walletID"`
 	Alias        string `json:"alias" bson:"alias"`
@@ -99,6 +99,17 @@ func init() {
 	//	return
 	//}
 	//MyClient = client
+}
+
+func TestMysql(t *testing.T) {
+	db, err := new(sqld.MysqlManager).Get(sqld.Option{OpenTx: &sqld.TRUE})
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+	if err := db.UpdateByCnd(sqlc.M(&OwWallet{}).Eq("id", 1).UpdateKeyValue([]string{"alias"}, "mytest1233")); err != nil {
+		fmt.Println(err)
+	}
 }
 
 func TestMysqlSave(t *testing.T) {
@@ -295,26 +306,14 @@ func TestMongoSave(t *testing.T) {
 		panic(err)
 	}
 	defer db.Close()
-	vs := []interface{}{}
-	for i := 0; i < 3; i++ {
-		wallet := OwWallet{
-			Id: util.GetSnowFlakeIntID(),
-			// AppID:        map[string]interface{}{"test": 1},
-			WalletID:     util.GetSnowFlakeStrID(),
-			PasswordType: 1,
-			Password:     "123456",
-			RootPath:     "m/44'/88'/0'",
-			Alias:        "hello_qtum",
-			IsTrust:      0,
-			AuthKey:      "",
-		}
-		vs = append(vs, &wallet)
+	//l := util.Time()
+	o := OwWallet{
+		AppID:    util.GetSnowFlakeStrID(),
+		WalletID: util.GetSnowFlakeStrID(),
 	}
-	l := util.Time()
-	if err := db.Save(vs...); err != nil {
+	if err := db.Save(&o); err != nil {
 		fmt.Println(err)
 	}
-	fmt.Println("cost: ", util.Time()-l)
 }
 
 func TestMongoUpdate(t *testing.T) {
@@ -323,25 +322,22 @@ func TestMongoUpdate(t *testing.T) {
 		panic(err)
 	}
 	defer db.Close()
-	vs := []interface{}{}
-	for i := 0; i < 1; i++ {
-		wallet := OwWallet{
-			Id: 1110012978914131969,
-			// AppID:        map[string]interface{}{"test": 1},
-			WalletID:     util.GetSnowFlakeStrID(),
-			PasswordType: 1,
-			Password:     "123456",
-			RootPath:     "m/44'/88'/01'",
-			Alias:        "hello_qtum",
-			IsTrust:      0,
-			AuthKey:      "",
-		}
-		vs = append(vs, &wallet)
-	}
+	//wallet := OwWallet{
+	//	Id: 1110012978914131972,
+	//	// AppID:        map[string]interface{}{"test": 1},
+	//	WalletID:     "1110012978914131972",
+	//	PasswordType: 1,
+	//	Password:     "123456",
+	//	RootPath:     "m/44'/88'/01'",
+	//	Alias:        "hello_qtum",
+	//	IsTrust:      0,
+	//	AuthKey:      "",
+	//}
 	l := util.Time()
-	if err := db.Update(vs...); err != nil {
+	if err := db.UpdateByCnd(sqlc.M(&OwWallet{}).Or(sqlc.M().Eq("id", 1110012978914131972),sqlc.M().Eq("id", 1110012978914131973), ).UpdateKeyValue([]string{"appID", "ctime"}, "test1test1", 1)); err != nil {
 		fmt.Println(err)
 	}
+	//fmt.Println(wallet.Id)
 	fmt.Println("cost: ", util.Time()-l)
 }
 
@@ -380,7 +376,7 @@ func TestMongoCount(t *testing.T) {
 	}
 	defer db.Close()
 	l := util.Time()
-	if c, err := db.Count(sqlc.M(&OwWallet{}).Eq("_id", 1110013195356995886).Orderby("_id", sqlc.DESC_).Limit(1, 30)); err != nil {
+	if c, err := db.Count(sqlc.M(&OwWallet{}).Eq("_id", 1110012978914131972).Orderby("_id", sqlc.DESC_).Limit(1, 30)); err != nil {
 		fmt.Println(err)
 	} else {
 		fmt.Println(c)
@@ -630,16 +626,16 @@ func TestRGX2(t *testing.T) {
 	//fmt.Println("cost: ", util.Time()-start)
 }
 
-func BenchmarkLoopsParallel(b *testing.B) {
-	i := float64(1)
-	// b.SetParallelism(1000)
-	b.N = 50000
-	b.ReportAllocs()
-	b.RunParallel(func(pb *testing.PB) { //并发
-		for pb.Next() {
-			s := 145647.454564
-			s = s + i
-			util.Shift(s, 10, true)
-		}
-	})
-}
+//func BenchmarkLoopsParallel(b *testing.B) {
+//	i := float64(1)
+//	// b.SetParallelism(1000)
+//	b.N = 50000
+//	b.ReportAllocs()
+//	b.RunParallel(func(pb *testing.PB) { //并发
+//		for pb.Next() {
+//			s := 145647.454564
+//			s = s + i
+//			util.Shift(s, 10, true)
+//		}
+//	})
+//}
