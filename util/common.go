@@ -712,3 +712,29 @@ func GetDayFirstAndLast() (int64, int64) {
 	first := Time(start)
 	return first, first + 86400000 - 1
 }
+
+func InArray(p interface{}) []interface{} {
+	if p == nil {
+		return []interface{}{}
+	}
+	if data, ok := p.([]int); ok {
+		result := make([]interface{}, 0, len(data))
+		for _, v := range data {
+			result = append(result, v)
+		}
+		return result
+	} else if data, ok := p.([]int64); ok {
+		result := make([]interface{}, 0, len(data))
+		for _, v := range data {
+			result = append(result, v)
+		}
+		return result
+	} else if data, ok := p.([]string); ok {
+		result := make([]interface{}, 0, len(data))
+		for _, v := range data {
+			result = append(result, v)
+		}
+		return result
+	}
+	return []interface{}{}
+}
