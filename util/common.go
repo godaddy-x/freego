@@ -515,7 +515,12 @@ func Base64URLDecode(input interface{}) []byte {
 
 // 随机获得6位数字
 func Random6str() string {
-	return fmt.Sprintf("%06v", rand.New(rand.NewSource(time.Now().UnixNano())).Int31n(1000000))
+	return fmt.Sprintf("%06v", rand.New(rand.NewSource(GetSnowFlakeIntID())).Int31n(1000000))
+}
+
+// 获取随机区间数值
+func RandomInt(max int) int {
+	return rand.New(rand.NewSource(GetSnowFlakeIntID())).Intn(max) + 1
 }
 
 // 获取项目绝对路径
