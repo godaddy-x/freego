@@ -679,6 +679,17 @@ func Reverse(s string) string {
 	return string(runes)
 }
 
+func ReverseBase64(s string) string {
+	return Base64Encode(ReverseStr(s, 0, 12, 12, 12, 24, 8))
+}
+
+func ReverseStr(s string, x ...int) string {
+	a := Substr(s, x[0], x[1])
+	b := Substr(s, x[2], x[3])
+	c := Substr(s, x[4], x[5])
+	return Reverse(AddStr(c, a, b))
+}
+
 func GetMonthFirstAndLast() (int64, int64) {
 	now := time.Now()
 	currentYear, currentMonth, _ := now.Date()

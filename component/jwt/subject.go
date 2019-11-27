@@ -80,7 +80,7 @@ func (self *Subject) GetAuthorization(key *SecretKey) (*Authorization, error) {
 	signature = util.MD5(jwt_secret_key, signature_key, ".", content, ".") // 通过密钥获得数据签名
 	access_token = util.AddStr(content, ".", signature)
 	access_key = util.GetApiAccessKeyByMD5(access_token, api_secret_key)
-	access_key = reverse(access_key)
+	access_key = util.ReverseBase64(access_key)
 	return &Authorization{
 		AccessToken:  access_token,
 		Signature:    signature,
@@ -88,13 +88,6 @@ func (self *Subject) GetAuthorization(key *SecretKey) (*Authorization, error) {
 		SignatureKey: signature_key,
 		ExpireDate:   self.Payload.Exp,
 	}, nil
-}
-
-func reverse(s string) string {
-	a := util.Substr(s, 0, 12)
-	b := util.Substr(s, 12, 12)
-	c := util.Substr(s, 24, 8)
-	return util.Base64Encode(util.Reverse(util.AddStr(c, a, b)))
 }
 
 func (self *Subject) GetSubjectChecker(access_token string) (*SubjectChecker, error) {
