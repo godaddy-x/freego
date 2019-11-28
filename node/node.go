@@ -201,6 +201,11 @@ func (self *Context) SecurityCheck(req *ReqDto, textplain string) error {
 	} else if req.Time+jwt.FIVE_MINUTES < util.Time() { // 判断时间是否超过5分钟
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "时间参数已过期"}
 	}
+	if len(req.Token) > 128 {
+		part1 := util.Substr(req.Token, 0, 128)
+		part1 = util.ReverseStr(part1, 0, 48, 48, 48, 96, 32)
+		req.Token = part1 + util.Substr(req.Token, 128, len(req.Token))
+	}
 	key, b := validSign(req, d, self.SecretKey())
 	if !b {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "API签名校验失败"}
