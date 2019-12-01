@@ -54,7 +54,7 @@ type HookNode struct {
 	SessionAware SessionAware
 	CacheAware   func(ds ...string) (cache.ICache, error)
 	OverrideFunc *OverrideFunc
-	Limiter      *rate.RateLimiter
+	RateOpetion  *rate.RateOpetion
 	Handler      *http.ServeMux
 	Option       *Option
 	OptionMap    map[string]*Option

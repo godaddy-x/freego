@@ -37,19 +37,21 @@ func (self *RateLimiter) getLimiter(option *RateOpetion) *Limiter {
 	if option == nil {
 		return nil
 	}
-	self.mu.Lock()
-	defer self.mu.Unlock()
 	var limiter *Limiter
 	if v, b, _ := self.cache.Get(option.Key, nil); b {
 		limiter = v.(*Limiter)
-	} else {
-		limiter = NewLimiter(Limit(option.Limit), option.Bucket)
 	}
-	return self.setLimiter(option.Key, limiter, option.Expire)
-}
-
-func (self *RateLimiter) setLimiter(key string, limiter *Limiter, expire int) *Limiter {
-	self.cache.Put(key, limiter, expire)
+	if limiter == nil {
+		self.mu.Lock()
+		if v, b, _ := self.cache.Get(option.Key, nil); b {
+			limiter = v.(*Limiter)
+		}
+		if limiter == nil {
+			limiter = NewLimiter(Limit(option.Limit), option.Bucket)
+			self.cache.Put(option.Key, limiter, option.Expire)
+		}
+		self.mu.Unlock()
+	}
 	return limiter
 }
 

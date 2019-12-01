@@ -1,7 +1,9 @@
 package node
 
 import (
+	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/component/jwt"
+	"github.com/godaddy-x/freego/component/limiter"
 	"github.com/godaddy-x/freego/component/log"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/util"
@@ -245,10 +247,10 @@ func (self *HttpNode) ValidPermission() error {
 }
 
 func (self *HttpNode) Proxy(ptr *NodePtr) {
-	// 1.初始化请求上下文
 	ob := &HttpNode{}
 	if err := func() error {
 		ptr.Node = ob
+		// 1.初始化请求上下文
 		if err := self.InitContext(ptr); err != nil {
 			return err
 		}
@@ -315,7 +317,7 @@ func (self *HttpNode) RenderError(err error) error {
 		Time:    util.Time(),
 		Data:    make(map[string]interface{}),
 	}
-	if self.Option.Customize {
+	if self.Option != nil && self.Option.Customize {
 		self.Context.Output.Header().Set("Content-Type", TEXT_PLAIN)
 		self.Context.Output.WriteHeader(http.StatusOK)
 		self.Context.Output.Write(util.Str2Bytes(resp.Message))
@@ -390,22 +392,34 @@ func (self *HttpNode) RenderTo() error {
 
 func (self *HttpNode) StartServer() {
 	go func() {
-		if self.Limiter == nil {
-			if err := http.ListenAndServe(util.AddStr(self.Context.Host, ":", self.Context.Port), self.Handler); err != nil {
-				log.Error("初始化http服务失败", 0, log.AddError(err))
-			}
-		} else {
-			if err := http.ListenAndServe(util.AddStr(self.Context.Host, ":", self.Context.Port), self.limiterHandler()); err != nil {
-				log.Error("初始化http服务失败", 0, log.AddError(err))
-			}
+		if err := http.ListenAndServe(util.AddStr(self.Context.Host, ":", self.Context.Port), self.limiterHandler()); err != nil {
+			log.Error("初始化http服务失败", 0, log.AddError(err))
 		}
 	}()
 }
 
 func (self *HttpNode) limiterHandler() http.Handler {
+	cache := new(cache.LocalMapManager).NewCache(20160, 20160)
+	if self.RateOpetion == nil {
+		self.RateOpetion = &rate.RateOpetion{
+			Limit:  500,
+			Bucket: 500,
+			Expire: 1209600,
+		}
+	}
+	limiter := rate.NewLocalLimiterByOption(cache, &rate.RateOpetion{
+		"HttpThreshol",
+		self.RateOpetion.Limit,
+		self.RateOpetion.Bucket,
+		self.RateOpetion.Expire,
+	})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if self.Limiter.Validate(nil) {
-			http.Error(w, http.StatusText(429), http.StatusTooManyRequests)
+		if limiter.Validate(nil) {
+			node := &HttpNode{}
+			node.Context = &Context{
+				Output: w,
+			}
+			node.RenderError(ex.Throw{Code: 429, Msg: ""})
 			return
 		}
 		self.Handler.ServeHTTP(w, r)
