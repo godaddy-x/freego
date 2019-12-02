@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/component/auth"
+	"github.com/godaddy-x/freego/concurrent"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/sqlc"
 	"github.com/godaddy-x/freego/sqld"
@@ -334,7 +335,7 @@ func TestMongoUpdate(t *testing.T) {
 	//	AuthKey:      "",
 	//}
 	l := util.Time()
-	if err := db.UpdateByCnd(sqlc.M(&OwWallet{}).Or(sqlc.M().Eq("id", 1110012978914131972),sqlc.M().Eq("id", 1110012978914131973), ).UpdateKeyValue([]string{"appID", "ctime"}, "test1test1", 1)); err != nil {
+	if err := db.UpdateByCnd(sqlc.M(&OwWallet{}).Or(sqlc.M().Eq("id", 1110012978914131972), sqlc.M().Eq("id", 1110012978914131973), ).UpdateKeyValue([]string{"appID", "ctime"}, "test1test1", 1)); err != nil {
 		fmt.Println(err)
 	}
 	//fmt.Println(wallet.Id)
@@ -561,8 +562,27 @@ func timeWriter(conn *websocket.Conn) {
 	//}
 }
 
-func TestA(t *testing.T) {
-	fmt.Println(sqlc.ASC_)
+func TestSorter(t *testing.T) {
+	type Obj struct {
+		Key string
+		Val int64
+	}
+	d := []interface{}{
+		&Obj{"e", 10},
+		&Obj{"a", 2},
+		&Obj{"d", 15},
+		&Obj{"c", 8},
+		&Obj{"f", 1},
+		&Obj{"b", 12},
+	}
+	result := concurrent.NewSorter(d, func(o1, o2 interface{}) bool {
+		a := o1.(*Obj)
+		b := o2.(*Obj)
+		return a.Val < b.Val // 判断值大小排序
+	}).Sort()
+	for _, v := range result {
+		fmt.Println(v)
+	}
 }
 
 func TestB(t *testing.T) {
@@ -576,7 +596,9 @@ func TestB(t *testing.T) {
 }
 
 func TestRGX(t *testing.T) {
-	fmt.Println(util.GetAnyMonthFirstAndLast(13))
+	for i := 0; i < 1000; i++ {
+		fmt.Println(util.RandomInt(5))
+	}
 }
 
 func TestRGX1(t *testing.T) {

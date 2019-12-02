@@ -80,83 +80,127 @@ func (self *RedisManager) Client(dsname ...string) (*RedisManager, error) {
 
 func (self *RedisManager) Get(key string, input interface{}) (interface{}, bool, error) {
 	client := self.Pool.Get()
-	r1, r2, r3 := func() (interface{}, bool, error) {
-		value, err := redis.Bytes(client.Do("GET", key))
-		if err != nil && err.Error() != "redigo: nil returned" {
-			return nil, false, err
-		}
-		if value != nil && len(value) > 0 {
-			if input == nil {
-				return nil, true, nil
-			}
-			err := util.JsonUnmarshal(value, input);
-			return input, true, err
-		}
-		return input, false, nil
-	}()
-	client.Close()
-	return r1, r2, r3
+	defer client.Close()
+	value, err := redis.Bytes(client.Do("GET", key))
+	if err != nil && err != redis.ErrNil {
+		return nil, false, err
+	}
+	if value == nil || len(value) == 0 {
+		return nil, false, nil
+	}
+	return value, true, util.JsonUnmarshal(value, input)
+}
+
+func (self *RedisManager) GetInt64(key string) (int64, error) {
+	client := self.Pool.Get()
+	defer client.Close()
+	value, err := redis.Bytes(client.Do("GET", key))
+	if err != nil && err != redis.ErrNil {
+		return 0, err
+	}
+	if value == nil || len(value) == 0 {
+		return 0, nil
+	}
+	if ret, err := util.StrToInt64(util.Bytes2Str(value)); err != nil {
+		return 0, err
+	} else {
+		return ret, nil
+	}
+}
+
+func (self *RedisManager) GetFloat64(key string) (float64, error) {
+	client := self.Pool.Get()
+	defer client.Close()
+	value, err := redis.Bytes(client.Do("GET", key))
+	if err != nil && err != redis.ErrNil {
+		return 0, err
+	}
+	if value == nil || len(value) == 0 {
+		return 0, nil
+	}
+	if ret, err := util.StrToFloat(util.Bytes2Str(value)); err != nil {
+		return 0, err
+	} else {
+		return ret, nil
+	}
+}
+
+func (self *RedisManager) GetString(key string) (string, error) {
+	client := self.Pool.Get()
+	defer client.Close()
+	value, err := redis.Bytes(client.Do("GET", key))
+	if err != nil && err != redis.ErrNil {
+		return "", err
+	}
+	if value == nil || len(value) == 0 {
+		return "", nil
+	}
+	return util.Bytes2Str(value), nil
+}
+
+func (self *RedisManager) GetBool(key string) (bool, error) {
+	client := self.Pool.Get()
+	defer client.Close()
+	value, err := redis.Bytes(client.Do("GET", key))
+	if err != nil && err != redis.ErrNil {
+		return false, err
+	}
+	if value == nil || len(value) == 0 {
+		return false, nil
+	}
+	return util.StrToBool(util.Bytes2Str(value))
 }
 
 func (self *RedisManager) Put(key string, input interface{}, expire ...int) error {
-	value, err := util.JsonMarshal(input)
-	if err != nil {
-		return err
-	}
-	client := self.Pool.Get()
-	r1 := func() error {
-		if len(expire) > 0 && expire[0] > 0 {
-			if _, err := client.Do("SET", key, value, "EX", expire[0]); err != nil {
-				return err
-			}
-		} else {
-			if _, err := client.Do("SET", key, value); err != nil {
-				return err
-			}
-		}
+	if len(key) == 0 || input == nil {
 		return nil
-	}()
-	client.Close()
-	return r1
+	}
+	value := util.Str2Bytes(util.AnyToStr(input))
+	client := self.Pool.Get()
+	defer client.Close()
+	if len(expire) > 0 && expire[0] > 0 {
+		if _, err := client.Do("SET", key, value, "EX", util.AnyToStr(expire[0])); err != nil {
+			return err
+		}
+	} else {
+		if _, err := client.Do("SET", key, value); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (self *RedisManager) Del(key ...string) error {
 	client := self.Pool.Get()
-	r1 := func() error {
-		if len(key) > 0 {
-			if _, err := client.Do("DEL", key); err != nil {
-				return err
-			}
-		}
-		client.Send("MULTI")
-		for _, v := range key {
-			client.Send("DEL", v)
-		}
-		if _, err := client.Do("EXEC"); err != nil {
+	defer client.Close()
+	if len(key) > 0 {
+		if _, err := client.Do("DEL", key); err != nil {
 			return err
 		}
-		return nil
-	}()
-	client.Close()
-	return r1
+	}
+	client.Send("MULTI")
+	for _, v := range key {
+		client.Send("DEL", v)
+	}
+	if _, err := client.Do("EXEC"); err != nil {
+		return err
+	}
+	return nil
 }
 
 // 数据量大时请慎用
 func (self *RedisManager) Keys(pattern ...string) ([]string, error) {
 	client := self.Pool.Get()
-	r1, r2 := func() ([]string, error) {
-		p := "*"
-		if len(pattern) > 0 && len(pattern[0]) > 0 {
-			p = pattern[0]
-		}
-		keys, err := redis.Strings(client.Do("KEYS", p))
-		if err != nil {
-			return nil, err
-		}
-		return keys, nil
-	}()
-	client.Close()
-	return r1, r2
+	defer client.Close()
+	p := "*"
+	if len(pattern) > 0 && len(pattern[0]) > 0 {
+		p = pattern[0]
+	}
+	keys, err := redis.Strings(client.Do("KEYS", p))
+	if err != nil {
+		return nil, err
+	}
+	return keys, nil
 }
 
 // 数据量大时请慎用

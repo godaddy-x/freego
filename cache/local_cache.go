@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"github.com/godaddy-x/freego/util"
 	"time"
 )
 
@@ -18,10 +19,53 @@ func (self *LocalMapManager) NewCache(a, b int) ICache {
 
 func (self *LocalMapManager) Get(key string, input interface{}) (interface{}, bool, error) {
 	v, b := self.c.Get(key)
-	if v != nil {
-		input = v
+	if !b || v == nil {
+		return nil, false, nil
 	}
-	return input, b, nil
+	if input == nil {
+		return v, b, nil
+	}
+	return v, b, util.JsonToAny(v, input)
+}
+
+func (self *LocalMapManager) GetInt64(key string) (int64, error) {
+	v, b := self.c.Get(key)
+	if !b || v == nil {
+		return 0, nil
+	}
+	if ret, err := util.StrToInt64(util.AnyToStr(v)); err != nil {
+		return 0, err
+	} else {
+		return ret, nil
+	}
+}
+
+func (self *LocalMapManager) GetFloat64(key string) (float64, error) {
+	v, b := self.c.Get(key)
+	if !b || v == nil {
+		return 0, nil
+	}
+	if ret, err := util.StrToFloat(util.AnyToStr(v)); err != nil {
+		return 0, err
+	} else {
+		return ret, nil
+	}
+}
+
+func (self *LocalMapManager) GetString(key string) (string, error) {
+	v, b := self.c.Get(key)
+	if !b || v == nil {
+		return "", nil
+	}
+	return util.AnyToStr(v), nil
+}
+
+func (self *LocalMapManager) GetBool(key string) (bool, error) {
+	v, b := self.c.Get(key)
+	if !b || v == nil {
+		return false, nil
+	}
+	return util.StrToBool(util.AnyToStr(v))
 }
 
 func (self *LocalMapManager) Put(key string, input interface{}, expire ...int) error {

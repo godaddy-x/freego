@@ -8,10 +8,18 @@ type CacheManager struct {
 
 /********************************** 缓存接口定义 **********************************/
 
-// orm数据库接口
+// 缓存定义接口接口
 type ICache interface {
 	// 查询
 	Get(key string, input interface{}) (interface{}, bool, error)
+	// 查询
+	GetInt64(key string) (int64, error)
+	// 查询
+	GetFloat64(key string) (float64, error)
+	// 查询
+	GetString(key string) (string, error)
+	// 查询
+	GetBool(key string) (bool, error)
 	// 保存/过期时间(秒)
 	Put(key string, input interface{}, expire ...int) error
 	// 删除
@@ -26,8 +34,24 @@ type ICache interface {
 	Flush() error
 }
 
-func (self *CacheManager) Get(key string, input interface{}) (bool, error) {
-	return false, util.Error("No implementation method [Get] was found")
+func (self *CacheManager) Get(key string, input interface{}) (interface{}, bool, error) {
+	return nil, false, util.Error("No implementation method [Get] was found")
+}
+
+func (self *CacheManager) GetInt64(key string) (int64, error) {
+	return 0, util.Error("No implementation method [GetInt] was found")
+}
+
+func (self *CacheManager) GetFloat64(key string) (float64, error) {
+	return 0, util.Error("No implementation method [GetFloat64] was found")
+}
+
+func (self *CacheManager) GetString(key string) (string, error) {
+	return "", util.Error("No implementation method [GetString] was found")
+}
+
+func (self *CacheManager) GetBool(key string) (bool, error) {
+	return false, util.Error("No implementation method [GetString] was found")
 }
 
 func (self *CacheManager) Put(key string, input interface{}, expire ...int) error {

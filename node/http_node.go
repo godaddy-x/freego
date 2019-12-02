@@ -172,15 +172,18 @@ func (self *HttpNode) ValidSession() error {
 	sub := checker.Subject.Payload.Sub
 	sub_key := util.AddStr(JWT_SUB_, sub)
 	jwt_secret_key := self.Context.SecretKey().JwtSecretKey
-	if cacheObj, err := self.CacheAware(); err != nil {
+	cacheObj, err := self.CacheAware()
+	if err != nil {
 		return ex.Throw{Code: http.StatusInternalServerError, Msg: "缓存服务异常", Err: err}
-	} else if sigkey, b, err := cacheObj.Get(sub_key, nil); err != nil {
+	}
+	sigkey, err := cacheObj.GetString(sub_key)
+	if err != nil {
 		return ex.Throw{Code: http.StatusInternalServerError, Msg: "读取缓存数据异常", Err: err}
-	} else if !b {
+	}
+	if len(sigkey) == 0 {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "会话获取失败或已失效"}
-	} else if v, b := sigkey.(string); !b {
-		return ex.Throw{Code: http.StatusUnauthorized, Msg: "会话签名密钥无效"}
-	} else if err := checker.Authentication(v, jwt_secret_key); err != nil {
+	}
+	if err := checker.Authentication(sigkey, jwt_secret_key); err != nil {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "会话已失效或已超时", Err: err}
 	}
 	if session := BuildJWTSession(checker); session == nil {
@@ -204,9 +207,9 @@ func (self *HttpNode) ValidReplayAttack() error {
 	key := util.AddStr(JWT_SIG_, param.Sign)
 	if c, err := self.CacheAware(); err != nil {
 		return err
-	} else if _, b, err := c.Get(key, nil); err != nil {
+	} else if b, err := c.GetInt64(key); err != nil {
 		return err
-	} else if b {
+	} else if b > 1 {
 		return ex.Throw{Code: http.StatusForbidden, Msg: "重复请求不受理"}
 	} else {
 		c.Put(key, 1, int((param.Time+jwt.FIVE_MINUTES)/1000))
@@ -466,9 +469,12 @@ func (self *HttpNode) Text(ctx *Context, data string) error {
 }
 
 func (self *HttpNode) LoginBySubject(sub, key string, exp int64) error {
-	if cacheObj, err := self.CacheAware(); err != nil {
+	cacheObj, err := self.CacheAware()
+	if err != nil {
 		return ex.Throw{Code: http.StatusInternalServerError, Msg: "缓存服务异常", Err: err}
-	} else if err := cacheObj.Put(util.AddStr(JWT_SUB_, sub), key, int(exp/1000)); err != nil {
+	}
+	k := util.AddStr(JWT_SUB_, sub)
+	if err := cacheObj.Put(k, key, int(exp/1000)); err != nil {
 		return ex.Throw{Code: http.StatusInternalServerError, Msg: "初始化用户密钥失败", Err: err}
 	}
 	return nil

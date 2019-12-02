@@ -268,6 +268,17 @@ func Float64ToInt64(f float64) int64 {
 	return a.IntPart()
 }
 
+// string转bool
+func StrToBool(str string) (bool, error) {
+	if str == "true" {
+		return true, nil
+	} else if str == "false" {
+		return false, nil
+	} else {
+		return false, Error("not bool")
+	}
+}
+
 // 基础类型 int uint float string bool
 // 复杂类型 json
 func AnyToStr(any interface{}) string {
@@ -302,12 +313,12 @@ func AnyToStr(any interface{}) string {
 		return strconv.FormatUint(uint64(str), 10)
 	} else if str, ok := any.(bool); ok {
 		if str {
-			return "True"
+			return "true"
 		}
-		return "False"
+		return "false"
 	} else {
 		if ret, err := JsonMarshal(any); err != nil {
-			log.Println("any转json失败: ", err.Error())
+			log.Println("any转json失败: ", err)
 			return ""
 		} else {
 			return Bytes2Str(ret)
