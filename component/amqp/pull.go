@@ -121,8 +121,8 @@ func (self *PullManager) listen(receiver *PullReceiver) {
 	} else {
 		for msg := range msgs {
 			for !receiver.OnReceive(msg.Body) {
-				log.Error("receiver 数据处理失败，将要重试", 0)
-				time.Sleep(1 * time.Second)
+				//log.Error("receiver 数据处理失败，将要重试", 0)
+				time.Sleep(2 * time.Second)
 			}
 			msg.Ack(false)
 		}
@@ -159,7 +159,9 @@ func (self *PullReceiver) OnReceive(b []byte) bool {
 	if b == nil || len(b) == 0 || string(b) == "{}" {
 		return true
 	}
-	defer log.Debug("MQ消费数据监控日志", util.Time(), log.String("message", util.Bytes2Str(b)))
+	if log.IsDebug() {
+		defer log.Debug("MQ消费数据监控日志", util.Time(), log.String("message", util.Bytes2Str(b)))
+	}
 	message := MsgData{}
 	if err := util.JsonUnmarshal(b, &message); err != nil {
 		log.Error("MQ消费数据解析失败", 0, log.Any("option", self.LisData.Option), log.Any("message", message), log.AddError(err))

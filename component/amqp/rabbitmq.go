@@ -13,11 +13,12 @@ const (
 
 // Amqp配置参数
 type AmqpConfig struct {
-	DsName   string
-	Host     string
-	Port     int
-	Username string
-	Password string
+	DsName    string
+	Host      string
+	Port      int
+	Username  string
+	Password  string
+	SecretKey string
 }
 
 type Option struct {

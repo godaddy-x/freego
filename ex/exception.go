@@ -20,6 +20,8 @@ const (
 	CACHE   = 999997 // 缓存服务异常
 	SYSTEM  = 999998 // 系统级异常
 	UNKNOWN = 999999 // 未知异常
+
+	MQ = 899997 // MQ服务异常
 )
 
 const (
@@ -35,6 +37,10 @@ const (
 	CACHE_R_ERR = "缓存数据读取失败"
 	CACHE_U_ERR = "缓存数据更新失败"
 	CACHE_D_ERR = "缓存数据删除失败"
+
+	MQ_ERR      = "MQ服务加载失败"
+	MQ_SEND_ERR = "MQ发送数据失败"
+	MQ_REVD_ERR = "MQ接收数据失败"
 )
 
 type Throw struct {
