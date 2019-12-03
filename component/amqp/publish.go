@@ -64,7 +64,7 @@ func (self *PublishManager) Publish(data *MsgData) error {
 	if len(data.Option.Router) == 0 {
 		data.Option.Router = data.Option.Queue
 	}
-	chanKey := data.Option.Exchange + data.Option.Router
+	chanKey := util.AddStr(data.Option.Exchange, data.Option.Router, data.Option.Queue)
 	// 判断生成通道
 	pub, ok := self.channels[chanKey]
 	if !ok {
@@ -130,7 +130,6 @@ func (self *PublishManager) Publish(data *MsgData) error {
 	}
 	i := 0
 	for {
-		log.Error("test: ", 0, log.Any("d", data))
 		i++
 		if b, err := pub.sendToMQ(data); b && err == nil {
 			return nil
