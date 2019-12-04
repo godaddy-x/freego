@@ -188,6 +188,69 @@ func (self *RedisManager) Del(key ...string) error {
 	return nil
 }
 
+func (self *RedisManager) Brpop(key string, expire int64, result interface{}) error {
+	ret, err := self.BrpopString(key, expire)
+	if err != nil || len(ret) == 0 {
+		return err
+	}
+	if err := util.JsonUnmarshal(util.Str2Bytes(ret), &result); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (self *RedisManager) BrpopString(key string, expire int64) (string, error) {
+	if len(key) == 0 || expire <= 0 {
+		return "", nil
+	}
+	client := self.Pool.Get()
+	defer client.Close()
+	ret, err := redis.ByteSlices(client.Do("BRPOP", key, expire))
+	if err != nil {
+		return "", err
+	} else if len(ret) != 2 {
+		return "", util.Error("data len error")
+	}
+	return util.Bytes2Str(ret[1]), nil
+}
+
+func (self *RedisManager) BrpopInt64(key string, expire int64) (int64, error) {
+	ret, err := self.BrpopString(key, expire)
+	if err != nil || len(ret) == 0 {
+		return 0, err
+	}
+	return util.StrToInt64(ret)
+}
+
+func (self *RedisManager) BrpopFloat64(key string, expire int64) (float64, error) {
+	ret, err := self.BrpopString(key, expire)
+	if err != nil || len(ret) == 0 {
+		return 0, err
+	}
+	return util.StrToFloat(ret)
+}
+
+func (self *RedisManager) BrpopBool(key string, expire int64) (bool, error) {
+	ret, err := self.BrpopString(key, expire)
+	if err != nil || len(ret) == 0 {
+		return false, err
+	}
+	return util.StrToBool(ret)
+}
+
+func (self *RedisManager) Rpush(key string, val interface{}) error {
+	if val == nil || len(key) == 0 {
+		return nil
+	}
+	client := self.Pool.Get()
+	defer client.Close()
+	_, err := client.Do("RPUSH", key, util.AnyToStr(val))
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 // 数据量大时请慎用
 func (self *RedisManager) Keys(pattern ...string) ([]string, error) {
 	client := self.Pool.Get()
