@@ -8,6 +8,12 @@ type CacheManager struct {
 
 /********************************** 缓存接口定义 **********************************/
 
+type PutObj struct {
+	Key    string
+	Value  interface{}
+	Expire int
+}
+
 // 缓存定义接口接口
 type ICache interface {
 	// 查询
@@ -18,6 +24,8 @@ type ICache interface {
 	GetBool(key string) (bool, error)
 	// 保存/过期时间(秒)
 	Put(key string, input interface{}, expire ...int) error
+	// 批量保存/过期时间(秒)
+	PutBatch(objs ...*PutObj) error
 	// 删除
 	Del(input ...string) error
 	// 查询全部key数量
@@ -34,6 +42,8 @@ type ICache interface {
 	BrpopBool(key string, expire int64) (bool, error)
 	// 发送队列数据
 	Rpush(key string, val interface{}) error
+	// 发送lua脚本
+	LuaScript(script string, key []string, val ... interface{}) (interface{}, error)
 	// 清空全部key-value
 	Flush() error
 }
@@ -60,6 +70,10 @@ func (self *CacheManager) GetBool(key string) (bool, error) {
 
 func (self *CacheManager) Put(key string, input interface{}, expire ...int) error {
 	return util.Error("No implementation method [Put] was found")
+}
+
+func (self *CacheManager) PutBatch(objs ...*PutObj) error {
+	return util.Error("No implementation method [PutBatch] was found")
 }
 
 func (self *CacheManager) Del(key ...string) error {
@@ -104,4 +118,8 @@ func (self *CacheManager) BrpopBool(key string, expire int64) (bool, error) {
 
 func (self *CacheManager) Rpush(key string, val interface{}) error {
 	return util.Error("No implementation method [Rpush] was found")
+}
+
+func (self *CacheManager) LuaScript(script string, key []string, val ... interface{}) (interface{}, error) {
+	return nil, util.Error("No implementation method [LuaScript] was found")
 }

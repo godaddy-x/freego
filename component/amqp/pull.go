@@ -149,10 +149,11 @@ func (self *PullReceiver) OnError(err error) {
 
 // 监听对象
 type PullReceiver struct {
-	group    sync.WaitGroup
-	channel  *amqp.Channel
-	LisData  *LisData
-	Callback func(msg *MsgData) error
+	group        sync.WaitGroup
+	channel      *amqp.Channel
+	LisData      *LisData
+	ContentInter func() interface{}
+	Callback     func(msg *MsgData) error
 }
 
 func (self *PullReceiver) OnReceive(b []byte) bool {
@@ -224,12 +225,21 @@ func (self *PullReceiver) OnReceive(b []byte) bool {
 			log.Error("MQ消费数据base64解码失败", 0, log.Any("option", self.LisData.Option), log.Any("message", message))
 			return true
 		}
-		content := map[string]interface{}{}
-		if err := util.JsonUnmarshal(btv, &content); err != nil {
-			log.Error("MQ消费数据处理失败", 0, log.Any("option", self.LisData.Option), log.Any("message", message), log.AddError(err))
-			return true
+		if self.ContentInter == nil {
+			content := map[string]interface{}{}
+			if err := util.JsonUnmarshal(btv, &content); err != nil {
+				log.Error("MQ消费数据处理失败", 0, log.Any("option", self.LisData.Option), log.Any("message", message), log.AddError(err))
+				return true
+			}
+			message.Content = content
+		} else {
+			content := self.ContentInter()
+			if err := util.JsonUnmarshal(btv, &content); err != nil {
+				log.Error("MQ消费数据处理失败", 0, log.Any("option", self.LisData.Option), log.Any("message", message), log.AddError(err))
+				return true
+			}
+			message.Content = content
 		}
-		message.Content = content
 	}
 	if err := self.Callback(&message); err != nil {
 		log.Error("MQ消费数据处理失败", 0, log.Any("option", self.LisData.Option), log.Any("message", message), log.AddError(err))

@@ -159,7 +159,7 @@ func (self *RedisManager) Put(key string, input interface{}, expire ...int) erro
 	client := self.Pool.Get()
 	defer client.Close()
 	if len(expire) > 0 && expire[0] > 0 {
-		if _, err := client.Do("SET", key, value, "EX", util.AnyToStr(expire[0])); err != nil {
+		if _, err := client.Do("SET", key, value, "EX", expire[0]); err != nil {
 			return err
 		}
 	} else {
@@ -170,17 +170,38 @@ func (self *RedisManager) Put(key string, input interface{}, expire ...int) erro
 	return nil
 }
 
+func (self *RedisManager) PutBatch(objs ...*PutObj) error {
+	if objs == nil || len(objs) == 0 {
+		return nil
+	}
+	client := self.Pool.Get()
+	defer client.Close()
+	client.Send("MULTI")
+	for _, v := range objs {
+		if v.Expire > 0 {
+			if err := client.Send("SET", v.Key, v.Value, "EX", v.Expire); err != nil {
+				return err
+			}
+		} else {
+			if err := client.Send("SET", v.Key, v.Value); err != nil {
+				return err
+			}
+		}
+	}
+	if _, err := client.Do("EXEC"); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (self *RedisManager) Del(key ...string) error {
 	client := self.Pool.Get()
 	defer client.Close()
-	if len(key) > 0 {
-		if _, err := client.Do("DEL", key); err != nil {
-			return err
-		}
-	}
 	client.Send("MULTI")
 	for _, v := range key {
-		client.Send("DEL", v)
+		if err := client.Send("DEL", v); err != nil {
+			return err
+		}
 	}
 	if _, err := client.Do("EXEC"); err != nil {
 		return err
@@ -249,6 +270,24 @@ func (self *RedisManager) Rpush(key string, val interface{}) error {
 		return err
 	}
 	return nil
+}
+
+func (self *RedisManager) LuaScript(cmd string, key []string, val ... interface{}) (interface{}, error) {
+	if len(cmd) == 0 || key == nil || len(key) == 0 {
+		return nil, nil
+	}
+	args := make([]interface{}, 0, len(key)+len(val))
+	for _, v := range key {
+		args = append(args, v)
+	}
+	if val != nil && len(val) > 0 {
+		for _, v := range val {
+			args = append(args, util.AddStr(v))
+		}
+	}
+	client := self.Pool.Get()
+	defer client.Close()
+	return redis.NewScript(len(key), cmd).Do(client, args...)
 }
 
 // 数据量大时请慎用
