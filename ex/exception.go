@@ -21,7 +21,9 @@ const (
 	SYSTEM  = 999998 // 系统级异常
 	UNKNOWN = 999999 // 未知异常
 
-	MQ = 899997 // MQ服务异常
+	MQ                 = 899997 // MQ服务异常
+	REDIS_LOCK_GET     = 899998 // redis锁获取失败
+	REDIS_LOCK_PENDING = 899999 // redis锁正在处理
 )
 
 const (

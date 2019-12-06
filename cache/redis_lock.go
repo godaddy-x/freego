@@ -2,6 +2,7 @@ package cache
 
 import (
 	"github.com/garyburd/redigo/redis"
+	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/util"
 	"time"
 )
@@ -70,12 +71,28 @@ func (self *RedisManager) TryLockWithTimeout(resource string, timeout int, call 
 	client := self.Pool.Get()
 	lock, ok, err := self.getLockkWithTimeout(client, resource, time.Duration(timeout)*time.Second)
 	if err != nil {
-		return util.Error("获取凭证失败: ", err)
+		return ex.Throw{Code: ex.REDIS_LOCK_GET, Msg: "获取凭证失败", Err: err}
 	}
 	if !ok {
-		return util.Error("您的请求[", resource, "]正在处理,请耐心等待")
+		return ex.Throw{Code: ex.REDIS_LOCK_PENDING, Msg: util.AddStr("您的请求正在处理,请耐心等待")}
 	}
 	err = call()
 	lock.unlock()
 	return err
+}
+
+func Locker(lockObj string, errorMsg string, callObj func() error) error {
+	redis, err := new(RedisManager).Client()
+	if err != nil {
+		return ex.Throw{ex.CACHE, ex.CACHE_ERR, err}
+	}
+	if err := redis.TryLock(lockObj, callObj); err != nil {
+		if len(errorMsg) > 0 {
+			if ex.Catch(err).Code == ex.REDIS_LOCK_PENDING {
+				return ex.Throw{Code: ex.REDIS_LOCK_PENDING, Msg: errorMsg}
+			}
+		}
+		return err
+	}
+	return nil
 }
