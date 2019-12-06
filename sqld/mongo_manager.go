@@ -1,10 +1,10 @@
 package sqld
 
 import (
+	"github.com/globalsign/mgo"
+	"github.com/globalsign/mgo/bson"
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/component/log"
-	"github.com/godaddy-x/freego/component/mgo.v2"
-	"github.com/godaddy-x/freego/component/mgo.v2/bson"
 	"github.com/godaddy-x/freego/sqlc"
 	"github.com/godaddy-x/freego/util"
 	"go.uber.org/zap"
