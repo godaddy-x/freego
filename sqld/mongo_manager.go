@@ -581,18 +581,10 @@ func (self *MGOManager) buildPipeCondition(cnd *sqlc.Cnd, countby bool) ([]inter
 		tmp["$project"] = project
 		pipe = append(pipe, tmp)
 	}
-	if groupby != nil && len(groupby) > 0 {
-		for _, v := range groupby {
-			pipe = append(pipe, v)
-		}
-	}
 	if len(sortby) > 0 {
 		tmp := make(map[string]interface{})
 		tmp["$sort"] = sortby
 		pipe = append(pipe, tmp)
-	}
-	if len(summary) > 0 {
-		pipe = append(pipe, summary)
 	}
 	if !countby && pageinfo != nil {
 		tmp := make(map[string]interface{})
@@ -620,6 +612,14 @@ func (self *MGOManager) buildPipeCondition(cnd *sqlc.Cnd, countby bool) ([]inter
 		tmp := make(map[string]interface{})
 		tmp["$count"] = COUNT_BY
 		pipe = append(pipe, tmp)
+	}
+	if groupby != nil && len(groupby) > 0 {
+		for _, v := range groupby {
+			pipe = append(pipe, v)
+		}
+	}
+	if len(summary) > 0 {
+		pipe = append(pipe, summary)
 	}
 	return pipe, nil
 }
