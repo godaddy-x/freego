@@ -556,15 +556,16 @@ func (self *MGOManager) putByCache(cnd *sqlc.Cnd, data interface{}) error {
 	return nil
 }
 
-// 获取最终pipe条件集合,包含$match $project $sort $skip $limit,未实现$group
+// 获取最终pipe条件集合,包含$match $project $sort $skip $limit
 func (self *MGOManager) buildPipeCondition(cnd *sqlc.Cnd, countby bool) ([]interface{}, error) {
 	match := buildMongoMatch(cnd)
 	upset := buildMongoUpset(cnd)
 	project := buildMongoProject(cnd)
+	groupby := buildMongoGroupBy(cnd)
 	sortby := buildMongoSortBy(cnd)
 	pageinfo := buildMongoLimit(cnd)
 	summary := buildSummary(cnd)
-	pipe := make([]interface{}, 0, 6)
+	pipe := make([]interface{}, 0, 10)
 	if len(match) > 0 {
 		tmp := make(map[string]interface{})
 		tmp["$match"] = match
@@ -579,6 +580,11 @@ func (self *MGOManager) buildPipeCondition(cnd *sqlc.Cnd, countby bool) ([]inter
 		tmp := make(map[string]interface{})
 		tmp["$project"] = project
 		pipe = append(pipe, tmp)
+	}
+	if groupby != nil && len(groupby) > 0 {
+		for _, v := range groupby {
+			pipe = append(pipe, v)
+		}
 	}
 	if len(sortby) > 0 {
 		tmp := make(map[string]interface{})
@@ -706,6 +712,20 @@ func buildMongoProject(cnd *sqlc.Cnd) map[string]int {
 		}
 	}
 	return project
+}
+
+func buildMongoGroupBy(cnd *sqlc.Cnd) []map[string]interface{} {
+	if len(cnd.Groupbys) == 0 {
+		return nil
+	}
+	group := make(map[string]interface{})
+	project := make(map[string]interface{})
+	project["_id"] = 0
+	for _, v := range cnd.Groupbys {
+		group[v] = util.AddStr("$", v)
+		project[v] = util.AddStr("$_id.", v)
+	}
+	return []map[string]interface{}{{"$group": map[string]interface{}{"_id": group}}, {"$project": project}}
 }
 
 // 构建mongo字段更新命令
