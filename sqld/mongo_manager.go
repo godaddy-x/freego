@@ -721,11 +721,56 @@ func buildMongoGroupBy(cnd *sqlc.Cnd) []map[string]interface{} {
 	group := make(map[string]interface{})
 	project := make(map[string]interface{})
 	project["_id"] = 0
+	_id := map[string]interface{}{}
 	for _, v := range cnd.Groupbys {
-		group[v] = util.AddStr("$", v)
+		_id[v] = util.AddStr("$", v)
 		project[v] = util.AddStr("$_id.", v)
 	}
-	return []map[string]interface{}{{"$group": map[string]interface{}{"_id": group}}, {"$project": project}}
+	group["_id"] = _id
+	if len(cnd.Aggregates) > 0 {
+		for _, v := range cnd.Aggregates {
+			if v.Logic == sqlc.SUM_ {
+				group[v.Key] = map[string]interface{}{"$sum": util.AddStr("$", v.Key)}
+			} else if v.Logic == sqlc.MAX_ {
+				group[v.Key] = map[string]interface{}{"$max": util.AddStr("$", v.Key)}
+			} else if v.Logic == sqlc.MIN_ {
+				group[v.Key] = map[string]interface{}{"$min": util.AddStr("$", v.Key)}
+			} else if v.Logic == sqlc.AVG_ {
+				group[v.Key] = map[string]interface{}{"$avg": util.AddStr("$", v.Key)}
+			}
+			project[v.Key] = util.AddStr("$", v.Key)
+		}
+	}
+	return []map[string]interface{}{{"$group": group}, {"$project": project}}
+}
+
+// 构建mongo聚合命令
+func buildSummary(cnd *sqlc.Cnd) map[string]interface{} {
+	var query = make(map[string]interface{})
+	if len(cnd.Summaries) == 0 {
+		return query
+	}
+	tmp := make(map[string]interface{})
+	tmp[BID] = 0
+	for k, v := range cnd.Summaries {
+		key := k
+		if key == BID {
+			key = JID
+		}
+		if v == sqlc.SUM_ {
+			tmp[key] = map[string]interface{}{"$sum": util.AddStr("$", k)}
+		} else if v == sqlc.MAX_ {
+			tmp[key] = map[string]interface{}{"$max": util.AddStr("$", k)}
+		} else if v == sqlc.MIN_ {
+			tmp[key] = map[string]interface{}{"$min": util.AddStr("$", k)}
+		} else if v == sqlc.AVG_ {
+			tmp[key] = map[string]interface{}{"$avg": util.AddStr("$", k)}
+		} else {
+			return query
+		}
+	}
+	query["$group"] = tmp
+	return query
 }
 
 // 构建mongo字段更新命令
@@ -783,35 +828,6 @@ func buildMongoLimit(cnd *sqlc.Cnd) []int64 {
 		return []int64{(pageNo - 1) * pageSize, pageSize}
 	}
 	return nil
-}
-
-// 构建mongo聚合命令
-func buildSummary(cnd *sqlc.Cnd) map[string]interface{} {
-	var query = make(map[string]interface{})
-	if len(cnd.Summaries) == 0 {
-		return query
-	}
-	tmp := make(map[string]interface{})
-	tmp[BID] = 0
-	for k, v := range cnd.Summaries {
-		key := k
-		if key == BID {
-			key = JID
-		}
-		if v == sqlc.SUM_ {
-			tmp[key] = map[string]interface{}{"$sum": util.AddStr("$", k)}
-		} else if v == sqlc.MAX_ {
-			tmp[key] = map[string]interface{}{"$max": util.AddStr("$", k)}
-		} else if v == sqlc.MIN_ {
-			tmp[key] = map[string]interface{}{"$min": util.AddStr("$", k)}
-		} else if v == sqlc.AVG_ {
-			tmp[key] = map[string]interface{}{"$avg": util.AddStr("$", k)}
-		} else {
-			return query
-		}
-	}
-	query["$group"] = tmp
-	return query
 }
 
 func (self *MGOManager) writeLog(title string, start int64, pipe interface{}) {

@@ -83,6 +83,7 @@ type Cnd struct {
 	Distincts   []string
 	Groupbys    []string
 	Orderbys    []Condition
+	Aggregates  []Condition
 	Summaries   map[string]int
 	UpdateKV    map[string]interface{}
 	Model       interface{}
@@ -109,6 +110,7 @@ func M(model ...interface{}) *Cnd {
 		Distincts:  make([]string, 0),
 		Groupbys:   make([]string, 0),
 		Summaries:  make(map[string]int, 0),
+		Aggregates: make([]Condition, 0),
 		Orderbys:   make([]Condition, 0),
 		UpdateKV:   make(map[string]interface{}, 0),
 	}
@@ -318,6 +320,20 @@ func (self *Cnd) Groupby(keys ...string) *Cnd {
 			continue
 		}
 		self.Groupbys = append(self.Groupbys, v)
+	}
+	return self
+}
+
+// 聚合函数
+func (self *Cnd) Aggregate(logic int, keys ...string) *Cnd {
+	if keys == nil || len(keys) == 0 {
+		return self
+	}
+	for _, v := range keys {
+		if len(v) == 0 {
+			continue
+		}
+		self.Aggregates = append(self.Aggregates, Condition{Logic: logic, Key: v})
 	}
 	return self
 }
