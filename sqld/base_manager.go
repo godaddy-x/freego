@@ -281,12 +281,18 @@ func (self *RDBManager) Save(data ...interface{}) error {
 			}
 			if vv.Primary {
 				if vv.FieldKind == reflect.Int64 {
-					lastInsertId := util.GetSnowFlakeIntID(*self.Node)
-					util.SetInt64(util.GetPtr(v, vv.FieldOffset), lastInsertId)
+					lastInsertId := util.GetInt64(util.GetPtr(v, obv.PkOffset))
+					if lastInsertId == 0 {
+						lastInsertId = util.GetSnowFlakeIntID(*self.Node)
+						util.SetInt64(util.GetPtr(v, vv.FieldOffset), lastInsertId)
+					}
 					parameter = append(parameter, lastInsertId)
 				} else if vv.FieldKind == reflect.String {
-					lastInsertId := util.GetSnowFlakeStrID(*self.Node)
-					util.SetString(util.GetPtr(v, vv.FieldOffset), lastInsertId)
+					lastInsertId := util.GetString(util.GetPtr(v, obv.PkOffset))
+					if len(lastInsertId) == 0 {
+						lastInsertId := util.GetSnowFlakeStrID(*self.Node)
+						util.SetString(util.GetPtr(v, vv.FieldOffset), lastInsertId)
+					}
 					parameter = append(parameter, lastInsertId)
 				} else {
 					return util.Error("支持int64和string类型ID")
@@ -378,6 +384,7 @@ func (self *RDBManager) Update(data ...interface{}) error {
 		fpart.WriteString("=case ")
 		fpart.WriteString(obv.PkName)
 		for _, v := range data {
+			var isInt64 bool
 			if vv.Primary {
 				if vv.FieldKind == reflect.Int64 {
 					lastInsertId := util.GetInt64(util.GetPtr(v, obv.PkOffset))
@@ -385,12 +392,16 @@ func (self *RDBManager) Update(data ...interface{}) error {
 						return self.Error("[Mysql.Update]对象ID为空")
 					}
 					vpart.WriteString(strconv.FormatInt(lastInsertId, 10))
+					isInt64 = true
 				} else if vv.FieldKind == reflect.String {
 					lastInsertId := util.GetString(util.GetPtr(v, obv.PkOffset))
 					if len(lastInsertId) == 0 {
 						return self.Error("[Mysql.Update]对象ID为空")
 					}
+					vpart.WriteString("'")
 					vpart.WriteString(lastInsertId)
+					vpart.WriteString("'")
+					isInt64 = false
 				} else {
 					return util.Error("只支持int64和string类型ID")
 				}
@@ -403,7 +414,13 @@ func (self *RDBManager) Update(data ...interface{}) error {
 				parameter = append(parameter, val)
 			}
 			fpart.WriteString(" when ")
-			fpart.WriteString(strconv.FormatInt(util.GetInt64(util.GetPtr(v, obv.PkOffset)), 10))
+			if isInt64 {
+				fpart.WriteString(util.AnyToStr(util.GetInt64(util.GetPtr(v, obv.PkOffset))))
+			} else {
+				fpart.WriteString("'")
+				fpart.WriteString(util.GetString(util.GetPtr(v, obv.PkOffset)))
+				fpart.WriteString("'")
+			}
 			fpart.WriteString(" then ? ")
 		}
 		fpart.WriteString("end,")
