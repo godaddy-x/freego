@@ -560,6 +560,9 @@ func (self *MGOManager) buildPipeCondition(cnd *sqlc.Cnd, countby bool) ([]inter
 	}
 	if aggregate != nil && len(aggregate) > 0 {
 		for _, v := range aggregate {
+			if len(v) == 0 {
+				continue
+			}
 			pipe = append(pipe, v)
 		}
 	}
@@ -695,52 +698,73 @@ func buildMongoProject(cnd *sqlc.Cnd) map[string]int {
 
 func buildMongoAggregate(cnd *sqlc.Cnd) []map[string]interface{} {
 	group := make(map[string]interface{})
+	group2 := make(map[string]interface{})
 	project := make(map[string]interface{})
+	_idMap := map[string]interface{}{}
+	_idMap2 := map[string]interface{}{}
 	project[BID] = 0
 	if len(cnd.Groupbys) > 0 {
-		_idMap := map[string]interface{}{}
 		for _, v := range cnd.Groupbys {
 			if v == JID {
-				_idMap[JID] = util.AddStr("$", BID)
-				project[BID] = util.AddStr("$", BID, ".", JID)
+				_idMap[JID] = util.AddStr("$_id")
+				_idMap2[JID] = util.AddStr("$_id.id")
+				project[BID] = util.AddStr("$_id.id")
+				project[BID] = util.AddStr("$_id.id")
 			} else {
 				_idMap[v] = util.AddStr("$", v)
-				project[v] = util.AddStr("$", BID, ".", v)
+				_idMap2[v] = util.AddStr("$_id.", v)
+				project[v] = util.AddStr("$_id.", v)
 			}
 		}
 		group[BID] = _idMap
-	} else {
-		group[BID] = 0
 	}
 	if len(cnd.Aggregates) > 0 {
 		for _, v := range cnd.Aggregates {
 			k := v.Key
 			if k == JID {
 				if v.Logic == sqlc.SUM_ {
-					group[k] = map[string]interface{}{"$sum": util.AddStr("$", BID)}
+					group[k] = map[string]string{"$sum": "$_id"}
 				} else if v.Logic == sqlc.MAX_ {
-					group[k] = map[string]interface{}{"$max": util.AddStr("$", BID)}
+					group[k] = map[string]string{"$max": "$_id"}
 				} else if v.Logic == sqlc.MIN_ {
-					group[k] = map[string]interface{}{"$min": util.AddStr("$", BID)}
+					group[k] = map[string]string{"$min": "$_id"}
 				} else if v.Logic == sqlc.AVG_ {
-					group[k] = map[string]interface{}{"$avg": util.AddStr("$", BID)}
+					group[k] = map[string]string{"$avg": "$_id"}
 				}
 				project[BID] = util.AddStr("$", k)
 			} else {
 				if v.Logic == sqlc.SUM_ {
-					group[k] = map[string]interface{}{"$sum": util.AddStr("$", k)}
+					group[k] = map[string]string{"$sum": util.AddStr("$", k)}
 				} else if v.Logic == sqlc.MAX_ {
-					group[k] = map[string]interface{}{"$max": util.AddStr("$", k)}
+					group[k] = map[string]string{"$max": util.AddStr("$", k)}
 				} else if v.Logic == sqlc.MIN_ {
-					group[k] = map[string]interface{}{"$min": util.AddStr("$", k)}
+					group[k] = map[string]string{"$min": util.AddStr("$", k)}
 				} else if v.Logic == sqlc.AVG_ {
-					group[k] = map[string]interface{}{"$avg": util.AddStr("$", k)}
+					group[k] = map[string]string{"$avg": util.AddStr("$", k)}
+				} else if v.Logic == sqlc.CNT_ {
+					if _, b := _idMap2[k]; b {
+						delete(_idMap2, k)
+					}
+					group2[v.Alias] = map[string]interface{}{"$sum": 1}
+					project[v.Alias] = 1
+					continue
 				}
 				project[v.Alias] = util.AddStr("$", k)
 			}
 		}
 	}
-	return []map[string]interface{}{{"$group": group}, {"$project": project}}
+	result := []map[string]interface{}{}
+	if len(group) > 0 {
+		result = append(result, map[string]interface{}{"$group": group})
+	}
+	if len(group2) > 0 {
+		group2[BID] = _idMap2
+		result = append(result, map[string]interface{}{"$group": group2})
+	}
+	if len(project) > 0 {
+		result = append(result, map[string]interface{}{"$project": project})
+	}
+	return result
 }
 
 // 构建mongo字段更新命令

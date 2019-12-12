@@ -36,6 +36,7 @@ const (
 	AVG_
 	MIN_
 	MAX_
+	CNT_
 )
 
 const ASC_ = 1

@@ -40,9 +40,13 @@ var (
 )
 
 const (
-	XForwardedFor = "X-Forwarded-For"
-	XRealIP       = "X-Real-IP"
+	xforwardedfor = "X-Forwarded-For"
+	xrealip       = "X-Real-IP"
 	time_formt    = "2006-01-02 15:04:05"
+	OneDay        = 86400000
+	OneWeek       = OneDay * 7
+	TwoWeek       = OneDay * 14
+	OneMonth      = OneDay * 30
 )
 
 func init() {
@@ -547,9 +551,9 @@ func GetPath() string {
 // RemoteIp 返回远程客户端的 IP，如 192.168.1.1
 func ClientIP(req *http.Request) string {
 	remoteAddr := req.RemoteAddr
-	if ip := req.Header.Get(XRealIP); ip != "" {
+	if ip := req.Header.Get(xrealip); ip != "" {
 		remoteAddr = ip
-	} else if ip = req.Header.Get(XForwardedFor); ip != "" {
+	} else if ip = req.Header.Get(xforwardedfor); ip != "" {
 		remoteAddr = ip
 	} else {
 		remoteAddr, _, _ = net.SplitHostPort(remoteAddr)
@@ -707,7 +711,7 @@ func GetMonthFirstAndLast() (int64, int64) {
 	currentYear, currentMonth, _ := now.Date()
 	firstOfMonth := time.Date(currentYear, currentMonth, 1, 0, 0, 0, 0, now.Location())
 	lastOfMonth := firstOfMonth.AddDate(0, 1, -1)
-	return Time(firstOfMonth), Time(lastOfMonth) + 86400000
+	return Time(firstOfMonth), Time(lastOfMonth) + OneDay
 }
 
 // 获取指定月份开始和结束时间
@@ -721,7 +725,7 @@ func GetAnyMonthFirstAndLast(month int) (int64, int64) {
 	}
 	firstOfMonth := time.Date(currentYear, currentMonth, 1, 0, 0, 0, 0, now.Location()).AddDate(0, offset, 0)
 	lastOfMonth := firstOfMonth.AddDate(0, 1, -1)
-	return Time(firstOfMonth), Time(lastOfMonth) + 86400000
+	return Time(firstOfMonth), Time(lastOfMonth) + OneDay
 }
 
 // 获取当前星期开始和结束时间
@@ -733,7 +737,7 @@ func GetWeekFirstAndLast() (int64, int64) {
 	}
 	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).AddDate(0, 0, offset)
 	first := Time(start)
-	return first, first + 604800000
+	return first, first + OneWeek
 }
 
 // 获取当天开始和结束时间
@@ -741,10 +745,10 @@ func GetDayFirstAndLast() (int64, int64) {
 	now := time.Now()
 	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 	first := Time(start)
-	return first, first + 86400000
+	return first, first + OneDay
 }
 
-// 获取x天开始和当天结束时间,最多30天
+// 获取x天开始和结束时间,最多30天
 func GetAnyDayFirstAndLast(x int64) (int64, int64) {
 	if x < 0 {
 		x = 0
@@ -755,7 +759,23 @@ func GetAnyDayFirstAndLast(x int64) (int64, int64) {
 	now := time.Now()
 	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 	first := Time(start)
-	return first - x*86400000, first + 86400000
+	before := x * OneDay
+	return first - before, first + OneDay - before
+}
+
+// 获取x天开始和当天结束时间,最多30天
+func GetInDayFirstAndLast(x int64) (int64, int64) {
+	if x < 0 {
+		x = 0
+	}
+	if x > 30 {
+		x = 30
+	}
+	now := time.Now()
+	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	first := Time(start)
+	before := x * OneDay
+	return first - before, first + OneDay
 }
 
 func InArray(p interface{}) []interface{} {
