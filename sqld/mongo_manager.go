@@ -427,30 +427,6 @@ func (self *MGOManager) FindOne(cnd *sqlc.Cnd, data interface{}) error {
 		return util.Error("[Mongo.FindOne]构建查询命令失败: ", err)
 	}
 	defer self.writeLog("[Mongo.FindOne]", util.Time(), pipe)
-	if len(cnd.Summaries) > 0 {
-		hasBID := false
-		for k, _ := range cnd.Summaries {
-			if k == BID {
-				hasBID = true
-				break
-			}
-		}
-		if hasBID {
-			result := map[string]interface{}{}
-			err = db.Pipe(pipe).One(&result)
-			if err != nil {
-				if err != mgo.ErrNotFound {
-					return util.Error("[Mongo.FindOne]查询数据失败: ", err)
-				}
-			}
-			idv, _ := result[JID]
-			result[BID] = idv
-			if err := util.JsonToAny(&result, data); err != nil {
-				return util.Error("[Mongo.FindOne]查询数据转换失败: ", err)
-			}
-			return nil
-		}
-	}
 	if err := db.Pipe(pipe).One(data); err != nil {
 		if err == mgo.ErrNotFound {
 			return nil
@@ -561,10 +537,9 @@ func (self *MGOManager) buildPipeCondition(cnd *sqlc.Cnd, countby bool) ([]inter
 	match := buildMongoMatch(cnd)
 	upset := buildMongoUpset(cnd)
 	project := buildMongoProject(cnd)
-	groupby := buildMongoGroupBy(cnd)
+	aggregate := buildMongoAggregate(cnd)
 	sortby := buildMongoSortBy(cnd)
 	pageinfo := buildMongoLimit(cnd)
-	summary := buildSummary(cnd)
 	pipe := make([]interface{}, 0, 10)
 	if len(match) > 0 {
 		tmp := make(map[string]interface{})
@@ -585,6 +560,11 @@ func (self *MGOManager) buildPipeCondition(cnd *sqlc.Cnd, countby bool) ([]inter
 		tmp := make(map[string]interface{})
 		tmp["$sort"] = sortby
 		pipe = append(pipe, tmp)
+	}
+	if aggregate != nil && len(aggregate) > 0 {
+		for _, v := range aggregate {
+			pipe = append(pipe, v)
+		}
 	}
 	if !countby && pageinfo != nil {
 		tmp := make(map[string]interface{})
@@ -612,14 +592,6 @@ func (self *MGOManager) buildPipeCondition(cnd *sqlc.Cnd, countby bool) ([]inter
 		tmp := make(map[string]interface{})
 		tmp["$count"] = COUNT_BY
 		pipe = append(pipe, tmp)
-	}
-	if groupby != nil && len(groupby) > 0 {
-		for _, v := range groupby {
-			pipe = append(pipe, v)
-		}
-	}
-	if len(summary) > 0 {
-		pipe = append(pipe, summary)
 	}
 	return pipe, nil
 }
@@ -669,6 +641,11 @@ func buildMongoMatch(cnd *sqlc.Cnd) map[string]interface{} {
 			tmp["$gte"] = values[0]
 			tmp["$lte"] = values[1]
 			query[key] = tmp
+		case sqlc.BETWEEN2_:
+			tmp := make(map[string]interface{})
+			tmp["$gte"] = values[0]
+			tmp["$lt"] = values[1]
+			query[key] = tmp
 		case sqlc.NOT_BETWEEN_:
 			// unsupported
 		case sqlc.IN_:
@@ -714,71 +691,62 @@ func buildMongoProject(cnd *sqlc.Cnd) map[string]int {
 	return project
 }
 
-func buildMongoGroupBy(cnd *sqlc.Cnd) []map[string]interface{} {
-	if len(cnd.Groupbys) == 0 {
-		return nil
-	}
+func buildMongoAggregate(cnd *sqlc.Cnd) []map[string]interface{} {
 	group := make(map[string]interface{})
 	project := make(map[string]interface{})
-	project["_id"] = 0
-	_id := map[string]interface{}{}
-	for _, v := range cnd.Groupbys {
-		_id[v] = util.AddStr("$", v)
-		project[v] = util.AddStr("$_id.", v)
+	project[BID] = 0
+	if len(cnd.Groupbys) > 0 {
+		_idMap := map[string]interface{}{}
+		for _, v := range cnd.Groupbys {
+			if v == JID {
+				_idMap[JID] = util.AddStr("$", BID)
+				project[BID] = util.AddStr("$", BID, ".", JID)
+			} else {
+				_idMap[v] = util.AddStr("$", v)
+				project[v] = util.AddStr("$", BID, ".", v)
+			}
+		}
+		group[BID] = _idMap
+	} else {
+		group[BID] = 0
 	}
-	group["_id"] = _id
 	if len(cnd.Aggregates) > 0 {
 		for _, v := range cnd.Aggregates {
-			if v.Logic == sqlc.SUM_ {
-				group[v.Key] = map[string]interface{}{"$sum": util.AddStr("$", v.Key)}
-			} else if v.Logic == sqlc.MAX_ {
-				group[v.Key] = map[string]interface{}{"$max": util.AddStr("$", v.Key)}
-			} else if v.Logic == sqlc.MIN_ {
-				group[v.Key] = map[string]interface{}{"$min": util.AddStr("$", v.Key)}
-			} else if v.Logic == sqlc.AVG_ {
-				group[v.Key] = map[string]interface{}{"$avg": util.AddStr("$", v.Key)}
+			k := v.Key
+			if k == JID {
+				if v.Logic == sqlc.SUM_ {
+					group[k] = map[string]interface{}{"$sum": util.AddStr("$", BID)}
+				} else if v.Logic == sqlc.MAX_ {
+					group[k] = map[string]interface{}{"$max": util.AddStr("$", BID)}
+				} else if v.Logic == sqlc.MIN_ {
+					group[k] = map[string]interface{}{"$min": util.AddStr("$", BID)}
+				} else if v.Logic == sqlc.AVG_ {
+					group[k] = map[string]interface{}{"$avg": util.AddStr("$", BID)}
+				}
+				project[BID] = util.AddStr("$", k)
+			} else {
+				if v.Logic == sqlc.SUM_ {
+					group[k] = map[string]interface{}{"$sum": util.AddStr("$", k)}
+				} else if v.Logic == sqlc.MAX_ {
+					group[k] = map[string]interface{}{"$max": util.AddStr("$", k)}
+				} else if v.Logic == sqlc.MIN_ {
+					group[k] = map[string]interface{}{"$min": util.AddStr("$", k)}
+				} else if v.Logic == sqlc.AVG_ {
+					group[k] = map[string]interface{}{"$avg": util.AddStr("$", k)}
+				}
+				project[v.Alias] = util.AddStr("$", k)
 			}
-			project[v.Key] = util.AddStr("$", v.Key)
 		}
 	}
 	return []map[string]interface{}{{"$group": group}, {"$project": project}}
 }
 
-// 构建mongo聚合命令
-func buildSummary(cnd *sqlc.Cnd) map[string]interface{} {
-	var query = make(map[string]interface{})
-	if len(cnd.Summaries) == 0 {
-		return query
-	}
-	tmp := make(map[string]interface{})
-	tmp[BID] = 0
-	for k, v := range cnd.Summaries {
-		key := k
-		if key == BID {
-			key = JID
-		}
-		if v == sqlc.SUM_ {
-			tmp[key] = map[string]interface{}{"$sum": util.AddStr("$", k)}
-		} else if v == sqlc.MAX_ {
-			tmp[key] = map[string]interface{}{"$max": util.AddStr("$", k)}
-		} else if v == sqlc.MIN_ {
-			tmp[key] = map[string]interface{}{"$min": util.AddStr("$", k)}
-		} else if v == sqlc.AVG_ {
-			tmp[key] = map[string]interface{}{"$avg": util.AddStr("$", k)}
-		} else {
-			return query
-		}
-	}
-	query["$group"] = tmp
-	return query
-}
-
 // 构建mongo字段更新命令
 func buildMongoUpset(cnd *sqlc.Cnd) map[string]interface{} {
 	query := make(map[string]interface{})
-	if len(cnd.UpdateKV) > 0 {
+	if len(cnd.Upsets) > 0 {
 		tmp := map[string]interface{}{}
-		for k, v := range cnd.UpdateKV {
+		for k, v := range cnd.Upsets {
 			if k == JID {
 				tmp[BID] = v
 			} else {
@@ -838,6 +806,8 @@ func (self *MGOManager) writeLog(title string, start int64, pipe interface{}) {
 			l.Warn(title, log.Int64("cost", cost), log.Any("pipe", pipe))
 		}
 	}
+	pipeStr, _ := util.JsonMarshal(pipe)
+	defer log.Error(title, start, log.String("pipe", util.Bytes2Str(pipeStr)))
 	if log.IsDebug() {
 		pipeStr, _ := util.JsonMarshal(pipe)
 		defer log.Debug(title, start, log.String("pipe", util.Bytes2Str(pipeStr)))

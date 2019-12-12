@@ -474,7 +474,7 @@ func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) error {
 	if cnd.Model == nil {
 		return self.Error("[Mysql.UpdateByCnd]参数对象为空")
 	}
-	if cnd.UpdateKV == nil || len(cnd.UpdateKV) == 0 {
+	if cnd.Upsets == nil || len(cnd.Upsets) == 0 {
 		return self.Error("[Mysql.UpdateByCnd]更新字段不能为空")
 	}
 	obkey := reflect.TypeOf(cnd.Model).String()
@@ -486,9 +486,9 @@ func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) error {
 	if case_part.Len() == 0 || len(case_arg) == 0 {
 		return self.Error("[Mysql.UpdateByCnd]更新条件不能为空")
 	}
-	parameter := make([]interface{}, 0, len(cnd.UpdateKV)+len(case_arg))
+	parameter := make([]interface{}, 0, len(cnd.Upsets)+len(case_arg))
 	fpart := bytes.NewBuffer(make([]byte, 0, 64))
-	for k, v := range cnd.UpdateKV { // 遍历对象字段
+	for k, v := range cnd.Upsets { // 遍历对象字段
 		fpart.WriteString(" ")
 		fpart.WriteString(k)
 		fpart.WriteString(" = ?,")

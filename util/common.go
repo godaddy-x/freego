@@ -701,14 +701,16 @@ func ReverseStr(s string, x ...int) string {
 	return Reverse(AddStr(c, a, b))
 }
 
+// 获取当前月份开始和结束时间
 func GetMonthFirstAndLast() (int64, int64) {
 	now := time.Now()
 	currentYear, currentMonth, _ := now.Date()
 	firstOfMonth := time.Date(currentYear, currentMonth, 1, 0, 0, 0, 0, now.Location())
 	lastOfMonth := firstOfMonth.AddDate(0, 1, -1)
-	return Time(firstOfMonth), Time(lastOfMonth) + 86400000 - 1
+	return Time(firstOfMonth), Time(lastOfMonth) + 86400000
 }
 
+// 获取指定月份开始和结束时间
 func GetAnyMonthFirstAndLast(month int) (int64, int64) {
 	now := time.Now()
 	currentYear, currentMonth, _ := now.Date()
@@ -719,9 +721,10 @@ func GetAnyMonthFirstAndLast(month int) (int64, int64) {
 	}
 	firstOfMonth := time.Date(currentYear, currentMonth, 1, 0, 0, 0, 0, now.Location()).AddDate(0, offset, 0)
 	lastOfMonth := firstOfMonth.AddDate(0, 1, -1)
-	return Time(firstOfMonth), Time(lastOfMonth) + 86400000 - 1
+	return Time(firstOfMonth), Time(lastOfMonth) + 86400000
 }
 
+// 获取当前星期开始和结束时间
 func GetWeekFirstAndLast() (int64, int64) {
 	now := time.Now()
 	offset := int(time.Monday - now.Weekday())
@@ -730,14 +733,29 @@ func GetWeekFirstAndLast() (int64, int64) {
 	}
 	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).AddDate(0, 0, offset)
 	first := Time(start)
-	return first, first + 604800000 - 1
+	return first, first + 604800000
 }
 
+// 获取当天开始和结束时间
 func GetDayFirstAndLast() (int64, int64) {
 	now := time.Now()
 	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 	first := Time(start)
-	return first, first + 86400000 - 1
+	return first, first + 86400000
+}
+
+// 获取x天开始和当天结束时间,最多30天
+func GetAnyDayFirstAndLast(x int64) (int64, int64) {
+	if x < 0 {
+		x = 0
+	}
+	if x > 30 {
+		x = 30
+	}
+	now := time.Now()
+	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	first := Time(start)
+	return first - x*86400000, first + 86400000
 }
 
 func InArray(p interface{}) []interface{} {

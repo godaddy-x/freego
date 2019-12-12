@@ -7,6 +7,7 @@ import (
 	"github.com/godaddy-x/freego/component/auth"
 	"github.com/godaddy-x/freego/concurrent"
 	"github.com/godaddy-x/freego/ex"
+	"github.com/godaddy-x/freego/job"
 	"github.com/godaddy-x/freego/sqlc"
 	"github.com/godaddy-x/freego/sqld"
 	"github.com/godaddy-x/freego/util"
@@ -108,9 +109,15 @@ func TestMysql(t *testing.T) {
 		panic(err)
 	}
 	defer db.Close()
-	if err := db.UpdateByCnd(sqlc.M(&OwWallet{}).Eq("id", 1).UpdateKeyValue([]string{"alias"}, "mytest1233")); err != nil {
-		fmt.Println(err)
+	o1 := OwWallet{
+		Id:    123,
+		AppID: "123",
 	}
+	o2 := OwWallet{
+		Id:    1234,
+		AppID: "1234",
+	}
+	db.Update(&o1, &o2)
 }
 
 func TestMysqlSave(t *testing.T) {
@@ -175,7 +182,7 @@ func TestMysqlUpdateByCnd(t *testing.T) {
 	}
 	defer db.Close()
 	l := util.Time()
-	if err := db.UpdateByCnd(sqlc.M(&OwWallet{}).UpdateKeyValue([]string{"password"}, "1111").Eq("id", 1110371778615574533)); err != nil {
+	if err := db.UpdateByCnd(sqlc.M(&OwWallet{}).Upset([]string{"password"}, "1111").Eq("id", 1110371778615574533)); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println("cost: ", util.Time()-l)
@@ -335,7 +342,7 @@ func TestMongoUpdate(t *testing.T) {
 	//	AuthKey:      "",
 	//}
 	l := util.Time()
-	if err := db.UpdateByCnd(sqlc.M(&OwWallet{}).Or(sqlc.M().Eq("id", 1110012978914131972), sqlc.M().Eq("id", 1110012978914131973), ).UpdateKeyValue([]string{"appID", "ctime"}, "test1test1", 1)); err != nil {
+	if err := db.UpdateByCnd(sqlc.M(&OwWallet{}).Or(sqlc.M().Eq("id", 1110012978914131972), sqlc.M().Eq("id", 1110012978914131973), ).Upset([]string{"appID", "ctime"}, "test1test1", 1)); err != nil {
 		fmt.Println(err)
 	}
 	//fmt.Println(wallet.Id)
@@ -370,6 +377,16 @@ func TestMongoDelete(t *testing.T) {
 	fmt.Println("cost: ", util.Time()-l)
 }
 
+func TestMongoAgg(t *testing.T) {
+	db, err := new(sqld.MGOManager).Get(sqld.Option{OpenTx: &sqld.FALSE})
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+	db.FindOne(sqlc.M().Aggregate(sqlc.SUM_, "paidPrice"), &OwWallet{})
+	//db.FindOne(sqlc.M().Groupby("appID"), &OwWallet{})
+}
+
 func TestMongoCount(t *testing.T) {
 	db, err := new(sqld.MGOManager).Get(sqld.Option{OpenTx: &sqld.FALSE})
 	if err != nil {
@@ -377,7 +394,7 @@ func TestMongoCount(t *testing.T) {
 	}
 	defer db.Close()
 	l := util.Time()
-	if c, err := db.Count(sqlc.M(&OwWallet{}).Eq("_id", 1110012978914131972).Orderby("_id", sqlc.DESC_).Limit(1, 30)); err != nil {
+	if c, err := db.Count(sqlc.M(&OwWallet{}).Eq("_id", 1110012978914131972).InDate().Orderby("_id", sqlc.DESC_).Limit(1, 30)); err != nil {
 		fmt.Println(err)
 	} else {
 		fmt.Println(c)
@@ -407,7 +424,7 @@ func TestMongoFindList(t *testing.T) {
 	defer db.Close()
 	l := util.Time()
 	o := []*OwWallet{}
-	if err := db.FindList(sqlc.M().Eq("_id", 8622).Limit(1, 10), &o); err != nil {
+	if err := db.FindList(sqlc.M().Eq("id", 1194915104647282690).Groupby("appID"), &o); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println("cost: ", util.Time()-l)
@@ -596,9 +613,11 @@ func TestB(t *testing.T) {
 }
 
 func TestRGX(t *testing.T) {
-	for i := 0; i < 1000; i++ {
-		fmt.Println(util.RandomInt(5))
-	}
+	job.RunTask(
+		job.Task{"*/5 * * * * *", func() {
+			fmt.Println("----")
+		},
+		})
 }
 
 func TestRGX1(t *testing.T) {
