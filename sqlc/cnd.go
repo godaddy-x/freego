@@ -334,7 +334,7 @@ func (self *Cnd) Groupby(keys ...string) *Cnd {
 }
 
 // 聚合函数
-func (self *Cnd) Aggregate(logic int, key string, alias ...string) *Cnd {
+func (self *Cnd) Agg(logic int, key string, alias ...string) *Cnd {
 	if len(key) == 0 {
 		return self
 	}
@@ -354,16 +354,26 @@ func (self *Cnd) Orderby(key string, sortby int) *Cnd {
 }
 
 // 按字段排序升序
-func (self *Cnd) Asc(key string) *Cnd {
-	condit := Condition{ORDER_BY_, key, ASC_, nil, ""}
-	self.Orderbys = append(self.Orderbys, condit)
+func (self *Cnd) Asc(keys ...string) *Cnd {
+	if keys == nil || len(keys) == 0 {
+		return self
+	}
+	for _, v := range keys {
+		condit := Condition{ORDER_BY_, v, ASC_, nil, ""}
+		self.Orderbys = append(self.Orderbys, condit)
+	}
 	return self
 }
 
 // 按字段排序倒序
-func (self *Cnd) Desc(key string) *Cnd {
-	condit := Condition{ORDER_BY_, key, DESC_, nil, ""}
-	self.Orderbys = append(self.Orderbys, condit)
+func (self *Cnd) Desc(keys ...string) *Cnd {
+	if keys == nil || len(keys) == 0 {
+		return self
+	}
+	for _, v := range keys {
+		condit := Condition{ORDER_BY_, v, DESC_, nil, ""}
+		self.Orderbys = append(self.Orderbys, condit)
+	}
 	return self
 }
 

@@ -383,7 +383,7 @@ func TestMongoAgg(t *testing.T) {
 		panic(err)
 	}
 	defer db.Close()
-	db.FindOne(sqlc.M().Aggregate(sqlc.SUM_, "paidPrice"), &OwWallet{})
+	db.FindOne(sqlc.M().Agg(sqlc.SUM_, "paidPrice").Groupby("shopId", "userId").Asc("shopId").Limit(1,1), &OwWallet{})
 	//db.FindOne(sqlc.M().Groupby("appID"), &OwWallet{})
 }
 
@@ -394,7 +394,7 @@ func TestMongoCount(t *testing.T) {
 	}
 	defer db.Close()
 	l := util.Time()
-	if c, err := db.Count(sqlc.M(&OwWallet{}).Eq("_id", 1110012978914131972).InDate().Orderby("_id", sqlc.DESC_).Limit(1, 30)); err != nil {
+	if c, err := db.Count(sqlc.M(&OwWallet{}).Eq("_id", 1110012978914131972).Orderby("_id", sqlc.DESC_).Limit(1, 30)); err != nil {
 		fmt.Println(err)
 	} else {
 		fmt.Println(c)

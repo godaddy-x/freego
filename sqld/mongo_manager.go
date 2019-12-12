@@ -415,6 +415,8 @@ func (self *MGOManager) FindOne(cnd *sqlc.Cnd, data interface{}) error {
 	obv, ok := modelDrivers[obkey];
 	if !ok {
 		return self.Error("[Mongo.FindOne]没有找到注册对象类型[", obkey, "]")
+	} else {
+		cnd.Model = obv.Hook.NewObj()
 	}
 	copySession := self.Session.Copy()
 	defer copySession.Close()
@@ -556,15 +558,15 @@ func (self *MGOManager) buildPipeCondition(cnd *sqlc.Cnd, countby bool) ([]inter
 		tmp["$project"] = project
 		pipe = append(pipe, tmp)
 	}
-	if len(sortby) > 0 {
-		tmp := make(map[string]interface{})
-		tmp["$sort"] = sortby
-		pipe = append(pipe, tmp)
-	}
 	if aggregate != nil && len(aggregate) > 0 {
 		for _, v := range aggregate {
 			pipe = append(pipe, v)
 		}
+	}
+	if len(sortby) > 0 {
+		tmp := make(map[string]interface{})
+		tmp["$sort"] = sortby
+		pipe = append(pipe, tmp)
 	}
 	if !countby && pageinfo != nil {
 		tmp := make(map[string]interface{})
