@@ -1,18 +1,17 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/component/auth"
 	"github.com/godaddy-x/freego/concurrent"
-	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/job"
 	"github.com/godaddy-x/freego/sqlc"
 	"github.com/godaddy-x/freego/sqld"
 	"github.com/godaddy-x/freego/util"
 	"github.com/gorilla/websocket"
 	"net/url"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -450,9 +449,8 @@ func TestRedis(t *testing.T) {
 }
 
 func TestEX(t *testing.T) {
-	e := ex.Throw{ex.UNKNOWN, "sss", errors.New("ss")}
-	s := ex.Catch(e)
-	fmt.Println(s)
+	fmt.Println(strconv.FormatFloat(float64(1.3), 'f', 16, 64))
+	fmt.Println(util.Mul("1.1",10000))
 }
 
 func TestGA(t *testing.T) {

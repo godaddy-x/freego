@@ -302,9 +302,9 @@ func AnyToStr(any interface{}) string {
 	} else if str, ok := any.(int64); ok {
 		return strconv.FormatInt(int64(str), 10)
 	} else if str, ok := any.(float32); ok {
-		return strconv.FormatFloat(float64(str), 'f', 0, 64)
+		return strconv.FormatFloat(float64(str), 'f', 16, 64)
 	} else if str, ok := any.(float64); ok {
-		return strconv.FormatFloat(float64(str), 'f', 0, 64)
+		return strconv.FormatFloat(float64(str), 'f', 16, 64)
 	} else if str, ok := any.(uint); ok {
 		return strconv.FormatUint(uint64(str), 10)
 	} else if str, ok := any.(uint8); ok {
@@ -802,4 +802,52 @@ func InArray(p interface{}) []interface{} {
 		return result
 	}
 	return []interface{}{}
+}
+
+func Div(a, b interface{}, n int32) (string, error) {
+	x, err := decimal.NewFromString(AnyToStr(a))
+	if err != nil {
+		return "", err
+	}
+	y, err := decimal.NewFromString(AnyToStr(b))
+	if err != nil {
+		return "", err
+	}
+	return x.DivRound(y, n).String(), nil
+}
+
+func Mul(a, b interface{}) (string, error) {
+	x, err := decimal.NewFromString(AnyToStr(a))
+	if err != nil {
+		return "", err
+	}
+	y, err := decimal.NewFromString(AnyToStr(b))
+	if err != nil {
+		return "", err
+	}
+	return x.Mul(y).String(), nil
+}
+
+func Add(a, b interface{}) (string, error) {
+	x, err := decimal.NewFromString(AnyToStr(a))
+	if err != nil {
+		return "", err
+	}
+	y, err := decimal.NewFromString(AnyToStr(b))
+	if err != nil {
+		return "", err
+	}
+	return x.Add(y).String(), nil
+}
+
+func Sub(a, b interface{}) (string, error) {
+	x, err := decimal.NewFromString(AnyToStr(a))
+	if err != nil {
+		return "", err
+	}
+	y, err := decimal.NewFromString(AnyToStr(b))
+	if err != nil {
+		return "", err
+	}
+	return x.Sub(y).String(), nil
 }
