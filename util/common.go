@@ -816,6 +816,14 @@ func Div(a, b interface{}, n int32) (string, error) {
 	return x.DivRound(y, n).String(), nil
 }
 
+func ShiftN(a interface{}, n int32) (string, error) {
+	x, err := decimal.NewFromString(AnyToStr(a))
+	if err != nil {
+		return "", err
+	}
+	return x.Shift(n).String(), nil
+}
+
 func Mul(a, b interface{}) (string, error) {
 	x, err := decimal.NewFromString(AnyToStr(a))
 	if err != nil {
@@ -850,4 +858,11 @@ func Sub(a, b interface{}) (string, error) {
 		return "", err
 	}
 	return x.Sub(y).String(), nil
+}
+
+// a>b=1 a=b=0 a<b=-1
+func Cmp(a, b interface{}) int {
+	x, _ := decimal.NewFromString(AnyToStr(a))
+	y, _ := decimal.NewFromString(AnyToStr(b))
+	return x.Cmp(y)
 }

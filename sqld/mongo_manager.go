@@ -558,7 +558,7 @@ func (self *MGOManager) buildPipeCondition(cnd *sqlc.Cnd, countby bool) ([]inter
 		tmp["$project"] = project
 		pipe = append(pipe, tmp)
 	}
-	if aggregate != nil && len(aggregate) > 0 {
+	if len(aggregate) > 0 {
 		for _, v := range aggregate {
 			if len(v) == 0 {
 				continue
@@ -697,6 +697,9 @@ func buildMongoProject(cnd *sqlc.Cnd) map[string]int {
 }
 
 func buildMongoAggregate(cnd *sqlc.Cnd) []map[string]interface{} {
+	if len(cnd.Groupbys) == 0 && len(cnd.Aggregates) == 0 {
+		return nil
+	}
 	group := make(map[string]interface{})
 	group2 := make(map[string]interface{})
 	project := make(map[string]interface{})
@@ -719,6 +722,9 @@ func buildMongoAggregate(cnd *sqlc.Cnd) []map[string]interface{} {
 		group[BID] = _idMap
 	}
 	if len(cnd.Aggregates) > 0 {
+		if _, b := group[BID]; !b {
+			group[BID] = 0
+		}
 		for _, v := range cnd.Aggregates {
 			k := v.Key
 			if k == JID {
