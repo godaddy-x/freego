@@ -88,6 +88,9 @@ func (self *RedisManager) Get(key string, input interface{}) (interface{}, bool,
 	if value == nil || len(value) == 0 {
 		return nil, false, nil
 	}
+	if input == nil {
+		return value, true, nil
+	}
 	return value, true, util.JsonUnmarshal(value, input)
 }
 
