@@ -149,15 +149,17 @@ type Task struct {
 
 func RunTask(task ... Task) {
 	if task == nil || len(task) == 0 {
-		fmt.Println("no task running")
+		fmt.Println("no tasks to run")
 		return
 	}
-	c := New(WithParser(secondParser), WithChain())
-	for _, v := range task {
-		c.AddFunc(v.Spec, v.Func)
-	}
-	c.Start()
-	select {}
+	go func() {
+		c := New(WithParser(secondParser), WithChain())
+		for _, v := range task {
+			c.AddFunc(v.Spec, v.Func)
+		}
+		c.Start()
+		select {}
+	}()
 }
 
 func NewJob() *Cron {

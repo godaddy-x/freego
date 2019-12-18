@@ -186,6 +186,10 @@ func (self *HttpNode) ValidSession() error {
 	if err := checker.Authentication(sigkey, jwt_secret_key); err != nil {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "会话已失效或已超时", Err: err}
 	}
+	// 判断是否同一个IP请求
+	//if self.Context.Host != checker.Subject.Payload.Aud {
+	//
+	//}
 	if session := BuildJWTSession(checker); session == nil {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "创建会话失败"}
 	} else if session.Invalid() {

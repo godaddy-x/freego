@@ -578,13 +578,9 @@ func Bytes2Str(b []byte) string {
 }
 
 // 无限等待
-func ForeverWait(msg string) error {
-	c := make(chan bool)
-	go func() {
-		log.Println(msg)
-	}()
-	<-c
-	return nil
+func StartWait(msg string) {
+	log.Println(msg)
+	select {}
 }
 
 // 生成API签名MD5密钥
