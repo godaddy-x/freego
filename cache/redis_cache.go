@@ -295,13 +295,12 @@ func (self *RedisManager) LuaScript(cmd string, key []string, val ... interface{
 
 // 数据量大时请慎用
 func (self *RedisManager) Keys(pattern ...string) ([]string, error) {
+	if pattern == nil || len(pattern) == 0 || pattern[0] == "*" {
+		return nil, nil
+	}
 	client := self.Pool.Get()
 	defer client.Close()
-	p := "*"
-	if len(pattern) > 0 && len(pattern[0]) > 0 {
-		p = pattern[0]
-	}
-	keys, err := redis.Strings(client.Do("KEYS", p))
+	keys, err := redis.Strings(client.Do("KEYS", pattern[0]))
 	if err != nil {
 		return nil, err
 	}

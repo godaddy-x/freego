@@ -92,6 +92,7 @@ type Cnd struct {
 	Pagination  dialect.Dialect
 	FromCond    *FromCond
 	JoinCond    []*JoinCond
+	SampleSize  int64
 	CacheConfig CacheConfig
 }
 
@@ -386,6 +387,18 @@ func (self *Cnd) Fields(keys ...string) *Cnd {
 	for _, v := range keys {
 		self.AnyFields = append(self.AnyFields, v)
 	}
+	return self
+}
+
+// 随机选取数据条数
+func (self *Cnd) Sample(size int64) *Cnd {
+	if size <= 0 {
+		return self
+	}
+	if size > 2000 {
+		size = 10
+	}
+	self.SampleSize = size
 	return self
 }
 

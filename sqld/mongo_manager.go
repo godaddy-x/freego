@@ -541,6 +541,7 @@ func (self *MGOManager) buildPipeCondition(cnd *sqlc.Cnd, countby bool) ([]inter
 	project := buildMongoProject(cnd)
 	aggregate := buildMongoAggregate(cnd)
 	sortby := buildMongoSortBy(cnd)
+	sample := buildMongoSample(cnd)
 	pageinfo := buildMongoLimit(cnd)
 	pipe := make([]interface{}, 0, 10)
 	if len(match) > 0 {
@@ -565,6 +566,9 @@ func (self *MGOManager) buildPipeCondition(cnd *sqlc.Cnd, countby bool) ([]inter
 			}
 			pipe = append(pipe, v)
 		}
+	}
+	if sample != nil {
+		pipe = append(pipe, sample)
 	}
 	if len(sortby) > 0 {
 		tmp := make(map[string]interface{})
@@ -811,6 +815,14 @@ func buildMongoSortBy(cnd *sqlc.Cnd) map[string]int {
 	return sortby
 }
 
+// 构建mongo随机选取命令
+func buildMongoSample(cnd *sqlc.Cnd) map[string]interface{} {
+	if cnd.SampleSize == 0 {
+		return nil
+	}
+	return map[string]interface{}{"$sample": map[string]int64{"size": cnd.SampleSize}}
+}
+
 // 构建mongo分页命令
 func buildMongoLimit(cnd *sqlc.Cnd) []int64 {
 	pg := cnd.Pagination
@@ -838,8 +850,6 @@ func (self *MGOManager) writeLog(title string, start int64, pipe interface{}) {
 			l.Warn(title, log.Int64("cost", cost), log.Any("pipe", pipe))
 		}
 	}
-	pipeStr, _ := util.JsonMarshal(pipe)
-	defer log.Error(title, start, log.String("pipe", util.Bytes2Str(pipeStr)))
 	if log.IsDebug() {
 		pipeStr, _ := util.JsonMarshal(pipe)
 		defer log.Debug(title, start, log.String("pipe", util.Bytes2Str(pipeStr)))
