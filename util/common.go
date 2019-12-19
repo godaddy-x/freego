@@ -774,6 +774,14 @@ func GetInDayFirstAndLast(x int64) (int64, int64) {
 	return first - before, first + OneDay
 }
 
+// 获取时间的0点
+func GetFmtDate(t int64) int64 {
+	now := Int2Time(t)
+	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	first := Time(start)
+	return first
+}
+
 func InArray(p interface{}) []interface{} {
 	if p == nil {
 		return []interface{}{}
