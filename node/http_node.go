@@ -65,8 +65,17 @@ func (self *HttpNode) GetParams() error {
 			return nil
 		}
 		data := map[string]interface{}{}
-		if err := util.JsonUnmarshal(result, &data); err != nil {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err}
+		if result == nil || len(result) == 0 {
+			for k, v := range r.Form {
+				if len(v) == 0 {
+					continue
+				}
+				data[k] = v[0]
+			}
+		} else {
+			if err := util.JsonUnmarshal(result, &data); err != nil {
+				return ex.Throw{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err}
+			}
 		}
 		self.Context.Params = &ReqDto{Data: data}
 		return nil
