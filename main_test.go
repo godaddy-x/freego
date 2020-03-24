@@ -11,7 +11,6 @@ import (
 	"github.com/godaddy-x/freego/util"
 	"github.com/gorilla/websocket"
 	"net/url"
-	"strconv"
 	"testing"
 	"time"
 )
@@ -449,8 +448,9 @@ func TestRedis(t *testing.T) {
 }
 
 func TestEX(t *testing.T) {
-	fmt.Println(strconv.FormatFloat(float64(1.3), 'f', 16, 64))
-	fmt.Println(util.Mul("1.1",10000))
+	x := util.Time()
+	fmt.Println(x)
+	fmt.Println(util.GetFmtDate(x))
 }
 
 func TestGA(t *testing.T) {

@@ -349,13 +349,13 @@ func (self *WebsocketNode) Text(ctx *Context, data string) error {
 	return nil
 }
 
-func (self *WebsocketNode) LoginBySubject(sub, key string, exp int64) error {
+func (self *WebsocketNode) LoginBySubject(sub *jwt.Subject, exp int64) (*jwt.Authorization, error) {
 	if cacheObj, err := self.CacheAware(); err != nil {
-		return ex.Throw{Code: http.StatusInternalServerError, Msg: "缓存服务异常", Err: err}
-	} else if err := cacheObj.Put(util.AddStr(JWT_SUB_, sub), key, int(exp/1000)); err != nil {
-		return ex.Throw{Code: http.StatusInternalServerError, Msg: "初始化用户密钥失败", Err: err}
+		return nil, ex.Throw{Code: http.StatusInternalServerError, Msg: "缓存服务异常", Err: err}
+	} else if err := cacheObj.Put(util.AddStr(JWT_SUB_, sub.Payload.Sub), sub.Payload.Sub, int(exp/1000)); err != nil {
+		return nil, ex.Throw{Code: http.StatusInternalServerError, Msg: "初始化用户密钥失败", Err: err}
 	}
-	return nil
+	return nil, nil
 }
 
 func (self *WebsocketNode) LogoutBySubject(subs ...string) error {

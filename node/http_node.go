@@ -17,9 +17,9 @@ type HttpNode struct {
 }
 
 func (self *HttpNode) GetHeader() error {
+	r := self.Context.Input
+	headers := map[string]string{}
 	if self.Option.Customize {
-		r := self.Context.Input
-		headers := map[string]string{}
 		if len(r.Header) > 0 {
 			i := 0
 			for k, v := range r.Header {
@@ -37,8 +37,10 @@ func (self *HttpNode) GetHeader() error {
 				headers[k] = v0
 			}
 		}
-		self.Context.Headers = headers
+	} else {
+		headers["User-Agent"] = r.Header.Get("User-Agent")
 	}
+	self.Context.Headers = headers
 	return nil
 }
 
@@ -121,6 +123,7 @@ func (self *HttpNode) InitContext(ptr *NodePtr) error {
 	node.CreateAt = util.Time()
 	node.SessionAware = self.SessionAware
 	node.CacheAware = self.CacheAware
+	node.CacheSubjectKey = self.CacheSubjectKey
 	node.Context = &Context{
 		Host:          util.ClientIP(input),
 		Port:          self.Context.Port,
@@ -153,10 +156,10 @@ func (self *HttpNode) InitContext(ptr *NodePtr) error {
 
 func (self *HttpNode) PaddDevice() error {
 	d := self.Context.GetHeader("User-Agent")
-	if util.HasStr(d, ANDROID) {
+	if util.HasStr(d, "Android") || util.HasStr(d, "Adr") {
 		self.Context.Device = ANDROID
-	} else if util.HasStr(d, IPHONE) || util.HasStr(d, IPAD) {
-		self.Context.Device = IPHONE
+	} else if util.HasStr(d, "iPad") || util.HasStr(d, "iPhone") || util.HasStr(d, "Mac") {
+		self.Context.Device = IOS
 	} else {
 		self.Context.Device = WEB
 	}
@@ -180,6 +183,9 @@ func (self *HttpNode) ValidSession() error {
 	// 获取缓存的sub->signature key
 	sub := checker.Subject.Payload.Sub
 	sub_key := util.AddStr(JWT_SUB_, sub)
+	if self.CacheSubjectKey != nil {
+		sub_key = self.CacheSubjectKey(checker.Subject)
+	}
 	jwt_secret_key := self.Context.SecretKey().JwtSecretKey
 	cacheObj, err := self.CacheAware()
 	if err != nil {
@@ -481,16 +487,23 @@ func (self *HttpNode) Text(ctx *Context, data string) error {
 	return nil
 }
 
-func (self *HttpNode) LoginBySubject(sub, key string, exp int64) error {
+func (self *HttpNode) LoginBySubject(sub *jwt.Subject, exp int64) (*jwt.Authorization, error) {
+	author, err := sub.GetAuthorization(self.Context.SecretKey())
+	if err != nil {
+		return nil, ex.Throw{ex.SYSTEM, "授权令牌创建失败", err}
+	}
 	cacheObj, err := self.CacheAware()
 	if err != nil {
-		return ex.Throw{Code: http.StatusInternalServerError, Msg: "缓存服务异常", Err: err}
+		return nil, ex.Throw{Code: http.StatusInternalServerError, Msg: "缓存服务异常", Err: err}
 	}
-	k := util.AddStr(JWT_SUB_, sub)
-	if err := cacheObj.Put(k, key, int(exp/1000)); err != nil {
-		return ex.Throw{Code: http.StatusInternalServerError, Msg: "初始化用户密钥失败", Err: err}
+	k := util.AddStr(JWT_SUB_, sub.Payload.Sub)
+	if self.CacheSubjectKey != nil {
+		k = self.CacheSubjectKey(sub)
 	}
-	return nil
+	if err := cacheObj.Put(k, author.SignatureKey, int(exp/1000)); err != nil {
+		return nil, ex.Throw{Code: http.StatusInternalServerError, Msg: "初始化用户密钥失败", Err: err}
+	}
+	return author, nil
 }
 
 func (self *HttpNode) LogoutBySubject(subs ...string) error {

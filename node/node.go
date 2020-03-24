@@ -15,10 +15,9 @@ const (
 	WEBSOCKET = "websocket"
 	UTF8      = "UTF-8"
 
-	ANDROID = "Android"
-	IPHONE  = "iPhone"
-	IPAD    = "iPad"
-	WEB     = "Web"
+	ANDROID = "android"
+	IOS     = "ios"
+	WEB     = "web"
 
 	TEXT_PLAIN       = "text/plain; charset=utf-8"
 	APPLICATION_JSON = "application/json; charset=utf-8"
@@ -49,15 +48,16 @@ const (
 )
 
 type HookNode struct {
-	CreateAt     int64
-	Context      *Context
-	SessionAware SessionAware
-	CacheAware   func(ds ...string) (cache.ICache, error)
-	OverrideFunc *OverrideFunc
-	RateOpetion  *rate.RateOpetion
-	Handler      *http.ServeMux
-	Option       *Option
-	OptionMap    map[string]*Option
+	CreateAt        int64
+	Context         *Context
+	SessionAware    SessionAware
+	CacheAware      func(ds ...string) (cache.ICache, error)
+	CacheSubjectKey func(subject *jwt.Subject) string
+	OverrideFunc    *OverrideFunc
+	RateOpetion     *rate.RateOpetion
+	Handler         *http.ServeMux
+	Option          *Option
+	OptionMap       map[string]*Option
 }
 
 type NodePtr struct {
@@ -102,7 +102,7 @@ type ProtocolNode interface {
 	// 最终响应执行方法(视图渲染后执行,可操作资源释放,保存日志等)
 	AfterCompletion(err error) error
 	// 保存用户会话密钥
-	LoginBySubject(sub, key string, exp int64) error
+	LoginBySubject(sub *jwt.Subject, exp int64) (*jwt.Authorization, error)
 	// 删除用户会话密钥
 	LogoutBySubject(subs ...string) error
 	// 渲染输出
