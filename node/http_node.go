@@ -340,8 +340,12 @@ func (self *HttpNode) RenderError(err error) error {
 		Data:    make(map[string]interface{}),
 	}
 	if self.Option != nil && self.Option.Customize {
-		self.Context.Output.Header().Set("Content-Type", TEXT_PLAIN)
-		self.Context.Output.WriteHeader(http.StatusOK)
+		if out.Code > 600 {
+			self.Context.Output.Header().Set("Content-Type", TEXT_PLAIN)
+			self.Context.Output.WriteHeader(http.StatusOK)
+		} else {
+			self.Context.Output.WriteHeader(out.Code)
+		}
 		self.Context.Output.Write(util.Str2Bytes(resp.Message))
 	} else {
 		if result, err := util.JsonMarshal(resp); err != nil {
