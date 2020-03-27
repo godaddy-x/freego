@@ -8,6 +8,7 @@ package util
 import (
 	"bytes"
 	"crypto/md5"
+	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/gob"
@@ -451,6 +452,17 @@ func SHA256(s string, salt ...string) string {
 		s = v + s
 	}
 	h := sha256.New()
+	h.Write(Str2Bytes(s))
+	bs := h.Sum(nil)
+	return fmt.Sprintf("%x", bs) //将[]byte转成16进制
+}
+
+// SHA256加密
+func SHA1(s string, salt ...string) string {
+	for _, v := range salt {
+		s = v + s
+	}
+	h := sha1.New()
 	h.Write(Str2Bytes(s))
 	bs := h.Sum(nil)
 	return fmt.Sprintf("%x", bs) //将[]byte转成16进制
