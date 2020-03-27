@@ -510,17 +510,25 @@ func (self *HttpNode) LoginBySubject(sub *jwt.Subject, exp int64) (*jwt.Authoriz
 	return author, nil
 }
 
-func (self *HttpNode) LogoutBySubject(subs ...string) error {
-	if subs == nil {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "用户密钥不能为空"}
+func (self *HttpNode) LogoutBySubject(ctx *Context) error {
+	if len(ctx.UserId) == 0 {
+		return ex.Throw{Code: http.StatusUnauthorized, Msg: "无效的用户状态"}
 	}
-	subkeys := make([]string, 0, len(subs))
-	for _, v := range subs {
-		subkeys = append(subkeys, util.AddStr(JWT_SUB_, v))
+	sub_key := util.AddStr(JWT_SUB_, ctx.UserId)
+	if self.CacheSubjectKey != nil {
+		checker := jwt.SubjectChecker{
+			Subject: &jwt.Subject{
+				Payload: &jwt.Payload{
+					Sub: ctx.UserId,
+					Ext: map[string]string{"device": ctx.Device},
+				},
+			},
+		}
+		sub_key = self.CacheSubjectKey(checker.Subject)
 	}
 	if cacheObj, err := self.CacheAware(); err != nil {
 		return ex.Throw{Code: http.StatusInternalServerError, Msg: "缓存服务异常", Err: err}
-	} else if err := cacheObj.Del(subkeys...); err != nil {
+	} else if err := cacheObj.Del(sub_key); err != nil {
 		return ex.Throw{Code: http.StatusInternalServerError, Msg: "删除用户密钥失败", Err: err}
 	}
 	return nil

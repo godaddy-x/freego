@@ -148,6 +148,9 @@ func (self *WebsocketNode) ValidSession() error {
 	// 获取缓存的sub->signature key
 	sub := checker.Subject.Payload.Sub
 	sub_key := util.AddStr(JWT_SUB_, sub)
+	if self.CacheSubjectKey != nil {
+		sub_key = self.CacheSubjectKey(checker.Subject)
+	}
 	jwt_secret_key := self.Context.SecretKey().JwtSecretKey
 	cacheObj, err := self.CacheAware()
 	if err != nil {
@@ -358,18 +361,18 @@ func (self *WebsocketNode) LoginBySubject(sub *jwt.Subject, exp int64) (*jwt.Aut
 	return nil, nil
 }
 
-func (self *WebsocketNode) LogoutBySubject(subs ...string) error {
-	if subs == nil {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "用户密钥不能为空"}
-	}
-	subkeys := make([]string, 0, len(subs))
-	for _, v := range subs {
-		subkeys = append(subkeys, util.AddStr(JWT_SUB_, v))
-	}
-	if cacheObj, err := self.CacheAware(); err != nil {
-		return ex.Throw{Code: http.StatusInternalServerError, Msg: "缓存服务异常", Err: err}
-	} else if err := cacheObj.Del(subkeys...); err != nil {
-		return ex.Throw{Code: http.StatusInternalServerError, Msg: "删除用户密钥失败", Err: err}
-	}
+func (self *WebsocketNode) LogoutBySubject(ctx *Context) error {
+	//if subs == nil {
+	//	return ex.Throw{Code: http.StatusBadRequest, Msg: "用户密钥不能为空"}
+	//}
+	//subkeys := make([]string, 0, len(subs))
+	//for _, v := range subs {
+	//	subkeys = append(subkeys, util.AddStr(JWT_SUB_, v))
+	//}
+	//if cacheObj, err := self.CacheAware(); err != nil {
+	//	return ex.Throw{Code: http.StatusInternalServerError, Msg: "缓存服务异常", Err: err}
+	//} else if err := cacheObj.Del(subkeys...); err != nil {
+	//	return ex.Throw{Code: http.StatusInternalServerError, Msg: "删除用户密钥失败", Err: err}
+	//}
 	return nil
 }

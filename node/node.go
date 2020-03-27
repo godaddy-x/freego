@@ -104,7 +104,7 @@ type ProtocolNode interface {
 	// 保存用户会话密钥
 	LoginBySubject(sub *jwt.Subject, exp int64) (*jwt.Authorization, error)
 	// 删除用户会话密钥
-	LogoutBySubject(subs ...string) error
+	LogoutBySubject(ctx *Context) error
 	// 渲染输出
 	RenderTo() error
 	// 异常错误响应方法

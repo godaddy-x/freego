@@ -63,11 +63,7 @@ func (self *MyWebNode) login(ctx *node.Context) error {
 			Nbf: time,
 		},
 	}
-	author, err := subject.GetAuthorization(GetSecretKey())
-	if err != nil {
-		return ex.Throw{ex.SYSTEM, "生成授权失败", err}
-	}
-	self.LoginBySubject(subject.Payload.Sub, author.SignatureKey, exp)
+	self.LoginBySubject(subject, exp)
 	return self.Json(ctx, map[string]interface{}{"token": ""})
 	//return self.Html(ctx, "/web/index.html", map[string]interface{}{"tewt": 1})
 }
@@ -85,11 +81,7 @@ func (self *MyWsNode) login(ctx *node.Context) error {
 			Nbf: time,
 		},
 	}
-	author, err := subject.GetAuthorization(GetSecretKey())
-	if err != nil {
-		return ex.Throw{ex.SYSTEM, "生成授权失败", err}
-	}
-	self.LoginBySubject(subject.Payload.Sub, author.SignatureKey, exp)
+	self.LoginBySubject(subject, exp)
 	return self.Json(ctx, map[string]interface{}{"token": ""})
 }
 
