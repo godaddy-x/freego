@@ -20,9 +20,16 @@ type PublishManager struct {
 }
 
 type PublishMQ struct {
-	channel *amqp.Channel
 	option  Option
-	mu      sync.Mutex
+	channel *amqp.Channel
+	queue   amqp.Queue
+	mu      sync.RWMutex
+}
+
+type QueueData struct {
+	Name      string
+	Consumers int
+	Messages  int
 }
 
 func (self *PublishManager) InitConfig(input ...AmqpConfig) (*PublishManager, error) {
@@ -57,10 +64,18 @@ func (self *PublishManager) Client(dsname ...string) (*PublishManager, error) {
 	return manager, nil
 }
 
-func (self *PublishManager) Publish(data *MsgData) error {
-	if data == nil {
-		return util.Error("发送数据为空")
+func (self *PublishManager) Queue(data *MsgData) (*QueueData, error) {
+	pub, err := self.initQueue(data)
+	if err != nil {
+		return nil, err
 	}
+	return &QueueData{
+		Name:      pub.queue.Name,
+		Consumers: pub.queue.Consumers,
+		Messages:  pub.queue.Messages,}, nil
+}
+
+func (self *PublishManager) initQueue(data *MsgData) (*PublishMQ, error) {
 	if len(data.Option.Router) == 0 {
 		data.Option.Router = data.Option.Queue
 	}
@@ -74,7 +89,7 @@ func (self *PublishManager) Publish(data *MsgData) error {
 		if !ok {
 			channel, err := self.conn.Channel()
 			if err != nil {
-				return err
+				return nil, err
 			}
 			if len(data.Option.Kind) == 0 {
 				data.Option.Kind = DIRECT
@@ -87,6 +102,17 @@ func (self *PublishManager) Publish(data *MsgData) error {
 			pub.prepareQueue()
 			self.channels[chanKey] = pub
 		}
+	}
+	return pub, nil
+}
+
+func (self *PublishManager) Publish(data *MsgData) error {
+	if data == nil {
+		return util.Error("发送数据为空")
+	}
+	pub, err := self.initQueue(data)
+	if err != nil {
+		return err
 	}
 	// 数据加密模式
 	sigTyp := data.Option.SigTyp
@@ -164,8 +190,10 @@ func (self *PublishMQ) prepareQueue() error {
 	if len(self.option.Queue) == 0 {
 		return nil
 	}
-	if _, err := self.channel.QueueDeclare(self.option.Queue, true, false, false, false, nil); err != nil {
+	if q, err := self.channel.QueueDeclare(self.option.Queue, true, false, false, false, nil); err != nil {
 		return err
+	} else {
+		self.queue = q
 	}
 	if err := self.channel.QueueBind(self.option.Queue, self.option.Router, self.option.Exchange, false, nil); err != nil {
 		return err
