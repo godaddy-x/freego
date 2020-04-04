@@ -1,7 +1,6 @@
 package goquery
 
 import (
-	"errors"
 	"fmt"
 	"github.com/PuerkitoBio/goquery"
 	"github.com/godaddy-x/freego/util"
@@ -21,9 +20,11 @@ type HtmlValidResult struct {
 
 func ValidImgURL(content, prefix string) error {
 	if strings.HasPrefix(content, prefix) {
-		return nil
+		if util.ValidPattern(strings.ReplaceAll(content, prefix, ""), "\\d{19}/\\d{19}\\.jpg") {
+			return nil
+		}
 	}
-	return errors.New("图片URL无效")
+	return util.Error("图片URL无效")
 }
 
 func ValidZxHtml(htmlstr string) (*HtmlValidResult) {

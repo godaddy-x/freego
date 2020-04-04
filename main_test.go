@@ -665,8 +665,10 @@ var htmlstr = `
 `
 
 func TestHtml(t *testing.T) {
-	valid := goquery.ValidZxHtml(htmlstr)
-	fmt.Println(valid.ContentLen, valid.NewContent, valid.FailMsg)
+	//valid := goquery.ValidZxHtml(htmlstr)
+	//fmt.Println(valid.ContentLen, valid.NewContent, valid.FailMsg)
+	s := "//static.pgwjc.com/skin/images/1180654561279344640/1243153846100819968.jpg"
+	fmt.Println(goquery.ValidImgURL(s, "//static.pgwjc.com/skin/images/"))
 }
 
 func TestRGX2(t *testing.T) {
