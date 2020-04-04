@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/component/auth"
+	"github.com/godaddy-x/freego/component/goquery"
 	"github.com/godaddy-x/freego/concurrent"
 	"github.com/godaddy-x/freego/job"
 	"github.com/godaddy-x/freego/sqlc"
@@ -381,7 +382,7 @@ func TestMongoAgg(t *testing.T) {
 		panic(err)
 	}
 	defer db.Close()
-	db.FindOne(sqlc.M().Agg(sqlc.SUM_, "paidPrice").Groupby("shopId", "userId").Asc("shopId").Limit(1,1), &OwWallet{})
+	db.FindOne(sqlc.M().Agg(sqlc.SUM_, "paidPrice").Groupby("shopId", "userId").Asc("shopId").Limit(1, 1), &OwWallet{})
 	//db.FindOne(sqlc.M().Groupby("appID"), &OwWallet{})
 }
 
@@ -619,15 +620,53 @@ func TestRGX(t *testing.T) {
 }
 
 func TestRGX1(t *testing.T) {
-	var aeskey = "x4kkptzFsUOVnuya"
-	fmt.Println("密钥: ", aeskey)
-	pass := "123456"
-	xpass := util.AesEncrypt(pass, aeskey)
+	//var aeskey = "x4kkptzFsUOVnuya"
+	//fmt.Println("密钥: ", aeskey)
+	//pass := "123456"
+	//xpass := util.AesEncrypt(pass, aeskey)
+	//
+	//fmt.Printf("加密后:%v\n", xpass)
+	//
+	//tpass := util.AesDecrypt(xpass, string(aeskey))
+	//fmt.Printf("解密后:%s\n", tpass)
 
-	fmt.Printf("加密后:%v\n", xpass)
+	//s := "(?i)eval\\s*\\((.*?)\\)"
+	//c := "<eval  ()"
+	//fmt.Println(util.ValidPattern(c, s))
 
-	tpass := util.AesDecrypt(xpass, string(aeskey))
-	fmt.Printf("解密后:%s\n", tpass)
+	//s := "(?i)expression\\s*\\((.*?)\\)"
+	//c := "<ExpressiOn  ()"
+	//fmt.Println(util.ValidPattern(c, s))
+
+	//s := "(?i)scrip1t\\s*\\>(.*?)"
+	//c := "<scRip1t  >"
+	//fmt.Println(util.ValidPattern(c, s))
+
+	//s := "javascript:(.*?)|vbscript\\s*\\:(.*?)|view-source\\s*\\:(.*?)"
+	//c := "vbscript:vbscript"
+	//fmt.Println(util.ValidPattern(c, s))
+
+	//s := "\\{1}"
+	//c := `\`
+	//fmt.Println(util.ValidPattern(c, s))
+	fmt.Println(fmt.Sprintf("%x", `%`))
+	fmt.Println(url.QueryEscape("%"))
+
+}
+
+type HtmlValidResult struct {
+	NewData    string
+	ContentLen int
+}
+
+var htmlstr = `
+<section style="text-align: center; color: rgb(68, 198, 123); font-weight: 800; font-style: italic; text-decoration: line-through;">&nbsp;&nbsp;&lt;a&gt;斯蒂芬  撒旦法毒贩夫妇%3Csectioin&lt;/a&gt;%#\'":;.img src='test'/></section>
+<h2 style="text-align: center; color: rgb(68, 198, 123); font-weight: 800; font-style: italic; text-decoration: line-through;">&nbsp;&nbsp;&lt;a&gt;斯蒂芬撒旦法毒贩夫妇%3Csectioin&lt;/a&gt;%#\'":;.img src='test'/></h2>
+`
+
+func TestHtml(t *testing.T) {
+	valid := goquery.ValidZxHtml(htmlstr)
+	fmt.Println(valid.ContentLen, valid.NewContent, valid.FailMsg)
 }
 
 func TestRGX2(t *testing.T) {

@@ -27,6 +27,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 	"unsafe"
 )
 
@@ -881,4 +882,9 @@ func Cmp(a, b interface{}) int {
 	x, _ := decimal.NewFromString(AnyToStr(a))
 	y, _ := decimal.NewFromString(AnyToStr(b))
 	return x.Cmp(y)
+}
+
+// 获取混合字符串实际长度
+func Len(o interface{}) int {
+	return utf8.RuneCountInString(AnyToStr(o))
 }
