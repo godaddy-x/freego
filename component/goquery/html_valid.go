@@ -2,7 +2,6 @@ package goquery
 
 import (
 	"fmt"
-	"github.com/PuerkitoBio/goquery"
 	"github.com/godaddy-x/freego/util"
 	"strings"
 )
@@ -29,7 +28,7 @@ func ValidImgURL(content, prefix string) error {
 
 func ValidZxHtml(htmlstr string) (*HtmlValidResult) {
 	r := strings.NewReader(util.AddStr("<content>", htmlstr, "</content>"))
-	doc, err := goquery.NewDocumentFromReader(r)
+	doc, err := NewDocumentFromReader(r)
 	if err != nil {
 		fmt.Println(err)
 		return &HtmlValidResult{FailMsg: "解析html数据失败"}
@@ -39,7 +38,7 @@ func ValidZxHtml(htmlstr string) (*HtmlValidResult) {
 		return &HtmlValidResult{FailMsg: "无匹配数据"}
 	}
 	validResult := &HtmlValidResult{}
-	children.Each(func(i int, v *goquery.Selection) {
+	children.Each(func(i int, v *Selection) {
 		if len(validResult.FailMsg) > 0 {
 			return
 		}
