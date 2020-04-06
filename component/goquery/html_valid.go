@@ -45,6 +45,7 @@ func ValidZxHtml(htmlstr string) (*HtmlValidResult) {
 		}
 		// 样式校验
 		tag := ""
+		style := ""
 		for _, v := range v.Nodes {
 			if !util.CheckStr(v.Data, access_tag...) {
 				validResult.FailMsg = "Tag类型无效"
@@ -63,6 +64,7 @@ func ValidZxHtml(htmlstr string) (*HtmlValidResult) {
 				validResult.FailMsg = "样式校验失败"
 				return
 			}
+			style = attr.Val
 			split := strings.Split(attr.Val, ";")
 			for _, v := range split {
 				if len(v) == 0 {
@@ -133,8 +135,11 @@ func ValidZxHtml(htmlstr string) (*HtmlValidResult) {
 				new_content = append(new_content, v)
 			}
 		}
-		validResult.ContentLen = validResult.ContentLen + util.Len(strings.TrimSpace(strings.ReplaceAll(v.Text(), " ", "")))
-		validResult.NewContent = util.AddStr(validResult.NewContent, "<", tag, ">", string(new_content), "</", tag, ">")
+		if len(style) > 0 {
+			style = util.AddStr(" style='", style, "'")
+		}
+		validResult.ContentLen = validResult.ContentLen + util.Len(strings.TrimSpace(v.Text()))
+		validResult.NewContent = util.AddStr(validResult.NewContent, "<", tag, style, ">", string(new_content), "</", tag, ">")
 	})
 	if len(validResult.FailMsg) > 0 {
 		validResult.ContentLen = 0

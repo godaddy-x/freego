@@ -888,3 +888,12 @@ func Cmp(a, b interface{}) int {
 func Len(o interface{}) int {
 	return utf8.RuneCountInString(AnyToStr(o))
 }
+
+// 获取并校验字符串长度
+func CheckLen(o interface{}, min, max int) bool {
+	len := Len(o)
+	if len >= min && len <= max {
+		return true
+	}
+	return false
+}
