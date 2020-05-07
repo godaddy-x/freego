@@ -80,20 +80,21 @@ type FromCond struct {
 
 // 数据库操作汇总逻辑条件对象
 type Cnd struct {
-	ConditPart  []string
-	Conditions  []Condition
-	AnyFields   []string
-	Distincts   []string
-	Groupbys    []string
-	Orderbys    []Condition
-	Aggregates  []Condition
-	Upsets      map[string]interface{}
-	Model       interface{}
-	Pagination  dialect.Dialect
-	FromCond    *FromCond
-	JoinCond    []*JoinCond
-	SampleSize  int64
-	CacheConfig CacheConfig
+	ConditPart   []string
+	Conditions   []Condition
+	AnyFields    []string
+	AnyNotFields []string
+	Distincts    []string
+	Groupbys     []string
+	Orderbys     []Condition
+	Aggregates   []Condition
+	Upsets       map[string]interface{}
+	Model        interface{}
+	Pagination   dialect.Dialect
+	FromCond     *FromCond
+	JoinCond     []*JoinCond
+	SampleSize   int64
+	CacheConfig  CacheConfig
 }
 
 // 缓存结果集参数
@@ -107,14 +108,15 @@ type CacheConfig struct {
 // args[0]=对象类型
 func M(model ...interface{}) *Cnd {
 	c := &Cnd{
-		ConditPart: make([]string, 0),
-		Conditions: make([]Condition, 0),
-		AnyFields:  make([]string, 0),
-		Distincts:  make([]string, 0),
-		Groupbys:   make([]string, 0),
-		Aggregates: make([]Condition, 0),
-		Orderbys:   make([]Condition, 0),
-		Upsets:     make(map[string]interface{}, 0),
+		ConditPart:   make([]string, 0),
+		Conditions:   make([]Condition, 0),
+		AnyFields:    make([]string, 0),
+		AnyNotFields: make([]string, 0),
+		Distincts:    make([]string, 0),
+		Groupbys:     make([]string, 0),
+		Aggregates:   make([]Condition, 0),
+		Orderbys:     make([]Condition, 0),
+		Upsets:       make(map[string]interface{}, 0),
 	}
 	if model != nil && len(model) > 0 {
 		c.Model = model[0]
@@ -386,6 +388,17 @@ func (self *Cnd) Fields(keys ...string) *Cnd {
 	}
 	for _, v := range keys {
 		self.AnyFields = append(self.AnyFields, v)
+	}
+	return self
+}
+
+// 筛选过滤指定字段查询
+func (self *Cnd) NotFields(keys ...string) *Cnd {
+	if keys == nil || len(keys) == 0 {
+		return self
+	}
+	for _, v := range keys {
+		self.AnyNotFields = append(self.AnyNotFields, v)
 	}
 	return self
 }

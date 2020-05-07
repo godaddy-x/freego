@@ -697,6 +697,13 @@ func buildMongoProject(cnd *sqlc.Cnd) map[string]int {
 			project[v] = 1
 		}
 	}
+	for _, v := range cnd.AnyNotFields {
+		if v == JID {
+			project[BID] = 0
+		} else {
+			project[v] = 0
+		}
+	}
 	return project
 }
 
