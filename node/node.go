@@ -126,6 +126,7 @@ type RespDto struct {
 	Data    interface{} `json:"d"`
 	Message string      `json:"m"`
 	Time    int64       `json:"t"`
+	Url     string      `json:"u"`
 }
 
 type Permission struct {

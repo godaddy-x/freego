@@ -84,7 +84,7 @@ func (self *RedisManager) TryLockWithTimeout(resource string, timeout int, call 
 func Locker(lockObj string, errorMsg string, callObj func() error) error {
 	redis, err := new(RedisManager).Client()
 	if err != nil {
-		return ex.Throw{ex.CACHE, ex.CACHE_ERR, err}
+		return ex.Throw{Code: ex.CACHE, Msg: ex.CACHE_ERR, Err: err}
 	}
 	if err := redis.TryLock(lockObj, callObj); err != nil {
 		if len(errorMsg) > 0 {

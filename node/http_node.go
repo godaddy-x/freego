@@ -336,6 +336,7 @@ func (self *HttpNode) RenderError(err error) error {
 	resp := &RespDto{
 		Code:    out.Code,
 		Message: out.Msg,
+		Url:     out.Url,
 		Time:    util.Time(),
 		Data:    make(map[string]interface{}),
 	}
@@ -494,7 +495,7 @@ func (self *HttpNode) Text(ctx *Context, data string) error {
 func (self *HttpNode) LoginBySubject(sub *jwt.Subject, exp int64) (*jwt.Authorization, error) {
 	author, err := sub.GetAuthorization(self.Context.SecretKey())
 	if err != nil {
-		return nil, ex.Throw{ex.SYSTEM, "授权令牌创建失败", err}
+		return nil, ex.Throw{ex.SYSTEM, "授权令牌创建失败", "", err}
 	}
 	cacheObj, err := self.CacheAware()
 	if err != nil {

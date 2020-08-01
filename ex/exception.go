@@ -48,6 +48,7 @@ const (
 type Throw struct {
 	Code int
 	Msg  string
+	Url  string
 	Err  error
 }
 
@@ -55,7 +56,7 @@ func (self Throw) Error() string {
 	if self.Code == 0 {
 		self.Code = BIZ
 	}
-	return util.AddStr(self.Code, SEP, self.Msg)
+	return util.AddStr(self.Code, SEP, self.Msg, SEP, self.Url)
 }
 
 func Catch(err error) Throw {
@@ -67,6 +68,12 @@ func Catch(err error) Throw {
 			return Throw{Code: SYSTEM, Msg: err.Error()}
 		} else {
 			return Throw{Code: c, Msg: spl[1]}
+		}
+	} else if len(spl) == 3 {
+		if c, err := util.StrToInt(spl[0]); err != nil {
+			return Throw{Code: SYSTEM, Msg: err.Error()}
+		} else {
+			return Throw{Code: c, Msg: spl[1], Url: spl[2]}
 		}
 	}
 	return Throw{Code: UNKNOWN, Msg: "异常捕获解析失败", Err: err}
