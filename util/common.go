@@ -449,6 +449,13 @@ func MD5(s string, salt ...string) string {
 	return fmt.Sprintf("%x", has) //将[]byte转成16进制
 }
 
+// HMAC-MD5加密
+func HMAC0(data, key string) string {
+	hmac := hmac.New(md5.New, []byte(key))
+	hmac.Write([]byte(data))
+	return hex.EncodeToString(hmac.Sum([]byte("")))
+}
+
 // HMAC-SHA1加密
 func HMAC1(data, key string) string {
 	hmac := hmac.New(sha1.New, []byte(key))
