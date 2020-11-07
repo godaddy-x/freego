@@ -7,11 +7,13 @@ package util
 
 import (
 	"bytes"
+	"crypto/hmac"
 	"crypto/md5"
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/gob"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -445,6 +447,20 @@ func MD5(s string, salt ...string) string {
 	}
 	has := md5.Sum(Str2Bytes(s))
 	return fmt.Sprintf("%x", has) //将[]byte转成16进制
+}
+
+// HMAC-SHA1加密
+func HMAC1(data, key string) string {
+	hmac := hmac.New(sha1.New, []byte(key))
+	hmac.Write([]byte(data))
+	return hex.EncodeToString(hmac.Sum([]byte("")))
+}
+
+// HMAC-SHA256加密
+func HMAC256(data, key string) string {
+	hmac := hmac.New(sha256.New, []byte(key))
+	hmac.Write([]byte(data))
+	return hex.EncodeToString(hmac.Sum([]byte("")))
 }
 
 // SHA256加密
