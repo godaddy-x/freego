@@ -46,8 +46,8 @@ var (
 const (
 	xforwardedfor = "X-Forwarded-For"
 	xrealip       = "X-Real-IP"
-	time_formt    = "2006-01-02 15:04:05"
-	date_formt    = "2006-01-02"
+	time_fmt      = "2006-01-02 15:04:05"
+	date_fmt      = "2006-01-02"
 	OneDay        = 86400000
 	OneWeek       = OneDay * 7
 	TwoWeek       = OneDay * 14
@@ -102,17 +102,26 @@ func Int2Time(t int64) time.Time {
 
 // 时间戳转格式字符串/毫秒
 func Time2Str(t int64) string {
-	return Int2Time(t).In(cst_sh).Format(time_formt)
+	return Int2Time(t).In(cst_sh).Format(time_fmt)
 }
 
 // 时间戳转格式字符串/毫秒
 func Time2DateStr(t int64) string {
-	return Int2Time(t).In(cst_sh).Format(date_formt)
+	return Int2Time(t).In(cst_sh).Format(date_fmt)
 }
 
 // 格式字符串转时间戳/毫秒
 func Str2Time(s string) (int64, error) {
-	t, err := time.ParseInLocation(time_formt, s, cst_sh)
+	t, err := time.ParseInLocation(time_fmt, s, cst_sh)
+	if err != nil {
+		return 0, err
+	}
+	return Time(t), nil
+}
+
+// 格式字符串转时间戳/毫秒
+func Str2Date(s string) (int64, error) {
+	t, err := time.ParseInLocation(date_fmt, s, cst_sh)
 	if err != nil {
 		return 0, err
 	}
