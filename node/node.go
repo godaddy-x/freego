@@ -132,7 +132,7 @@ type RespDto struct {
 type Permission struct {
 	MathchAll int64
 	NeedLogin int64
-	NeedRole  []string
+	NeedRole  []int64
 }
 
 type Context struct {
@@ -149,9 +149,9 @@ type Context struct {
 	Input         *http.Request
 	Output        http.ResponseWriter
 	SecretKey     func() *jwt.SecretKey
-	UserId        string
+	UserId        int64
 	Storage       map[string]interface{}
-	Roles         []string
+	Roles         []int64
 	PermissionKey func(url string) (*Permission, error)
 }
 

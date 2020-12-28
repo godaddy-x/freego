@@ -512,7 +512,7 @@ func (self *HttpNode) LoginBySubject(sub *jwt.Subject, exp int64) (*jwt.Authoriz
 }
 
 func (self *HttpNode) LogoutBySubject(ctx *Context) error {
-	if len(ctx.UserId) == 0 {
+	if ctx.UserId == 0 {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "无效的用户状态"}
 	}
 	sub_key := util.AddStr(JWT_SUB_, ctx.UserId)

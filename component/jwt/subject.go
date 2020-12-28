@@ -6,6 +6,7 @@ package jwt
  */
 
 import (
+	"fmt"
 	"github.com/godaddy-x/freego/util"
 	"strings"
 )
@@ -50,7 +51,7 @@ type Authorization struct {
 }
 
 type Payload struct {
-	Sub string            `json:"sub"` // 用户主体
+	Sub int64             `json:"sub"` // 用户主体
 	Aud string            `json:"aud"` // 接收token主体
 	Iss string            `json:"iss"` // 签发token主体
 	Iat int64             `json:"iat"` // 授权token时间1
@@ -70,7 +71,7 @@ func (self *Subject) GetAuthorization(key *SecretKey) (*Authorization, error) {
 		return nil, util.Error("payload is nil")
 	}
 	var content, signature, access_token, signature_key, access_key string
-	self.Payload.Jti = util.MD5(util.GetSnowFlakeStrID(), util.GetRandStr(6, true), self.Payload.Sub)
+	self.Payload.Jti = util.MD5(util.GetSnowFlakeStrID(), util.GetRandStr(6, true), util.AddStr(self.Payload.Sub))
 	if msg, err := util.JsonMarshal(self.Payload); err != nil {
 		return nil, err
 	} else if content = util.Base64Encode(msg); len(content) == 0 {
@@ -125,20 +126,25 @@ func (self *Subject) GetSubjectChecker(access_token string) (*SubjectChecker, er
 	}, nil
 }
 
-func (self *Subject) GetRole() []string {
+func (self *Subject) GetRole() []int64 {
 	ext := self.Payload.Ext
 	if ext == nil || len(ext) == 0 {
-		return make([]string, 0)
+		return make([]int64, 0)
 	}
 	val, ok := ext["rol"]
 	if !ok {
-		return make([]string, 0)
+		return make([]int64, 0)
 	}
 	spl := strings.Split(val, ",")
-	role := make([]string, 0, len(spl))
+	role := make([]int64, 0, len(spl))
 	for _, v := range spl {
 		if len(v) > 0 {
-			role = append(role, v)
+			x, err := util.StrToInt64(v)
+			if err != nil {
+				fmt.Println(err)
+				continue
+			}
+			role = append(role, x)
 		}
 	}
 	return role

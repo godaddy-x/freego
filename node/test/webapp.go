@@ -55,7 +55,7 @@ func (self *MyWebNode) login(ctx *node.Context) error {
 	exp := jwt.TWO_WEEK
 	subject := &jwt.Subject{
 		Payload: &jwt.Payload{
-			Sub: "zhangsan",
+			Sub: 123456,
 			Aud: ctx.Host,
 			Iss: "localhost",
 			Iat: time,
@@ -73,7 +73,7 @@ func (self *MyWsNode) login(ctx *node.Context) error {
 	exp := jwt.TWO_WEEK
 	subject := &jwt.Subject{
 		Payload: &jwt.Payload{
-			Sub: "zhangsan",
+			Sub: 123456,
 			Aud: ctx.Host,
 			Iss: "localhost",
 			Iat: time,

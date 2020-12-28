@@ -33,7 +33,7 @@ type Session interface {
 
 	RemoveAttribute(k string) error // 抛出校验会话异常
 
-	Validate(accessToken, secretKey string) (string, error) // 校验会话
+	Validate(accessToken, secretKey string) (int64, error) // 校验会话
 
 	Invalid() bool // 判断会话是否有效
 
@@ -115,11 +115,11 @@ func (self *JWTSession) Stop() error {
 	return nil
 }
 
-func (self *JWTSession) Validate(accessToken, secretKey string) (string, error) {
+func (self *JWTSession) Validate(accessToken, secretKey string) (int64, error) {
 	if self.Expire {
-		return "", util.Error("session[", self.Id, "] expired")
+		return 0, util.Error("session[", self.Id, "] expired")
 	} else if self.IsTimeout() {
-		return "", util.Error("session[", self.Id, "] timeout invalid")
+		return 0, util.Error("session[", self.Id, "] timeout invalid")
 	}
 	// JWT二次校验
 	subject := &jwt.Subject{}

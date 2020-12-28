@@ -14,7 +14,7 @@ func websocket_test() {
 }
 
 func main() {
-	websocket_test()
+	//websocket_test()
 	http_test()
 	time.Sleep(1 * time.Hour)
 }
