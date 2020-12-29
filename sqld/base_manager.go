@@ -384,7 +384,6 @@ func (self *RDBManager) Update(data ...interface{}) error {
 		fpart.WriteString("=case ")
 		fpart.WriteString(obv.PkName)
 		for _, v := range data {
-			var isInt64 bool
 			if vv.Primary {
 				if vv.FieldKind == reflect.Int64 {
 					lastInsertId := util.GetInt64(util.GetPtr(v, obv.PkOffset))
@@ -392,7 +391,6 @@ func (self *RDBManager) Update(data ...interface{}) error {
 						return self.Error("[Mysql.Update]对象ID为空")
 					}
 					vpart.WriteString(strconv.FormatInt(lastInsertId, 10))
-					isInt64 = true
 				} else if vv.FieldKind == reflect.String {
 					lastInsertId := util.GetString(util.GetPtr(v, obv.PkOffset))
 					if len(lastInsertId) == 0 {
@@ -401,7 +399,6 @@ func (self *RDBManager) Update(data ...interface{}) error {
 					vpart.WriteString("'")
 					vpart.WriteString(lastInsertId)
 					vpart.WriteString("'")
-					isInt64 = false
 				} else {
 					return util.Error("只支持int64和string类型ID")
 				}
@@ -414,11 +411,15 @@ func (self *RDBManager) Update(data ...interface{}) error {
 				parameter = append(parameter, val)
 			}
 			fpart.WriteString(" when ")
-			if isInt64 {
+			if obv.PkKind == reflect.Int64 {
 				fpart.WriteString(util.AnyToStr(util.GetInt64(util.GetPtr(v, obv.PkOffset))))
 			} else {
 				fpart.WriteString("'")
-				fpart.WriteString(util.GetString(util.GetPtr(v, obv.PkOffset)))
+				idstr := util.GetString(util.GetPtr(v, obv.PkOffset))
+				if !util.IsInt(idstr) {
+					return util.Error("无效的ID值:", idstr)
+				}
+				fpart.WriteString(idstr)
 				fpart.WriteString("'")
 			}
 			fpart.WriteString(" then ? ")
