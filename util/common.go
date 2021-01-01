@@ -733,6 +733,20 @@ func GetRandStr(n int, sp ...bool) string {
 	return Bytes2Str(result)
 }
 
+// 获取动态区间ID
+func GetNextID(seed ...int64) int64 {
+	if seed == nil || len(seed) == 0 {
+		r := rand.New(rand.NewSource(Time()))
+		seed0 := r.Intn(1024)
+		return GetSnowFlakeIntID(int64(seed0))
+	}
+	seed0 := seed[0]
+	if seed0 < 0 || seed0 > 1024 {
+		seed0 = 256
+	}
+	return GetSnowFlakeIntID(seed0)
+}
+
 func Reverse(s string) string {
 	runes := []rune(s)
 	for i, j := 0, len(runes)-1; i < j; i, j = i+1, j-1 {
