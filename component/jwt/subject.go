@@ -77,8 +77,8 @@ func (self *Subject) GetAuthorization(key *SecretKey) (*Authorization, error) {
 	} else if content = util.Base64Encode(msg); len(content) == 0 {
 		return nil, util.Error("content is nil")
 	}
-	signature_key = util.MD5(jwt_secret_key, content, ".")                    // 生成数据签名密钥
-	signature = util.SHA256(jwt_secret_key, signature_key, ".", content, ".") // 通过密钥获得数据签名
+	signature_key = util.MD5(jwt_secret_key, content, ".")                        // 生成数据签名密钥
+	signature = util.HMAC256(content, util.AddStr(jwt_secret_key, signature_key)) // 通过密钥获得数据签名
 	access_token = util.AddStr(content, ".", signature)
 	access_key = util.GetApiAccessKeyByMD5(access_token, api_secret_key)
 	access_key = util.ReverseBase64(access_key)
@@ -166,7 +166,7 @@ func (self *SubjectChecker) Authentication(signature_key, jwt_secret_key string)
 	}
 	if signature_key != util.MD5(jwt_secret_key, content, ".") {
 		return util.Error("signature_key invalid")
-	} else if signature != util.SHA256(jwt_secret_key, signature_key, ".", content, ".") {
+	} else if signature != util.HMAC256(content, util.AddStr(jwt_secret_key, signature_key)) {
 		return util.Error("signature error")
 	}
 	self.SignatureKey = signature_key
