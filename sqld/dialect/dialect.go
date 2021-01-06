@@ -13,8 +13,8 @@ import (
 type Dialect struct {
 	PageNo    int64 // 页码索引
 	PageSize  int64 // 每页条数
-	PageTotal int64 // 总页数
-	PageCount int64 // 总条数
+	PageTotal int64 // 总条数
+	PageCount int64 // 总页数
 	Spilled   bool  // 分页类型
 	IsOffset  bool  // 是否按下标分页
 	IsPage    bool  // 是否分页
