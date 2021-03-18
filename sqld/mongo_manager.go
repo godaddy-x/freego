@@ -570,7 +570,7 @@ func (self *MGOManager) buildPipeCondition(cnd *sqlc.Cnd, countby bool) ([]inter
 	if sample != nil {
 		pipe = append(pipe, sample)
 	}
-	if len(sortby) > 0 {
+	if !countby && len(sortby) > 0 {
 		tmp := make(map[string]interface{})
 		tmp["$sort"] = sortby
 		pipe = append(pipe, tmp)
