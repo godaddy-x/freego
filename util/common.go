@@ -90,6 +90,11 @@ func JsonToAny(src interface{}, target interface{}) error {
 	return nil
 }
 
+func MathAbs(n int64) int64 {
+	y := n >> 63
+	return (n ^ y) - y
+}
+
 // 获取当前时间/毫秒
 func Time(t ...time.Time) int64 {
 	return Millisecond(t ...)
@@ -577,6 +582,25 @@ func Base64URLDecode(input interface{}) []byte {
 	} else {
 		return r
 	}
+}
+
+func ToJsonBase64(input interface{}) (string, error) {
+	if input == nil {
+		input = map[string]string{}
+	}
+	b, err := JsonMarshal(input)
+	if err != nil {
+		return "", err
+	}
+	return Base64URLEncode(Bytes2Str(b)), nil
+}
+
+func ParseJsonBase64(input interface{}, ouput interface{}) (error) {
+	b := Base64URLDecode(input)
+	if b == nil || len(b) == 0 {
+		return Error("base64 data decode failed")
+	}
+	return JsonUnmarshal(b, ouput)
 }
 
 // 随机获得6位数字

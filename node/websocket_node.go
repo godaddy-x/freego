@@ -95,11 +95,11 @@ func (self *WebsocketNode) wsReadHandle(c *WSClient, rcvd []byte) error {
 	if err := util.JsonUnmarshal(rcvd, req); err != nil {
 		return self.RenderError(ex.Throw{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err})
 	}
-	if err := self.Context.SecurityCheck(req, self.Option.Textplain); err != nil {
-		return err
-	}
+	//if err := self.Context.SecurityCheck(req, self.Option.Textplain); err != nil {
+	//	return err
+	//}
 	// 2.判定或校验会话
-	if self.Context.Session == nil { // 如无会话则校验以及填充会话,如存在会话则跳过
+	if self.Context.Subject == nil { // 如无会话则校验以及填充会话,如存在会话则跳过
 		if err := self.ValidSession(); err != nil {
 			return self.RenderError(err)
 		}
@@ -109,10 +109,6 @@ func (self *WebsocketNode) wsReadHandle(c *WSClient, rcvd []byte) error {
 		if err := self.ValidPermission(); err != nil {
 			return self.RenderError(err)
 		}
-	} else if self.Context.Session.Invalid() {
-		return self.RenderError(ex.Throw{Code: http.StatusUnauthorized, Msg: "会话已失效"})
-	} else if self.Context.Session.IsTimeout() {
-		return self.RenderError(ex.Throw{Code: http.StatusUnauthorized, Msg: "会话已超时"})
 	}
 	if err := func() error {
 		// 3.上下文前置检测方法
@@ -135,47 +131,47 @@ func (self *WebsocketNode) wsReadHandle(c *WSClient, rcvd []byte) error {
 }
 
 func (self *WebsocketNode) ValidSession() error {
-	access_token := self.Context.Params.Token
-	if len(access_token) == 0 {
-		return nil
-	}
-	checker, err := new(jwt.Subject).GetSubjectChecker(access_token)
-	if err != nil {
-		return ex.Throw{Code: http.StatusUnauthorized, Msg: "授权令牌无效", Err: err}
-	} else {
-		self.Context.Roles = checker.Subject.GetRole()
-	}
-	// 获取缓存的sub->signature key
-	sub := checker.Subject.Payload.Sub
-	sub_key := util.AddStr(JWT_SUB_, sub)
-	if self.CacheSubjectKey != nil {
-		sub_key = self.CacheSubjectKey(checker.Subject)
-	}
-	jwt_secret_key := self.Context.SecretKey().JwtSecretKey
-	cacheObj, err := self.CacheAware()
-	if err != nil {
-		return ex.Throw{Code: http.StatusInternalServerError, Msg: "缓存服务异常", Err: err}
-	}
-	sigkey, err := cacheObj.GetString(sub_key)
-	if err != nil {
-		return ex.Throw{Code: http.StatusInternalServerError, Msg: "读取缓存数据异常", Err: err}
-	}
-	if len(sigkey) == 0 {
-		return ex.Throw{Code: http.StatusUnauthorized, Msg: "会话获取失败或已失效"}
-	}
-	if err := checker.Authentication(sigkey, jwt_secret_key); err != nil {
-		return ex.Throw{Code: http.StatusUnauthorized, Msg: "会话已失效或已超时", Err: err}
-	}
-	if session := BuildJWTSession(checker); session == nil {
-		return ex.Throw{Code: http.StatusUnauthorized, Msg: "创建会话失败"}
-	} else if session.Invalid() {
-		return ex.Throw{Code: http.StatusUnauthorized, Msg: "会话已失效"}
-	} else if session.IsTimeout() {
-		return ex.Throw{Code: http.StatusUnauthorized, Msg: "会话已过期"}
-	} else {
-		self.Context.UserId = sub
-		self.Context.Session = session
-	}
+	//access_token := self.Context.Params.Token
+	//if len(access_token) == 0 {
+	//	return nil
+	//}
+	//checker, err := new(jwt.Subject).GetSubjectChecker(access_token)
+	//if err != nil {
+	//	return ex.Throw{Code: http.StatusUnauthorized, Msg: "授权令牌无效", Err: err}
+	//} else {
+	//	self.Context.Roles = checker.Subject.GetRole()
+	//}
+	//// 获取缓存的sub->signature key
+	//sub := checker.Subject.Payload.Sub
+	//sub_key := util.AddStr(JWT_SUB_, sub)
+	//if self.CacheSubjectKey != nil {
+	//	sub_key = self.CacheSubjectKey(checker.Subject)
+	//}
+	//jwt_secret_key := self.Context.SecretKey().JwtSecretKey
+	//cacheObj, err := self.CacheAware()
+	//if err != nil {
+	//	return ex.Throw{Code: http.StatusInternalServerError, Msg: "缓存服务异常", Err: err}
+	//}
+	//sigkey, err := cacheObj.GetString(sub_key)
+	//if err != nil {
+	//	return ex.Throw{Code: http.StatusInternalServerError, Msg: "读取缓存数据异常", Err: err}
+	//}
+	//if len(sigkey) == 0 {
+	//	return ex.Throw{Code: http.StatusUnauthorized, Msg: "会话获取失败或已失效"}
+	//}
+	//if err := checker.Authentication(sigkey, jwt_secret_key); err != nil {
+	//	return ex.Throw{Code: http.StatusUnauthorized, Msg: "会话已失效或已超时", Err: err}
+	//}
+	//if session := BuildJWTSession(checker); session == nil {
+	//	return ex.Throw{Code: http.StatusUnauthorized, Msg: "创建会话失败"}
+	//} else if session.Invalid() {
+	//	return ex.Throw{Code: http.StatusUnauthorized, Msg: "会话已失效"}
+	//} else if session.IsTimeout() {
+	//	return ex.Throw{Code: http.StatusUnauthorized, Msg: "会话已过期"}
+	//} else {
+	//	self.Context.UserId = sub
+	//	self.Context.Session = session
+	//}
 	return nil
 }
 
@@ -211,7 +207,7 @@ func (self *WebsocketNode) ValidPermission() error {
 	}
 	if need.NeedLogin == 0 { // 无登录状态,跳过
 		return nil
-	} else if self.Context.Session == nil { // 需要登录状态,会话为空,抛出异常
+	} else if self.Context.Subject == nil { // 需要登录状态,会话为空,抛出异常
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "获取授权令牌失败"}
 	}
 	access := 0
@@ -349,30 +345,5 @@ func (self *WebsocketNode) Json(ctx *Context, data interface{}) error {
 
 func (self *WebsocketNode) Text(ctx *Context, data string) error {
 	ctx.Response = &Response{UTF8, TEXT_PLAIN, data}
-	return nil
-}
-
-func (self *WebsocketNode) LoginBySubject(sub *jwt.Subject, exp int64) (*jwt.Authorization, error) {
-	if cacheObj, err := self.CacheAware(); err != nil {
-		return nil, ex.Throw{Code: http.StatusInternalServerError, Msg: "缓存服务异常", Err: err}
-	} else if err := cacheObj.Put(util.AddStr(JWT_SUB_, sub.Payload.Sub), sub.Payload.Sub, int(exp/1000)); err != nil {
-		return nil, ex.Throw{Code: http.StatusInternalServerError, Msg: "初始化用户密钥失败", Err: err}
-	}
-	return nil, nil
-}
-
-func (self *WebsocketNode) LogoutBySubject(ctx *Context) error {
-	//if subs == nil {
-	//	return ex.Throw{Code: http.StatusBadRequest, Msg: "用户密钥不能为空"}
-	//}
-	//subkeys := make([]string, 0, len(subs))
-	//for _, v := range subs {
-	//	subkeys = append(subkeys, util.AddStr(JWT_SUB_, v))
-	//}
-	//if cacheObj, err := self.CacheAware(); err != nil {
-	//	return ex.Throw{Code: http.StatusInternalServerError, Msg: "缓存服务异常", Err: err}
-	//} else if err := cacheObj.Del(subkeys...); err != nil {
-	//	return ex.Throw{Code: http.StatusInternalServerError, Msg: "删除用户密钥失败", Err: err}
-	//}
 	return nil
 }

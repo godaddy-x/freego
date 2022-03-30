@@ -39,7 +39,9 @@ func (self *HttpNode) GetHeader() error {
 		}
 	} else {
 		headers["User-Agent"] = r.Header.Get("User-Agent")
+		headers["Authorization"] = r.Header.Get("Authorization")
 	}
+	self.Context.Token = headers["Authorization"]
 	self.Context.Headers = headers
 	return nil
 }
@@ -61,7 +63,7 @@ func (self *HttpNode) GetParams() error {
 			if err := util.JsonUnmarshal(result, req); err != nil {
 				return ex.Throw{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err}
 			}
-			if err := self.Context.SecurityCheck(req, self.Option.Textplain); err != nil {
+			if err := self.Context.SecurityCheck(req); err != nil {
 				return err
 			}
 			return nil
@@ -123,7 +125,6 @@ func (self *HttpNode) InitContext(ptr *NodePtr) error {
 	node.CreateAt = util.Time()
 	node.SessionAware = self.SessionAware
 	node.CacheAware = self.CacheAware
-	node.CacheSubjectKey = self.CacheSubjectKey
 	node.Context = &Context{
 		Host:          util.ClientIP(input),
 		Port:          self.Context.Port,
@@ -167,72 +168,39 @@ func (self *HttpNode) PaddDevice() error {
 }
 
 func (self *HttpNode) ValidSession() error {
-	param := self.Context.Params
-	if param == nil || len(param.Token) == 0 {
-		if self.Option.Authenticate {
+	if self.Option.Authenticate {
+		if len(self.Context.Token) == 0 {
 			return ex.Throw{Code: http.StatusUnauthorized, Msg: "授权令牌为空"}
 		}
+		subject := &jwt.Subject{}
+		if err := subject.Verify(self.Context.Token, self.Context.SecretKey().JwtSecretKey); err != nil {
+			return ex.Throw{Code: http.StatusUnauthorized, Msg: "授权令牌无效或已过期", Err: err}
+		}
+		self.Context.Roles = subject.GetTokenRole()
+		self.Context.Subject = subject
 		return nil
 	}
-	checker, err := new(jwt.Subject).GetSubjectChecker(param.Token)
-	if err != nil {
-		return ex.Throw{Code: http.StatusUnauthorized, Msg: "授权令牌无效", Err: err}
-	} else {
-		self.Context.Roles = checker.Subject.GetRole()
-	}
-	// 获取缓存的sub->signature key
-	sub := checker.Subject.Payload.Sub
-	sub_key := util.AddStr(JWT_SUB_, sub)
-	if self.CacheSubjectKey != nil {
-		sub_key = self.CacheSubjectKey(checker.Subject)
-	}
-	jwt_secret_key := self.Context.SecretKey().JwtSecretKey
-	cacheObj, err := self.CacheAware()
-	if err != nil {
-		return ex.Throw{Code: http.StatusInternalServerError, Msg: "缓存服务异常", Err: err}
-	}
-	sigkey, err := cacheObj.GetString(sub_key)
-	if err != nil {
-		return ex.Throw{Code: http.StatusInternalServerError, Msg: "读取缓存数据异常", Err: err}
-	}
-	if len(sigkey) == 0 {
-		return ex.Throw{Code: http.StatusUnauthorized, Msg: "会话获取失败或已失效"}
-	}
-	if err := checker.Authentication(sigkey, jwt_secret_key); err != nil {
-		return ex.Throw{Code: http.StatusUnauthorized, Msg: "会话已失效或已超时", Err: err}
-	}
-	// 判断是否同一个IP请求
-	//if self.Context.Host != checker.Subject.Payload.Aud {
-	//
-	//}
-	if session := BuildJWTSession(checker); session == nil {
-		return ex.Throw{Code: http.StatusUnauthorized, Msg: "创建会话失败"}
-	} else if session.Invalid() {
-		return ex.Throw{Code: http.StatusUnauthorized, Msg: "会话已失效"}
-	} else if session.IsTimeout() {
-		return ex.Throw{Code: http.StatusUnauthorized, Msg: "会话已过期"}
-	} else {
-		self.Context.UserId = sub
-		self.Context.Session = session
+	if len(self.Context.Token) > 0 {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "非验证权限接口无需上传授权令牌"}
 	}
 	return nil
 }
 
 func (self *HttpNode) ValidReplayAttack() error {
-	param := self.Context.Params
-	if param == nil || len(param.Sign) == 0 {
-		return nil
-	}
-	key := util.AddStr(JWT_SIG_, param.Sign)
-	if c, err := self.CacheAware(); err != nil {
-		return err
-	} else if b, err := c.GetInt64(key); err != nil {
-		return err
-	} else if b > 1 {
-		return ex.Throw{Code: http.StatusForbidden, Msg: "重复请求不受理"}
-	} else {
-		c.Put(key, 1, int((param.Time+jwt.FIVE_MINUTES)/1000))
-	}
+	//param := self.Context.Params
+	//if param == nil || len(param.Sign) == 0 {
+	//	return nil
+	//}
+	//key := util.AddStr(JWT_SIG_, param.Sign)
+	//if c, err := self.CacheAware(); err != nil {
+	//	return err
+	//} else if b, err := c.GetInt64(key); err != nil {
+	//	return err
+	//} else if b > 1 {
+	//	return ex.Throw{Code: http.StatusForbidden, Msg: "重复请求不受理"}
+	//} else {
+	//	c.Put(key, 1, int((param.Time+jwt.FIVE_MINUTES)/1000))
+	//}
 	return nil
 }
 
@@ -250,8 +218,8 @@ func (self *HttpNode) ValidPermission() error {
 	}
 	if need.NeedLogin == 0 { // 无登录状态,跳过
 		return nil
-	} else if self.Context.Session == nil { // 需要登录状态,会话为空,抛出异常
-		return ex.Throw{Code: http.StatusUnauthorized, Msg: "获取授权令牌失败"}
+	} else if self.Context.Subject == nil { // 需要登录状态,会话为空,抛出异常
+		return ex.Throw{Code: http.StatusUnauthorized, Msg: "获取授权主体失败"}
 	}
 	access := 0
 	need_access := len(need.NeedRole)
@@ -336,9 +304,15 @@ func (self *HttpNode) RenderError(err error) error {
 	resp := &RespDto{
 		Code:    out.Code,
 		Message: out.Msg,
-		Url:     out.Url,
 		Time:    util.Time(),
 		Data:    make(map[string]interface{}),
+	}
+	if self.Context.Subject == nil {
+		resp.Plan = 0
+		resp.Nonce = util.GetSnowFlakeStrID()
+	} else {
+		resp.Plan = self.Context.Params.Plan
+		resp.Nonce = self.Context.Params.Nonce
 	}
 	if self.Option != nil && self.Option.Customize {
 		if out.Code > 600 {
@@ -373,44 +347,37 @@ func (self *HttpNode) RenderTo() error {
 			self.Context.Output.Write(util.Str2Bytes(""))
 		}
 	case APPLICATION_JSON:
+		if self.Option.Customize {
+			if result, err := util.JsonMarshal(self.Context.Response.ContentEntity); err != nil {
+				return ex.Throw{Code: http.StatusInternalServerError, Msg: "响应数据异常", Err: err}
+			} else {
+				self.Context.Output.Header().Set("Content-Type", APPLICATION_JSON)
+				self.Context.Output.Write(result)
+			}
+			break
+		}
+		data, _ := util.ToJsonBase64(self.Context.Response.ContentEntity)
 		resp := &RespDto{
 			Code:    http.StatusOK,
 			Message: "success",
 			Time:    util.Time(),
-			Data:    self.Context.Response.ContentEntity,
+			Data:    data,
+			Nonce:   self.Context.Params.Nonce,
+			Plan:    self.Context.Params.Plan,
 		}
-		if self.Option.Textplain == jwt.AES {
-			access_key, b := self.Context.Storage[TEXTPLAIN_ACCESS_KEY]
-			if !b {
-				return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "无效的签名数据"}
-			}
-			d := self.Context.Response.ContentEntity
-			if d == nil {
-				d = map[string]interface{}{}
-			}
-			respByte, _ := util.JsonMarshal(d)
-			resp.Data = util.AesEncrypt(util.Bytes2Str(respByte), util.Substr(util.MD5(access_key.(string)), 0, 16))
-		} else if self.Option.Textplain == jwt.RSA {
+		if resp.Plan == 1 { // AES
+
+		} else if resp.Plan == 2 { // RSA
 
 		}
-		if resp.Data == nil {
-			resp.Data = make(map[string]interface{})
-		}
-		if self.Option.Customize {
-			if result, err := util.JsonMarshal(resp.Data); err != nil {
-				return ex.Throw{Code: http.StatusInternalServerError, Msg: "响应数据异常", Err: err}
-			} else {
-				self.Context.Output.Header().Set("Content-Type", APPLICATION_JSON)
-				self.Context.Output.Write(result)
-			}
+		resp.Sign = util.HMAC256(util.AddStr(self.Context.Method, resp.Data, resp.Nonce, resp.Time, resp.Plan), self.Context.GetTokenSecret())
+		if result, err := util.JsonMarshal(resp); err != nil {
+			return ex.Throw{Code: http.StatusInternalServerError, Msg: "响应数据异常", Err: err}
 		} else {
-			if result, err := util.JsonMarshal(resp); err != nil {
-				return ex.Throw{Code: http.StatusInternalServerError, Msg: "响应数据异常", Err: err}
-			} else {
-				self.Context.Output.Header().Set("Content-Type", APPLICATION_JSON)
-				self.Context.Output.Write(result)
-			}
+			self.Context.Output.Header().Set("Content-Type", APPLICATION_JSON)
+			self.Context.Output.Write(result)
 		}
+
 	default:
 		return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "无效的响应格式"}
 	}
@@ -489,48 +456,5 @@ func (self *HttpNode) Json(ctx *Context, data interface{}) error {
 
 func (self *HttpNode) Text(ctx *Context, data string) error {
 	ctx.Response = &Response{UTF8, TEXT_PLAIN, data}
-	return nil
-}
-
-func (self *HttpNode) LoginBySubject(sub *jwt.Subject, exp int64) (*jwt.Authorization, error) {
-	author, err := sub.GetAuthorization(self.Context.SecretKey())
-	if err != nil {
-		return nil, ex.Throw{ex.SYSTEM, "授权令牌创建失败", "", err}
-	}
-	cacheObj, err := self.CacheAware()
-	if err != nil {
-		return nil, ex.Throw{Code: http.StatusInternalServerError, Msg: "缓存服务异常", Err: err}
-	}
-	k := util.AddStr(JWT_SUB_, sub.Payload.Sub)
-	if self.CacheSubjectKey != nil {
-		k = self.CacheSubjectKey(sub)
-	}
-	if err := cacheObj.Put(k, author.SignatureKey, int(exp/1000)); err != nil {
-		return nil, ex.Throw{Code: http.StatusInternalServerError, Msg: "初始化用户密钥失败", Err: err}
-	}
-	return author, nil
-}
-
-func (self *HttpNode) LogoutBySubject(ctx *Context) error {
-	if ctx.UserId == 0 {
-		return ex.Throw{Code: http.StatusUnauthorized, Msg: "无效的用户状态"}
-	}
-	sub_key := util.AddStr(JWT_SUB_, ctx.UserId)
-	if self.CacheSubjectKey != nil {
-		checker := jwt.SubjectChecker{
-			Subject: &jwt.Subject{
-				Payload: &jwt.Payload{
-					Sub: ctx.UserId,
-					Ext: map[string]string{"device": ctx.Device},
-				},
-			},
-		}
-		sub_key = self.CacheSubjectKey(checker.Subject)
-	}
-	if cacheObj, err := self.CacheAware(); err != nil {
-		return ex.Throw{Code: http.StatusInternalServerError, Msg: "缓存服务异常", Err: err}
-	} else if err := cacheObj.Del(sub_key); err != nil {
-		return ex.Throw{Code: http.StatusInternalServerError, Msg: "删除用户密钥失败", Err: err}
-	}
 	return nil
 }

@@ -729,7 +729,7 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data interface{}) error {
 		fpart.WriteString(vv.FieldJsonName)
 		fpart.WriteString(",")
 	}
-	case_part, case_arg := self.BuildWhereCase(cnd)
+	case_part, case_arg := self.BuildWhereCase(cnd.Offset(0, 1))
 	for _, v := range case_arg {
 		parameter = append(parameter, v)
 	}
@@ -1159,7 +1159,7 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data interface{}) error {
 		fpart.WriteString(vv)
 		fpart.WriteString(",")
 	}
-	case_part, case_arg := self.BuildWhereCase(cnd)
+	case_part, case_arg := self.BuildWhereCase(cnd.Offset(0, 1))
 	parameter := make([]interface{}, 0, len(case_arg))
 	for _, v := range case_arg {
 		parameter = append(parameter, v)

@@ -7,7 +7,6 @@ import (
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/util"
 	"net/http"
-	"net/url"
 )
 
 const (
@@ -36,28 +35,18 @@ const (
 
 	JWT_SUB_ = "jwt_sub_"
 	JWT_SIG_ = "jwt_sig_"
-
-	TEXTPLAIN_ACCESS_KEY = "textplain_access_key"
-
-	Token = "a"
-	Data  = "d"
-	Key   = "k"
-	Nonce = "n"
-	Time  = "t"
-	Sign  = "g"
 )
 
 type HookNode struct {
-	CreateAt        int64
-	Context         *Context
-	SessionAware    SessionAware
-	CacheAware      func(ds ...string) (cache.ICache, error)
-	CacheSubjectKey func(subject *jwt.Subject) string
-	OverrideFunc    *OverrideFunc
-	RateOpetion     *rate.RateOpetion
-	Handler         *http.ServeMux
-	Option          *Option
-	OptionMap       map[string]*Option
+	CreateAt     int64
+	Context      *Context
+	SessionAware SessionAware
+	CacheAware   func(ds ...string) (cache.ICache, error)
+	OverrideFunc *OverrideFunc
+	RateOpetion  *rate.RateOpetion
+	Handler      *http.ServeMux
+	Option       *Option
+	OptionMap    map[string]*Option
 }
 
 type NodePtr struct {
@@ -71,7 +60,6 @@ type NodePtr struct {
 type Option struct {
 	Customize    bool
 	Authenticate bool
-	Textplain    string
 }
 
 type ProtocolNode interface {
@@ -101,10 +89,6 @@ type ProtocolNode interface {
 	PostHandle(err error) error
 	// 最终响应执行方法(视图渲染后执行,可操作资源释放,保存日志等)
 	AfterCompletion(err error) error
-	// 保存用户会话密钥
-	LoginBySubject(sub *jwt.Subject, exp int64) (*jwt.Authorization, error)
-	// 删除用户会话密钥
-	LogoutBySubject(ctx *Context) error
 	// 渲染输出
 	RenderTo() error
 	// 异常错误响应方法
@@ -114,19 +98,21 @@ type ProtocolNode interface {
 }
 
 type ReqDto struct {
-	Token string      `json:"a"`
-	Nonce string      `json:"n"`
-	Time  int64       `json:"t"`
 	Data  interface{} `json:"d"`
-	Sign  string      `json:"g"`
+	Time  int64       `json:"t"`
+	Nonce string      `json:"n"`
+	Plan  int64       `json:"p"`
+	Sign  string      `json:"s"`
 }
 
 type RespDto struct {
 	Code    int         `json:"c"`
-	Data    interface{} `json:"d"`
 	Message string      `json:"m"`
+	Data    interface{} `json:"d"`
 	Time    int64       `json:"t"`
-	Url     string      `json:"u"`
+	Nonce   string      `json:"n"`
+	Plan    int64       `json:"p"`
+	Sign    string      `json:"s"`
 }
 
 type Permission struct {
@@ -141,17 +127,17 @@ type Context struct {
 	Style         string
 	Device        string
 	Method        string
+	Token         string
 	Headers       map[string]string
 	Params        *ReqDto
-	Session       Session
+	Subject       *jwt.Subject
 	Response      *Response
 	Version       string
 	Input         *http.Request
 	Output        http.ResponseWriter
-	SecretKey     func() *jwt.SecretKey
-	UserId        int64
 	Storage       map[string]interface{}
 	Roles         []int64
+	SecretKey     func() *jwt.SecretKey
 	PermissionKey func(url string) (*Permission, error)
 }
 
@@ -177,71 +163,46 @@ func (self *Context) GetHeader(k string) string {
 	return ""
 }
 
-func (self *Context) Authorized() bool {
-	session := self.Session
-	if session != nil && !session.Invalid() {
-		return true
+func (self *Context) GetTokenSecret() string {
+	subject := self.Subject
+	if subject == nil {
+		subject = &jwt.Subject{}
 	}
-	return false
+	token := self.Token
+	return subject.GetTokenSecret(token)
 }
 
 // 按指定规则进行数据解码,校验参数安全
-func (self *Context) SecurityCheck(req *ReqDto, textplain string) error {
+func (self *Context) SecurityCheck(req *ReqDto) error {
 	d, b := req.Data.(string)
 	if !b || len(d) == 0 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "业务参数无效"}
 	}
-	if len(req.Sign) == 0 || len(req.Sign) < 32 {
+	if len(req.Sign) != 32 || len(req.Sign) != 64 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "签名参数无效"}
 	}
-	if len(req.Nonce) == 0 {
+	if !util.CheckLen(len(req.Nonce), 8, 32) {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "随机参数无效"}
 	}
-	if req.Time == 0 {
+	if util.MathAbs(util.Time()-req.Time) > jwt.FIVE_MINUTES { // 判断绝对时间差超过5分钟
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "时间参数无效"}
-	} else if req.Time+jwt.FIVE_MINUTES < util.Time() { // 判断时间是否超过5分钟
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "时间参数已过期"}
 	}
-	if len(req.Token) > 128 {
-		part1 := util.Substr(req.Token, 0, 128)
-		part1 = util.ReverseStr(part1, 0, 48, 48, 48, 96, 32)
-		req.Token = part1 + util.Substr(req.Token, 128, len(req.Token))
+	if !util.CheckInt64(req.Plan, 0, 1, 2) {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "计划参数无效"}
 	}
-	key, b := validSign(req, d, self.SecretKey())
-	if !b {
+	if req.Plan == 1 { // AES
+
+	} else if req.Plan == 2 { // RSA
+
+	}
+	if util.HMAC256(util.AddStr(self.Method, d, req.Nonce, req.Time, req.Plan), self.GetTokenSecret()) != req.Sign {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "API签名校验失败"}
 	}
 	data := make(map[string]interface{})
-	if textplain == jwt.AES {
-		d = util.AesDecrypt(d, util.Substr(util.MD5(key), 0, 16))
-		self.Storage[TEXTPLAIN_ACCESS_KEY] = key
-	} else if textplain == jwt.RSA {
-
-	}
-	ret := util.Base64Decode(d)
-	if ret == nil {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "业务参数BASE64解码失败"}
-	}
-	str, err := url.PathUnescape(util.Bytes2Str(ret))
-	if err != nil {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "业务参数URL解码失败"}
-	}
-	if err := util.JsonUnmarshal(util.Str2Bytes(str), &data); err != nil {
+	if err := util.ParseJsonBase64(d, &data); err != nil {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "业务参数解析失败"}
-	} else {
-		req.Data = data
-		self.Params = req
 	}
+	req.Data = data
+	self.Params = req
 	return nil
-}
-
-// 校验签名有效性
-func validSign(req *ReqDto, dataStr string, key *jwt.SecretKey) (string, bool) {
-	token := req.Token
-	nonce := req.Nonce
-	time := req.Time
-	api_secret_key := key.ApiSecretKey
-	access_key := util.GetApiAccessKeyByMD5(token, api_secret_key)
-	sign_str := util.AddStr(token, dataStr, access_key, nonce, time)
-	return access_key, req.Sign == util.MD5(sign_str)
 }

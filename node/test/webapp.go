@@ -1,13 +1,11 @@
 package http_web
 
 import (
-	"fmt"
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/component/jwt"
 	"github.com/godaddy-x/freego/component/limiter"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/node"
-	"github.com/godaddy-x/freego/util"
 )
 
 var (
@@ -51,48 +49,29 @@ func (self *MyWsNode) test(ctx *node.Context) error {
 }
 
 func (self *MyWebNode) login(ctx *node.Context) error {
-	time := util.Time()
-	exp := jwt.TWO_WEEK
-	subject := &jwt.Subject{
-		Payload: &jwt.Payload{
-			Sub: 123456,
-			Aud: ctx.Host,
-			Iss: "localhost",
-			Iat: time,
-			Exp: time + exp,
-			Nbf: time,
-		},
-	}
-	self.LoginBySubject(subject, exp)
-	return self.Json(ctx, map[string]interface{}{"token": ""})
+	subject := &jwt.Subject{}
+	subject.Create(123456).Iss("1111").Aud("22222").Extinfo("test", "11").Extinfo("test2", "222").Dev("APP")
+
+	//self.LoginBySubject(subject, exp)
+
+	return self.Json(ctx, map[string]interface{}{"token": subject.Generate(GetSecretKey().JwtSecretKey)})
 	//return self.Html(ctx, "/web/index.html", map[string]interface{}{"tewt": 1})
 }
 
 func (self *MyWsNode) login(ctx *node.Context) error {
-	time := util.Time()
-	exp := jwt.TWO_WEEK
-	subject := &jwt.Subject{
-		Payload: &jwt.Payload{
-			Sub: 123456,
-			Aud: ctx.Host,
-			Iss: "localhost",
-			Iat: time,
-			Exp: time + exp,
-			Nbf: time,
-		},
-	}
-	self.LoginBySubject(subject, exp)
+	//time := util.Time()
+	//exp := jwt.TWO_WEEK
+	//subject := &jwt.Subject{
+	//	Payload: &jwt.Payload{
+	//		Sub: 123456,
+	//		Aud: ctx.Host,
+	//		Iss: "localhost",
+	//		Iat: time,
+	//		Exp: time + exp,
+	//	},
+	//}
+	//self.LoginBySubject(subject, exp)
 	return self.Json(ctx, map[string]interface{}{"token": ""})
-}
-
-func (self *MyWebNode) logout(ctx *node.Context) error {
-	fmt.Println(ctx.Session.GetAttribute("test"))
-	return nil
-}
-
-func (self *MyWsNode) logout(ctx *node.Context) error {
-	fmt.Println(ctx.Session.GetAttribute("test"))
-	return self.Json(ctx, map[string]interface{}{"token": "test"})
 }
 
 func GetSecretKey() *jwt.SecretKey {
@@ -133,8 +112,7 @@ func StartHttpNode() *MyWebNode {
 		//RenderErrorFunc: nil,
 	}
 	my.Router("/test1", my.test, &node.Option{})
-	my.Router("/login1", my.login, &node.Option{Customize: true})
-	my.Router("/logout1", my.logout, &node.Option{})
+	my.Router("/login1", my.login, &node.Option{Customize: false, Authenticate: false})
 	my.StartServer()
 	return my
 }
@@ -149,7 +127,6 @@ func StartWsNode() *MyWsNode {
 	my.CacheAware = GetCacheAware
 	my.Router("/test2", my.test, nil)
 	my.Router("/login2", my.login, nil)
-	my.Router("/logout2", my.logout, nil)
 	my.StartServer()
 	return my
 }

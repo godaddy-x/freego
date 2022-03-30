@@ -424,7 +424,7 @@ func (self *MGOManager) FindOne(cnd *sqlc.Cnd, data interface{}) error {
 	if err != nil {
 		return self.Error(err)
 	}
-	pipe, err := self.buildPipeCondition(cnd, false)
+	pipe, err := self.buildPipeCondition(cnd.Offset(0, 1), false)
 	if err != nil {
 		return util.Error("[Mongo.FindOne]构建查询命令失败: ", err)
 	}

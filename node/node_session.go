@@ -63,18 +63,6 @@ type JWTSession struct {
 	Attributes     map[string]interface{}
 }
 
-func BuildJWTSession(checker *jwt.SubjectChecker) Session {
-	subject := checker.Subject
-	self := &JWTSession{}
-	self.Id = checker.Signature
-	self.Host = subject.Payload.Aud
-	self.Timeout = subject.Payload.Exp - subject.Payload.Iat
-	self.StartTimestamp = subject.Payload.Iat
-	self.LastAccessTime = subject.Payload.Iat
-	self.Attributes = make(map[string]interface{}, 0)
-	return self
-}
-
 func (self *JWTSession) GetId() string {
 	return self.Id
 }
