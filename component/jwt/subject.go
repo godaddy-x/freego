@@ -161,6 +161,9 @@ func (self *Subject) GetTokenRole() []int64 {
 
 // 获取token的私钥
 func GetTokenSecret(token string) string {
+	if len(token) == 0 {
+		return ""
+	}
 	subject := &Subject{}
 	return subject.GetTokenSecret(token)
 }

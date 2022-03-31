@@ -165,9 +165,6 @@ func (self *Context) GetHeader(k string) string {
 }
 
 func (self *Context) GetTokenSecret() string {
-	if len(self.Token) == 0 {
-		return ""
-	}
 	return jwt.GetTokenSecret(self.Token)
 }
 

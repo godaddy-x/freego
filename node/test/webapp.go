@@ -54,7 +54,10 @@ func (self *MyWebNode) login(ctx *node.Context) error {
 
 	//self.LoginBySubject(subject, exp)
 
-	return self.Json(ctx, map[string]interface{}{"token": subject.Generate(GetSecretKey().JwtSecretKey)})
+	token := subject.Generate(GetSecretKey().JwtSecretKey)
+	secret := jwt.GetTokenSecret(token)
+
+	return self.Json(ctx, map[string]interface{}{"token": token, "secret": secret})
 	//return self.Html(ctx, "/web/index.html", map[string]interface{}{"tewt": 1})
 }
 
@@ -111,8 +114,8 @@ func StartHttpNode() *MyWebNode {
 		//},
 		//RenderErrorFunc: nil,
 	}
-	my.Router("/test1", my.test, &node.Option{Plan: 1})
-	my.Router("/login1", my.login, &node.Option{Anonymous: true})
+	my.Router("/test1", my.test, &node.Option{Plan: 0})
+	my.Router("/login1", my.login, &node.Option{Anonymous: true, Plan: 1})
 	my.StartServer()
 	return my
 }

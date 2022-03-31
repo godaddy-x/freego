@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"github.com/godaddy-x/freego/component/jwt"
 	"github.com/godaddy-x/freego/node"
 	"github.com/godaddy-x/freego/util"
 	"io/ioutil"
@@ -13,9 +12,12 @@ import (
 
 const domain = "http://localhost:8090"
 
+const access_token = "eyJzdWIiOjEyMzQ1NiwiYXVkIjoiMjIyMjIiLCJpc3MiOiIxMTExIiwiaWF0IjoxNjQ4Njk3OTgyOTczLCJleHAiOjE2NDk5MDc1ODI5NzMsImRldiI6IkFQUCIsImp0aSI6ImMzNmVmOGQyYTBiMmM4YTUxMWY4NGFjODI2YzcyNmI4MzRmZDA2MzIzYTcwZGNkYWY5NGE4MTFlN2I0MGYwYWUiLCJuc3IiOiJjYWE1MDk1OTU1NTQyNjA5OTM0MDYiLCJleHQiOnsidGVzdCI6IjExIiwidGVzdDIiOiIyMjIifX0=.0d456a9baae05a459ec2121f7cab3e23d8b8ee278416a9d238773db5039d80fb"
+const token_secret = "65a8218cdafd13841c3afc952e2c5bb3f11e37eebd68d66bf32bacd337eed407"
+
 // 测试使用的http post示例方法
-func ToPostBy(token, path string, data interface{}) {
-	bytesData, err := util.JsonMarshal(&data)
+func ToPostBy(path string, req *node.ReqDto) {
+	bytesData, err := util.JsonMarshal(req)
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -29,7 +31,7 @@ func ToPostBy(token, path string, data interface{}) {
 		return
 	}
 	request.Header.Set("Content-Type", "application/json;charset=UTF-8")
-	request.Header.Set("Authorization", token)
+	request.Header.Set("Authorization", access_token)
 	client := http.Client{}
 	resp, err := client.Do(request)
 	if err != nil {
@@ -43,19 +45,34 @@ func ToPostBy(token, path string, data interface{}) {
 	}
 	fmt.Println("响应示例: ")
 	fmt.Println(util.Bytes2Str(respBytes))
+	respData := &node.RespDto{}
+	if err := util.JsonUnmarshal(respBytes, &respData); err != nil {
+		fmt.Println("响应数据解析失败: ", err)
+		return
+	}
+	if respData.Code == 200 {
+		s := util.HMAC256(util.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan), token_secret)
+		fmt.Println("数据验签: ", s == respData.Sign)
+		if respData.Plan == 1 {
+			dec, err := util.AesDecrypt(respData.Data.(string), token_secret, util.AddStr(respData.Nonce, respData.Time))
+			if err != nil {
+				fmt.Println("数据解密失败: ", err)
+				return
+			}
+			respData.Data = dec
+			fmt.Println("数据明文: ", respData.Data)
+		}
+	}
 }
 
 func TestLogin(t *testing.T) {
-	subject := &jwt.Subject{}
 	data, _ := util.ToJsonBase64(map[string]string{"test": "1234566"})
 	path := "/login1"
-	//token := "eyJzdWIiOjEyMzQ1NiwiYXVkIjoiMjIyMjIiLCJpc3MiOiIxMTExIiwiaWF0IjoxNjQ4NjI0NzQ4Nzk1LCJleHAiOjE2NDk4MzQzNDg3OTUsImRldiI6IkFQUCIsImp0aSI6ImMxMTA2ZmY3ZTQ5NzFkNTI5ZGU5Yjc0YzNhNzhlNGYyNzhiOTdlODc2NWM5MDA1ZGQ1ODM3YmM2MjBjM2ZlZjgiLCJuc3IiOiJlN2Q1OTFiMjIyNWM0NjU2NzkzNGIiLCJleHQiOnsidGVzdCI6IjExIiwidGVzdDIiOiIyMjIifX0=.b73f8329a96c8d68267ba1cd77015f73d112487e23ee70b7adbf6b1a75f68608"
-	token := ""
 	d := data
 	x := util.Time()
 	n := util.GetSnowFlakeStrID()
 	p := int64(0)
-	s := util.HMAC256(util.AddStr(path, d, n, x, p), subject.GetTokenSecret(token))
+	s := util.HMAC256(util.AddStr(path, d, n, x, p), token_secret)
 	req := &node.ReqDto{
 		Data:  d,
 		Time:  x,
@@ -64,20 +81,17 @@ func TestLogin(t *testing.T) {
 		Sign:  s,
 	}
 	fmt.Println(req)
-	ToPostBy(token, path, req)
+	ToPostBy(path, req)
 }
 
 func TestGetUser(t *testing.T) {
-	subject := &jwt.Subject{}
 	data, _ := util.ToJsonBase64(map[string]string{"test": "1234566"})
 	path := "/test1"
-	token := "eyJzdWIiOjEyMzQ1NiwiYXVkIjoiMjIyMjIiLCJpc3MiOiIxMTExIiwiaWF0IjoxNjQ4NjI0NzQ4Nzk1LCJleHAiOjE2NDk4MzQzNDg3OTUsImRldiI6IkFQUCIsImp0aSI6ImMxMTA2ZmY3ZTQ5NzFkNTI5ZGU5Yjc0YzNhNzhlNGYyNzhiOTdlODc2NWM5MDA1ZGQ1ODM3YmM2MjBjM2ZlZjgiLCJuc3IiOiJlN2Q1OTFiMjIyNWM0NjU2NzkzNGIiLCJleHQiOnsidGVzdCI6IjExIiwidGVzdDIiOiIyMjIifX0=.b73f8329a96c8d68267ba1cd77015f73d112487e23ee70b7adbf6b1a75f68608"
-	//token := ""
 	d := data
 	x := util.Time()
 	n := util.GetSnowFlakeStrID()
 	p := int64(0)
-	s := util.HMAC256(util.AddStr(path, d, n, x, p), subject.GetTokenSecret(token))
+	s := util.HMAC256(util.AddStr(path, d, n, x, p), token_secret)
 	req := &node.ReqDto{
 		Data:  d,
 		Time:  x,
@@ -86,13 +100,7 @@ func TestGetUser(t *testing.T) {
 		Sign:  s,
 	}
 	fmt.Println(req)
-	ToPostBy(token, path, req)
-	//k1 := "123456sssdfgdagsdfgfdshfhfghjgjghfgddfgdfg"
-	//k2 := "5fc37b4bfb32d91728b2988c942c6d595f0e89d78b0aa3c7f1d884e5b2d43b71"
-	//fmt.Println(util.AesEncrypt("中文测试下咯fgdfgdfgdfg23234234", k1, k2))
-	// 4c3c2bc721917afd2c5046e0392a04cfd46c95f9f457349e8fc17009551b062ecad2075461539d0d233e721a8b7ced26
-	// 4c3c2bc721917afd2c5046e0392a04cfd46c95f9f457349e8fc17009551b062ecad2075461539d0d233e721a8b7ced26
-	//fmt.Println(util.AesDecrypt("4c3c2bc721917afd2c5046e0392a04cfd46c95f9f457349e8fc17009551b062ecad2075461539d0d233e721a8b7ced26", k1, k2))
+	ToPostBy(path, req)
 }
 
 //var (
