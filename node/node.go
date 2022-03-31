@@ -58,8 +58,9 @@ type NodePtr struct {
 }
 
 type Option struct {
-	Customize    bool
-	Authenticate bool
+	Mode      int64 // 请求模式 0.系统协议 1.http协议
+	Anonymous bool  // 游客模式 false.否 true.是
+	Plan      int64 // 响应模式 0.明文 1.AES 2.RSA
 }
 
 type ProtocolNode interface {
@@ -164,12 +165,14 @@ func (self *Context) GetHeader(k string) string {
 }
 
 func (self *Context) GetTokenSecret() string {
-	subject := self.Subject
-	if subject == nil {
-		subject = &jwt.Subject{}
+	if len(self.Token) == 0 {
+		return ""
 	}
-	token := self.Token
-	return subject.GetTokenSecret(token)
+	return jwt.GetTokenSecret(self.Token)
+}
+
+func (self *Context) GetDataSign(d, n string, t, p int64) string {
+	return util.HMAC256(util.AddStr(self.Method, d, n, t, p), self.GetTokenSecret())
 }
 
 // 按指定规则进行数据解码,校验参数安全
@@ -178,10 +181,10 @@ func (self *Context) SecurityCheck(req *ReqDto) error {
 	if !b || len(d) == 0 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "业务参数无效"}
 	}
-	if len(req.Sign) != 32 || len(req.Sign) != 64 {
+	if len(req.Sign) != 32 && len(req.Sign) != 64 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "签名参数无效"}
 	}
-	if !util.CheckLen(len(req.Nonce), 8, 32) {
+	if !util.CheckLen(req.Nonce, 8, 32) {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "随机参数无效"}
 	}
 	if util.MathAbs(util.Time()-req.Time) > jwt.FIVE_MINUTES { // 判断绝对时间差超过5分钟
@@ -191,11 +194,15 @@ func (self *Context) SecurityCheck(req *ReqDto) error {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "计划参数无效"}
 	}
 	if req.Plan == 1 { // AES
-
+		dec, err := util.AesDecrypt(d, self.GetTokenSecret(), util.AddStr(req.Nonce, req.Time))
+		if err != nil {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "数据逆向解析失败", Err: err}
+		}
+		d = dec
 	} else if req.Plan == 2 { // RSA
 
 	}
-	if util.HMAC256(util.AddStr(self.Method, d, req.Nonce, req.Time, req.Plan), self.GetTokenSecret()) != req.Sign {
+	if self.GetDataSign(d, req.Nonce, req.Time, req.Plan) != req.Sign {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "API签名校验失败"}
 	}
 	data := make(map[string]interface{})

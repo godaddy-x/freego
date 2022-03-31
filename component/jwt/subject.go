@@ -121,7 +121,8 @@ func (self *Subject) Verify(token, key string) (error) {
 		return util.Error("token part invalid")
 	}
 	part0 := part[0]
-	if self.Signature(part0, key) != part[1] {
+	part1 := part[1]
+	if len(part1) != 64 || self.Signature(part0, key) != part1 {
 		return util.Error("token sign invalid")
 	}
 	payload := &Payload{}
@@ -156,4 +157,10 @@ func (self *Subject) GetTokenRole() []int64 {
 		}
 	}
 	return role
+}
+
+// 获取token的私钥
+func GetTokenSecret(token string) string {
+	subject := &Subject{}
+	return subject.GetTokenSecret(token)
 }

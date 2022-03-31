@@ -19,7 +19,7 @@ type HttpNode struct {
 func (self *HttpNode) GetHeader() error {
 	r := self.Context.Input
 	headers := map[string]string{}
-	if self.Option.Customize {
+	if self.Option.Mode == 1 {
 		if len(r.Header) > 0 {
 			i := 0
 			for k, v := range r.Header {
@@ -58,7 +58,7 @@ func (self *HttpNode) GetParams() error {
 		if len(result) > (MAX_VALUE_LEN * 5) {
 			return ex.Throw{Code: http.StatusLengthRequired, Msg: "参数值长度溢出: " + util.AnyToStr(len(result))}
 		}
-		if !self.Option.Customize {
+		if self.Option.Mode != 1 {
 			req := &ReqDto{}
 			if err := util.JsonUnmarshal(result, req); err != nil {
 				return ex.Throw{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err}
@@ -84,7 +84,7 @@ func (self *HttpNode) GetParams() error {
 		self.Context.Params = &ReqDto{Data: data}
 		return nil
 	} else if r.Method == GET {
-		if !self.Option.Customize {
+		if self.Option.Mode != 1 {
 			return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "暂不支持GET类型"}
 		}
 		r.ParseForm()
@@ -168,7 +168,7 @@ func (self *HttpNode) PaddDevice() error {
 }
 
 func (self *HttpNode) ValidSession() error {
-	if self.Option.Authenticate {
+	if !self.Option.Anonymous {
 		if len(self.Context.Token) == 0 {
 			return ex.Throw{Code: http.StatusUnauthorized, Msg: "授权令牌为空"}
 		}
@@ -311,10 +311,10 @@ func (self *HttpNode) RenderError(err error) error {
 		resp.Plan = 0
 		resp.Nonce = util.GetSnowFlakeStrID()
 	} else {
-		resp.Plan = self.Context.Params.Plan
+		resp.Plan = self.Option.Plan
 		resp.Nonce = self.Context.Params.Nonce
 	}
-	if self.Option != nil && self.Option.Customize {
+	if self.Option.Mode == 1 {
 		if out.Code > 600 {
 			self.Context.Output.Header().Set("Content-Type", TEXT_PLAIN)
 			self.Context.Output.WriteHeader(http.StatusOK)
@@ -347,7 +347,7 @@ func (self *HttpNode) RenderTo() error {
 			self.Context.Output.Write(util.Str2Bytes(""))
 		}
 	case APPLICATION_JSON:
-		if self.Option.Customize {
+		if self.Option.Mode == 1 {
 			if result, err := util.JsonMarshal(self.Context.Response.ContentEntity); err != nil {
 				return ex.Throw{Code: http.StatusInternalServerError, Msg: "响应数据异常", Err: err}
 			} else {
@@ -363,14 +363,15 @@ func (self *HttpNode) RenderTo() error {
 			Time:    util.Time(),
 			Data:    data,
 			Nonce:   self.Context.Params.Nonce,
-			Plan:    self.Context.Params.Plan,
+			Plan:    self.Option.Plan,
 		}
 		if resp.Plan == 1 { // AES
-
+			data, _ = util.AesEncrypt(data, self.Context.GetTokenSecret(), util.AddStr(resp.Nonce, resp.Time))
+			resp.Data = data
 		} else if resp.Plan == 2 { // RSA
 
 		}
-		resp.Sign = util.HMAC256(util.AddStr(self.Context.Method, resp.Data, resp.Nonce, resp.Time, resp.Plan), self.Context.GetTokenSecret())
+		resp.Sign = self.Context.GetDataSign(data, resp.Nonce, resp.Time, resp.Plan)
 		if result, err := util.JsonMarshal(resp); err != nil {
 			return ex.Throw{Code: http.StatusInternalServerError, Msg: "响应数据异常", Err: err}
 		} else {

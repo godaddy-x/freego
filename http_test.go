@@ -49,7 +49,8 @@ func TestLogin(t *testing.T) {
 	subject := &jwt.Subject{}
 	data, _ := util.ToJsonBase64(map[string]string{"test": "1234566"})
 	path := "/login1"
-	token := "eyJzdWIiOjEyMzQ1NiwiYXVkIjoiMjIyMjIiLCJpc3MiOiIxMTExIiwiaWF0IjoxNjQ4NjI0NzQ4Nzk1LCJleHAiOjE2NDk4MzQzNDg3OTUsImRldiI6IkFQUCIsImp0aSI6ImMxMTA2ZmY3ZTQ5NzFkNTI5ZGU5Yjc0YzNhNzhlNGYyNzhiOTdlODc2NWM5MDA1ZGQ1ODM3YmM2MjBjM2ZlZjgiLCJuc3IiOiJlN2Q1OTFiMjIyNWM0NjU2NzkzNGIiLCJleHQiOnsidGVzdCI6IjExIiwidGVzdDIiOiIyMjIifX0=.b73f8329a96c8d68267ba1cd77015f73d112487e23ee70b7adbf6b1a75f68608"
+	//token := "eyJzdWIiOjEyMzQ1NiwiYXVkIjoiMjIyMjIiLCJpc3MiOiIxMTExIiwiaWF0IjoxNjQ4NjI0NzQ4Nzk1LCJleHAiOjE2NDk4MzQzNDg3OTUsImRldiI6IkFQUCIsImp0aSI6ImMxMTA2ZmY3ZTQ5NzFkNTI5ZGU5Yjc0YzNhNzhlNGYyNzhiOTdlODc2NWM5MDA1ZGQ1ODM3YmM2MjBjM2ZlZjgiLCJuc3IiOiJlN2Q1OTFiMjIyNWM0NjU2NzkzNGIiLCJleHQiOnsidGVzdCI6IjExIiwidGVzdDIiOiIyMjIifX0=.b73f8329a96c8d68267ba1cd77015f73d112487e23ee70b7adbf6b1a75f68608"
+	token := ""
 	d := data
 	x := util.Time()
 	n := util.GetSnowFlakeStrID()
@@ -63,7 +64,35 @@ func TestLogin(t *testing.T) {
 		Sign:  s,
 	}
 	fmt.Println(req)
-	//ToPostBy(token, path, req)
+	ToPostBy(token, path, req)
+}
+
+func TestGetUser(t *testing.T) {
+	subject := &jwt.Subject{}
+	data, _ := util.ToJsonBase64(map[string]string{"test": "1234566"})
+	path := "/test1"
+	token := "eyJzdWIiOjEyMzQ1NiwiYXVkIjoiMjIyMjIiLCJpc3MiOiIxMTExIiwiaWF0IjoxNjQ4NjI0NzQ4Nzk1LCJleHAiOjE2NDk4MzQzNDg3OTUsImRldiI6IkFQUCIsImp0aSI6ImMxMTA2ZmY3ZTQ5NzFkNTI5ZGU5Yjc0YzNhNzhlNGYyNzhiOTdlODc2NWM5MDA1ZGQ1ODM3YmM2MjBjM2ZlZjgiLCJuc3IiOiJlN2Q1OTFiMjIyNWM0NjU2NzkzNGIiLCJleHQiOnsidGVzdCI6IjExIiwidGVzdDIiOiIyMjIifX0=.b73f8329a96c8d68267ba1cd77015f73d112487e23ee70b7adbf6b1a75f68608"
+	//token := ""
+	d := data
+	x := util.Time()
+	n := util.GetSnowFlakeStrID()
+	p := int64(0)
+	s := util.HMAC256(util.AddStr(path, d, n, x, p), subject.GetTokenSecret(token))
+	req := &node.ReqDto{
+		Data:  d,
+		Time:  x,
+		Nonce: n,
+		Plan:  p,
+		Sign:  s,
+	}
+	fmt.Println(req)
+	ToPostBy(token, path, req)
+	//k1 := "123456sssdfgdagsdfgfdshfhfghjgjghfgddfgdfg"
+	//k2 := "5fc37b4bfb32d91728b2988c942c6d595f0e89d78b0aa3c7f1d884e5b2d43b71"
+	//fmt.Println(util.AesEncrypt("中文测试下咯fgdfgdfgdfg23234234", k1, k2))
+	// 4c3c2bc721917afd2c5046e0392a04cfd46c95f9f457349e8fc17009551b062ecad2075461539d0d233e721a8b7ced26
+	// 4c3c2bc721917afd2c5046e0392a04cfd46c95f9f457349e8fc17009551b062ecad2075461539d0d233e721a8b7ced26
+	//fmt.Println(util.AesDecrypt("4c3c2bc721917afd2c5046e0392a04cfd46c95f9f457349e8fc17009551b062ecad2075461539d0d233e721a8b7ced26", k1, k2))
 }
 
 //var (

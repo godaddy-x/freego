@@ -39,8 +39,8 @@ type MyWsNode struct {
 
 func (self *MyWebNode) test(ctx *node.Context) error {
 	//return self.Html(ctx, "/resource/index.html", map[string]interface{}{"tewt": 1})
-	//return self.Json(ctx, map[string]interface{}{"tewt": 1})
-	return ex.Throw{Code: ex.BIZ, Msg: "测试错误"}
+	return self.Json(ctx, map[string]interface{}{"tewt": 1})
+	//return ex.Throw{Code: ex.BIZ, Msg: "测试错误"}
 }
 
 func (self *MyWsNode) test(ctx *node.Context) error {
@@ -111,8 +111,8 @@ func StartHttpNode() *MyWebNode {
 		//},
 		//RenderErrorFunc: nil,
 	}
-	my.Router("/test1", my.test, &node.Option{})
-	my.Router("/login1", my.login, &node.Option{Customize: false, Authenticate: false})
+	my.Router("/test1", my.test, &node.Option{Plan: 1})
+	my.Router("/login1", my.login, &node.Option{Anonymous: true})
 	my.StartServer()
 	return my
 }

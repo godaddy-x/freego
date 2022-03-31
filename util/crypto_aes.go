@@ -4,66 +4,50 @@ import (
 	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
+	"encoding/hex"
 )
 
-func PKCS5Padding(ciphertext []byte, blockSize int) []byte {
+func PKCS7Padding(ciphertext []byte, blockSize int) []byte {
 	padding := blockSize - len(ciphertext)%blockSize
 	padtext := bytes.Repeat([]byte{byte(padding)}, padding)
 	return append(ciphertext, padtext...)
 }
 
-func PKCS5UnPadding(data []byte) []byte {
-	defer func() {
-		if r := recover(); r != nil {
-			// log.Debug("Aes解密失败", 0, log.String("src", string(src)))
-		}
-	}()
-	length := len(data)
-	unpadding := int(data[length-1])
-	return data[:(length - unpadding)]
+func PKCS7UnPadding(plantText []byte, blockSize int) []byte {
+	length := len(plantText)
+	unpadding := int(plantText[length-1])
+	return plantText[:(length - unpadding)]
 }
 
-func AesEncrypt(c, k string) string {
-	if len(k) == 0 {
-		return ""
-	}
-	if len(k) != 16 {
-		return ""
-	}
-	key := Str2Bytes(k)
-	data := Str2Bytes(c)
-	block, err := aes.NewCipher(key)
+func AesEncrypt(s, key1, key2 string) (string, error) {
+	s1 := Str2Bytes(MD5(key1))
+	s2 := Str2Bytes(Substr2(MD5(key2), 12, 28))
+	block, err := aes.NewCipher(s1) //选择加密算法
 	if err != nil {
-		return ""
+		return "", err
 	}
-	blockSize := block.BlockSize()
-	data = PKCS5Padding(data, blockSize)
-	blockMode := cipher.NewCBCEncrypter(block, key[:blockSize])
-	crypted := make([]byte, len(data))
-	blockMode.CryptBlocks(crypted, data)
-	return Base64Encode(crypted)
+	plantText := Str2Bytes(s)
+	plantText = PKCS7Padding(plantText, block.BlockSize())
+	blockModel := cipher.NewCBCEncrypter(block, s2)
+	ciphertext := make([]byte, len(plantText))
+	blockModel.CryptBlocks(ciphertext, plantText)
+	return hex.EncodeToString(ciphertext), nil
 }
 
-func AesDecrypt(c, k string) string {
-	if len(k) == 0 {
-		return ""
-	}
-	if len(k) != 16 {
-		return ""
-	}
-	key := Str2Bytes(k)
-	crypted := Base64Decode(c)
-	block, err := aes.NewCipher(key)
+func AesDecrypt(s, key1, key2 string) (string, error) {
+	s1 := Str2Bytes(MD5(key1))
+	s2 := Str2Bytes(Substr2(MD5(key2), 12, 28))
+	block, err := aes.NewCipher(s1) //选择加密算法
 	if err != nil {
-		return ""
+		return "", err
 	}
-	blockSize := block.BlockSize()
-	blockMode := cipher.NewCBCDecrypter(block, key[:blockSize])
-	data := make([]byte, len(crypted))
-	blockMode.CryptBlocks(data, crypted)
-	data = PKCS5UnPadding(data)
-	if data == nil {
-		return ""
+	ciphertext, err := hex.DecodeString(s)
+	if err != nil {
+		return "", err
 	}
-	return Bytes2Str(data)
+	blockModel := cipher.NewCBCDecrypter(block, s2)
+	plantText := make([]byte, len(ciphertext))
+	blockModel.CryptBlocks(plantText, ciphertext)
+	plantText = PKCS7UnPadding(plantText, block.BlockSize())
+	return Bytes2Str(plantText), nil
 }
