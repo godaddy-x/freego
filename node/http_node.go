@@ -19,7 +19,7 @@ type HttpNode struct {
 func (self *HttpNode) GetHeader() error {
 	r := self.Context.Input
 	headers := map[string]string{}
-	if self.Option.Mode == 1 {
+	if self.Config.Original {
 		if len(r.Header) > 0 {
 			i := 0
 			for k, v := range r.Header {
@@ -58,7 +58,7 @@ func (self *HttpNode) GetParams() error {
 		if len(result) > (MAX_VALUE_LEN * 5) {
 			return ex.Throw{Code: http.StatusLengthRequired, Msg: "参数值长度溢出: " + util.AnyToStr(len(result))}
 		}
-		if self.Option.Mode != 1 {
+		if !self.Config.Original {
 			req := &ReqDto{}
 			if err := util.JsonUnmarshal(result, req); err != nil {
 				return ex.Throw{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err}
@@ -84,7 +84,7 @@ func (self *HttpNode) GetParams() error {
 		self.Context.Params = &ReqDto{Data: data}
 		return nil
 	} else if r.Method == GET {
-		if self.Option.Mode != 1 {
+		if !self.Config.Original {
 			return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "暂不支持GET类型"}
 		}
 		r.ParseForm()
@@ -125,6 +125,7 @@ func (self *HttpNode) InitContext(ptr *NodePtr) error {
 	node.CreateAt = util.Time()
 	node.SessionAware = self.SessionAware
 	node.CacheAware = self.CacheAware
+	node.Config = self.Config
 	node.Context = &Context{
 		Host:          util.ClientIP(input),
 		Port:          self.Context.Port,
@@ -137,11 +138,6 @@ func (self *HttpNode) InitContext(ptr *NodePtr) error {
 		SecretKey:     self.Context.SecretKey,
 		PermissionKey: self.Context.PermissionKey,
 		Storage:       make(map[string]interface{}),
-	}
-	if v, b := self.OptionMap[ptr.Pattern]; b {
-		node.Option = v
-	} else {
-		node.Option = &Option{}
 	}
 	if err := node.GetHeader(); err != nil {
 		return err
@@ -168,7 +164,7 @@ func (self *HttpNode) PaddDevice() error {
 }
 
 func (self *HttpNode) ValidSession() error {
-	if !self.Option.Anonymous {
+	if self.Config.Authorization {
 		if len(self.Context.Token) == 0 {
 			return ex.Throw{Code: http.StatusUnauthorized, Msg: "授权令牌为空"}
 		}
@@ -308,13 +304,11 @@ func (self *HttpNode) RenderError(err error) error {
 		Data:    make(map[string]interface{}),
 	}
 	if self.Context.Subject == nil {
-		resp.Plan = 0
 		resp.Nonce = util.GetSnowFlakeStrID()
 	} else {
-		resp.Plan = self.Option.Plan
 		resp.Nonce = self.Context.Params.Nonce
 	}
-	if self.Option.Mode == 1 {
+	if self.Config.Original {
 		if out.Code > 600 {
 			self.Context.Output.Header().Set("Content-Type", TEXT_PLAIN)
 			self.Context.Output.WriteHeader(http.StatusOK)
@@ -347,7 +341,7 @@ func (self *HttpNode) RenderTo() error {
 			self.Context.Output.Write(util.Str2Bytes(""))
 		}
 	case APPLICATION_JSON:
-		if self.Option.Mode == 1 {
+		if self.Config.Original {
 			if result, err := util.JsonMarshal(self.Context.Response.ContentEntity); err != nil {
 				return ex.Throw{Code: http.StatusInternalServerError, Msg: "响应数据异常", Err: err}
 			} else {
@@ -363,13 +357,13 @@ func (self *HttpNode) RenderTo() error {
 			Time:    util.Time(),
 			Data:    data,
 			Nonce:   self.Context.Params.Nonce,
-			Plan:    self.Option.Plan,
 		}
-		if resp.Plan == 1 { // AES
+		if self.Config.AesEncrypt {
+			resp.Plan = 1
 			data, _ = util.AesEncrypt(data, self.Context.GetTokenSecret(), util.AddStr(resp.Nonce, resp.Time))
 			resp.Data = data
-		} else if resp.Plan == 2 { // RSA
-
+		} else if self.Config.RsaEncrypt {
+			resp.Plan = 2
 		}
 		resp.Sign = self.Context.GetDataSign(data, resp.Nonce, resp.Time, resp.Plan)
 		if result, err := util.JsonMarshal(resp); err != nil {
@@ -421,7 +415,7 @@ func (self *HttpNode) limiterHandler() http.Handler {
 	})
 }
 
-func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, option *Option) {
+func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, config *Config) {
 	if !strings.HasPrefix(pattern, "/") {
 		pattern = util.AddStr("/", pattern)
 	}
@@ -432,16 +426,18 @@ func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, op
 		log.Error("缓存服务尚未初始化", 0)
 		return
 	}
-	if option == nil {
-		option = &Option{}
+	if config == nil {
+		config = &Config{
+			Original:      false,
+			Authorization: true,
+			AesEncrypt:    false,
+			RsaEncrypt:    false,
+		}
 	}
-	if self.OptionMap == nil {
-		self.OptionMap = make(map[string]*Option)
-	}
+	self.Config = config
 	if self.Handler == nil {
 		self.Handler = http.NewServeMux()
 	}
-	self.OptionMap[pattern] = option
 	self.Handler.Handle(pattern, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		self.Proxy(&NodePtr{self, r, w, pattern, handle})
 	}))

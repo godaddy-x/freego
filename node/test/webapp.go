@@ -114,8 +114,8 @@ func StartHttpNode() *MyWebNode {
 		//},
 		//RenderErrorFunc: nil,
 	}
-	my.Router("/test1", my.test, &node.Option{Plan: 0})
-	my.Router("/login1", my.login, &node.Option{Anonymous: true, Plan: 1})
+	my.Router("/test1", my.test, nil)
+	my.Router("/login1", my.login, &node.Config{Authorization: false, AesEncrypt: true})
 	my.StartServer()
 	return my
 }

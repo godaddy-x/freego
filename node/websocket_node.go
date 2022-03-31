@@ -309,7 +309,7 @@ func (self *WebsocketNode) StartServer() {
 	}()
 }
 
-func (self *WebsocketNode) Router(pattern string, handle func(ctx *Context) error, option *Option) {
+func (self *WebsocketNode) Router(pattern string, handle func(ctx *Context) error, config *Config) {
 	if !strings.HasPrefix(pattern, "/") {
 		pattern = util.AddStr("/", pattern)
 	}
@@ -320,16 +320,13 @@ func (self *WebsocketNode) Router(pattern string, handle func(ctx *Context) erro
 		log.Error("缓存服务尚未初始化", 0)
 		return
 	}
-	if option == nil {
-		option = &Option{}
+	if config == nil {
+		config = &Config{}
 	}
-	if self.OptionMap == nil {
-		self.OptionMap = make(map[string]*Option)
-	}
+	self.Config = config
 	if self.Handler == nil {
 		self.Handler = http.NewServeMux()
 	}
-	self.OptionMap[pattern] = option
 	http.DefaultServeMux.HandleFunc(pattern, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		self.Proxy(&NodePtr{self, r, w, pattern, handle})
 	}))

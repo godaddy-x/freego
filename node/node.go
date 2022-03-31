@@ -45,8 +45,7 @@ type HookNode struct {
 	OverrideFunc *OverrideFunc
 	RateOpetion  *rate.RateOpetion
 	Handler      *http.ServeMux
-	Option       *Option
-	OptionMap    map[string]*Option
+	Config       *Config
 }
 
 type NodePtr struct {
@@ -57,10 +56,11 @@ type NodePtr struct {
 	Handle  func(ctx *Context) error
 }
 
-type Option struct {
-	Mode      int64 // 请求模式 0.系统协议 1.http协议
-	Anonymous bool  // 游客模式 false.否 true.是
-	Plan      int64 // 响应模式 0.明文 1.AES 2.RSA
+type Config struct {
+	Original      bool // 是否原始方式 false.否 true.是
+	Authorization bool // 游客模式 false.否 true.是
+	AesEncrypt    bool // 响应是否AES加密 false.否 true.是
+	RsaEncrypt    bool // 响应是否RSA加密 false.否 true.是
 }
 
 type ProtocolNode interface {
@@ -79,7 +79,7 @@ type ProtocolNode interface {
 	// 核心代理方法
 	Proxy(ptr *NodePtr)
 	// 核心绑定路由方法, customize=true自定义不执行默认流程
-	Router(pattern string, handle func(ctx *Context) error, option *Option)
+	Router(pattern string, handle func(ctx *Context) error, config *Config)
 	// json响应模式
 	Json(ctx *Context, data interface{}) error
 	// text响应模式
