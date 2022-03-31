@@ -6,6 +6,7 @@ import (
 	"github.com/godaddy-x/freego/component/limiter"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/node"
+	"github.com/godaddy-x/freego/util"
 )
 
 var (
@@ -102,6 +103,11 @@ func StartHttpNode() *MyWebNode {
 		PreHandleFunc: func(ctx *node.Context) error {
 			if limiter.Validate(&rate.RateOpetion{ctx.Method, 2, 5, 30}) {
 				return ex.Throw{Code: 429, Msg: "系统正繁忙,人数过多"}
+			}
+			if ctx.Subject != nil{
+				if limiter.Validate(&rate.RateOpetion{util.AnyToStr(ctx.Subject.Sub), 2, 5, 30}) {
+					return ex.Throw{Code: 429, Msg: "系统正繁忙,人数过多"}
+				}
 			}
 			return nil
 		},

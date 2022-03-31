@@ -131,7 +131,7 @@ type Context struct {
 	Token         string
 	Headers       map[string]string
 	Params        *ReqDto
-	Subject       *jwt.Subject
+	Subject       *jwt.Payload
 	Response      *Response
 	Version       string
 	Input         *http.Request

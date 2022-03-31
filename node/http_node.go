@@ -173,7 +173,7 @@ func (self *HttpNode) ValidSession() error {
 			return ex.Throw{Code: http.StatusUnauthorized, Msg: "授权令牌无效或已过期", Err: err}
 		}
 		self.Context.Roles = subject.GetTokenRole()
-		self.Context.Subject = subject
+		self.Context.Subject = subject.Payload
 		return nil
 	}
 	if len(self.Context.Token) > 0 {
