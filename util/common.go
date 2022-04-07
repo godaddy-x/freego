@@ -466,25 +466,26 @@ func MD5(s string, salt ...string) string {
 		s = v + s
 	}
 	has := md5.Sum(Str2Bytes(s))
-	return fmt.Sprintf("%x", has) //将[]byte转成16进制
+	//return fmt.Sprintf("%x", has) //将[]byte转成16进制
+	return hex.EncodeToString(has[:])
 }
 
 // HMAC-MD5加密
-func HMAC0(data, key string) string {
+func HMAC_MD5(data, key string) string {
 	hmac := hmac.New(md5.New, []byte(key))
 	hmac.Write([]byte(data))
 	return hex.EncodeToString(hmac.Sum([]byte("")))
 }
 
 // HMAC-SHA1加密
-func HMAC1(data, key string) string {
+func HMAC_SHA1(data, key string) string {
 	hmac := hmac.New(sha1.New, []byte(key))
 	hmac.Write([]byte(data))
 	return hex.EncodeToString(hmac.Sum([]byte("")))
 }
 
 // HMAC-SHA256加密
-func HMAC256(data, key string) string {
+func HMAC_SHA256(data, key string) string {
 	hmac := hmac.New(sha256.New, []byte(key))
 	hmac.Write([]byte(data))
 	return hex.EncodeToString(hmac.Sum([]byte("")))
@@ -492,24 +493,34 @@ func HMAC256(data, key string) string {
 
 // SHA256加密
 func SHA256(s string, salt ...string) string {
-	for _, v := range salt {
-		s = v + s
+	if salt != nil && len(salt) > 0 {
+		for _, v := range salt {
+			if len(v) > 0 {
+				s = v + s
+			}
+		}
 	}
 	h := sha256.New()
 	h.Write(Str2Bytes(s))
 	bs := h.Sum(nil)
-	return fmt.Sprintf("%x", bs) //将[]byte转成16进制
+	//return fmt.Sprintf("%x", bs) //将[]byte转成16进制
+	return hex.EncodeToString(bs)
 }
 
 // SHA256加密
 func SHA1(s string, salt ...string) string {
-	for _, v := range salt {
-		s = v + s
+	if salt != nil && len(salt) > 0 {
+		for _, v := range salt {
+			if len(v) > 0 {
+				s = v + s
+			}
+		}
 	}
 	h := sha1.New()
 	h.Write(Str2Bytes(s))
 	bs := h.Sum(nil)
-	return fmt.Sprintf("%x", bs) //将[]byte转成16进制
+	//return fmt.Sprintf("%x", bs) //将[]byte转成16进制
+	return hex.EncodeToString(bs)
 }
 
 // default base64 - 正向

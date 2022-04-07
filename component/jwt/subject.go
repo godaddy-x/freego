@@ -53,7 +53,7 @@ func (self *Subject) Create(sub int64) (*Subject) {
 		Sub: sub,
 		Iat: iat,
 		Exp: iat + TWO_WEEK,
-		Jti: util.HMAC256(util.GetSnowFlakeStrID(), nsr),
+		Jti: util.HMAC_SHA256(util.GetSnowFlakeStrID(), nsr),
 		Nsr: nsr,
 		Ext: map[string]string{},
 	}
@@ -104,7 +104,7 @@ func (self *Subject) Generate(key string) (string) {
 }
 
 func (self *Subject) Signature(text, key string) (string) {
-	return util.HMAC256(text, key)
+	return util.HMAC_SHA256(text, key)
 }
 
 func (self *Subject) GetTokenSecret(token string) (string) {

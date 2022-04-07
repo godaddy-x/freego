@@ -169,7 +169,7 @@ func (self *Context) GetTokenSecret() string {
 }
 
 func (self *Context) GetDataSign(d, n string, t, p int64) string {
-	return util.HMAC256(util.AddStr(self.Method, d, n, t, p), self.GetTokenSecret())
+	return util.HMAC_SHA256(util.AddStr(self.Method, d, n, t, p), self.GetTokenSecret())
 }
 
 // 按指定规则进行数据解码,校验参数安全
