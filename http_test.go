@@ -54,7 +54,7 @@ func ToPostBy(path string, req *node.ReqDto) {
 		return
 	}
 	if respData.Code == 200 {
-		s := util.HMAC256(util.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan), token_secret)
+		s := util.HMAC_SHA256(util.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan), token_secret)
 		fmt.Println("数据验签: ", s == respData.Sign)
 		if respData.Plan == 1 {
 			dec, err := util.AesDecrypt(respData.Data.(string), token_secret, util.AddStr(respData.Nonce, respData.Time))
@@ -63,7 +63,7 @@ func ToPostBy(path string, req *node.ReqDto) {
 				return
 			}
 			respData.Data = dec
-			fmt.Println("数据明文: ", respData.Data)
+			fmt.Println("数据明文: ", util.Bytes2Str(util.Base64Decode(respData.Data)))
 		}
 	}
 }
@@ -72,10 +72,10 @@ func TestLogin(t *testing.T) {
 	data, _ := util.ToJsonBase64(map[string]string{"test": "1234566"})
 	path := "/login1"
 	d := data
-	x := util.Time()
+	x := util.TimeSecond()
 	n := util.GetSnowFlakeStrID()
 	p := int64(0)
-	s := util.HMAC256(util.AddStr(path, d, n, x, p), token_secret)
+	s := util.HMAC_SHA256(util.AddStr(path, d, n, x, p), token_secret)
 	req := &node.ReqDto{
 		Data:  d,
 		Time:  x,
@@ -91,10 +91,10 @@ func TestGetUser(t *testing.T) {
 	data, _ := util.ToJsonBase64(map[string]string{"test": "1234566"})
 	path := "/test1"
 	d := data
-	x := util.Time()
+	x := util.TimeSecond()
 	n := util.GetSnowFlakeStrID()
 	p := int64(0)
-	s := util.HMAC256(util.AddStr(path, d, n, x, p), token_secret)
+	s := util.HMAC_SHA256(util.AddStr(path, d, n, x, p), token_secret)
 	req := &node.ReqDto{
 		Data:  d,
 		Time:  x,

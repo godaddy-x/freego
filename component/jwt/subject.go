@@ -17,11 +17,8 @@ const (
 	AES    = "AES"
 	RSA    = "RSA"
 
-	FIVE_MINUTES = int64(300000);
-	QUARTER_HOUR = int64(900000);
-	HALF_HOUR    = int64(1800000);
-	ONE_DAY      = int64(86400000);
-	TWO_WEEK     = int64(1209600000);
+	FIVE_MINUTES = int64(300);
+	TWO_WEEK     = int64(1209600);
 )
 
 type Subject struct {
@@ -48,7 +45,7 @@ type Payload struct {
 
 func (self *Subject) Create(sub int64) (*Subject) {
 	nsr := util.Substr(util.MD5(util.GetSnowFlakeStrID()), 5, 21)
-	iat := util.Time()
+	iat := util.TimeSecond()
 	self.Payload = &Payload{
 		Sub: sub,
 		Iat: iat,
@@ -60,6 +57,7 @@ func (self *Subject) Create(sub int64) (*Subject) {
 	return self
 }
 
+// exp seconds
 func (self *Subject) Expired(exp int64) (*Subject) {
 	if exp > 0 {
 		self.Payload.Exp = self.Payload.Iat + exp
@@ -129,7 +127,7 @@ func (self *Subject) Verify(token, key string) (error) {
 	if err := util.ParseJsonBase64(part0, payload); err != nil {
 		return err
 	}
-	if payload.Exp <= util.Time() {
+	if payload.Exp <= util.TimeSecond() {
 		return util.Error("token expired")
 	}
 	self.Payload = payload

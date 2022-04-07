@@ -184,7 +184,10 @@ func (self *Context) SecurityCheck(req *ReqDto) error {
 	if !util.CheckLen(req.Nonce, 8, 32) {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "随机参数无效"}
 	}
-	if util.MathAbs(util.Time()-req.Time) > jwt.FIVE_MINUTES { // 判断绝对时间差超过5分钟
+	if req.Time <= 0{
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "时间参数为空"}
+	}
+	if util.MathAbs(util.TimeSecond()-req.Time) > jwt.FIVE_MINUTES { // 判断绝对时间差超过5分钟
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "时间参数无效"}
 	}
 	if !util.CheckInt64(req.Plan, 0, 1, 2) {

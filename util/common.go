@@ -100,6 +100,11 @@ func Time(t ...time.Time) int64 {
 	return Millisecond(t ...)
 }
 
+// 获取当前时间/秒
+func TimeSecond() int64 {
+	return time.Now().Unix()
+}
+
 // 时间戳转time
 func Int2Time(t int64) time.Time {
 	return time.Unix(t/1000, 0)
