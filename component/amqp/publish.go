@@ -236,7 +236,6 @@ func (self *PublishMQ) sendToMQ(v *MsgData) (bool, error) {
 	if b, err := util.JsonMarshal(v); err != nil {
 		return false, err
 	} else {
-		fmt.Println(string(b))
 		data := amqp.Publishing{ContentType: "text/plain", Body: b}
 		if err := self.channel.Publish(self.option.Exchange, self.option.Router, false, false, data); err != nil {
 			return false, err
