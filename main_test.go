@@ -87,11 +87,11 @@ func init() {
 	//	panic(util.AddStr("读取mysql配置失败: ", err.Error()))
 	//}
 	//new(sqld.MysqlManager).InitConfigAndCache(nil, mysql)
-	mongo1 := sqld.MGOConfig{}
-	if err := util.ReadLocalJsonConfig("resource/mongo.json", &mongo1); err != nil {
-		panic(util.AddStr("读取mongo配置失败: ", err.Error()))
-	}
-	new(sqld.MGOManager).InitConfigAndCache(nil, mongo1)
+	//mongo1 := sqld.MGOConfig{}
+	//if err := util.ReadLocalJsonConfig("resource/mongo.json", &mongo1); err != nil {
+	//	panic(util.AddStr("读取mongo配置失败: ", err.Error()))
+	//}
+	//new(sqld.MGOManager).InitConfigAndCache(nil, mongo1)
 	//opts := &options.ClientOptions{Hosts: []string{"192.168.27.124:27017"}}
 	//// opts.SetAuth(options.Credential{AuthMechanism: "SCRAM-SHA-1", AuthSource: "test", Username: "test", Password: "123456"})
 	//client, err := mongo.Connect(context.Background(), opts)

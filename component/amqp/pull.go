@@ -23,7 +23,7 @@ type PullManager struct {
 func (self *PullManager) InitConfig(input ...AmqpConfig) (*PullManager, error) {
 	for _, v := range input {
 		if _, b := pull_mgrs[v.DsName]; b {
-			return nil, util.Error("RabbitMQ初始化失败: [", v.DsName, "]已存在")
+			return nil, util.Error("PullManager RabbitMQ初始化失败: [", v.DsName, "]已存在")
 		}
 		if len(v.DsName) == 0 {
 			v.DsName = MASTER
@@ -47,8 +47,7 @@ func (self *PullManager) Client(dsname ...string) (*PullManager, error) {
 	} else {
 		ds = MASTER
 	}
-	manager := pull_mgrs[ds]
-	return manager.Connect()
+	return pull_mgrs[ds], nil
 }
 
 func (self *PullManager) AddPullReceiver(receivers ...*PullReceiver) {
@@ -66,7 +65,7 @@ func (self *PullManager) start(receiver *PullReceiver) {
 func (self *PullManager) Connect() (*PullManager, error) {
 	c, err := amqp.Dial(fmt.Sprintf("amqp://%s:%s@%s:%d/", self.conf.Username, self.conf.Password, self.conf.Host, self.conf.Port))
 	if err != nil {
-		return nil, util.Error("RabbitMQ初始化失败: ", err)
+		return nil, util.Error("PullManager RabbitMQ初始化失败: ", err)
 	}
 	self.conn = c
 	return self, nil
@@ -92,12 +91,12 @@ func (self *PullManager) getChannel() *amqp.Channel {
 	index := 0
 	for {
 		if index > 0 {
-			log.Warn("正在重新尝试连接rabbitmq", 0, log.Int("尝试次数", index))
+			log.Warn("PullManager正在重新尝试连接rabbitmq", 0, log.Int("尝试次数", index))
 		}
 		channel, err := self.openChannel()
 		if err != nil {
-			log.Error("初始化Connection/Channel异常: ", 0, log.AddError(err))
-			time.Sleep(5 * time.Second)
+			log.Error("PullManager初始化Connection/Channel异常: ", 0, log.AddError(err))
+			time.Sleep(2500 * time.Millisecond)
 			index++
 			continue
 		}
@@ -116,15 +115,15 @@ func (self *PullManager) listen(receiver *PullReceiver) {
 	prefetchSize := receiver.LisData.PrefetchSize
 	sigTyp := receiver.LisData.Option.SigTyp
 	sigKey := receiver.LisData.Option.SigKey
-	if sigTyp > 0 {
-		if len(sigKey) == 0 {
-			log.Println(fmt.Sprintf("消费队列 [%s - %s - %s - %s] 服务启动失败: 签名密钥为空", kind, exchange, router, queue))
-			return
-		}
-		if sigTyp == 2 && len(sigKey) != 16 {
-			log.Println(fmt.Sprintf("消费队列 [%s - %s - %s - %s] 服务启动失败: 签名密钥无效,应为16个字符长度", kind, exchange, router, queue))
-			return
-		}
+	if !util.CheckInt(receiver.LisData.Option.SigTyp, 1, 2, 11, 21) {
+		receiver.LisData.Option.SigTyp = 1
+	}
+	if len(receiver.LisData.Option.SigKey) == 0 || len(receiver.LisData.Option.SigKey) < 16 {
+		receiver.LisData.Option.SigKey = util.GetLocalSecretKey() + self.conf.SecretKey
+	}
+	if sigTyp == 2 && len(sigKey) != 16 {
+		log.Println(fmt.Sprintf("PullManager消费队列 [%s - %s - %s - %s] 服务启动失败: 签名密钥无效,应为16个字符长度", kind, exchange, router, queue))
+		return
 	}
 	if len(kind) == 0 {
 		kind = DIRECT
@@ -135,26 +134,26 @@ func (self *PullManager) listen(receiver *PullReceiver) {
 	if prefetchCount == 0 {
 		prefetchCount = 1
 	}
-	log.Println(fmt.Sprintf("消费队列 [%s - %s - %s - %s] 服务启动成功...", kind, exchange, router, queue))
+	log.Println(fmt.Sprintf("PullManager消费队列 [%s - %s - %s - %s] 服务启动成功...", kind, exchange, router, queue))
 	if err := self.prepareExchange(channel, exchange, kind); err != nil {
-		receiver.OnError(fmt.Errorf("初始化交换机 [%s] 失败: %s", exchange, err.Error()))
+		receiver.OnError(fmt.Errorf("PullManager初始化交换机 [%s] 失败: %s", exchange, err.Error()))
 		return
 	}
 	if err := self.prepareQueue(channel, exchange, queue, router); err != nil {
-		receiver.OnError(fmt.Errorf("绑定队列 [%s] 到交换机 [%s] 失败: %s", queue, exchange, err.Error()))
+		receiver.OnError(fmt.Errorf("PullManager绑定队列 [%s] 到交换机 [%s] 失败: %s", queue, exchange, err.Error()))
 		return
 	}
 	channel.Qos(prefetchCount, prefetchSize, false)
 	// 开启消费数据
 	msgs, err := channel.Consume(queue, "", false, false, false, false, nil)
 	if err != nil {
-		receiver.OnError(fmt.Errorf("获取队列 %s 的消费通道失败: %s", queue, err.Error()))
+		receiver.OnError(fmt.Errorf("PullManager获取队列 %s 的消费通道失败: %s", queue, err.Error()))
 	}
 	closeChan := make(chan bool, 1)
 	go func(chan<- bool) {
 		mqErr := make(chan *amqp.Error)
 		closeErr := <-channel.NotifyClose(mqErr)
-		log.Error("connection/channel receive failed", 0, log.AddError(closeErr))
+		log.Error("PullManager connection/channel receive failed", 0, log.String("exchange", exchange), log.String("queue", queue), log.AddError(closeErr))
 		closeChan <- true
 	}(closeChan)
 
@@ -167,8 +166,8 @@ func (self *PullManager) listen(receiver *PullReceiver) {
 				}
 				d.Ack(false)
 			case <-closeChan:
-				self.start(receiver)
-				log.Warn("接收到channel异常,已重启成功", 0, log.String("exchange", exchange), log.String("queue", queue))
+				self.listen(receiver)
+				log.Warn("PullManager接收到channel异常,已重新连接成功", 0, log.String("exchange", exchange), log.String("queue", queue))
 				return
 			}
 		}
@@ -190,7 +189,7 @@ func (self *PullManager) prepareQueue(channel *amqp.Channel, exchange, queue, ro
 }
 
 func (self *PullReceiver) OnError(err error) {
-	log.Error("PullReceiver data failed", 0, log.AddError(err))
+	log.Error("PullManager Receiver data failed", 0, log.AddError(err))
 }
 
 // 监听对象
@@ -218,83 +217,57 @@ func (self *PullReceiver) OnReceive(b []byte) bool {
 	}
 	sigTyp := self.LisData.Option.SigTyp
 	sigKey := self.LisData.Option.SigKey
-	if sigTyp > 0 {
-		if len(message.Signature) == 0 {
-			log.Error("MQ消费数据签名为空", 0, log.Any("option", self.LisData.Option), log.Any("message", message))
-			return true
-		}
-		v, b := message.Content.(string)
-		if !b {
-			log.Error("MQ消费数据非string类型", 0, log.Any("option", self.LisData.Option), log.Any("message", message))
-			return true
-		}
-		if len(v) == 0 {
-			log.Error("MQ消费数据消息内容为空", 0, log.Any("option", self.LisData.Option), log.Any("message", message))
-			return true
-		}
-		if sigTyp == MD5 {
-			if message.Signature != util.MD5(v, sigKey) {
-				log.Error("MQ消费数据MD5签名校验失败", 0, log.Any("option", self.LisData.Option), log.Any("message", message))
-				return true
-			}
-		} else if sigTyp == SHA256 {
-			if message.Signature != util.SHA256(v, sigKey) {
-				log.Error("MQ消费数据SHA256签名校验失败", 0, log.Any("option", self.LisData.Option), log.Any("message", message))
-				return true
-			}
-		} else if sigTyp == MD5_AES {
-			if message.Signature != util.MD5(v, util.MD5(util.Substr(sigKey, 2, 10))) {
-				log.Error("MQ消费数据MD5签名校验失败", 0, log.Any("option", self.LisData.Option), log.Any("message", message))
-				return true
-			}
-			v, err := util.AesDecrypt(v, sigKey, sigKey)
-			if err != nil {
-				log.Error("MQ消费数据AES解码失败", 0, log.Any("option", self.LisData.Option), log.Any("message", message))
-				return false;
-			}
-			if len(v) == 0 {
-				log.Error("MQ消费解密数据消息内容为空", 0, log.Any("option", self.LisData.Option), log.Any("message", message))
-				return true
-			}
-		} else if sigTyp == SHA256_AES {
-			if message.Signature != util.SHA256(v, util.SHA256(util.Substr(sigKey, 2, 10))) {
-				log.Error("MQ消费数据SHA256签名校验失败", 0, log.Any("option", self.LisData.Option), log.Any("message", message))
-				return true
-			}
-			v, err := util.AesDecrypt(v, sigKey, sigKey)
-			if err != nil {
-				log.Error("MQ消费数据AES256解码失败", 0, log.Any("option", self.LisData.Option), log.Any("message", message))
-				return false;
-			}
-			if len(v) == 0 {
-				log.Error("MQ消费解密数据消息内容为空", 0, log.Any("option", self.LisData.Option), log.Any("message", message))
-				return true
-			}
-		} else {
-			log.Error("MQ消费数据签名类型无效", 0, log.Any("option", self.LisData.Option), log.Any("message", message))
-			return true
-		}
-		btv := util.Base64Decode(v)
-		if btv == nil || len(btv) == 0 {
-			log.Error("MQ消费数据base64解码失败", 0, log.Any("option", self.LisData.Option), log.Any("message", message))
-			return true
-		}
-		if self.ContentInter == nil {
-			content := map[string]interface{}{}
-			if err := util.JsonUnmarshal(btv, &content); err != nil {
-				log.Error("MQ消费数据处理失败", 0, log.Any("option", self.LisData.Option), log.Any("message", message), log.AddError(err))
-				return true
-			}
-			message.Content = content
-		} else {
-			content := self.ContentInter()
-			if err := util.JsonUnmarshal(btv, &content); err != nil {
-				log.Error("MQ消费数据处理失败", 0, log.Any("option", self.LisData.Option), log.Any("message", message), log.AddError(err))
-				return true
-			}
-			message.Content = content
-		}
+
+	if len(message.Signature) == 0 {
+		log.Error("MQ消费数据签名为空", 0, log.Any("option", self.LisData.Option), log.Any("message", message))
+		return true
 	}
+	v, ok := message.Content.(string)
+	if !ok {
+		log.Error("MQ消费数据非string类型", 0, log.Any("option", self.LisData.Option), log.Any("message", message))
+		return true
+	}
+	if len(v) == 0 {
+		log.Error("MQ消费数据消息内容为空", 0, log.Any("option", self.LisData.Option), log.Any("message", message))
+		return true
+	}
+	if sigTyp == MD5 {
+		if message.Signature != util.MD5(v+message.Nonce, sigKey) {
+			log.Error("MQ消费数据MD5签名校验失败", 0, log.Any("option", self.LisData.Option), log.Any("message", message))
+			return true
+		}
+	} else if sigTyp == SHA256 {
+		if message.Signature != util.SHA256(v+message.Nonce, sigKey) {
+			log.Error("MQ消费数据SHA256签名校验失败", 0, log.Any("option", self.LisData.Option), log.Any("message", message))
+			return true
+		}
+	} else if sigTyp == MD5_AES {
+	} else if sigTyp == SHA256_AES {
+	} else {
+		log.Error("MQ消费数据签名类型无效", 0, log.Any("option", self.LisData.Option), log.Any("message", message))
+		return true
+	}
+	btv := util.Base64Decode(v)
+	if btv == nil || len(btv) == 0 {
+		log.Error("MQ消费数据base64解码失败", 0, log.Any("option", self.LisData.Option), log.Any("message", message))
+		return true
+	}
+	if self.ContentInter == nil {
+		content := map[string]interface{}{}
+		if err := util.JsonUnmarshal(btv, &content); err != nil {
+			log.Error("MQ消费数据处理失败", 0, log.Any("option", self.LisData.Option), log.Any("message", message), log.AddError(err))
+			return true
+		}
+		message.Content = content
+	} else {
+		content := self.ContentInter()
+		if err := util.JsonUnmarshal(btv, &content); err != nil {
+			log.Error("MQ消费数据处理失败", 0, log.Any("option", self.LisData.Option), log.Any("message", message), log.AddError(err))
+			return true
+		}
+		message.Content = content
+	}
+
 	if err := self.Callback(&message); err != nil {
 		log.Error("MQ消费数据处理失败", 0, log.Any("option", self.LisData.Option), log.Any("message", message), log.AddError(err))
 		if self.LisData.IsNack {

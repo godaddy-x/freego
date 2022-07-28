@@ -22,23 +22,24 @@ type AmqpConfig struct {
 }
 
 type Option struct {
-	Exchange string `json:"exchange"`
-	Queue    string `json:"queue"`
-	Kind     string `json:"kind"`
-	Router   string `json:"router"`
-	SigTyp   int    `json:"sigTyp"` // 1.MD5 2.SHA256 11.MD5+AES 21.SHA256+AES
-	SigKey   string `json:"-"`
+	Exchange string `json:"ex"`
+	Queue    string `json:"qe"`
+	Kind     string `json:"kd"`
+	Router   string `json:"ru"`
+	SigTyp   int    `json:"st"` // 验签类型 1.MD5 2.SHA256 11.MD5+AES 21.SHA256+AES
+	SigKey   string `json:"-"`  // 验签密钥
 }
 
 // Amqp消息参数
 type MsgData struct {
-	Option    Option      `json:"option"`
-	Durable   bool        `json:"durable"`
-	Content   interface{} `json:"content"`
-	Type      int64       `json:"type"`
-	Delay     int64       `json:"delay"`
-	Retries   int64       `json:"retries"`
-	Signature string      `json:"signature"`
+	Option    Option      `json:"op"`
+	Durable   bool        `json:"du"`
+	Content   interface{} `json:"co"`
+	Type      int64       `json:"ty"`
+	Delay     int64       `json:"dy"`
+	Retries   int64       `json:"rt"`
+	Nonce     string      `json:"no"`
+	Signature string      `json:"sg"`
 }
 
 // Amqp延迟发送配置

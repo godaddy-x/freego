@@ -41,6 +41,7 @@ var (
 	random_byte_len    = len(random_byte)
 	random_byte_sp     = Str2Bytes("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!@#$%^&*")
 	random_byte_sp_len = len(random_byte_sp)
+	local_secret_key   = createLocalSecretKey()
 )
 
 const (
@@ -57,6 +58,20 @@ const (
 func init() {
 	node, _ := snowflake.NewNode(0)
 	snowflakes[0] = node
+}
+
+func GetLocalSecretKey() string {
+	return local_secret_key
+}
+
+func createLocalSecretKey() string {
+	fmt.Println(len(random_byte_sp))
+	a := []int{65, 68, 45, 34, 67, 23, 53, 61, 12, 69, 23, 42, 24, 66, 29, 39, 10, 1, 8, 55, 60, 40, 64, 62}
+	result := []byte{}
+	for _, v := range a {
+		result = append(result, random_byte_sp[v])
+	}
+	return Bytes2Str(result)
 }
 
 // 对象转JSON字符串
