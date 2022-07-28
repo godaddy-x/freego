@@ -139,14 +139,14 @@ func (self *PublishManager) Publish(data *MsgData) error {
 			if len(sigKey) != 16 {
 				return util.Error("签名密钥无效,必须为16个字符长度")
 			}
-			ret = util.AesEncrypt(ret, sigKey)
+			ret, _ := util.AesEncrypt(ret, sigKey, sigKey)
 			data.Content = ret
 			data.Signature = util.MD5(ret, util.MD5(util.Substr(sigKey, 2, 10)))
 		} else if sigTyp == SHA256_AES { // AES+MD5模式
 			if len(sigKey) != 16 {
 				return util.Error("签名密钥无效,必须为16个字符长度")
 			}
-			ret = util.AesEncrypt(ret, sigKey)
+			ret, _ := util.AesEncrypt(ret, sigKey, sigKey)
 			data.Content = ret
 			data.Signature = util.SHA256(ret, util.SHA256(util.Substr(sigKey, 2, 10)))
 		} else {

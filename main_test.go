@@ -37,7 +37,7 @@ type DxApp struct {
 }
 
 type OwWallet struct {
-	Id           int64  `json:"id" bson:"_id" tb:"ow_wallet_2" mg:"true"`
+	Id           int64  `json:"id" bson:"_id" tb:"ow_wallet" mg:"true"`
 	AppID        string `json:"appID" bson:"appID"`
 	WalletID     string `json:"walletID" bson:"walletID"`
 	Alias        string `json:"alias" bson:"alias"`
@@ -58,12 +58,12 @@ type OwWallet struct {
 
 func init() {
 	// 注册对象
-	//sqld.ModelDriver(
-	//	sqld.Hook{
-	//		func() interface{} { return &OwWallet{} },
-	//		func() interface{} { return &[]*OwWallet{} },
-	//	},
-	//)
+	sqld.ModelDriver(
+		sqld.Hook{
+			func() interface{} { return &OwWallet{} },
+			func() interface{} { return &[]*OwWallet{} },
+		},
+	)
 	//sqld.ModelDriver(
 	//	sqld.Hook{
 	//		func() interface{} { return &DxApp{} },
@@ -87,11 +87,11 @@ func init() {
 	//	panic(util.AddStr("读取mysql配置失败: ", err.Error()))
 	//}
 	//new(sqld.MysqlManager).InitConfigAndCache(nil, mysql)
-	//mongo1 := sqld.MGOConfig{}
-	//if err := util.ReadLocalJsonConfig("resource/mongo.json", &mongo1); err != nil {
-	//	panic(util.AddStr("读取mongo配置失败: ", err.Error()))
-	//}
-	//new(sqld.MGOManager).InitConfigAndCache(nil, mongo1)
+	mongo1 := sqld.MGOConfig{}
+	if err := util.ReadLocalJsonConfig("resource/mongo.json", &mongo1); err != nil {
+		panic(util.AddStr("读取mongo配置失败: ", err.Error()))
+	}
+	new(sqld.MGOManager).InitConfigAndCache(nil, mongo1)
 	//opts := &options.ClientOptions{Hosts: []string{"192.168.27.124:27017"}}
 	//// opts.SetAuth(options.Credential{AuthMechanism: "SCRAM-SHA-1", AuthSource: "test", Username: "test", Password: "123456"})
 	//client, err := mongo.Connect(context.Background(), opts)
@@ -409,7 +409,7 @@ func TestMongoFindOne(t *testing.T) {
 	}
 	defer db.Close()
 	o := &OwWallet{}
-	if err := db.FindOne(sqlc.M(o).Eq("_id", 8266), o); err != nil {
+	if err := db.FindOne(sqlc.M().Eq("id", 287), o); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println("cost: ", util.Time()-l)
