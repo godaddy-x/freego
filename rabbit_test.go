@@ -7,18 +7,17 @@ import (
 	"time"
 )
 
-var exchange = "test.stdrpc.exchange"
-var queue = "test.stdrpc.monitor"
+var exchange = "test.exchange"
+var queue = "test.monitor"
 var input = rabbitmq.AmqpConfig{
-	Username: "admin",
-	Password: "openwallet0925",
-	Host:     "172.31.25.6",
+	Username: "root",
+	Password: "123456",
+	Host:     "127.0.0.1",
 	Port:     5672,
 }
 
 // 单元测试
 func TestMQPull(t *testing.T) {
-	new(rabbitmq.PullManager).InitConfig(input)
 	mq, _ := new(rabbitmq.PullManager).Client()
 	mq.AddPullReceiver(
 		&rabbitmq.PullReceiver{
