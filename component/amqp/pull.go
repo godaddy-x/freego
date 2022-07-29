@@ -115,10 +115,10 @@ func (self *PullManager) listen(receiver *PullReceiver) {
 	prefetchSize := receiver.Config.PrefetchSize
 	sigTyp := receiver.Config.Option.SigTyp
 	sigKey := receiver.Config.Option.SigKey
-	if !util.CheckInt(receiver.Config.Option.SigTyp, 1, 2, 11, 21) {
+	if !util.CheckInt(receiver.Config.Option.SigTyp, MD5, SHA256, MD5_AES, SHA256_AES) {
 		receiver.Config.Option.SigTyp = 1
 	}
-	if len(receiver.Config.Option.SigKey) == 0 || len(receiver.Config.Option.SigKey) < 16 {
+	if len(receiver.Config.Option.SigKey) == 0 || len(receiver.Config.Option.SigKey) < 32 {
 		receiver.Config.Option.SigKey = util.GetLocalSecretKey() + self.conf.SecretKey
 	}
 	if sigTyp == 2 && len(sigKey) != 16 {
