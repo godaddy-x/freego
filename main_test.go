@@ -82,11 +82,6 @@ func init() {
 	//if err != nil {
 	//	panic(err.Error())
 	//}
-	//mysql := sqld.MysqlConfig{}
-	//if err := util.ReadLocalJsonConfig("resource/mysql.json", &mysql); err != nil {
-	//	panic(util.AddStr("读取mysql配置失败: ", err.Error()))
-	//}
-	//new(sqld.MysqlManager).InitConfigAndCache(nil, mysql)
 	//mongo1 := sqld.MGOConfig{}
 	//if err := util.ReadLocalJsonConfig("resource/mongo.json", &mongo1); err != nil {
 	//	panic(util.AddStr("读取mongo配置失败: ", err.Error()))
@@ -100,6 +95,14 @@ func init() {
 	//	return
 	//}
 	//MyClient = client
+}
+
+func initDB() {
+	mysql := sqld.MysqlConfig{}
+	if err := util.ReadLocalJsonConfig("resource/mysql.json", &mysql); err != nil {
+		panic(util.AddStr("读取mysql配置失败: ", err.Error()))
+	}
+	new(sqld.MysqlManager).InitConfigAndCache(nil, mysql)
 }
 
 func TestMysql(t *testing.T) {
@@ -216,14 +219,15 @@ func TestMysqlDetele(t *testing.T) {
 }
 
 func TestMysqlFindById(t *testing.T) {
-	db, err := new(sqld.MysqlManager).Get(sqld.Option{OpenTx: &sqld.FALSE})
+	initDB()
+	db, err := new(sqld.MysqlManager).Get()
 	if err != nil {
 		panic(err)
 	}
 	defer db.Close()
 	l := util.Time()
 	wallet := OwWallet{
-		Id: 1124853348080549889,
+		Id: 1109819683034365953,
 	}
 	if err := db.FindById(&wallet); err != nil {
 		fmt.Println(err)
@@ -232,6 +236,7 @@ func TestMysqlFindById(t *testing.T) {
 }
 
 func TestMysqlFindOne(t *testing.T) {
+	initDB()
 	db, err := new(sqld.MysqlManager).Get(sqld.Option{OpenTx: &sqld.FALSE})
 	if err != nil {
 		panic(err)
@@ -241,10 +246,8 @@ func TestMysqlFindOne(t *testing.T) {
 	for i := 0; i < 1; i++ {
 
 	}
-	wallet := DxApp{
-
-	}
-	if err := db.FindOne(sqlc.M().Eq("id", 8266), &wallet); err != nil {
+	wallet := OwWallet{}
+	if err := db.FindOne(sqlc.M().Fields("rootPath").Eq("id", 1109819683034365953), &wallet); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println("cost: ", util.Time()-l)
@@ -341,7 +344,7 @@ func TestMongoUpdate(t *testing.T) {
 	//	AuthKey:      "",
 	//}
 	l := util.Time()
-	if err := db.UpdateByCnd(sqlc.M(&OwWallet{}).Or(sqlc.M().Eq("id", 1110012978914131972), sqlc.M().Eq("id", 1110012978914131973), ).Upset([]string{"appID", "ctime"}, "test1test1", 1)); err != nil {
+	if err := db.UpdateByCnd(sqlc.M(&OwWallet{}).Or(sqlc.M().Eq("id", 1110012978914131972), sqlc.M().Eq("id", 1110012978914131973)).Upset([]string{"appID", "ctime"}, "test1test1", 1)); err != nil {
 		fmt.Println(err)
 	}
 	//fmt.Println(wallet.Id)
