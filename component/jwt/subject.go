@@ -25,10 +25,9 @@ type Subject struct {
 	Payload *Payload
 }
 
-type SecretKey struct {
-	ApiSecretKey string
-	JwtSecretKey string
-	SecretKeyAlg string
+type JwtSecretKey struct {
+	TokenKey string
+	TokenAlg string
 }
 
 type Payload struct {
@@ -102,12 +101,12 @@ func (self *Subject) Generate(key string) (string) {
 }
 
 func (self *Subject) Signature(text, key string) (string) {
-	return util.HMAC_SHA256(text, key)
+	return util.HMAC_SHA256(text, key+util.GetLocalSecretKey())
 }
 
 func (self *Subject) GetTokenSecret(token string) (string) {
 	s := util.SHA256(token)
-	return util.SHA256(util.Substr(s, 15, 19), util.Substr(s, 12, 19), util.Substr(s, 11, 27))
+	return util.SHA256(util.Substr(s, 15, 19), util.Substr(s, 12, 19), util.Substr(s, 11, 27), util.GetLocalSecretKey())
 }
 
 func (self *Subject) Verify(token, key string) (error) {

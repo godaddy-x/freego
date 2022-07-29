@@ -63,7 +63,7 @@ func (self *HttpNode) GetParams() error {
 			if err := util.JsonUnmarshal(result, req); err != nil {
 				return ex.Throw{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err}
 			}
-			if err := self.Context.SecurityCheck(req); err != nil {
+			if err := self.Context.SecurityCheck(req, self.Config); err != nil {
 				return err
 			}
 			return nil
@@ -125,7 +125,7 @@ func (self *HttpNode) InitContext(ptr *NodePtr) error {
 	node.CreateAt = util.Time()
 	node.SessionAware = self.SessionAware
 	node.CacheAware = self.CacheAware
-	node.Config = self.Config
+	node.Config = ptr.Config
 	node.Context = &Context{
 		Host:          util.ClientIP(input),
 		Port:          self.Context.Port,
@@ -169,7 +169,7 @@ func (self *HttpNode) ValidSession() error {
 			return ex.Throw{Code: http.StatusUnauthorized, Msg: "授权令牌为空"}
 		}
 		subject := &jwt.Subject{}
-		if err := subject.Verify(self.Context.Token, self.Context.SecretKey().JwtSecretKey); err != nil {
+		if err := subject.Verify(self.Context.Token, self.Context.SecretKey().TokenKey); err != nil {
 			return ex.Throw{Code: http.StatusUnauthorized, Msg: "授权令牌无效或已过期", Err: err}
 		}
 		self.Context.Roles = subject.GetTokenRole()
@@ -358,11 +358,11 @@ func (self *HttpNode) RenderTo() error {
 			Data:    data,
 			Nonce:   self.Context.Params.Nonce,
 		}
-		if self.Config.AesEncrypt {
+		if self.Config.ResponseAesEncrypt {
 			resp.Plan = 1
 			data, _ = util.AesEncrypt(data, self.Context.GetTokenSecret(), util.AddStr(resp.Nonce, resp.Time))
 			resp.Data = data
-		} else if self.Config.RsaEncrypt {
+		} else if self.Config.ResponseRsaEncrypt {
 			resp.Plan = 2
 		}
 		resp.Sign = self.Context.GetDataSign(data, resp.Nonce, resp.Time, resp.Plan)
@@ -415,6 +415,8 @@ func (self *HttpNode) limiterHandler() http.Handler {
 	})
 }
 
+var node_configs = make(map[string]*Config)
+
 func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, config *Config) {
 	if !strings.HasPrefix(pattern, "/") {
 		pattern = util.AddStr("/", pattern)
@@ -427,19 +429,16 @@ func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, co
 		return
 	}
 	if config == nil {
-		config = &Config{
-			Original:      false,
-			Authorization: true,
-			AesEncrypt:    false,
-			RsaEncrypt:    false,
-		}
+		config = &Config{Authorization: true}
 	}
-	self.Config = config
 	if self.Handler == nil {
 		self.Handler = http.NewServeMux()
 	}
+	if _, b := node_configs[pattern]; !b {
+		node_configs[pattern] = config
+	}
 	self.Handler.Handle(pattern, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		self.Proxy(&NodePtr{self, r, w, pattern, handle})
+		self.Proxy(&NodePtr{self, node_configs[pattern], r, w, pattern, handle})
 	}))
 }
 

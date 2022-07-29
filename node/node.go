@@ -50,6 +50,7 @@ type HookNode struct {
 
 type NodePtr struct {
 	Node    interface{}
+	Config  *Config
 	Input   *http.Request
 	Output  http.ResponseWriter
 	Pattern string
@@ -57,10 +58,12 @@ type NodePtr struct {
 }
 
 type Config struct {
-	Original      bool // 是否原始方式 false.否 true.是
-	Authorization bool // 游客模式 false.否 true.是
-	AesEncrypt    bool // 响应是否AES加密 false.否 true.是
-	RsaEncrypt    bool // 响应是否RSA加密 false.否 true.是
+	Original           bool // 是否原始方式 false.否 true.是
+	Authorization      bool // 游客模式 false.否 true.是
+	RequestAesEncrypt  bool // 请求是否必须AES加密 false.否 true.是
+	ResponseAesEncrypt bool // 响应是否必须AES加密 false.否 true.是
+	RequestRsaEncrypt  bool // 请求是否必须RSA加密 false.否 true.是
+	ResponseRsaEncrypt bool // 响应是否必须RSA加密 false.否 true.是
 }
 
 type ProtocolNode interface {
@@ -138,7 +141,7 @@ type Context struct {
 	Output        http.ResponseWriter
 	Storage       map[string]interface{}
 	Roles         []int64
-	SecretKey     func() *jwt.SecretKey
+	SecretKey     func() *jwt.JwtSecretKey
 	PermissionKey func(url string) (*Permission, error)
 }
 
@@ -173,7 +176,7 @@ func (self *Context) GetDataSign(d, n string, t, p int64) string {
 }
 
 // 按指定规则进行数据解码,校验参数安全
-func (self *Context) SecurityCheck(req *ReqDto) error {
+func (self *Context) SecurityCheck(req *ReqDto, config *Config) error {
 	d, b := req.Data.(string)
 	if !b || len(d) == 0 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "业务参数无效"}
@@ -184,7 +187,7 @@ func (self *Context) SecurityCheck(req *ReqDto) error {
 	if !util.CheckLen(req.Nonce, 8, 32) {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "随机参数无效"}
 	}
-	if req.Time <= 0{
+	if req.Time <= 0 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "时间参数为空"}
 	}
 	if util.MathAbs(util.TimeSecond()-req.Time) > jwt.FIVE_MINUTES { // 判断绝对时间差超过5分钟
@@ -193,17 +196,23 @@ func (self *Context) SecurityCheck(req *ReqDto) error {
 	if !util.CheckInt64(req.Plan, 0, 1, 2) {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "计划参数无效"}
 	}
+	if config.RequestAesEncrypt && req.Plan != 1 {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "请求参数必须使用AES加密模式"}
+	}
+	if config.RequestRsaEncrypt && req.Plan != 2 {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "请求参数必须使用RSA加密模式"}
+	}
+	if self.GetDataSign(d, req.Nonce, req.Time, req.Plan) != req.Sign {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "API签名校验失败"}
+	}
 	if req.Plan == 1 { // AES
 		dec, err := util.AesDecrypt(d, self.GetTokenSecret(), util.AddStr(req.Nonce, req.Time))
 		if err != nil {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "数据逆向解析失败", Err: err}
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "请求数据解码失败", Err: err}
 		}
 		d = dec
 	} else if req.Plan == 2 { // RSA
 
-	}
-	if self.GetDataSign(d, req.Nonce, req.Time, req.Plan) != req.Sign {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "API签名校验失败"}
 	}
 	data := make(map[string]interface{})
 	if err := util.ParseJsonBase64(d, &data); err != nil {

@@ -328,7 +328,7 @@ func (self *WebsocketNode) Router(pattern string, handle func(ctx *Context) erro
 		self.Handler = http.NewServeMux()
 	}
 	http.DefaultServeMux.HandleFunc(pattern, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		self.Proxy(&NodePtr{self, r, w, pattern, handle})
+		self.Proxy(&NodePtr{self, nil, r, w, pattern, handle})
 	}))
 }
 

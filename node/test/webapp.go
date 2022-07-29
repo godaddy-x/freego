@@ -40,13 +40,8 @@ type MyWsNode struct {
 
 func (self *MyWebNode) test(ctx *node.Context) error {
 	//return self.Html(ctx, "/resource/index.html", map[string]interface{}{"tewt": 1})
-	return self.Json(ctx, map[string]interface{}{"tewt": 1})
+	return self.Json(ctx, map[string]interface{}{"test": 1})
 	//return ex.Throw{Code: ex.BIZ, Msg: "测试错误"}
-}
-
-func (self *MyWsNode) test(ctx *node.Context) error {
-	// return self.Json(ctx, map[string]interface{}{"tewt": 1})
-	return ex.Throw{Code: ex.BIZ, Msg: "测试错误"}
 }
 
 func (self *MyWebNode) login(ctx *node.Context) error {
@@ -55,34 +50,17 @@ func (self *MyWebNode) login(ctx *node.Context) error {
 
 	//self.LoginBySubject(subject, exp)
 
-	token := subject.Generate(GetSecretKey().JwtSecretKey)
+	token := subject.Generate(GetSecretKey().TokenKey)
 	secret := jwt.GetTokenSecret(token)
 
 	return self.Json(ctx, map[string]interface{}{"token": token, "secret": secret})
 	//return self.Html(ctx, "/web/index.html", map[string]interface{}{"tewt": 1})
 }
 
-func (self *MyWsNode) login(ctx *node.Context) error {
-	//time := util.Time()
-	//exp := jwt.TWO_WEEK
-	//subject := &jwt.Subject{
-	//	Payload: &jwt.Payload{
-	//		Sub: 123456,
-	//		Aud: ctx.Host,
-	//		Iss: "localhost",
-	//		Iat: time,
-	//		Exp: time + exp,
-	//	},
-	//}
-	//self.LoginBySubject(subject, exp)
-	return self.Json(ctx, map[string]interface{}{"token": ""})
-}
-
-func GetSecretKey() *jwt.SecretKey {
-	return &jwt.SecretKey{
-		ApiSecretKey: "123456",
-		JwtSecretKey: "123456",
-		SecretKeyAlg: jwt.SHA256,
+func GetSecretKey() *jwt.JwtSecretKey {
+	return &jwt.JwtSecretKey{
+		TokenKey: "123456",
+		TokenAlg: jwt.SHA256,
 	}
 }
 
@@ -104,7 +82,7 @@ func StartHttpNode() *MyWebNode {
 			if limiter.Validate(&rate.RateOpetion{ctx.Method, 2, 5, 30}) {
 				return ex.Throw{Code: 429, Msg: "系统正繁忙,人数过多"}
 			}
-			if ctx.Subject != nil{
+			if ctx.Subject != nil {
 				if limiter.Validate(&rate.RateOpetion{util.AnyToStr(ctx.Subject.Sub), 2, 5, 30}) {
 					return ex.Throw{Code: 429, Msg: "系统正繁忙,人数过多"}
 				}
@@ -121,21 +99,7 @@ func StartHttpNode() *MyWebNode {
 		//RenderErrorFunc: nil,
 	}
 	my.Router("/test1", my.test, nil)
-	my.Router("/login1", my.login, &node.Config{Authorization: false, AesEncrypt: true})
-	my.StartServer()
-	return my
-}
-
-func StartWsNode() *MyWsNode {
-	my := &MyWsNode{}
-	my.Context = &node.Context{
-		Host:      "0.0.0.0",
-		Port:      9090,
-		SecretKey: GetSecretKey,
-	}
-	my.CacheAware = GetCacheAware
-	my.Router("/test2", my.test, nil)
-	my.Router("/login2", my.login, nil)
+	my.Router("/login1", my.login, &node.Config{Authorization: false, RequestAesEncrypt: true, ResponseAesEncrypt: true})
 	my.StartServer()
 	return my
 }
