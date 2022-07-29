@@ -65,7 +65,6 @@ func GetLocalSecretKey() string {
 }
 
 func createLocalSecretKey() string {
-	fmt.Println(len(random_byte_sp))
 	a := []int{65, 68, 45, 34, 67, 23, 53, 61, 12, 69, 23, 42, 24, 66, 29, 39, 10, 1, 8, 55, 60, 40, 64, 62}
 	result := []byte{}
 	for _, v := range a {

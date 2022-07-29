@@ -11,7 +11,7 @@ var exchange = "test.exchange"
 var queue = "test.monitor"
 var input = rabbitmq.AmqpConfig{
 	Username: "admin",
-	Password: "1234567",
+	Password: "123456",
 	Host:     "172.31.25.1",
 	Port:     5672,
 }
@@ -23,18 +23,17 @@ func TestMQPull(t *testing.T) {
 		panic(err)
 	}
 	cli, _ := mq.Client()
-	cli.AddPullReceiver(
-		&rabbitmq.PullReceiver{
-			LisData: &rabbitmq.LisData{Option: rabbitmq.Option{
-				Exchange: exchange,
-				Queue:    queue,
-			}},
-			Callback: func(msg *rabbitmq.MsgData) error {
-				fmt.Println("msg: ", msg)
-				return nil
-			},
+	receiver := &rabbitmq.PullReceiver{
+		Config: &rabbitmq.Config{Option: rabbitmq.Option{
+			Exchange: exchange,
+			Queue:    queue,
+		}},
+		Callback: func(msg *rabbitmq.MsgData) error {
+			fmt.Println("receive msg: ", msg)
+			return nil
 		},
-	)
+	}
+	cli.AddPullReceiver(receiver)
 	time.Sleep(10000 * time.Second)
 }
 
@@ -44,19 +43,13 @@ func TestMQPublish(t *testing.T) {
 		panic(err)
 	}
 	cli, _ := mq.Client()
-	v := map[string]interface{}{"test": 1234}
+	content := map[string]interface{}{"test": 1234}
 	for ; ; {
-		err := cli.Publish(&rabbitmq.MsgData{
-			Option: rabbitmq.Option{
-				Exchange: exchange,
-				Queue:    queue,
-			},
-			Content: &v,
-		})
+		err := cli.Publish(exchange, queue, content)
 		if err != nil {
 			fmt.Println("send msg failed: ", err)
 		} else {
-			fmt.Println("send msg success")
+			fmt.Println("send msg success: ", content)
 		}
 		time.Sleep(5 * time.Second)
 	}

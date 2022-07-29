@@ -66,11 +66,11 @@ func (self *PublishManager) Client(dsname ...string) (*PublishManager, error) {
 }
 
 func (self *PublishManager) Connect() (*PublishManager, error) {
-	c, err := amqp.Dial(fmt.Sprintf("amqp://%s:%s@%s:%d/", self.conf.Username, self.conf.Password, self.conf.Host, self.conf.Port))
+	conn, err := ConnectRabbitMQ(self.conf)
 	if err != nil {
-		return nil, util.Error("PublishManager RabbitMQ初始化失败: ", err)
+		return nil, err
 	}
-	self.conn = c
+	self.conn = conn
 	return self, nil
 }
 
@@ -122,7 +122,7 @@ func (self *PublishManager) initQueue(data *MsgData) (*PublishMQ, error) {
 	if len(data.Option.Router) == 0 {
 		data.Option.Router = data.Option.Queue
 	}
-	if !util.CheckInt(data.Option.SigTyp, 1, 2, 11, 21) {
+	if !util.CheckInt(data.Option.SigTyp, MD5, SHA256, MD5_AES, SHA256_AES) {
 		data.Option.SigTyp = 1
 	}
 	if len(data.Option.SigKey) == 0 || len(data.Option.SigKey) < 16 {
@@ -158,8 +158,8 @@ func (self *PublishManager) initQueue(data *MsgData) (*PublishMQ, error) {
 		pub.prepareExchange()
 		pub.prepareQueue()
 		pub.ready = true
-		self.listen(pub)
 		self.channels[chanKey] = pub
+		self.listen(pub)
 	}
 	return pub, nil
 }
@@ -193,7 +193,18 @@ func (self *PublishManager) listen(pub *PublishMQ) (error) {
 	return nil
 }
 
-func (self *PublishManager) Publish(data *MsgData) error {
+func (self *PublishManager) Publish(exchange, queue string, content interface{}) error {
+	msg := &MsgData{
+		Option: Option{
+			Exchange: exchange,
+			Queue:    queue,
+		},
+		Content: content,
+	}
+	return self.PublishMsgData(msg)
+}
+
+func (self *PublishManager) PublishMsgData(data *MsgData) error {
 	if data == nil {
 		return util.Error("publish data empty")
 	}
@@ -207,41 +218,41 @@ func (self *PublishManager) Publish(data *MsgData) error {
 	if len(sigKey) == 0 {
 		return util.Error("签名密钥为空")
 	}
-	ret, err := util.ToJsonBase64(data.Content);
+	content, err := util.ToJsonBase64(data.Content);
 	if err != nil {
 		return err
 	}
-	if len(ret) == 0 {
+	if len(content) == 0 {
 		return util.Error("发送数据编码为空")
 	}
 	if sigTyp == MD5 { // MD5模式
-		data.Content = ret
-		data.Signature = util.MD5(ret+data.Nonce, sigKey)
+		data.Content = content
+		data.Signature = util.MD5(content+data.Nonce, sigKey)
 	} else if sigTyp == SHA256 { // SHA256模式
-		data.Content = ret
-		data.Signature = util.SHA256(ret+data.Nonce, sigKey)
+		data.Content = content
+		data.Signature = util.SHA256(content+data.Nonce, sigKey)
 	} else if sigTyp == MD5_AES { // AES+MD5模式
 	} else if sigTyp == SHA256_AES { // AES+MD5模式
 	} else {
 		return util.Error("签名类型无效")
 	}
 	data.Option.SigKey = ""
-	if _, err := pub.sendToMQ(data); err != nil {
+	if _, err := pub.sendMessage(data); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (self *PublishMQ) sendToMQ(v *MsgData) (bool, error) {
-	if b, err := util.JsonMarshal(v); err != nil {
+func (self *PublishMQ) sendMessage(msg *MsgData) (bool, error) {
+	body, err := util.JsonMarshal(msg)
+	if err != nil {
 		return false, err
-	} else {
-		data := amqp.Publishing{ContentType: "text/plain", Body: b}
-		if err := self.channel.Publish(self.option.Exchange, self.option.Router, false, false, data); err != nil {
-			return false, err
-		}
-		return true, nil
 	}
+	data := amqp.Publishing{ContentType: "text/plain", Body: body}
+	if err := self.channel.Publish(self.option.Exchange, self.option.Router, false, false, data); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (self *PublishMQ) prepareExchange() error {

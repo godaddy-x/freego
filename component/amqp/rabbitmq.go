@@ -1,5 +1,13 @@
 package rabbitmq
 
+import (
+	"fmt"
+	"github.com/godaddy-x/freego/util"
+	"github.com/streadway/amqp"
+	"net"
+	"time"
+)
+
 const (
 	MASTER     = "MASTER"
 	DIRECT     = "direct"
@@ -52,11 +60,23 @@ type DLX struct {
 }
 
 // Amqp监听配置参数
-type LisData struct {
+type Config struct {
 	Option        Option
 	Durable       bool
 	PrefetchCount int
 	PrefetchSize  int
 	IsNack        bool
 	AutoAck       bool
+}
+
+func ConnectRabbitMQ(conf AmqpConfig) (*amqp.Connection, error) {
+	c, err := amqp.DialConfig(fmt.Sprintf("amqp://%s:%s@%s:%d/", conf.Username, conf.Password, conf.Host, conf.Port), amqp.Config{
+		Dial: func(network, addr string) (net.Conn, error) {
+			return net.DialTimeout(network, addr, 3*time.Second)
+		},
+	})
+	if err != nil {
+		return nil, util.Error("PullManager RabbitMQ初始化失败: ", err)
+	}
+	return c, nil
 }
