@@ -5,5 +5,9 @@
   "Database": "openwallet",
   "Username": "root",
   "Password": "123456",
-  "MongoSync": false
+  "MongoSync": false,
+  "MaxIdleConns": 500,
+  "MaxOpenConns": 500,
+  "ConnMaxLifetime": 10,
+  "ConnMaxIdleTime": 10
 }

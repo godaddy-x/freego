@@ -15,6 +15,7 @@ type MysqlConfig struct {
 	MaxIdleConns    int
 	MaxOpenConns    int
 	ConnMaxLifetime int
+	ConnMaxIdleTime int
 }
 
 // mysql连接管理器
@@ -54,6 +55,7 @@ func (self *MysqlManager) buildByConfig(manager cache.ICache, input ...MysqlConf
 		db.SetMaxIdleConns(v.MaxIdleConns)
 		db.SetMaxOpenConns(v.MaxOpenConns)
 		db.SetConnMaxLifetime(time.Second * time.Duration(v.ConnMaxLifetime))
+		db.SetConnMaxIdleTime(time.Second * time.Duration(v.ConnMaxIdleTime))
 		rdb := &RDBManager{}
 		rdb.Db = db
 		rdb.DsName = dsName
