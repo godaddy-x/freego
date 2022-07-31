@@ -16,26 +16,6 @@ import (
 	"time"
 )
 
-type User struct {
-	Id       int64  `json:"id" bson:"_id" tb:"rbac_user"`
-	Username string `json:"username" bson:"username"`
-	Password string `json:"password" bson:"password"`
-	Uid      string `json:"uid" bson:"uid"`
-	Utype    int8   `json:"utype" bson:"utype"`
-}
-
-type DxApp struct {
-	Id        int64  `json:"id" bson:"_id" tb:"dx_app"`
-	Name      string `json:"name" bson:"name"`
-	Signature string `json:"signature" bson:"signature"`
-	Secretkey string `json:"secretkey" bson:"secretkey"`
-	Balance   int64  `json:"balance" bson:"balance"`
-	Usestate  int64  `json:"usestate" bson:"usestate"`
-	Ctime     int64  `json:"ctime" bson:"ctime"`
-	Utime     int64  `json:"utime" bson:"utime"`
-	State     int64  `json:"state" bson:"state"`
-}
-
 func TestMysql(t *testing.T) {
 	db, err := new(sqld.MysqlManager).Get(sqld.Option{OpenTx: &sqld.TRUE})
 	if err != nil {
@@ -150,7 +130,6 @@ func TestMysqlDetele(t *testing.T) {
 }
 
 func TestMysqlFindById(t *testing.T) {
-	initDB()
 	db, err := new(sqld.MysqlManager).Get()
 	if err != nil {
 		panic(err)
@@ -167,7 +146,6 @@ func TestMysqlFindById(t *testing.T) {
 }
 
 func TestMysqlFindOne(t *testing.T) {
-	initDB()
 	db, err := new(sqld.MysqlManager).Get(sqld.Option{OpenTx: &sqld.FALSE})
 	if err != nil {
 		panic(err)
@@ -331,20 +309,6 @@ func TestMongoCount(t *testing.T) {
 		fmt.Println(err)
 	} else {
 		fmt.Println(c)
-	}
-	fmt.Println("cost: ", util.Time()-l)
-}
-
-func TestMongoFindOne(t *testing.T) {
-	l := util.Time()
-	db, err := new(sqld.MGOManager).Get(sqld.Option{OpenTx: &sqld.TRUE})
-	if err != nil {
-		panic(err)
-	}
-	defer db.Close()
-	o := &OwWallet{}
-	if err := db.FindOne(sqlc.M().Eq("id", 287), o); err != nil {
-		fmt.Println(err)
 	}
 	fmt.Println("cost: ", util.Time()-l)
 }

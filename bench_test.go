@@ -8,9 +8,6 @@ import (
 	"testing"
 )
 
-// go tool pprof -http=":8081" .\cpuprofile.out
-// go test bench_test.go -bench .  -benchmem -count=5 -cpuprofile cpuprofile.out -memprofile memprofile.out
-
 type OwWallet struct {
 	Id           int64  `json:"id" bson:"_id" tb:"ow_wallet" mg:"true"`
 	AppID        string `json:"appID" bson:"appID"`
@@ -31,13 +28,26 @@ type OwWallet struct {
 	State        int64  `json:"state" bson:"state"`
 }
 
-func initDB() {
-	mysql := sqld.MysqlConfig{}
-	if err := util.ReadLocalJsonConfig("resource/mysql.json", &mysql); err != nil {
+// go build -gcflags=-m main.go
+// go tool pprof -http=":8081" .\cpuprofile.out
+// go test bench_test.go -bench .  -benchmem -count=5 -cpuprofile cpuprofile.out -memprofile memprofile.out
+
+func initMysqlDB() {
+	conf := sqld.MysqlConfig{}
+	if err := util.ReadLocalJsonConfig("resource/mysql.json", &conf); err != nil {
 		panic(util.AddStr("读取mysql配置失败: ", err.Error()))
 	}
-	new(sqld.MysqlManager).InitConfigAndCache(nil, mysql)
-	fmt.Println("init success")
+	new(sqld.MysqlManager).InitConfigAndCache(nil, conf)
+	fmt.Println("init mysql success")
+}
+
+func initMongoDB() {
+	conf := sqld.MGOConfig{}
+	if err := util.ReadLocalJsonConfig("resource/mongo.json", &conf); err != nil {
+		panic(util.AddStr("读取mongo配置失败: ", err.Error()))
+	}
+	new(sqld.MGOManager).InitConfigAndCache(nil, conf)
+	fmt.Println("init mongo success")
 }
 
 func init() {
@@ -48,7 +58,8 @@ func init() {
 			func() interface{} { return &[]*OwWallet{} },
 		},
 	)
-	initDB()
+	initMysqlDB()
+	initMongoDB()
 	//sqld.ModelDriver(
 	//	sqld.Hook{
 	//		func() interface{} { return &DxApp{} },
@@ -136,7 +147,7 @@ func init() {
 //	}
 //}
 
-func BenchmarkFindOne(b *testing.B) {
+func BenchmarkMysqlFindOne(b *testing.B) {
 	b.StopTimer()              //调用该函数停止压力测试的时间计数go test -run="webbench_test.go" -test.bench="."*
 	b.StartTimer()             //重新开始时间
 	for i := 0; i < b.N; i++ { //use b.N for looping
@@ -151,5 +162,21 @@ func BenchmarkFindOne(b *testing.B) {
 			fmt.Println(err)
 		}
 		//fmt.Println("cost: ", util.Time()-l)
+	}
+}
+
+func BenchmarkMongoFindOne(b *testing.B) {
+	b.StopTimer()              //调用该函数停止压力测试的时间计数go test -run="webbench_test.go" -test.bench="."*
+	b.StartTimer()             //重新开始时间
+	for i := 0; i < b.N; i++ { //use b.N for looping
+		db, err := new(sqld.MGOManager).Get()
+		if err != nil {
+			panic(err)
+		}
+		defer db.Close()
+		o := &OwWallet{}
+		if err := db.FindOne(sqlc.M().Eq("id", 1182663723102240768), o); err != nil {
+			fmt.Println(err)
+		}
 	}
 }
