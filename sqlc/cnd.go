@@ -94,6 +94,7 @@ type Cnd struct {
 	FromCond     *FromCond
 	JoinCond     []*JoinCond
 	SampleSize   int64
+	ResultSize_  int64 // 固定截取结果集数量
 	CacheConfig  CacheConfig
 }
 
@@ -402,6 +403,18 @@ func (self *Cnd) Sample(size int64) *Cnd {
 		size = 10
 	}
 	self.SampleSize = size
+	return self
+}
+
+// 固定截取结果集数量
+func (self *Cnd) ResultSize(size int64) *Cnd {
+	if size <= 0 {
+		return self
+	}
+	if size > 2000 {
+		size = 10
+	}
+	self.ResultSize_ = size
 	return self
 }
 
