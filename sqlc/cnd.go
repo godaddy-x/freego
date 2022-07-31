@@ -107,17 +107,7 @@ type CacheConfig struct {
 
 // args[0]=对象类型
 func M(model ...interface{}) *Cnd {
-	c := &Cnd{
-		ConditPart:   make([]string, 0),
-		Conditions:   make([]Condition, 0),
-		AnyFields:    make([]string, 0),
-		AnyNotFields: make([]string, 0),
-		Distincts:    make([]string, 0),
-		Groupbys:     make([]string, 0),
-		Aggregates:   make([]Condition, 0),
-		Orderbys:     make([]Condition, 0),
-		Upsets:       make(map[string]interface{}, 0),
-	}
+	c := &Cnd{}
 	if model != nil && len(model) > 0 {
 		c.Model = model[0]
 	}
@@ -430,6 +420,9 @@ func (self *Cnd) Upset(keys []string, values ...interface{}) *Cnd {
 	if len(keys) == 0 || len(keys) != len(values) {
 		fmt.Println("keys和values参数下标不对等")
 		return self
+	}
+	if self.Upsets == nil {
+		self.Upsets = make(map[string]interface{}, len(keys))
 	}
 	for i := 0; i < len(keys); i++ {
 		self.Upsets[keys[i]] = values[i]

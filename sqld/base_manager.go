@@ -191,7 +191,7 @@ func (self *DBManager) Error(data ...interface{}) error {
 	if data == nil || len(data) == 0 {
 		return nil
 	}
-	err := util.Error(data ...)
+	err := util.Error(data...)
 	self.Errors = append(self.Errors, err)
 	return err
 }
@@ -264,7 +264,7 @@ func (self *RDBManager) Save(data ...interface{}) error {
 		return self.Error("[Mysql.Save]参数对象数量不能超过2000")
 	}
 	obkey := reflect.TypeOf(data[0]).String()
-	obv, ok := modelDrivers[obkey];
+	obv, ok := modelDrivers[obkey]
 	if !ok {
 		return self.Error("[Mysql.Save]没有找到注册对象类型[", obkey, "]")
 	}
@@ -298,7 +298,7 @@ func (self *RDBManager) Save(data ...interface{}) error {
 					return util.Error("支持int64和string类型ID")
 				}
 			} else {
-				fval, err := GetValue(v, vv);
+				fval, err := GetValue(v, vv)
 				if err != nil {
 					log.Error("[Mysql.Save]参数值获取异常", 0, log.String("field", vv.FieldName), log.AddError(err))
 					continue
@@ -368,7 +368,7 @@ func (self *RDBManager) Update(data ...interface{}) error {
 		return self.Error("[Mysql.Update]参数对象数量不能超过2000")
 	}
 	obkey := reflect.TypeOf(data[0]).String()
-	obv, ok := modelDrivers[obkey];
+	obv, ok := modelDrivers[obkey]
 	if !ok {
 		return self.Error("[Mysql.Update]没有找到注册对象类型[", obkey, "]")
 	}
@@ -479,7 +479,7 @@ func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) error {
 		return self.Error("[Mysql.UpdateByCnd]更新字段不能为空")
 	}
 	obkey := reflect.TypeOf(cnd.Model).String()
-	obv, ok := modelDrivers[obkey];
+	obv, ok := modelDrivers[obkey]
 	if !ok {
 		return self.Error("[Mysql.UpdateByCnd]没有找到注册对象类型[", obkey, "]")
 	}
@@ -552,7 +552,7 @@ func (self *RDBManager) Delete(data ...interface{}) error {
 		return self.Error("[Mysql.Delete]参数对象数量不能超过2000")
 	}
 	obkey := reflect.TypeOf(data[0]).String()
-	obv, ok := modelDrivers[obkey];
+	obv, ok := modelDrivers[obkey]
 	if !ok {
 		return self.Error("[Mysql.Delete]没有找到注册对象类型[", obkey, "]")
 	}
@@ -562,7 +562,7 @@ func (self *RDBManager) Delete(data ...interface{}) error {
 		if len(obkey) == 0 {
 			obkey = reflect.TypeOf(v).String()
 		}
-		obv, ok := modelDrivers[obkey];
+		obv, ok := modelDrivers[obkey]
 		if !ok {
 			return self.Error("[Mysql.Delete]没有找到注册对象类型[", obkey, "]")
 		}
@@ -629,11 +629,11 @@ func (self *RDBManager) FindById(data interface{}) error {
 		return self.Error("[Mysql.FindById]参数对象为空")
 	}
 	obkey := reflect.TypeOf(data).String()
-	obv, ok := modelDrivers[obkey];
+	obv, ok := modelDrivers[obkey]
 	if !ok {
 		return self.Error("[Mysql.FindById]没有找到注册对象类型[", obkey, "]")
 	}
-	parameter := []interface{}{}
+	var parameter []interface{}
 	if obv.PkKind == reflect.Int64 {
 		lastInsertId := util.GetInt64(util.GetPtr(data, obv.PkOffset))
 		if lastInsertId == 0 {
@@ -664,6 +664,7 @@ func (self *RDBManager) FindById(data interface{}) error {
 	sqlbuf.WriteString(" where ")
 	sqlbuf.WriteString(obv.PkName)
 	sqlbuf.WriteString(" = ?")
+	sqlbuf.WriteString(" limit 1")
 	prepare := util.Bytes2Str(sqlbuf.Bytes())
 	if log.IsDebug() {
 		defer log.Debug("[Mysql.FindById]日志", util.Time(), log.String("sql", prepare), log.Any("values", parameter))
@@ -716,11 +717,11 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data interface{}) error {
 		return self.Error("[Mysql.FindOne]参数对象为空")
 	}
 	obkey := reflect.TypeOf(data).String()
-	obv, ok := modelDrivers[obkey];
+	obv, ok := modelDrivers[obkey]
 	if !ok {
 		return self.Error("[Mysql.FindOne]没有找到注册对象类型[", obkey, "]")
 	}
-	parameter := []interface{}{}
+	var parameter []interface{}
 	fpart := bytes.NewBuffer(make([]byte, 0, 12*len(obv.FieldElem)))
 	for _, vv := range obv.FieldElem {
 		if vv.Ignore {
@@ -755,16 +756,19 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data interface{}) error {
 	if len(sortby) > 0 {
 		sqlbuf.WriteString(sortby)
 	}
-	cnd.Pagination = dialect.Dialect{PageNo: 1, PageSize: 1}
-	prepare, err := self.BuildPagination(cnd, util.Bytes2Str(sqlbuf.Bytes()), parameter)
-	if err != nil {
-		return self.Error(err)
-	}
+	sqlbuf.WriteString(" limit 1")
+	// cnd.Pagination = dialect.Dialect{PageNo: 1, PageSize: 1}
+	// prepare, err := self.BuildPagination(cnd, util.Bytes2Str(sqlbuf.Bytes()), parameter)
+	// if err != nil {
+	//	 return self.Error(err)
+	// }
+	prepare := util.Bytes2Str(sqlbuf.Bytes())
 	if log.IsDebug() {
 		defer log.Debug("[Mysql.FindOne]日志", util.Time(), log.String("sql", prepare), log.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
 	defer cancel()
+	var err error
 	var stmt *sql.Stmt
 	var rows *sql.Rows
 	if *self.OpenTx {
@@ -815,7 +819,7 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	} else {
 		obkey = util.Substr(obkey, 3, len(obkey))
 	}
-	obv, ok := modelDrivers[obkey];
+	obv, ok := modelDrivers[obkey]
 	if !ok {
 		return self.Error("[Mysql.FindList]没有找到注册对象类型[", obkey, "]")
 	}
@@ -887,7 +891,7 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	if err != nil {
 		return self.Error("[Mysql.FindList]读取查询列失败: ", err)
 	}
-	out, err := OutDest(rows, len(cols));
+	out, err := OutDest(rows, len(cols))
 	if err != nil {
 		return self.Error("[Mysql.FindList]读取查询结果失败: ", err)
 	} else if len(out) == 0 {
@@ -920,7 +924,7 @@ func (self *RDBManager) Count(cnd *sqlc.Cnd) (int64, error) {
 		return 0, self.Error("[Mysql.Count]参数对象为空")
 	}
 	obkey := reflect.TypeOf(cnd.Model).String()
-	obv, ok := modelDrivers[obkey];
+	obv, ok := modelDrivers[obkey]
 	if !ok {
 		return 0, self.Error("[Mysql.Count]没有找到注册对象类型[", obkey, "]")
 	}
@@ -1013,7 +1017,7 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 	} else {
 		obkey = util.Substr(obkey, 3, len(obkey))
 	}
-	obv, ok := modelDrivers[obkey];
+	obv, ok := modelDrivers[obkey]
 	if !ok {
 		return self.Error("[Mysql.FindListComplex]没有找到注册对象类型[", obkey, "]")
 	}
@@ -1108,7 +1112,7 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 	if len(cols) != len(cnd.AnyFields) {
 		return self.Error("[Mysql.FindListComplex]查询列长度异常")
 	}
-	out, err := OutDest(rows, len(cols));
+	out, err := OutDest(rows, len(cols))
 	if err != nil {
 		return self.Error("[Mysql.FindListComplex]读取查询结果失败: ", err)
 	} else if len(out) == 0 {
@@ -1150,7 +1154,7 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data interface{}) error {
 		return self.Error("[Mysql.FindOneComplex]参数对象为空")
 	}
 	obkey := reflect.TypeOf(data).String()
-	obv, ok := modelDrivers[obkey];
+	obv, ok := modelDrivers[obkey]
 	if !ok {
 		return self.Error("[Mysql.FindOneComplex]没有找到注册对象类型[", obkey, "]")
 	}
@@ -1212,15 +1216,18 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data interface{}) error {
 	if len(sortby) > 0 {
 		sqlbuf.WriteString(sortby)
 	}
-	prepare, err := self.BuildPagination(cnd, util.Bytes2Str(sqlbuf.Bytes()), parameter)
-	if err != nil {
-		return self.Error(err)
-	}
+	sqlbuf.WriteString(" limit 1")
+	// prepare, err := self.BuildPagination(cnd, util.Bytes2Str(sqlbuf.Bytes()), parameter)
+	// if err != nil {
+	//	 return self.Error(err)
+	// }
+	prepare := util.Bytes2Str(sqlbuf.Bytes())
 	if log.IsDebug() {
 		defer log.Debug("[Mysql.FindOneComplex]日志", util.Time(), log.String("sql", prepare), log.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
 	defer cancel()
+	var err error
 	var stmt *sql.Stmt
 	var rows *sql.Rows
 	if *self.OpenTx {
@@ -1293,7 +1300,7 @@ func (self *RDBManager) Close() error {
 
 // mongo同步数据
 func (self *RDBManager) mongoSyncData(option int, model interface{}, data ...interface{}) error {
-	mongo, err := new(MGOManager).Get(self.Option);
+	mongo, err := new(MGOManager).Get(self.Option)
 	if err != nil {
 		return util.Error("获取mongo连接失败: ", err)
 	}
@@ -1512,7 +1519,7 @@ func (self *RDBManager) BuildPagination(cnd *sqlc.Cnd, sqlbuf string, values []i
 	if pagination.PageSize <= 0 {
 		pagination.PageSize = 10
 	}
-	dialect := dialect.MysqlDialect{pagination}
+	dialect := dialect.MysqlDialect{Dialect: pagination}
 	limitSql, err := dialect.GetLimitSql(sqlbuf)
 	if err != nil {
 		return "", err

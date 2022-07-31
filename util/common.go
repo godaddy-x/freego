@@ -111,7 +111,7 @@ func MathAbs(n int64) int64 {
 
 // 获取当前时间/毫秒
 func Time(t ...time.Time) int64 {
-	return Millisecond(t ...)
+	return Millisecond(t...)
 }
 
 // 获取当前时间/秒
@@ -162,48 +162,17 @@ func Nanosecond(t ...time.Time) int64 {
 
 // 获取当前时间/毫秒
 func Millisecond(t ...time.Time) int64 {
-	return Nanosecond(t ...) / 1e6
+	return Nanosecond(t...) / 1e6
 }
 
 // 截取字符串 start 起点下标 length 需要截取的长度
 func Substr(str string, start int, length int) string {
-	rs := []rune(str)
-	rl := len(rs)
-	end := 0
-	if start < 0 {
-		start = rl - 1 + start
-	}
-	end = start + length
-
-	if start > end {
-		start, end = end, start
-	}
-	if start < 0 {
-		start = 0
-	}
-	if start > rl {
-		start = rl
-	}
-	if end < 0 {
-		end = 0
-	}
-	if end > rl {
-		end = rl
-	}
-	return string(rs[start:end])
+	return str[start:length]
 }
 
 // 截取字符串 start 起点下标 end 终点下标(不包括)
 func Substr2(str string, start int, end int) string {
-	rs := []rune(str)
-	length := len(rs)
-	if start < 0 || start > length {
-		return ""
-	}
-	if end < 0 || end > length {
-		return ""
-	}
-	return string(rs[start:end])
+	return str[start : len(str)-end]
 }
 
 // 获取本机内网IP
@@ -213,8 +182,7 @@ func GetLocalIP() string {
 		log.Println(err)
 		return ""
 	}
-	for _,
-	address := range addrs { // 检查ip地址判断是否回环地址
+	for _, address := range addrs { // 检查ip地址判断是否回环地址
 		if ipnet, ok := address.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
 			if ipnet.IP.To4() != nil {
 				return ipnet.IP.String()
@@ -435,10 +403,10 @@ func GetSnowFlakeIntID(sec ...int64) int64 {
 	if sec != nil && len(sec) > 0 && sec[0] > 0 {
 		seed = sec[0]
 	}
-	node, ok := snowflakes[seed];
+	node, ok := snowflakes[seed]
 	if !ok || node == nil {
 		mu.Lock()
-		node, ok = snowflakes[seed];
+		node, ok = snowflakes[seed]
 		if !ok || node == nil {
 			node, _ = snowflake.NewNode(seed)
 			snowflakes[seed] = node
@@ -625,7 +593,7 @@ func ToJsonBase64(input interface{}) (string, error) {
 	return Base64URLEncode(Bytes2Str(b)), nil
 }
 
-func ParseJsonBase64(input interface{}, ouput interface{}) (error) {
+func ParseJsonBase64(input interface{}, ouput interface{}) error {
 	b := Base64URLDecode(input)
 	if b == nil || len(b) == 0 {
 		return Error("base64 data decode failed")
