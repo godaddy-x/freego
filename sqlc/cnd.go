@@ -94,6 +94,7 @@ type Cnd struct {
 	FromCond     *FromCond
 	JoinCond     []*JoinCond
 	SampleSize   int64
+	LimitSize    int64 // 固定截取指定size
 	CacheConfig  CacheConfig
 }
 
@@ -106,17 +107,17 @@ type CacheConfig struct {
 }
 
 // args[0]=对象类型
-func M(model ...interface{}) *Cnd {
-	c := &Cnd{
-		ConditPart:   make([]string, 0),
-		Conditions:   make([]Condition, 0),
-		AnyFields:    make([]string, 0),
-		AnyNotFields: make([]string, 0),
-		Distincts:    make([]string, 0),
-		Groupbys:     make([]string, 0),
-		Aggregates:   make([]Condition, 0),
-		Orderbys:     make([]Condition, 0),
-		Upsets:       make(map[string]interface{}, 0),
+func M(model ...interface{}) Cnd {
+	c := Cnd{
+		//ConditPart:   make([]string, 0),
+		//Conditions:   make([]Condition, 0),
+		//AnyFields:    make([]string, 0),
+		//AnyNotFields: make([]string, 0),
+		//Distincts:    make([]string, 0),
+		//Groupbys:     make([]string, 0),
+		//Aggregates:   make([]Condition, 0),
+		//Orderbys:     make([]Condition, 0),
+		//Upsets:       make(map[string]interface{}, 0),
 	}
 	if model != nil && len(model) > 0 {
 		c.Model = model[0]
@@ -125,13 +126,13 @@ func M(model ...interface{}) *Cnd {
 }
 
 // 保存基础命令操作
-func addDefaultCondit(cnd *Cnd, condit Condition) *Cnd {
+func addDefaultCondit(cnd Cnd, condit Condition) Cnd {
 	cnd.Conditions = append(cnd.Conditions, condit)
 	return cnd
 }
 
 // =
-func (self *Cnd) Eq(key string, value interface{}) *Cnd {
+func (self Cnd) Eq(key string, value interface{}) Cnd {
 	if value == nil {
 		return self
 	}
@@ -140,7 +141,7 @@ func (self *Cnd) Eq(key string, value interface{}) *Cnd {
 }
 
 // <>
-func (self *Cnd) NotEq(key string, value interface{}) *Cnd {
+func (self Cnd) NotEq(key string, value interface{}) Cnd {
 	if value == nil {
 		return self
 	}
@@ -149,7 +150,7 @@ func (self *Cnd) NotEq(key string, value interface{}) *Cnd {
 }
 
 // <
-func (self *Cnd) Lt(key string, value interface{}) *Cnd {
+func (self Cnd) Lt(key string, value interface{}) Cnd {
 	if value == nil {
 		return self
 	}
@@ -158,7 +159,7 @@ func (self *Cnd) Lt(key string, value interface{}) *Cnd {
 }
 
 // <=
-func (self *Cnd) Lte(key string, value interface{}) *Cnd {
+func (self Cnd) Lte(key string, value interface{}) Cnd {
 	if value == nil {
 		return self
 	}
@@ -167,7 +168,7 @@ func (self *Cnd) Lte(key string, value interface{}) *Cnd {
 }
 
 // >
-func (self *Cnd) Gt(key string, value interface{}) *Cnd {
+func (self Cnd) Gt(key string, value interface{}) Cnd {
 	if value == nil {
 		return self
 	}
@@ -176,7 +177,7 @@ func (self *Cnd) Gt(key string, value interface{}) *Cnd {
 }
 
 // >=
-func (self *Cnd) Gte(key string, value interface{}) *Cnd {
+func (self Cnd) Gte(key string, value interface{}) Cnd {
 	if value == nil {
 		return self
 	}
@@ -185,19 +186,19 @@ func (self *Cnd) Gte(key string, value interface{}) *Cnd {
 }
 
 // is null
-func (self *Cnd) IsNull(key string) *Cnd {
+func (self Cnd) IsNull(key string) Cnd {
 	condit := Condition{IS_NULL_, key, nil, nil, ""}
 	return addDefaultCondit(self, condit)
 }
 
 // is not null
-func (self *Cnd) IsNotNull(key string) *Cnd {
+func (self Cnd) IsNotNull(key string) Cnd {
 	condit := Condition{IS_NOT_NULL_, key, nil, nil, ""}
 	return addDefaultCondit(self, condit)
 }
 
 // between, >= a b =<
-func (self *Cnd) Between(key string, value1 interface{}, value2 interface{}) *Cnd {
+func (self Cnd) Between(key string, value1 interface{}, value2 interface{}) Cnd {
 	if value1 == nil || value2 == nil {
 		return self
 	}
@@ -206,7 +207,7 @@ func (self *Cnd) Between(key string, value1 interface{}, value2 interface{}) *Cn
 }
 
 // 时间范围专用, >= a b <
-func (self *Cnd) InDate(key string, value1 interface{}, value2 interface{}) *Cnd {
+func (self Cnd) InDate(key string, value1 interface{}, value2 interface{}) Cnd {
 	if value1 == nil || value2 == nil {
 		return self
 	}
@@ -215,7 +216,7 @@ func (self *Cnd) InDate(key string, value1 interface{}, value2 interface{}) *Cnd
 }
 
 // not between
-func (self *Cnd) NotBetween(key string, value1 interface{}, value2 interface{}) *Cnd {
+func (self Cnd) NotBetween(key string, value1 interface{}, value2 interface{}) Cnd {
 	if value1 == nil || value2 == nil {
 		return self
 	}
@@ -224,7 +225,7 @@ func (self *Cnd) NotBetween(key string, value1 interface{}, value2 interface{}) 
 }
 
 // in
-func (self *Cnd) In(key string, values ...interface{}) *Cnd {
+func (self Cnd) In(key string, values ...interface{}) Cnd {
 	if values == nil || len(values) == 0 {
 		return self
 	}
@@ -233,7 +234,7 @@ func (self *Cnd) In(key string, values ...interface{}) *Cnd {
 }
 
 // not in
-func (self *Cnd) NotIn(key string, values ...interface{}) *Cnd {
+func (self Cnd) NotIn(key string, values ...interface{}) Cnd {
 	if values == nil || len(values) == 0 {
 		return self
 	}
@@ -242,7 +243,7 @@ func (self *Cnd) NotIn(key string, values ...interface{}) *Cnd {
 }
 
 // like
-func (self *Cnd) Like(key string, value interface{}) *Cnd {
+func (self Cnd) Like(key string, value interface{}) Cnd {
 	if value == nil {
 		return self
 	}
@@ -251,7 +252,7 @@ func (self *Cnd) Like(key string, value interface{}) *Cnd {
 }
 
 // not like
-func (self *Cnd) NotLike(key string, value interface{}) *Cnd {
+func (self Cnd) NotLike(key string, value interface{}) Cnd {
 	if value == nil {
 		return self
 	}
@@ -260,7 +261,7 @@ func (self *Cnd) NotLike(key string, value interface{}) *Cnd {
 }
 
 // add other
-func (self *Cnd) AddOther(part string) *Cnd {
+func (self Cnd) AddOther(part string) Cnd {
 	if len(part) > 0 {
 		self.ConditPart = append(self.ConditPart, part)
 	}
@@ -268,7 +269,7 @@ func (self *Cnd) AddOther(part string) *Cnd {
 }
 
 // or
-func (self *Cnd) Or(cnds ...interface{}) *Cnd {
+func (self Cnd) Or(cnds ...interface{}) Cnd {
 	if cnds == nil || len(cnds) == 0 {
 		return self
 	}
@@ -277,13 +278,13 @@ func (self *Cnd) Or(cnds ...interface{}) *Cnd {
 }
 
 // 复杂查询设定首个from table as
-func (self *Cnd) From(fromTable string) *Cnd {
+func (self Cnd) From(fromTable string) Cnd {
 	self.FromCond = &FromCond{fromTable, ""}
 	return self
 }
 
 // left join
-func (self *Cnd) Join(join int, table string, on string) *Cnd {
+func (self Cnd) Join(join int, table string, on string) Cnd {
 	if len(table) == 0 || len(on) == 0 {
 		return self
 	}
@@ -292,7 +293,7 @@ func (self *Cnd) Join(join int, table string, on string) *Cnd {
 }
 
 // limit,以页数跨度查询
-func (self *Cnd) Limit(pageNo int64, pageSize int64) *Cnd {
+func (self Cnd) Limit(pageNo int64, pageSize int64) Cnd {
 	if pageNo <= 0 {
 		pageNo = 1
 	}
@@ -304,7 +305,7 @@ func (self *Cnd) Limit(pageNo int64, pageSize int64) *Cnd {
 }
 
 // offset,以下标跨度查询
-func (self *Cnd) Offset(offset int64, limit int64) *Cnd {
+func (self Cnd) Offset(offset int64, limit int64) Cnd {
 	if offset <= 0 {
 		offset = 0
 	}
@@ -316,7 +317,7 @@ func (self *Cnd) Offset(offset int64, limit int64) *Cnd {
 }
 
 // 筛选字段去重
-func (self *Cnd) Distinct(keys ...string) *Cnd {
+func (self Cnd) Distinct(keys ...string) Cnd {
 	for _, v := range keys {
 		if len(v) == 0 {
 			continue
@@ -327,7 +328,7 @@ func (self *Cnd) Distinct(keys ...string) *Cnd {
 }
 
 // 按字段分组
-func (self *Cnd) Groupby(keys ...string) *Cnd {
+func (self Cnd) Groupby(keys ...string) Cnd {
 	for _, v := range keys {
 		if len(v) == 0 {
 			continue
@@ -338,7 +339,7 @@ func (self *Cnd) Groupby(keys ...string) *Cnd {
 }
 
 // 聚合函数
-func (self *Cnd) Agg(logic int, key string, alias ...string) *Cnd {
+func (self Cnd) Agg(logic int, key string, alias ...string) Cnd {
 	if len(key) == 0 {
 		return self
 	}
@@ -351,14 +352,14 @@ func (self *Cnd) Agg(logic int, key string, alias ...string) *Cnd {
 }
 
 // 按字段排序
-func (self *Cnd) Orderby(key string, sortby int) *Cnd {
+func (self Cnd) Orderby(key string, sortby int) Cnd {
 	condit := Condition{ORDER_BY_, key, sortby, nil, ""}
 	self.Orderbys = append(self.Orderbys, condit)
 	return self
 }
 
 // 按字段排序升序
-func (self *Cnd) Asc(keys ...string) *Cnd {
+func (self Cnd) Asc(keys ...string) Cnd {
 	if keys == nil || len(keys) == 0 {
 		return self
 	}
@@ -370,7 +371,7 @@ func (self *Cnd) Asc(keys ...string) *Cnd {
 }
 
 // 按字段排序倒序
-func (self *Cnd) Desc(keys ...string) *Cnd {
+func (self Cnd) Desc(keys ...string) Cnd {
 	if keys == nil || len(keys) == 0 {
 		return self
 	}
@@ -382,7 +383,7 @@ func (self *Cnd) Desc(keys ...string) *Cnd {
 }
 
 // 筛选指定字段查询
-func (self *Cnd) Fields(keys ...string) *Cnd {
+func (self Cnd) Fields(keys ...string) Cnd {
 	if keys == nil || len(keys) == 0 {
 		return self
 	}
@@ -393,7 +394,7 @@ func (self *Cnd) Fields(keys ...string) *Cnd {
 }
 
 // 筛选过滤指定字段查询
-func (self *Cnd) NotFields(keys ...string) *Cnd {
+func (self Cnd) NotFields(keys ...string) Cnd {
 	if keys == nil || len(keys) == 0 {
 		return self
 	}
@@ -404,7 +405,7 @@ func (self *Cnd) NotFields(keys ...string) *Cnd {
 }
 
 // 随机选取数据条数
-func (self *Cnd) Sample(size int64) *Cnd {
+func (self Cnd) Sample(size int64) Cnd {
 	if size <= 0 {
 		return self
 	}
@@ -415,21 +416,35 @@ func (self *Cnd) Sample(size int64) *Cnd {
 	return self
 }
 
+func (self Cnd) Size(size int64) Cnd {
+	if size <= 0 {
+		return self
+	}
+	if size > 500 {
+		size = 10
+	}
+	self.LimitSize = size
+	return self
+}
+
 // 缓存指定结果集
-func (self *Cnd) Cache(config CacheConfig) *Cnd {
+func (self Cnd) Cache(config CacheConfig) Cnd {
 	self.CacheConfig = config
 	self.CacheConfig.Open = true
 	return self
 }
 
 // 指定更新字段
-func (self *Cnd) Upset(keys []string, values ...interface{}) *Cnd {
+func (self Cnd) Upset(keys []string, values ...interface{}) Cnd {
 	if values == nil || len(values) == 0 {
 		return self
 	}
 	if len(keys) == 0 || len(keys) != len(values) {
 		fmt.Println("keys和values参数下标不对等")
 		return self
+	}
+	if self.Upsets == nil {
+		self.Upsets = make(map[string]interface{}, len(keys))
 	}
 	for i := 0; i < len(keys); i++ {
 		self.Upsets[keys[i]] = values[i]

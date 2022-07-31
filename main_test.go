@@ -16,24 +16,44 @@ import (
 	"time"
 )
 
-type User struct {
-	Id       int64  `json:"id" bson:"_id" tb:"rbac_user"`
-	Username string `json:"username" bson:"username"`
-	Password string `json:"password" bson:"password"`
-	Uid      string `json:"uid" bson:"uid"`
-	Utype    int8   `json:"utype" bson:"utype"`
+type OwWallet struct {
+	Id           int64  `json:"id" bson:"_id" tb:"ow_wallet" mg:"true"`
+	AppID        string `json:"appID" bson:"appID"`
+	WalletID     string `json:"walletID" bson:"walletID"`
+	Alias        string `json:"alias" bson:"alias"`
+	IsTrust      int64  `json:"isTrust" bson:"isTrust"`
+	PasswordType int64  `json:"passwordType" bson:"passwordType"`
+	Password     string `json:"password" bson:"password"`
+	AuthKey      string `json:"authKey" bson:"authKey"`
+	RootPath     string `json:"rootPath" bson:"rootPath"`
+	AccountIndex int64  `json:"accountIndex" bson:"accountIndex"`
+	Keystore     string `json:"keystore" bson:"keystore"`
+	Applytime    int64  `json:"applytime" bson:"applytime"`
+	Succtime     int64  `json:"succtime" bson:"succtime"`
+	Dealstate    int64  `json:"dealstate" bson:"dealstate"`
+	Ctime        int64  `json:"ctime" bson:"ctime"`
+	Utime        int64  `json:"utime" bson:"utime"`
+	State        int64  `json:"state" bson:"state"`
 }
 
-type DxApp struct {
-	Id        int64  `json:"id" bson:"_id" tb:"dx_app"`
-	Name      string `json:"name" bson:"name"`
-	Signature string `json:"signature" bson:"signature"`
-	Secretkey string `json:"secretkey" bson:"secretkey"`
-	Balance   int64  `json:"balance" bson:"balance"`
-	Usestate  int64  `json:"usestate" bson:"usestate"`
-	Ctime     int64  `json:"ctime" bson:"ctime"`
-	Utime     int64  `json:"utime" bson:"utime"`
-	State     int64  `json:"state" bson:"state"`
+func InitDB() {
+	// 注册对象
+	sqld.ModelDriver(
+		sqld.Hook{
+			func() interface{} { return &OwWallet{} },
+			func() interface{} { return &[]*OwWallet{} },
+		},
+	)
+	mysql := sqld.MysqlConfig{}
+	if err := util.ReadLocalJsonConfig("resource/mysql.json", &mysql); err != nil {
+		panic(util.AddStr("读取mysql配置失败: ", err.Error()))
+	}
+	new(sqld.MysqlManager).InitConfigAndCache(nil, mysql)
+	fmt.Println("init success")
+}
+
+func init() {
+	InitDB()
 }
 
 func TestMysql(t *testing.T) {
@@ -115,7 +135,7 @@ func TestMysqlUpdateByCnd(t *testing.T) {
 	}
 	defer db.Close()
 	l := util.Time()
-	if err := db.UpdateByCnd(sqlc.M(&OwWallet{}).Upset([]string{"password"}, "1111").Eq("id", 1110371778615574533)); err != nil {
+	if err := db.UpdateByCnd(sqlc.M(&OwWallet{}).Upset([]string{"password"}, "1111").Eq("id", 1109819683034365953)); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println("cost: ", util.Time()-l)
@@ -150,7 +170,6 @@ func TestMysqlDetele(t *testing.T) {
 }
 
 func TestMysqlFindById(t *testing.T) {
-	initDB()
 	db, err := new(sqld.MysqlManager).Get()
 	if err != nil {
 		panic(err)
@@ -167,16 +186,12 @@ func TestMysqlFindById(t *testing.T) {
 }
 
 func TestMysqlFindOne(t *testing.T) {
-	initDB()
 	db, err := new(sqld.MysqlManager).Get(sqld.Option{OpenTx: &sqld.FALSE})
 	if err != nil {
 		panic(err)
 	}
 	defer db.Close()
 	l := util.Time()
-	for i := 0; i < 1; i++ {
-
-	}
 	wallet := OwWallet{}
 	if err := db.FindOne(sqlc.M().Fields("rootPath").Eq("id", 1109819683034365953), &wallet); err != nil {
 		fmt.Println(err)
@@ -191,8 +206,8 @@ func TestMysqlFindList(t *testing.T) {
 	}
 	defer db.Close()
 	l := util.Time()
-	result := []*OwWallet{}
-	if err := db.FindList(sqlc.M().Eq("id", 1124853348080549889).Groupby("id").Orderby("id", sqlc.DESC_).Limit(1, 5), &result); err != nil {
+	var result []*OwWallet
+	if err := db.FindList(sqlc.M().Eq("id", 1109819683034365911).Groupby("id").Orderby("id", sqlc.DESC_).Limit(1, 5), &result); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println("cost: ", util.Time()-l)
