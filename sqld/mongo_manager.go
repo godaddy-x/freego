@@ -229,7 +229,7 @@ func (self *MGOManager) Save(data ...interface{}) error {
 		d = self.MGOSyncData[0].CacheModel
 	}
 	obkey := reflect.TypeOf(d).String()
-	obv, ok := modelDrivers[obkey]
+	obv, ok := modelDrivers[obkey];
 	if !ok {
 		return self.Error("[Mongo.Save]没有找到注册对象类型[", obkey, "]")
 	}
@@ -260,7 +260,7 @@ func (self *MGOManager) Save(data ...interface{}) error {
 		}
 
 	}
-	if err := db.Insert(data...); err != nil {
+	if err := db.Insert(data ...); err != nil {
 		return self.Error("[Mongo.Save]保存数据失败: ", err)
 	}
 	return nil
@@ -279,7 +279,7 @@ func (self *MGOManager) Update(data ...interface{}) error {
 		d = self.MGOSyncData[0].CacheModel
 	}
 	obkey := reflect.TypeOf(d).String()
-	obv, ok := modelDrivers[obkey]
+	obv, ok := modelDrivers[obkey];
 	if !ok {
 		return self.Error("[Mongo.Update]没有找到注册对象类型[", obkey, "]")
 	}
@@ -334,7 +334,7 @@ func (self *MGOManager) Delete(data ...interface{}) error {
 		d = self.MGOSyncData[0].CacheModel
 	}
 	obkey := reflect.TypeOf(d).String()
-	obv, ok := modelDrivers[obkey]
+	obv, ok := modelDrivers[obkey];
 	if !ok {
 		return self.Error("[Mongo.Delete]没有找到注册对象类型[", obkey, "]")
 	}
@@ -374,12 +374,12 @@ func (self *MGOManager) Delete(data ...interface{}) error {
 }
 
 // 统计数据
-func (self *MGOManager) Count(cnd sqlc.Cnd) (int64, error) {
+func (self *MGOManager) Count(cnd *sqlc.Cnd) (int64, error) {
 	if cnd.Model == nil {
 		return 0, self.Error("[Mongo.Count]ORM对象类型不能为空,请通过M(...)方法设置对象类型")
 	}
 	obkey := reflect.TypeOf(cnd.Model).String()
-	obv, ok := modelDrivers[obkey]
+	obv, ok := modelDrivers[obkey];
 	if !ok {
 		return 0, self.Error(util.AddStr("[Mongo.Count]没有找到注册对象类型[", obkey, "]"))
 	}
@@ -418,12 +418,12 @@ func (self *MGOManager) Count(cnd sqlc.Cnd) (int64, error) {
 }
 
 // 查询单条数据
-func (self *MGOManager) FindOne(cnd sqlc.Cnd, data interface{}) error {
+func (self *MGOManager) FindOne(cnd *sqlc.Cnd, data interface{}) error {
 	if data == nil {
 		return self.Error("[Mongo.FindOne]参数对象为空")
 	}
 	obkey := reflect.TypeOf(data).String()
-	obv, ok := modelDrivers[obkey]
+	obv, ok := modelDrivers[obkey];
 	if !ok {
 		return self.Error("[Mongo.FindOne]没有找到注册对象类型[", obkey, "]")
 	} else {
@@ -450,7 +450,7 @@ func (self *MGOManager) FindOne(cnd sqlc.Cnd, data interface{}) error {
 }
 
 // 查询多条数据
-func (self *MGOManager) FindList(cnd sqlc.Cnd, data interface{}) error {
+func (self *MGOManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	if data == nil {
 		return self.Error("[Mongo.FindList]返回参数对象为空")
 	}
@@ -460,7 +460,7 @@ func (self *MGOManager) FindList(cnd sqlc.Cnd, data interface{}) error {
 	} else {
 		obkey = util.Substr(obkey, 3, len(obkey))
 	}
-	obv, ok := modelDrivers[obkey]
+	obv, ok := modelDrivers[obkey];
 	if !ok {
 		return self.Error("[Mongo.FindList]没有找到注册对象类型[", obkey, "]")
 	} else {
@@ -487,12 +487,12 @@ func (self *MGOManager) FindList(cnd sqlc.Cnd, data interface{}) error {
 }
 
 // 根据条件更新数据
-func (self *MGOManager) UpdateByCnd(cnd sqlc.Cnd) error {
+func (self *MGOManager) UpdateByCnd(cnd *sqlc.Cnd) error {
 	if cnd.Model == nil {
 		return self.Error("[Mongo.UpdateByCnd]ORM对象类型不能为空,请通过M(...)方法设置对象类型")
 	}
 	obkey := reflect.TypeOf(cnd.Model).String()
-	obv, ok := modelDrivers[obkey]
+	obv, ok := modelDrivers[obkey];
 	if !ok {
 		return self.Error(util.AddStr("[Mongo.UpdateByCnd]没有找到注册对象类型[", obkey, "]"))
 	}
@@ -522,20 +522,20 @@ func (self *MGOManager) Close() error {
 }
 
 // 获取缓存结果集
-func (self *MGOManager) getByCache(cnd sqlc.Cnd, data interface{}) (bool, bool, error) {
+func (self *MGOManager) getByCache(cnd *sqlc.Cnd, data interface{}) (bool, bool, error) {
 	config := cnd.CacheConfig
 	if config.Open && len(config.Key) > 0 {
 		if self.CacheManager == nil {
 			return true, false, self.Error("缓存管理器尚未初始化")
 		}
-		_, b, err := self.CacheManager.Get(config.Prefix+config.Key, data)
+		_, b, err := self.CacheManager.Get(config.Prefix+config.Key, data);
 		return true, b, self.Error(err)
 	}
 	return false, false, nil
 }
 
 // 缓存结果集
-func (self *MGOManager) putByCache(cnd sqlc.Cnd, data interface{}) error {
+func (self *MGOManager) putByCache(cnd *sqlc.Cnd, data interface{}) error {
 	config := cnd.CacheConfig
 	if config.Open && len(config.Key) > 0 {
 		if err := self.CacheManager.Put(config.Prefix+config.Key, data, config.Expire); err != nil {
@@ -546,7 +546,7 @@ func (self *MGOManager) putByCache(cnd sqlc.Cnd, data interface{}) error {
 }
 
 // 获取最终pipe条件集合,包含$match $project $sort $skip $limit
-func (self *MGOManager) buildPipeCondition(cnd sqlc.Cnd, countby bool) ([]interface{}, error) {
+func (self *MGOManager) buildPipeCondition(cnd *sqlc.Cnd, countby bool) ([]interface{}, error) {
 	match := buildMongoMatch(cnd)
 	upset := buildMongoUpset(cnd)
 	project := buildMongoProject(cnd)
@@ -556,13 +556,19 @@ func (self *MGOManager) buildPipeCondition(cnd sqlc.Cnd, countby bool) ([]interf
 	pageinfo := buildMongoLimit(cnd)
 	pipe := make([]interface{}, 0, 10)
 	if len(match) > 0 {
-		pipe = append(pipe, map[string]interface{}{"$match": match})
+		tmp := make(map[string]interface{})
+		tmp["$match"] = match
+		pipe = append(pipe, tmp)
 	}
 	if len(upset) > 0 {
-		pipe = append(pipe, map[string]interface{}{"$set": upset})
+		tmp := make(map[string]interface{})
+		tmp["$set"] = upset
+		pipe = append(pipe, tmp)
 	}
 	if len(project) > 0 {
-		pipe = append(pipe, map[string]interface{}{"$project": project})
+		tmp := make(map[string]interface{})
+		tmp["$project"] = project
+		pipe = append(pipe, tmp)
 	}
 	if len(aggregate) > 0 {
 		for _, v := range aggregate {
@@ -576,15 +582,17 @@ func (self *MGOManager) buildPipeCondition(cnd sqlc.Cnd, countby bool) ([]interf
 		pipe = append(pipe, sample)
 	}
 	if !countby && len(sortby) > 0 {
-		pipe = append(pipe, map[string]interface{}{"$sort": sortby})
+		tmp := make(map[string]interface{})
+		tmp["$sort"] = sortby
+		pipe = append(pipe, tmp)
 	}
 	if !countby && pageinfo != nil {
-		if cnd.LimitSize > 0 {
-			pipe = append(pipe, map[string]interface{}{"$limit": cnd.LimitSize})
-		} else {
-			pipe = append(pipe, map[string]interface{}{"$skip": pageinfo[0]})
-			pipe = append(pipe, map[string]interface{}{"$limit": pageinfo[1]})
-		}
+		tmp := make(map[string]interface{})
+		tmp["$skip"] = pageinfo[0]
+		pipe = append(pipe, tmp)
+		tmp = make(map[string]interface{})
+		tmp["$limit"] = pageinfo[1]
+		pipe = append(pipe, tmp)
 		if !cnd.CacheConfig.Open && !cnd.Pagination.IsOffset {
 			pageTotal, err := self.Count(cnd)
 			if err != nil {
@@ -601,14 +609,16 @@ func (self *MGOManager) buildPipeCondition(cnd sqlc.Cnd, countby bool) ([]interf
 		}
 	}
 	if countby {
-		pipe = append(pipe, map[string]interface{}{"$count": COUNT_BY})
+		tmp := make(map[string]interface{})
+		tmp["$count"] = COUNT_BY
+		pipe = append(pipe, tmp)
 	}
 	return pipe, nil
 }
 
 // 构建mongo逻辑条件命令
-func buildMongoMatch(cnd sqlc.Cnd) map[string]interface{} {
-	query := make(map[string]interface{}, len(cnd.Conditions)+5)
+func buildMongoMatch(cnd *sqlc.Cnd) map[string]interface{} {
+	query := make(map[string]interface{})
 	for _, v := range cnd.Conditions {
 		key := v.Key
 		if key == JID {
@@ -621,41 +631,66 @@ func buildMongoMatch(cnd sqlc.Cnd) map[string]interface{} {
 		case sqlc.EQ_:
 			query[key] = value
 		case sqlc.NOT_EQ_:
-			query[key] = map[string]interface{}{"$ne": value}
+			tmp := make(map[string]interface{})
+			tmp["$ne"] = value
+			query[key] = tmp
 		case sqlc.LT_:
-			query[key] = map[string]interface{}{"$lt": value}
+			tmp := make(map[string]interface{})
+			tmp["$lt"] = value
+			query[key] = tmp
 		case sqlc.LTE_:
-			query[key] = map[string]interface{}{"$lte": value}
+			tmp := make(map[string]interface{})
+			tmp["$lte"] = value
+			query[key] = tmp
 		case sqlc.GT_:
-			query[key] = map[string]interface{}{"$gt": value}
+			tmp := make(map[string]interface{})
+			tmp["$gt"] = value
+			query[key] = tmp
 		case sqlc.GTE_:
-			query[key] = map[string]interface{}{"$gte": value}
+			tmp := make(map[string]interface{})
+			tmp["$gte"] = value
+			query[key] = tmp
 		case sqlc.IS_NULL_:
 			query[key] = nil
 		case sqlc.IS_NOT_NULL_:
-			// unsupported
+			tmp := make(map[string]interface{})
+			tmp["$ne"] = nil
+			query[key] = tmp
 		case sqlc.BETWEEN_:
-			query[key] = map[string]interface{}{"$gte": values[0], "$lte": values[1]}
+			tmp := make(map[string]interface{})
+			tmp["$gte"] = values[0]
+			tmp["$lte"] = values[1]
+			query[key] = tmp
 		case sqlc.BETWEEN2_:
-			query[key] = map[string]interface{}{"$gte": values[0], "$lt": values[1]}
+			tmp := make(map[string]interface{})
+			tmp["$gte"] = values[0]
+			tmp["$lt"] = values[1]
+			query[key] = tmp
 		case sqlc.NOT_BETWEEN_:
 			// unsupported
 		case sqlc.IN_:
-			query[key] = map[string]interface{}{"$in": values}
+			tmp := make(map[string]interface{})
+			tmp["$in"] = values
+			query[key] = tmp
 		case sqlc.NOT_IN_:
-			query[key] = map[string]interface{}{"$nin": values}
+			tmp := make(map[string]interface{})
+			tmp["$nin"] = values
+			query[key] = tmp
 		case sqlc.LIKE_:
-			query[key] = map[string]interface{}{"$regex": value}
+			tmp := make(map[string]interface{})
+			tmp["$regex"] = value
+			query[key] = tmp
 		case sqlc.NO_TLIKE_:
 			// unsupported
 		case sqlc.OR_:
-			array := make([]interface{}, 0, len(values))
+			array := make([]interface{}, 0)
 			for _, v := range values {
-				cnd, ok := v.(sqlc.Cnd)
+				cnd, ok := v.(*sqlc.Cnd)
 				if !ok {
 					continue
 				}
-				array = append(array, buildMongoMatch(cnd))
+				tmp := buildMongoMatch(cnd)
+				array = append(array, tmp)
 			}
 			query["$or"] = array
 		}
@@ -664,8 +699,8 @@ func buildMongoMatch(cnd sqlc.Cnd) map[string]interface{} {
 }
 
 // 构建mongo字段筛选命令
-func buildMongoProject(cnd sqlc.Cnd) map[string]int {
-	project := make(map[string]int, len(cnd.AnyFields)+len(cnd.AnyNotFields))
+func buildMongoProject(cnd *sqlc.Cnd) map[string]int {
+	project := make(map[string]int)
 	for _, v := range cnd.AnyFields {
 		if v == JID {
 			project[BID] = 1
@@ -683,15 +718,15 @@ func buildMongoProject(cnd sqlc.Cnd) map[string]int {
 	return project
 }
 
-func buildMongoAggregate(cnd sqlc.Cnd) []map[string]interface{} {
+func buildMongoAggregate(cnd *sqlc.Cnd) []map[string]interface{} {
 	if len(cnd.Groupbys) == 0 && len(cnd.Aggregates) == 0 {
 		return nil
 	}
-	group := make(map[string]interface{}, 5)
-	group2 := make(map[string]interface{}, 5)
-	project := make(map[string]interface{}, 5)
-	_idMap := make(map[string]interface{}, 5)
-	_idMap2 := make(map[string]interface{}, 5)
+	group := make(map[string]interface{})
+	group2 := make(map[string]interface{})
+	project := make(map[string]interface{})
+	_idMap := map[string]interface{}{}
+	_idMap2 := map[string]interface{}{}
 	project[BID] = 0
 	if len(cnd.Groupbys) > 0 {
 		for _, v := range cnd.Groupbys {
@@ -746,7 +781,7 @@ func buildMongoAggregate(cnd sqlc.Cnd) []map[string]interface{} {
 			}
 		}
 	}
-	result := make([]map[string]interface{}, 3)
+	result := []map[string]interface{}{}
 	if len(group) > 0 {
 		result = append(result, map[string]interface{}{"$group": group})
 	}
@@ -761,10 +796,10 @@ func buildMongoAggregate(cnd sqlc.Cnd) []map[string]interface{} {
 }
 
 // 构建mongo字段更新命令
-func buildMongoUpset(cnd sqlc.Cnd) map[string]interface{} {
-	query := make(map[string]interface{}, 1)
+func buildMongoUpset(cnd *sqlc.Cnd) map[string]interface{} {
+	query := make(map[string]interface{})
 	if len(cnd.Upsets) > 0 {
-		tmp := make(map[string]interface{}, len(cnd.Upsets))
+		tmp := map[string]interface{}{}
 		for k, v := range cnd.Upsets {
 			if k == JID {
 				tmp[BID] = v
@@ -778,8 +813,8 @@ func buildMongoUpset(cnd sqlc.Cnd) map[string]interface{} {
 }
 
 // 构建mongo排序命令
-func buildMongoSortBy(cnd sqlc.Cnd) map[string]int {
-	sortby := make(map[string]int, len(cnd.Orderbys))
+func buildMongoSortBy(cnd *sqlc.Cnd) map[string]int {
+	sortby := make(map[string]int)
 	for _, v := range cnd.Orderbys {
 		if v.Value == sqlc.DESC_ {
 			if v.Key == JID {
@@ -799,7 +834,7 @@ func buildMongoSortBy(cnd sqlc.Cnd) map[string]int {
 }
 
 // 构建mongo随机选取命令
-func buildMongoSample(cnd sqlc.Cnd) map[string]interface{} {
+func buildMongoSample(cnd *sqlc.Cnd) map[string]interface{} {
 	if cnd.SampleSize == 0 {
 		return nil
 	}
@@ -807,7 +842,7 @@ func buildMongoSample(cnd sqlc.Cnd) map[string]interface{} {
 }
 
 // 构建mongo分页命令
-func buildMongoLimit(cnd sqlc.Cnd) []int64 {
+func buildMongoLimit(cnd *sqlc.Cnd) []int64 {
 	pg := cnd.Pagination
 	if pg.PageNo == 0 && pg.PageSize == 0 {
 		return nil
