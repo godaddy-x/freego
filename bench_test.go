@@ -118,7 +118,7 @@ func init() {
 //	b.StopTimer()  //调用该函数停止压力测试的时间计数go test -run="webbench_test.go" -test.bench="."*
 //	b.StartTimer() //重新开始时间
 //	for i := 0; i < b.N; i++ { //use b.N for looping
-//		db, err := new(sqld.MGOManager).Get(sqld.Option{OpenTx: &sqld.TRUE})
+//		db, err := new(sqld.MGOManager).Get(sqld.Option{OpenTx: true})
 //		if err != nil {
 //			panic(err)
 //		}
@@ -135,7 +135,7 @@ func init() {
 //	b.StopTimer()  //调用该函数停止压力测试的时间计数go test -run="webbench_test.go" -test.bench="."*
 //	b.StartTimer() //重新开始时间
 //	for i := 0; i < b.N; i++ { //use b.N for looping
-//		db, err := new(sqld.MGOManager).Get(sqld.Option{OpenTx: &sqld.TRUE})
+//		db, err := new(sqld.MGOManager).Get(sqld.Option{OpenTx: true})
 //		if err != nil {
 //			panic(err)
 //		}
@@ -151,7 +151,7 @@ func BenchmarkMysqlFindOne(b *testing.B) {
 	b.StopTimer()              //调用该函数停止压力测试的时间计数go test -run="webbench_test.go" -test.bench="."*
 	b.StartTimer()             //重新开始时间
 	for i := 0; i < b.N; i++ { //use b.N for looping
-		db, err := new(sqld.MysqlManager).Get(sqld.Option{OpenTx: &sqld.FALSE})
+		db, err := new(sqld.MysqlManager).Get(sqld.Option{OpenTx: false})
 		if err != nil {
 			panic(err)
 		}
