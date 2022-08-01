@@ -136,12 +136,18 @@ func (self *MGOManager) buildByConfig(manager cache.ICache, input ...MGOConfig) 
 			return util.Error("mongo连接初始化失败: [", *v.DsName, "]已存在")
 		}
 		if len(v.ConnectionURI) > 0 {
-			session, err = mgo.Dial(v.ConnectionURI)
+			dialInfo, err := mgo.ParseURL(v.ConnectionURI)
+			if err != nil {
+				panic("mongoUri解析失败: " + err.Error())
+			}
+			dialInfo.Timeout = time.Second * time.Duration(v.ConnectTimeout)
+			dialInfo.PoolLimit = v.PoolLimit
+			session, err = mgo.DialWithInfo(dialInfo)
 			if err != nil {
 				panic("mongo连接初始化失败: " + err.Error())
 			}
 		} else {
-			dialInfo := mgo.DialInfo{
+			dialInfo := &mgo.DialInfo{
 				Addrs:     v.Addrs,
 				Direct:    v.Direct,
 				Timeout:   time.Second * time.Duration(v.ConnectTimeout),
@@ -154,7 +160,7 @@ func (self *MGOManager) buildByConfig(manager cache.ICache, input ...MGOConfig) 
 			if len(v.Password) > 0 {
 				dialInfo.Password = v.Password
 			}
-			session, err = mgo.DialWithInfo(&dialInfo)
+			session, err = mgo.DialWithInfo(dialInfo)
 			if err != nil {
 				return util.Error("mongo连接初始化失败: ", err)
 			}
