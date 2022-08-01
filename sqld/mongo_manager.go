@@ -504,10 +504,10 @@ func (self *MGOManager) UpdateByCnd(cnd *sqlc.Cnd) error {
 	}
 	match := buildMongoMatch(cnd)
 	upset := buildMongoUpset(cnd)
-	if len(match) == 0 {
+	if match == nil || len(match) == 0 {
 		return util.Error("筛选条件不能为空")
 	}
-	if len(upset) == 0 {
+	if upset == nil || len(upset) == 0 {
 		return util.Error("更新条件不能为空")
 	}
 	defer self.writeLog("[Mongo.UpdateByCnd]", util.Time(), map[string]interface{}{"match": match, "upset": upset})
@@ -555,16 +555,16 @@ func (self *MGOManager) buildPipeCondition(cnd *sqlc.Cnd, countby bool) ([]inter
 	sample := buildMongoSample(cnd)
 	pageinfo := buildMongoLimit(cnd)
 	pipe := make([]interface{}, 0, 10)
-	if len(match) > 0 {
+	if match != nil && len(match) > 0 {
 		pipe = append(pipe, map[string]interface{}{"$match": match})
 	}
-	if len(upset) > 0 {
+	if upset != nil && len(upset) > 0 {
 		pipe = append(pipe, map[string]interface{}{"$set": upset})
 	}
-	if len(project) > 0 {
+	if project != nil && len(project) > 0 {
 		pipe = append(pipe, map[string]interface{}{"$project": project})
 	}
-	if len(aggregate) > 0 {
+	if aggregate != nil && len(aggregate) > 0 {
 		for _, v := range aggregate {
 			if len(v) == 0 {
 				continue
@@ -575,16 +575,15 @@ func (self *MGOManager) buildPipeCondition(cnd *sqlc.Cnd, countby bool) ([]inter
 	if sample != nil {
 		pipe = append(pipe, sample)
 	}
-	if !countby && len(sortby) > 0 {
+	if !countby && sortby != nil && len(sortby) > 0 {
 		pipe = append(pipe, map[string]interface{}{"$sort": sortby})
 	}
-	if !countby && pageinfo != nil {
-		if cnd.ResultSize_ > 0 {
-			pipe = append(pipe, map[string]interface{}{"$limit": cnd.ResultSize_})
-		} else {
-			pipe = append(pipe, map[string]interface{}{"$skip": pageinfo[0]})
-			pipe = append(pipe, map[string]interface{}{"$limit": pageinfo[1]})
-		}
+	if !countby && cnd.LimitSize > 0 {
+		pipe = append(pipe, map[string]interface{}{"$limit": cnd.LimitSize})
+	}
+	if !countby && pageinfo != nil && len(pageinfo) == 2 {
+		pipe = append(pipe, map[string]interface{}{"$skip": pageinfo[0]})
+		pipe = append(pipe, map[string]interface{}{"$limit": pageinfo[1]})
 		if !cnd.CacheConfig.Open && !cnd.Pagination.IsOffset {
 			pageTotal, err := self.Count(cnd)
 			if err != nil {
@@ -608,6 +607,9 @@ func (self *MGOManager) buildPipeCondition(cnd *sqlc.Cnd, countby bool) ([]inter
 
 // 构建mongo逻辑条件命令
 func buildMongoMatch(cnd *sqlc.Cnd) map[string]interface{} {
+	if len(cnd.Conditions) == 0 {
+		return nil
+	}
 	query := make(map[string]interface{}, len(cnd.Conditions))
 	for _, v := range cnd.Conditions {
 		key := v.Key
@@ -649,18 +651,18 @@ func buildMongoMatch(cnd *sqlc.Cnd) map[string]interface{} {
 		case sqlc.NO_TLIKE_:
 			// unsupported
 		case sqlc.OR_:
-			if len(values) > 0 {
-				array := make([]interface{}, len(values))
-				for _, v := range values {
-					cnd, ok := v.(*sqlc.Cnd)
-					if !ok {
-						continue
-					}
-					tmp := buildMongoMatch(cnd)
-					array = append(array, tmp)
-				}
-				query["$or"] = array
+			if values == nil || len(values) == 0 {
+				continue
 			}
+			array := make([]interface{}, len(values))
+			for _, v := range values {
+				cnd, ok := v.(*sqlc.Cnd)
+				if !ok {
+					continue
+				}
+				array = append(array, buildMongoMatch(cnd))
+			}
+			query["$or"] = array
 		}
 	}
 	return query
@@ -668,6 +670,9 @@ func buildMongoMatch(cnd *sqlc.Cnd) map[string]interface{} {
 
 // 构建mongo字段筛选命令
 func buildMongoProject(cnd *sqlc.Cnd) map[string]int {
+	if len(cnd.AnyFields) == 0 && len(cnd.AnyNotFields) == 0 {
+		return nil
+	}
 	project := make(map[string]int, len(cnd.AnyFields)+len(cnd.AnyNotFields))
 	for _, v := range cnd.AnyFields {
 		if v == JID {
@@ -765,23 +770,27 @@ func buildMongoAggregate(cnd *sqlc.Cnd) []map[string]interface{} {
 
 // 构建mongo字段更新命令
 func buildMongoUpset(cnd *sqlc.Cnd) map[string]interface{} {
-	query := make(map[string]interface{}, 1)
-	if len(cnd.Upsets) > 0 {
-		tmp := make(map[string]interface{}, len(cnd.Upsets))
-		for k, v := range cnd.Upsets {
-			if k == JID {
-				tmp[BID] = v
-			} else {
-				tmp[k] = v
-			}
-		}
-		query["$set"] = tmp
+	if len(cnd.Upsets) == 0 {
+		return nil
 	}
+	query := make(map[string]interface{}, 1)
+	tmp := make(map[string]interface{}, len(cnd.Upsets))
+	for k, v := range cnd.Upsets {
+		if k == JID {
+			tmp[BID] = v
+		} else {
+			tmp[k] = v
+		}
+	}
+	query["$set"] = tmp
 	return query
 }
 
 // 构建mongo排序命令
 func buildMongoSortBy(cnd *sqlc.Cnd) map[string]int {
+	if len(cnd.Orderbys) == 0 {
+		return nil
+	}
 	sortby := make(map[string]int, 5)
 	for _, v := range cnd.Orderbys {
 		if v.Value == sqlc.DESC_ {
