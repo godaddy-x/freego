@@ -59,7 +59,7 @@ func (self *MGOManager) Get(option ...Option) (*MGOManager, error) {
 
 // 获取mongo的数据库连接
 func (self *MGOManager) GetDatabase(copySession *mgo.Session, tb string) (*mgo.Collection, error) {
-	database := copySession.DB("")
+	database := copySession.DB(self.Database)
 	if database == nil {
 		return nil, self.Error("获取mongo数据库失败")
 	}
@@ -70,18 +70,18 @@ func (self *MGOManager) GetDatabase(copySession *mgo.Session, tb string) (*mgo.C
 	return collection, nil
 }
 
-func (self *MGOManager) GetDB(option ...Option) error {
-	dsName := &MASTER
-	var ops *Option
-	if option != nil && len(option) > 0 {
-		ops = &option[0]
-		if ops.DsName != nil && len(*ops.DsName) > 0 {
-			dsName = ops.DsName
+func (self *MGOManager) GetDB(options ...Option) error {
+	dsName := MASTER
+	var option Option
+	if len(options) > 0 {
+		option = options[0]
+		if len(option.DsName) > 0 {
+			dsName = option.DsName
 		} else {
-			ops.DsName = dsName
+			option.DsName = dsName
 		}
 	}
-	mgo := mgo_sessions[*dsName]
+	mgo := mgo_sessions[dsName]
 	if mgo == nil {
 		return self.Error("mongo数据源[", dsName, "]未找到,请检查...")
 	}
@@ -90,27 +90,24 @@ func (self *MGOManager) GetDB(option ...Option) error {
 	self.DsName = mgo.DsName
 	self.Database = mgo.Database
 	self.Timeout = 10000
-	self.MongoSync = mgo.MongoSync
 	self.SlowQuery = mgo.SlowQuery
 	self.SlowLogPath = mgo.SlowLogPath
-	self.MGOSyncData = make([]*MGOSyncData, 0)
 	self.CacheManager = mgo.CacheManager
-	self.OpenTx = &FALSE
-	if ops != nil {
-		if ops.Node != nil {
-			self.Node = ops.Node
+	if len(option.DsName) > 0 {
+		if option.Node > 0 {
+			self.Node = option.Node
 		}
-		if ops.DsName != nil {
-			self.DsName = ops.DsName
+		if len(option.DsName) > 0 {
+			self.DsName = option.DsName
 		}
-		if ops.OpenTx != nil {
-			self.OpenTx = ops.OpenTx
+		if option.OpenTx {
+			self.OpenTx = option.OpenTx
 		}
-		if ops.MongoSync != nil {
-			self.MongoSync = ops.MongoSync
+		if option.Timeout > 0 {
+			self.Timeout = option.Timeout
 		}
-		if ops.Timeout > 0 {
-			self.Timeout = ops.Timeout
+		if len(option.Database) > 0 {
+			self.Database = option.Database
 		}
 	}
 	return nil
@@ -128,12 +125,12 @@ func (self *MGOManager) buildByConfig(manager cache.ICache, input ...MGOConfig) 
 	for _, v := range input {
 		var session *mgo.Session
 		var err error
-		dsName := &MASTER
-		if v.DsName != nil && len(*v.DsName) > 0 {
+		dsName := MASTER
+		if len(v.DsName) > 0 {
 			dsName = v.DsName
 		}
-		if _, b := mgo_sessions[*dsName]; b {
-			return util.Error("mongo连接初始化失败: [", *v.DsName, "]已存在")
+		if _, b := mgo_sessions[dsName]; b {
+			return util.Error("mongo连接初始化失败: [", v.DsName, "]已存在")
 		}
 		if len(v.ConnectionURI) > 0 {
 			dialInfo, err := mgo.ParseURL(v.ConnectionURI)
@@ -175,23 +172,15 @@ func (self *MGOManager) buildByConfig(manager cache.ICache, input ...MGOConfig) 
 		mgo.Database = v.Database
 		mgo.SlowQuery = v.SlowQuery
 		mgo.SlowLogPath = v.SlowLogPath
-		if v.Node == nil {
-			mgo.Node = &ZERO
-		} else {
+		if v.Node > 0 {
 			mgo.Node = v.Node
 		}
-		if v.OpenTx == nil {
-			mgo.OpenTx = &FALSE
-		} else {
+		if v.OpenTx {
 			mgo.OpenTx = v.OpenTx
 		}
-		if v.MongoSync == nil {
-			mgo.MongoSync = &FALSE
-		} else {
-			mgo.MongoSync = v.MongoSync
-		}
+		mgo_sessions[mgo.DsName] = mgo
+		// init log
 		mgo.initSlowLog()
-		mgo_sessions[*mgo.DsName] = mgo
 	}
 	if len(mgo_sessions) == 0 {
 		return util.Error("mongo连接初始化失败: 数据源为0")
@@ -231,7 +220,7 @@ func (self *MGOManager) Save(data ...interface{}) error {
 		return self.Error("[Mongo.Save]参数对象数量不能超过2000")
 	}
 	d := data[0]
-	if self.MGOSyncData != nil && len(self.MGOSyncData) > 0 {
+	if len(self.MGOSyncData) > 0 {
 		d = self.MGOSyncData[0].CacheModel
 	}
 	obkey := reflect.TypeOf(d).String()
@@ -252,19 +241,18 @@ func (self *MGOManager) Save(data ...interface{}) error {
 		if obv.PkKind == reflect.Int64 {
 			lastInsertId := util.GetInt64(util.GetPtr(v, obv.PkOffset))
 			if lastInsertId == 0 {
-				lastInsertId = util.GetSnowFlakeIntID(*self.Node)
+				lastInsertId = util.GetSnowFlakeIntID(self.Node)
 				util.SetInt64(util.GetPtr(v, obv.PkOffset), lastInsertId)
 			}
 		} else if obv.PkKind == reflect.String {
 			lastInsertId := util.GetString(util.GetPtr(v, obv.PkOffset))
 			if len(lastInsertId) == 0 {
-				lastInsertId = util.GetSnowFlakeStrID(*self.Node)
+				lastInsertId = util.GetSnowFlakeStrID(self.Node)
 				util.SetString(util.GetPtr(v, obv.PkOffset), lastInsertId)
 			}
 		} else {
 			return util.Error("只支持int64和string类型ID")
 		}
-
 	}
 	if err := db.Insert(data...); err != nil {
 		return self.Error("[Mongo.Save]保存数据失败: ", err)
@@ -281,7 +269,7 @@ func (self *MGOManager) Update(data ...interface{}) error {
 		return self.Error("[Mongo.Update]参数对象数量不能超过2000")
 	}
 	d := data[0]
-	if self.MGOSyncData != nil && len(self.MGOSyncData) > 0 {
+	if len(self.MGOSyncData) > 0 {
 		d = self.MGOSyncData[0].CacheModel
 	}
 	obkey := reflect.TypeOf(d).String()
@@ -336,7 +324,7 @@ func (self *MGOManager) Delete(data ...interface{}) error {
 		return self.Error("[Mongo.Delete]参数对象数量不能超过2000")
 	}
 	d := data[0]
-	if self.MGOSyncData != nil && len(self.MGOSyncData) > 0 {
+	if len(self.MGOSyncData) > 0 {
 		d = self.MGOSyncData[0].CacheModel
 	}
 	obkey := reflect.TypeOf(d).String()

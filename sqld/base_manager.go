@@ -45,14 +45,14 @@ type DBConfig struct {
 
 // 数据选项
 type Option struct {
-	Node        *int64  // 节点
-	DsName      *string // 数据源,分库时使用
-	Database    string  // 数据库名称
-	OpenTx      *bool   // 是否开启事务 true.是 false.否
-	MongoSync   *bool   // 是否自动同步mongo数据库写入
-	Timeout     int64   // 请求超时设置/毫秒,默认10000
-	SlowQuery   int64   // 0.不开启筛选 >0开启筛选查询 毫秒
-	SlowLogPath string  // 慢查询写入地址
+	Node        int64  // 节点
+	DsName      string // 数据源,分库时使用
+	Database    string // 数据库名称
+	OpenTx      bool   // 是否开启事务 true.是 false.否
+	MongoSync   bool   // 是否自动同步mongo数据库写入
+	Timeout     int64  // 请求超时设置/毫秒,默认10000
+	SlowQuery   int64  // 0.不开启筛选 >0开启筛选查询 毫秒
+	SlowLogPath string // 慢查询写入地址
 }
 
 type MGOSyncData struct {
@@ -205,20 +205,20 @@ type RDBManager struct {
 	Tx *sql.Tx
 }
 
-func (self *RDBManager) GetDB(option ...Option) error {
-	dsName := &MASTER
-	var ops *Option
-	if option != nil && len(option) > 0 {
-		ops = &option[0]
-		if ops.DsName != nil && len(*ops.DsName) > 0 {
-			dsName = ops.DsName
+func (self *RDBManager) GetDB(options ...Option) error {
+	dsName := MASTER
+	var option Option
+	if len(options) > 0 {
+		option = options[0]
+		if len(option.DsName) > 0 {
+			dsName = option.DsName
 		} else {
-			ops.DsName = dsName
+			option.DsName = dsName
 		}
 	}
-	rdb := rdbs[*dsName]
+	rdb := rdbs[dsName]
 	if rdb == nil {
-		return self.Error("SQL数据源[", *dsName, "]未找到,请检查...")
+		return self.Error("SQL数据源[", dsName, "]未找到,请检查...")
 	}
 	self.Db = rdb.Db
 	self.Node = rdb.Node
@@ -226,26 +226,28 @@ func (self *RDBManager) GetDB(option ...Option) error {
 	self.Database = rdb.Database
 	self.Timeout = 10000
 	self.MongoSync = rdb.MongoSync
-	self.MGOSyncData = make([]*MGOSyncData, 0)
 	self.CacheManager = rdb.CacheManager
-	self.OpenTx = &FALSE
-	if ops != nil {
-		if ops.Node != nil {
-			self.Node = ops.Node
+	self.OpenTx = false
+	if len(option.DsName) > 0 {
+		if option.Node > 0 {
+			self.Node = option.Node
 		}
-		if ops.DsName != nil {
-			self.DsName = ops.DsName
+		if len(option.DsName) > 0 {
+			self.DsName = option.DsName
 		}
-		if ops.OpenTx != nil {
-			self.OpenTx = ops.OpenTx
+		if option.OpenTx {
+			self.OpenTx = option.OpenTx
 		}
-		if ops.MongoSync != nil {
-			self.MongoSync = ops.MongoSync
+		if option.MongoSync {
+			self.MongoSync = option.MongoSync
 		}
-		if ops.Timeout > 0 {
-			self.Timeout = ops.Timeout
+		if option.Timeout > 0 {
+			self.Timeout = option.Timeout
 		}
-		if *ops.OpenTx {
+		if len(option.Database) > 0 {
+			self.Database = option.Database
+		}
+		if option.OpenTx {
 			if txv, err := self.Db.Begin(); err != nil {
 				return self.Error("数据库开启事务失败: ", err)
 			} else {
@@ -283,14 +285,14 @@ func (self *RDBManager) Save(data ...interface{}) error {
 				if vv.FieldKind == reflect.Int64 {
 					lastInsertId := util.GetInt64(util.GetPtr(v, obv.PkOffset))
 					if lastInsertId == 0 {
-						lastInsertId = util.GetSnowFlakeIntID(*self.Node)
+						lastInsertId = util.GetSnowFlakeIntID(self.Node)
 						util.SetInt64(util.GetPtr(v, vv.FieldOffset), lastInsertId)
 					}
 					parameter = append(parameter, lastInsertId)
 				} else if vv.FieldKind == reflect.String {
 					lastInsertId := util.GetString(util.GetPtr(v, obv.PkOffset))
 					if len(lastInsertId) == 0 {
-						lastInsertId := util.GetSnowFlakeStrID(*self.Node)
+						lastInsertId := util.GetSnowFlakeStrID(self.Node)
 						util.SetString(util.GetPtr(v, vv.FieldOffset), lastInsertId)
 					}
 					parameter = append(parameter, lastInsertId)
@@ -337,7 +339,7 @@ func (self *RDBManager) Save(data ...interface{}) error {
 	defer cancel()
 	var err error
 	var stmt *sql.Stmt
-	if *self.OpenTx {
+	if self.OpenTx {
 		stmt, err = self.Tx.PrepareContext(ctx, prepare)
 	} else {
 		stmt, err = self.Db.PrepareContext(ctx, prepare)
@@ -353,7 +355,7 @@ func (self *RDBManager) Save(data ...interface{}) error {
 	} else if rowsAffected <= 0 {
 		return self.Error("[Mysql.Save]保存操作受影响行数 -> ", rowsAffected)
 	}
-	if *self.MongoSync && obv.ToMongo {
+	if self.MongoSync && obv.ToMongo {
 		sdata := &MGOSyncData{SAVE, obv.Hook.NewObj(), data}
 		self.MGOSyncData = append(self.MGOSyncData, sdata)
 	}
@@ -447,7 +449,7 @@ func (self *RDBManager) Update(data ...interface{}) error {
 	var stmt *sql.Stmt
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
 	defer cancel()
-	if *self.OpenTx {
+	if self.OpenTx {
 		stmt, err = self.Tx.PrepareContext(ctx, prepare)
 	} else {
 		stmt, err = self.Db.PrepareContext(ctx, prepare)
@@ -464,7 +466,7 @@ func (self *RDBManager) Update(data ...interface{}) error {
 		log.Warn(util.AddStr("[Mysql.Update]受影响行数 -> ", rowsAffected), 0, log.String("sql", prepare))
 		return nil
 	}
-	if *self.MongoSync && obv.ToMongo {
+	if self.MongoSync && obv.ToMongo {
 		sdata := &MGOSyncData{UPDATE, obv.Hook.NewObj(), data}
 		self.MGOSyncData = append(self.MGOSyncData, sdata)
 	}
@@ -520,7 +522,7 @@ func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) error {
 	defer cancel()
 	var err error
 	var stmt *sql.Stmt
-	if *self.OpenTx {
+	if self.OpenTx {
 		stmt, err = self.Tx.PrepareContext(ctx, prepare)
 	} else {
 		stmt, err = self.Db.PrepareContext(ctx, prepare)
@@ -537,7 +539,7 @@ func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) error {
 		log.Warn(util.AddStr("[Mysql.UpdateByCnd]受影响行数 -> ", rowsAffected), 0, log.String("sql", prepare))
 		return nil
 	}
-	if *self.MongoSync && obv.ToMongo {
+	if self.MongoSync && obv.ToMongo {
 		sdata := &MGOSyncData{UPDATE_BY_CND, obv.Hook.NewObj(), []interface{}{cnd}}
 		self.MGOSyncData = append(self.MGOSyncData, sdata)
 	}
@@ -599,7 +601,7 @@ func (self *RDBManager) Delete(data ...interface{}) error {
 	defer cancel()
 	var err error
 	var stmt *sql.Stmt
-	if *self.OpenTx {
+	if self.OpenTx {
 		stmt, err = self.Tx.PrepareContext(ctx, prepare)
 	} else {
 		stmt, err = self.Db.PrepareContext(ctx, prepare)
@@ -616,7 +618,7 @@ func (self *RDBManager) Delete(data ...interface{}) error {
 		log.Warn(util.AddStr("[Mysql.Delete]受影响行数 -> ", rowsAffected), 0, log.String("sql", prepare))
 		return nil
 	}
-	if *self.MongoSync && obv.ToMongo {
+	if self.MongoSync && obv.ToMongo {
 		sdata := &MGOSyncData{DELETE, obv.Hook.NewObj(), data}
 		self.MGOSyncData = append(self.MGOSyncData, sdata)
 	}
@@ -674,7 +676,7 @@ func (self *RDBManager) FindById(data interface{}) error {
 	var err error
 	var stmt *sql.Stmt
 	var rows *sql.Rows
-	if *self.OpenTx {
+	if self.OpenTx {
 		stmt, err = self.Tx.PrepareContext(ctx, prepare)
 	} else {
 		stmt, err = self.Db.PrepareContext(ctx, prepare)
@@ -771,7 +773,7 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data interface{}) error {
 	var err error
 	var stmt *sql.Stmt
 	var rows *sql.Rows
-	if *self.OpenTx {
+	if self.OpenTx {
 		stmt, err = self.Tx.PrepareContext(ctx, prepare)
 	} else {
 		stmt, err = self.Db.PrepareContext(ctx, prepare)
@@ -873,7 +875,7 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	defer cancel()
 	var stmt *sql.Stmt
 	var rows *sql.Rows
-	if *self.OpenTx {
+	if self.OpenTx {
 		stmt, err = self.Tx.PrepareContext(ctx, prepare)
 	} else {
 		stmt, err = self.Db.PrepareContext(ctx, prepare)
@@ -963,7 +965,7 @@ func (self *RDBManager) Count(cnd *sqlc.Cnd) (int64, error) {
 	var err error
 	var rows *sql.Rows
 	var stmt *sql.Stmt
-	if *self.OpenTx {
+	if self.OpenTx {
 		stmt, err = self.Tx.PrepareContext(ctx, prepare)
 	} else {
 		stmt, err = self.Db.PrepareContext(ctx, prepare)
@@ -1091,7 +1093,7 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 	defer cancel()
 	var stmt *sql.Stmt
 	var rows *sql.Rows
-	if *self.OpenTx {
+	if self.OpenTx {
 		stmt, err = self.Tx.PrepareContext(ctx, prepare)
 	} else {
 		stmt, err = self.Db.PrepareContext(ctx, prepare)
@@ -1230,7 +1232,7 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data interface{}) error {
 	var err error
 	var stmt *sql.Stmt
 	var rows *sql.Rows
-	if *self.OpenTx {
+	if self.OpenTx {
 		stmt, err = self.Tx.PrepareContext(ctx, prepare)
 	} else {
 		stmt, err = self.Db.PrepareContext(ctx, prepare)
@@ -1273,7 +1275,7 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data interface{}) error {
 }
 
 func (self *RDBManager) Close() error {
-	if *self.OpenTx && self.Tx != nil {
+	if self.OpenTx && self.Tx != nil {
 		if self.Errors == nil && len(self.Errors) == 0 {
 			if err := self.Tx.Commit(); err != nil {
 				log.Error("事务提交失败", 0, log.AddError(err))
@@ -1286,7 +1288,7 @@ func (self *RDBManager) Close() error {
 			return nil
 		}
 	}
-	if self.Errors == nil && len(self.Errors) == 0 && *self.MongoSync && len(self.MGOSyncData) > 0 {
+	if self.Errors == nil && len(self.Errors) == 0 && self.MongoSync && len(self.MGOSyncData) > 0 {
 		for _, v := range self.MGOSyncData {
 			if len(v.CacheObject) > 0 {
 				if err := self.mongoSyncData(v.CacheOption, v.CacheModel, v.CacheObject...); err != nil {
@@ -1535,7 +1537,7 @@ func (self *RDBManager) BuildPagination(cnd *sqlc.Cnd, sqlbuf string, values []i
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
 		defer cancel()
 		var rows *sql.Rows
-		if *self.OpenTx {
+		if self.OpenTx {
 			rows, err = self.Tx.QueryContext(ctx, countSql, values...)
 		} else {
 			rows, err = self.Db.QueryContext(ctx, countSql, values...)
