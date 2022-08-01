@@ -223,10 +223,10 @@ func (self *MGOManager) Save(data ...interface{}) error {
 	if len(self.MGOSyncData) > 0 {
 		d = self.MGOSyncData[0].CacheModel
 	}
-	obkey := reflect.TypeOf(d).String()
-	obv, ok := modelDrivers[obkey]
+	obk := reflect.TypeOf(d).String()
+	obv, ok := modelDrivers[obk]
 	if !ok {
-		return self.Error("[Mongo.Save]没有找到注册对象类型[", obkey, "]")
+		return self.Error("[Mongo.Save]没有找到注册对象类型[", obk, "]")
 	}
 	copySession := self.Session.Copy()
 	defer copySession.Close()
@@ -272,10 +272,10 @@ func (self *MGOManager) Update(data ...interface{}) error {
 	if len(self.MGOSyncData) > 0 {
 		d = self.MGOSyncData[0].CacheModel
 	}
-	obkey := reflect.TypeOf(d).String()
-	obv, ok := modelDrivers[obkey]
+	obk := reflect.TypeOf(d).String()
+	obv, ok := modelDrivers[obk]
 	if !ok {
-		return self.Error("[Mongo.Update]没有找到注册对象类型[", obkey, "]")
+		return self.Error("[Mongo.Update]没有找到注册对象类型[", obk, "]")
 	}
 	copySession := self.Session.Copy()
 	defer copySession.Close()
@@ -327,10 +327,10 @@ func (self *MGOManager) Delete(data ...interface{}) error {
 	if len(self.MGOSyncData) > 0 {
 		d = self.MGOSyncData[0].CacheModel
 	}
-	obkey := reflect.TypeOf(d).String()
-	obv, ok := modelDrivers[obkey]
+	obk := reflect.TypeOf(d).String()
+	obv, ok := modelDrivers[obk]
 	if !ok {
-		return self.Error("[Mongo.Delete]没有找到注册对象类型[", obkey, "]")
+		return self.Error("[Mongo.Delete]没有找到注册对象类型[", obk, "]")
 	}
 	copySession := self.Session.Copy()
 	defer copySession.Close()
@@ -372,10 +372,10 @@ func (self *MGOManager) Count(cnd *sqlc.Cnd) (int64, error) {
 	if cnd.Model == nil {
 		return 0, self.Error("[Mongo.Count]ORM对象类型不能为空,请通过M(...)方法设置对象类型")
 	}
-	obkey := reflect.TypeOf(cnd.Model).String()
-	obv, ok := modelDrivers[obkey]
+	obk := reflect.TypeOf(cnd.Model).String()
+	obv, ok := modelDrivers[obk]
 	if !ok {
-		return 0, self.Error(util.AddStr("[Mongo.Count]没有找到注册对象类型[", obkey, "]"))
+		return 0, self.Error(util.AddStr("[Mongo.Count]没有找到注册对象类型[", obk, "]"))
 	}
 	copySession := self.Session.Copy()
 	defer copySession.Close()
@@ -416,12 +416,10 @@ func (self *MGOManager) FindOne(cnd *sqlc.Cnd, data interface{}) error {
 	if data == nil {
 		return self.Error("[Mongo.FindOne]参数对象为空")
 	}
-	obkey := reflect.TypeOf(data).String()
-	obv, ok := modelDrivers[obkey]
+	obk := reflect.TypeOf(data).String()
+	obv, ok := modelDrivers[obk]
 	if !ok {
-		return self.Error("[Mongo.FindOne]没有找到注册对象类型[", obkey, "]")
-	} else {
-		cnd.Model = obv.Hook.NewObj()
+		return self.Error("[Mongo.FindOne]没有找到注册对象类型[", obk, "]")
 	}
 	copySession := self.Session.Copy()
 	defer copySession.Close()
@@ -429,7 +427,7 @@ func (self *MGOManager) FindOne(cnd *sqlc.Cnd, data interface{}) error {
 	if err != nil {
 		return self.Error(err)
 	}
-	pipe, err := self.buildPipeCondition(cnd.Offset(0, 1), false)
+	pipe, err := self.buildPipeCondition(cnd.ResultSize(1), false)
 	if err != nil {
 		return util.Error("[Mongo.FindOne]构建查询命令失败: ", err)
 	}
@@ -448,17 +446,15 @@ func (self *MGOManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	if data == nil {
 		return self.Error("[Mongo.FindList]返回参数对象为空")
 	}
-	obkey := reflect.TypeOf(data).String()
-	if !strings.HasPrefix(obkey, "*[]") {
+	obk := reflect.TypeOf(data).String()
+	if !strings.HasPrefix(obk, "*[]") {
 		return self.Error("[Mongo.FindList]返回参数必须为数组指针类型")
 	} else {
-		obkey = util.Substr(obkey, 3, len(obkey))
+		obk = util.Substr(obk, 3, len(obk))
 	}
-	obv, ok := modelDrivers[obkey]
+	obv, ok := modelDrivers[obk]
 	if !ok {
-		return self.Error("[Mongo.FindList]没有找到注册对象类型[", obkey, "]")
-	} else {
-		cnd.Model = obv.Hook.NewObj()
+		return self.Error("[Mongo.FindList]没有找到注册对象类型[", obk, "]")
 	}
 	copySession := self.Session.Copy()
 	defer copySession.Close()
@@ -485,10 +481,10 @@ func (self *MGOManager) UpdateByCnd(cnd *sqlc.Cnd) error {
 	if cnd.Model == nil {
 		return self.Error("[Mongo.UpdateByCnd]ORM对象类型不能为空,请通过M(...)方法设置对象类型")
 	}
-	obkey := reflect.TypeOf(cnd.Model).String()
-	obv, ok := modelDrivers[obkey]
+	obk := reflect.TypeOf(cnd.Model).String()
+	obv, ok := modelDrivers[obk]
 	if !ok {
-		return self.Error(util.AddStr("[Mongo.UpdateByCnd]没有找到注册对象类型[", obkey, "]"))
+		return self.Error(util.AddStr("[Mongo.UpdateByCnd]没有找到注册对象类型[", obk, "]"))
 	}
 	copySession := self.Session.Copy()
 	defer copySession.Close()

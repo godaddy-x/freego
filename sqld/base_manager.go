@@ -265,10 +265,10 @@ func (self *RDBManager) Save(data ...interface{}) error {
 	if len(data) > 2000 {
 		return self.Error("[Mysql.Save]参数对象数量不能超过2000")
 	}
-	obkey := reflect.TypeOf(data[0]).String()
-	obv, ok := modelDrivers[obkey]
+	obk := reflect.TypeOf(data[0]).String()
+	obv, ok := modelDrivers[obk]
 	if !ok {
-		return self.Error("[Mysql.Save]没有找到注册对象类型[", obkey, "]")
+		return self.Error("[Mysql.Save]没有找到注册对象类型[", obk, "]")
 	}
 	var fready bool
 	parameter := make([]interface{}, 0, len(obv.FieldElem)*len(data))
@@ -369,10 +369,10 @@ func (self *RDBManager) Update(data ...interface{}) error {
 	if len(data) > 2000 {
 		return self.Error("[Mysql.Update]参数对象数量不能超过2000")
 	}
-	obkey := reflect.TypeOf(data[0]).String()
-	obv, ok := modelDrivers[obkey]
+	obk := reflect.TypeOf(data[0]).String()
+	obv, ok := modelDrivers[obk]
 	if !ok {
-		return self.Error("[Mysql.Update]没有找到注册对象类型[", obkey, "]")
+		return self.Error("[Mysql.Update]没有找到注册对象类型[", obk, "]")
 	}
 	parameter := make([]interface{}, 0, len(obv.FieldElem)*len(data))
 	fpart := bytes.NewBuffer(make([]byte, 0, 45*len(data)*len(obv.FieldElem)))
@@ -480,10 +480,10 @@ func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) error {
 	if cnd.Upsets == nil || len(cnd.Upsets) == 0 {
 		return self.Error("[Mysql.UpdateByCnd]更新字段不能为空")
 	}
-	obkey := reflect.TypeOf(cnd.Model).String()
-	obv, ok := modelDrivers[obkey]
+	obk := reflect.TypeOf(cnd.Model).String()
+	obv, ok := modelDrivers[obk]
 	if !ok {
-		return self.Error("[Mysql.UpdateByCnd]没有找到注册对象类型[", obkey, "]")
+		return self.Error("[Mysql.UpdateByCnd]没有找到注册对象类型[", obk, "]")
 	}
 	case_part, case_arg := self.BuildWhereCase(cnd)
 	if case_part.Len() == 0 || len(case_arg) == 0 {
@@ -553,20 +553,20 @@ func (self *RDBManager) Delete(data ...interface{}) error {
 	if len(data) > 2000 {
 		return self.Error("[Mysql.Delete]参数对象数量不能超过2000")
 	}
-	obkey := reflect.TypeOf(data[0]).String()
-	obv, ok := modelDrivers[obkey]
+	obk := reflect.TypeOf(data[0]).String()
+	obv, ok := modelDrivers[obk]
 	if !ok {
-		return self.Error("[Mysql.Delete]没有找到注册对象类型[", obkey, "]")
+		return self.Error("[Mysql.Delete]没有找到注册对象类型[", obk, "]")
 	}
 	parameter := make([]interface{}, 0, len(data))
 	vpart := bytes.NewBuffer(make([]byte, 0, 2*len(data)))
 	for _, v := range data {
-		if len(obkey) == 0 {
-			obkey = reflect.TypeOf(v).String()
+		if len(obk) == 0 {
+			obk = reflect.TypeOf(v).String()
 		}
-		obv, ok := modelDrivers[obkey]
+		obv, ok := modelDrivers[obk]
 		if !ok {
-			return self.Error("[Mysql.Delete]没有找到注册对象类型[", obkey, "]")
+			return self.Error("[Mysql.Delete]没有找到注册对象类型[", obk, "]")
 		}
 		if obv.PkKind == reflect.Int64 {
 			lastInsertId := util.GetInt64(util.GetPtr(v, obv.PkOffset))
@@ -630,10 +630,10 @@ func (self *RDBManager) FindById(data interface{}) error {
 	if data == nil {
 		return self.Error("[Mysql.FindById]参数对象为空")
 	}
-	obkey := reflect.TypeOf(data).String()
-	obv, ok := modelDrivers[obkey]
+	obk := reflect.TypeOf(data).String()
+	obv, ok := modelDrivers[obk]
 	if !ok {
-		return self.Error("[Mysql.FindById]没有找到注册对象类型[", obkey, "]")
+		return self.Error("[Mysql.FindById]没有找到注册对象类型[", obk, "]")
 	}
 	var parameter []interface{}
 	if obv.PkKind == reflect.Int64 {
@@ -718,10 +718,10 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data interface{}) error {
 	if data == nil {
 		return self.Error("[Mysql.FindOne]参数对象为空")
 	}
-	obkey := reflect.TypeOf(data).String()
-	obv, ok := modelDrivers[obkey]
+	obk := reflect.TypeOf(data).String()
+	obv, ok := modelDrivers[obk]
 	if !ok {
-		return self.Error("[Mysql.FindOne]没有找到注册对象类型[", obkey, "]")
+		return self.Error("[Mysql.FindOne]没有找到注册对象类型[", obk, "]")
 	}
 	var parameter []interface{}
 	fpart := bytes.NewBuffer(make([]byte, 0, 12*len(obv.FieldElem)))
@@ -815,15 +815,15 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	if data == nil {
 		return self.Error("[Mysql.FindList]参数对象为空")
 	}
-	obkey := reflect.TypeOf(data).String()
-	if !strings.HasPrefix(obkey, "*[]") {
+	obk := reflect.TypeOf(data).String()
+	if !strings.HasPrefix(obk, "*[]") {
 		return self.Error("[Mysql.FindList]返回参数必须为数组指针类型")
 	} else {
-		obkey = util.Substr(obkey, 3, len(obkey))
+		obk = util.Substr(obk, 3, len(obk))
 	}
-	obv, ok := modelDrivers[obkey]
+	obv, ok := modelDrivers[obk]
 	if !ok {
-		return self.Error("[Mysql.FindList]没有找到注册对象类型[", obkey, "]")
+		return self.Error("[Mysql.FindList]没有找到注册对象类型[", obk, "]")
 	}
 	fpart := bytes.NewBuffer(make([]byte, 0, 12*len(obv.FieldElem)))
 	for _, vv := range obv.FieldElem {
@@ -925,10 +925,10 @@ func (self *RDBManager) Count(cnd *sqlc.Cnd) (int64, error) {
 	if cnd.Model == nil {
 		return 0, self.Error("[Mysql.Count]参数对象为空")
 	}
-	obkey := reflect.TypeOf(cnd.Model).String()
-	obv, ok := modelDrivers[obkey]
+	obk := reflect.TypeOf(cnd.Model).String()
+	obv, ok := modelDrivers[obk]
 	if !ok {
-		return 0, self.Error("[Mysql.Count]没有找到注册对象类型[", obkey, "]")
+		return 0, self.Error("[Mysql.Count]没有找到注册对象类型[", obk, "]")
 	}
 	fpart := bytes.NewBuffer(make([]byte, 0, 32))
 	fpart.WriteString("count(1)")
@@ -1013,15 +1013,15 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 	if cnd.AnyFields == nil || len(cnd.AnyFields) == 0 {
 		return self.Error("[Mysql.FindListComplex]查询字段不能为空")
 	}
-	obkey := reflect.TypeOf(data).String()
-	if !strings.HasPrefix(obkey, "*[]") {
+	obk := reflect.TypeOf(data).String()
+	if !strings.HasPrefix(obk, "*[]") {
 		return self.Error("[Mysql.FindListComplex]返回参数必须为数组指针类型")
 	} else {
-		obkey = util.Substr(obkey, 3, len(obkey))
+		obk = util.Substr(obk, 3, len(obk))
 	}
-	obv, ok := modelDrivers[obkey]
+	obv, ok := modelDrivers[obk]
 	if !ok {
-		return self.Error("[Mysql.FindListComplex]没有找到注册对象类型[", obkey, "]")
+		return self.Error("[Mysql.FindListComplex]没有找到注册对象类型[", obk, "]")
 	}
 	fpart := bytes.NewBuffer(make([]byte, 0, 30*len(cnd.AnyFields)))
 	for _, vv := range cnd.AnyFields {
@@ -1155,10 +1155,10 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data interface{}) error {
 	if data == nil {
 		return self.Error("[Mysql.FindOneComplex]参数对象为空")
 	}
-	obkey := reflect.TypeOf(data).String()
-	obv, ok := modelDrivers[obkey]
+	obk := reflect.TypeOf(data).String()
+	obv, ok := modelDrivers[obk]
 	if !ok {
-		return self.Error("[Mysql.FindOneComplex]没有找到注册对象类型[", obkey, "]")
+		return self.Error("[Mysql.FindOneComplex]没有找到注册对象类型[", obk, "]")
 	}
 	fpart := bytes.NewBuffer(make([]byte, 0, 30*len(cnd.AnyFields)))
 	for _, vv := range cnd.AnyFields {
