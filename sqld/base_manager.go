@@ -1436,7 +1436,7 @@ func (self *RDBManager) BuildWhereCase(cnd *sqlc.Cnd) (*bytes.Buffer, []interfac
 			case_part.Write(self.BuildCondKey(cnd, key))
 			case_part.WriteString(" like concat('%',?,'%') and")
 			case_arg = append(case_arg, value)
-		case sqlc.NO_TLIKE_:
+		case sqlc.NOT_LIKE_:
 			case_part.Write(self.BuildCondKey(cnd, key))
 			case_part.WriteString(" not like concat('%',?,'%') and")
 			case_arg = append(case_arg, value)

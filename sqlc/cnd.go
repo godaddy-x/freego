@@ -26,7 +26,7 @@ const (
 	IN_
 	NOT_IN_
 	LIKE_
-	NO_TLIKE_
+	NOT_LIKE_
 	OR_
 	ORDER_BY_
 	LEFT_
@@ -50,7 +50,6 @@ const (
 	Json   = "json"
 	Mg     = "mg"
 	True   = "true"
-	BsonId = "_id"
 	Date   = "date"
 	Dtype  = "dtype"
 )
@@ -246,7 +245,7 @@ func (self *Cnd) NotLike(key string, value interface{}) *Cnd {
 	if value == nil {
 		return self
 	}
-	condit := Condition{NO_TLIKE_, key, value, nil, ""}
+	condit := Condition{NOT_LIKE_, key, value, nil, ""}
 	return addDefaultCondit(self, condit)
 }
 

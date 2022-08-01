@@ -638,13 +638,13 @@ func buildMongoMatch(cnd *sqlc.Cnd) map[string]interface{} {
 			query[key] = map[string]interface{}{"$nin": values}
 		case sqlc.LIKE_:
 			query[key] = map[string]interface{}{"$regex": value}
-		case sqlc.NO_TLIKE_:
+		case sqlc.NOT_LIKE_:
 			// unsupported
 		case sqlc.OR_:
 			if values == nil || len(values) == 0 {
 				continue
 			}
-			array := make([]interface{}, len(values))
+			var array []interface{}
 			for _, v := range values {
 				cnd, ok := v.(*sqlc.Cnd)
 				if !ok {
