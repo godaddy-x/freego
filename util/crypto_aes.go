@@ -21,7 +21,7 @@ func PKCS7UnPadding(plantText []byte, blockSize int) []byte {
 
 func AesEncrypt(s, key1, key2 string) (string, error) {
 	s1 := Str2Bytes(MD5(key1))
-	s2 := Str2Bytes(Substr2(MD5(key2), 12, 28))
+	s2 := Str2Bytes(Substr(MD5(key2), 12, 28))
 	block, err := aes.NewCipher(s1) //选择加密算法
 	if err != nil {
 		return "", err
@@ -36,7 +36,7 @@ func AesEncrypt(s, key1, key2 string) (string, error) {
 
 func AesDecrypt(s, key1, key2 string) (string, error) {
 	s1 := Str2Bytes(MD5(key1))
-	s2 := Str2Bytes(Substr2(MD5(key2), 12, 28))
+	s2 := Str2Bytes(Substr(MD5(key2), 12, 28))
 	block, err := aes.NewCipher(s1) //选择加密算法
 	if err != nil {
 		return "", err

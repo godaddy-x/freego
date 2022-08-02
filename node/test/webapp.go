@@ -1,7 +1,9 @@
 package http_web
 
 import (
+	"fmt"
 	"github.com/godaddy-x/freego/cache"
+	"github.com/godaddy-x/freego/component/consul"
 	"github.com/godaddy-x/freego/component/jwt"
 	"github.com/godaddy-x/freego/component/limiter"
 	"github.com/godaddy-x/freego/ex"
@@ -38,6 +40,18 @@ type MyWsNode struct {
 	node.WebsocketNode
 }
 
+type ReqObj struct {
+	Uid  int
+	Name string
+}
+
+type ResObj struct {
+	Name   string
+	Title  string
+	Status int
+}
+
+
 func (self *MyWebNode) test(ctx *node.Context) error {
 	//return self.Html(ctx, "/resource/index.html", map[string]interface{}{"tewt": 1})
 	return self.Json(ctx, map[string]interface{}{"test": 1})
@@ -52,6 +66,25 @@ func (self *MyWebNode) login(ctx *node.Context) error {
 
 	token := subject.Generate(GetSecretKey().TokenKey)
 	secret := jwt.GetTokenSecret(token)
+
+	mgr, err := new(consul.ConsulManager).Client()
+	if err != nil {
+		panic(err)
+	}
+
+	req := &ReqObj{123, "托尔斯泰"}
+	res := &ResObj{}
+
+	if err := mgr.CallRPC(&consul.CallInfo{
+		Package:  "mytest",
+		Service:  "UserServiceImpl",
+		Method:   "FindUser",
+		Request:  req,
+		Response: res,
+	}); err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println("rpc result: ", res)
 
 	return self.Json(ctx, map[string]interface{}{"token": token, "secret": secret})
 	//return self.Html(ctx, "/web/index.html", map[string]interface{}{"tewt": 1})

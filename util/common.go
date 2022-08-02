@@ -165,14 +165,9 @@ func Millisecond(t ...time.Time) int64 {
 	return Nanosecond(t...) / 1e6
 }
 
-// 截取字符串 start 起点下标 length 需要截取的长度
-func Substr(str string, start int, length int) string {
-	return str[start:length]
-}
-
-// 截取字符串 start 起点下标 end 终点下标(不包括)
-func Substr2(str string, start int, end int) string {
-	return str[start : len(str)-end]
+// 截取字符串 start 起点下标 end 结束下标
+func Substr(str string, start int, end int) string {
+	return str[start:end]
 }
 
 // 获取本机内网IP

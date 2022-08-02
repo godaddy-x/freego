@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"github.com/godaddy-x/freego/sqlc"
+	"github.com/godaddy-x/freego/component/consul"
 	"github.com/godaddy-x/freego/sqld"
 	"github.com/godaddy-x/freego/util"
 	"testing"
@@ -58,8 +58,12 @@ func init() {
 			func() interface{} { return &[]*OwWallet{} },
 		},
 	)
-	initMysqlDB()
-	initMongoDB()
+	//initMysqlDB()
+	//initMongoDB()
+	new(consul.ConsulManager).InitConfig(consul.ConsulConfig{
+		Host: "consulx.com:8500",
+		Node: "dc/consul",
+	})
 	//sqld.ModelDriver(
 	//	sqld.Hook{
 	//		func() interface{} { return &DxApp{} },
@@ -147,36 +151,58 @@ func init() {
 //	}
 //}
 
-func BenchmarkMysqlFindOne(b *testing.B) {
-	b.StopTimer()              //调用该函数停止压力测试的时间计数go test -run="webbench_test.go" -test.bench="."*
-	b.StartTimer()             //重新开始时间
-	for i := 0; i < b.N; i++ { //use b.N for looping
-		db, err := new(sqld.MysqlManager).Get(sqld.Option{OpenTx: false})
-		if err != nil {
-			panic(err)
-		}
-		defer db.Close()
-		//l := util.Time()
-		wallet := OwWallet{}
-		if err := db.FindOne(sqlc.M().Eq("id", 1109819683034365953), &wallet); err != nil {
-			fmt.Println(err)
-		}
-		//fmt.Println("cost: ", util.Time()-l)
-	}
-}
+//func BenchmarkMysqlFindOne(b *testing.B) {
+//	b.StopTimer()  //调用该函数停止压力测试的时间计数go test -run="webbench_test.go" -test.bench="."*
+//	b.StartTimer() //重新开始时间
+//	for i := 0; i < b.N; i++ { //use b.N for looping
+//		db, err := new(sqld.MysqlManager).Get(sqld.Option{OpenTx: false})
+//		if err != nil {
+//			panic(err)
+//		}
+//		defer db.Close()
+//		//l := util.Time()
+//		wallet := OwWallet{}
+//		if err := db.FindOne(sqlc.M().Eq("id", 1109819683034365953), &wallet); err != nil {
+//			fmt.Println(err)
+//		}
+//		//fmt.Println("cost: ", util.Time()-l)
+//	}
+//}
+//
+//func BenchmarkMongoFindOne(b *testing.B) {
+//	b.StopTimer()  //调用该函数停止压力测试的时间计数go test -run="webbench_test.go" -test.bench="."*
+//	b.StartTimer() //重新开始时间
+//	for i := 0; i < b.N; i++ { //use b.N for looping
+//		db, err := new(sqld.MGOManager).Get()
+//		if err != nil {
+//			panic(err)
+//		}
+//		defer db.Close()
+//		o := &OwWallet{}
+//		if err := db.FindOne(sqlc.M().Eq("id", 1182663723102240768), o); err != nil {
+//			fmt.Println(err)
+//		}
+//	}
+//}
 
-func BenchmarkMongoFindOne(b *testing.B) {
-	b.StopTimer()              //调用该函数停止压力测试的时间计数go test -run="webbench_test.go" -test.bench="."*
-	b.StartTimer()             //重新开始时间
-	for i := 0; i < b.N; i++ { //use b.N for looping
-		db, err := new(sqld.MGOManager).Get()
-		if err != nil {
-			panic(err)
-		}
-		defer db.Close()
-		o := &OwWallet{}
-		if err := db.FindOne(sqlc.M().Eq("id", 1182663723102240768), o); err != nil {
-			fmt.Println(err)
-		}
+func BenchmarkConsulxCallRPC(b *testing.B) {
+	mgr, err := new(consul.ConsulManager).Client()
+	if err != nil {
+		panic(err)
 	}
+
+	req := &ReqObj{123, "托尔斯泰"}
+	res := &ResObj{}
+
+	if err := mgr.CallRPC(&consul.CallInfo{
+		Package:  "mytest",
+		Service:  "UserServiceImpl",
+		Method:   "FindUser",
+		Request:  req,
+		Response: res,
+	}); err != nil {
+		fmt.Println(err)
+		return
+	}
+	//fmt.Println("rpc result: ", res)
 }
