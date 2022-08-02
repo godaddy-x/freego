@@ -51,22 +51,13 @@ type ResObj struct {
 	Status int
 }
 
-
 func (self *MyWebNode) test(ctx *node.Context) error {
 	//return self.Html(ctx, "/resource/index.html", map[string]interface{}{"tewt": 1})
 	return self.Json(ctx, map[string]interface{}{"test": 1})
 	//return ex.Throw{Code: ex.BIZ, Msg: "测试错误"}
 }
 
-func (self *MyWebNode) login(ctx *node.Context) error {
-	subject := &jwt.Subject{}
-	subject.Create(123456).Iss("1111").Aud("22222").Extinfo("test", "11").Extinfo("test2", "222").Dev("APP")
-
-	//self.LoginBySubject(subject, exp)
-
-	token := subject.Generate(GetSecretKey().TokenKey)
-	secret := jwt.GetTokenSecret(token)
-
+func callrpc() {
 	mgr, err := new(consul.ConsulManager).Client()
 	if err != nil {
 		panic(err)
@@ -85,6 +76,18 @@ func (self *MyWebNode) login(ctx *node.Context) error {
 		fmt.Println(err)
 	}
 	fmt.Println("rpc result: ", res)
+}
+
+func (self *MyWebNode) login(ctx *node.Context) error {
+	subject := &jwt.Subject{}
+	subject.Create(123456).Iss("1111").Aud("22222").Extinfo("test", "11").Extinfo("test2", "222").Dev("APP")
+
+	//self.LoginBySubject(subject, exp)
+
+	token := subject.Generate(GetSecretKey().TokenKey)
+	secret := jwt.GetTokenSecret(token)
+
+	callrpc()
 
 	return self.Json(ctx, map[string]interface{}{"token": token, "secret": secret})
 	//return self.Html(ctx, "/web/index.html", map[string]interface{}{"tewt": 1})
