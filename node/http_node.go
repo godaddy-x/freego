@@ -404,11 +404,7 @@ func (self *HttpNode) limiterHandler() http.Handler {
 	})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if limiter.Validate(nil) {
-			node := &HttpNode{}
-			node.Context = &Context{
-				Output: w,
-			}
-			node.RenderError(ex.Throw{Code: 429, Msg: ""})
+			w.WriteHeader(429)
 			return
 		}
 		self.Handler.ServeHTTP(w, r)

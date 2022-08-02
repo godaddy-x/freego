@@ -57,7 +57,7 @@ func (self *MyWebNode) test(ctx *node.Context) error {
 	//return ex.Throw{Code: ex.BIZ, Msg: "测试错误"}
 }
 
-func callrpc() {
+func test_callrpc() {
 	mgr, err := new(consul.ConsulManager).Client()
 	if err != nil {
 		panic(err)
@@ -87,10 +87,13 @@ func (self *MyWebNode) login(ctx *node.Context) error {
 	token := subject.Generate(GetSecretKey().TokenKey)
 	secret := jwt.GetTokenSecret(token)
 
-	callrpc()
-
 	return self.Json(ctx, map[string]interface{}{"token": token, "secret": secret})
 	//return self.Html(ctx, "/web/index.html", map[string]interface{}{"tewt": 1})
+}
+
+func (self *MyWebNode) callrpc(ctx *node.Context) error {
+	test_callrpc()
+	return self.Json(ctx, map[string]interface{}{})
 }
 
 func GetSecretKey() *jwt.JwtSecretKey {
@@ -136,6 +139,7 @@ func StartHttpNode() *MyWebNode {
 	}
 	my.Router("/test1", my.test, nil)
 	my.Router("/login1", my.login, &node.Config{Authorization: false, RequestAesEncrypt: true, ResponseAesEncrypt: true})
+	my.Router("/callrpc", my.login, &node.Config{Authorization: false, RequestAesEncrypt: false, ResponseAesEncrypt: false})
 	my.StartServer()
 	return my
 }

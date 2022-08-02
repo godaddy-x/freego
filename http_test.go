@@ -12,11 +12,11 @@ import (
 
 const domain = "http://localhost:8090"
 
-//const access_token = "eyJzdWIiOjEyMzQ1NiwiYXVkIjoiMjIyMjIiLCJpc3MiOiIxMTExIiwiaWF0IjoxNjU5MDc1Njk1LCJleHAiOjE2NjAyODUyOTUsImRldiI6IkFQUCIsImp0aSI6IjNkMjYyZGM4MmQ5MWNlNDIwY2EzOTUyZDQyNTA2MTFlYzZmNTRlZmY5NTFmZDcxNjc4YjBhZTM1MzBlNGYwMDIiLCJuc3IiOiI2NDI3YmUwMmY4MjVkNmYwMDY2M2MiLCJleHQiOnsidGVzdCI6IjExIiwidGVzdDIiOiIyMjIifX0=.bc7e74f110d647e16220b348a71727f967d193f98cab55e5641a38a5b8872223"
-//const token_secret = "ed77cba12e240456c589efb0f74c2b6610e32d5288dc03780bbad46ef8ae0838"
+const access_token = "eyJzdWIiOjEyMzQ1NiwiYXVkIjoiMjIyMjIiLCJpc3MiOiIxMTExIiwiaWF0IjoxNjU5NDI1MDYyLCJleHAiOjE2NjA2MzQ2NjIsImRldiI6IkFQUCIsImp0aSI6ImQyOWRkMjQwN2VhNzg2MWJhZDg1NGJiODJjYWIwMTU4NDQ4OWRmOThjMjA5MjgyODY4MjNmMjNiZDdiMzRmNTEiLCJuc3IiOiI4MzAyOGMyZDJhYTEwMDU2IiwiZXh0Ijp7InRlc3QiOiIxMSIsInRlc3QyIjoiMjIyIn19.d4b34ae8c0af2d1428574c79ac1570534163ca6f5a595f88b46c8b8b99397bc5"
+const token_secret = "e4072518580445e17004d7717c175bbdb2d63aaca66d5d2500e3c873c4f163ae"
 
-const access_token = ""
-const token_secret = ""
+//const access_token = ""
+//const token_secret = ""
 
 // 测试使用的http post示例方法
 func ToPostBy(path string, req *node.ReqDto) {
@@ -88,7 +88,35 @@ func TestLogin(t *testing.T) {
 	ToPostBy(path, req)
 }
 
+func BenchmarkLogin(b *testing.B) {
+	data, _ := util.ToJsonBase64(map[string]string{"test": "1234566"})
+	path := "/login1"
+	req := &node.ReqDto{
+		Data:  data,
+		Time:  util.TimeSecond(),
+		Nonce: util.GetSnowFlakeStrID(),
+		Plan:  int64(1),
+		Sign:  "",
+	}
+	fmt.Println(req)
+	ToPostBy(path, req)
+}
+
 func TestGetUser(t *testing.T) {
+	data, _ := util.ToJsonBase64(map[string]string{"test": "1234566"})
+	path := "/test1"
+	req := &node.ReqDto{
+		Data:  data,
+		Time:  util.TimeSecond(),
+		Nonce: util.GetSnowFlakeStrID(),
+		Plan:  int64(0),
+		Sign:  "",
+	}
+	fmt.Println(req)
+	ToPostBy(path, req)
+}
+
+func BenchmarkGetUser(b *testing.B) {
 	data, _ := util.ToJsonBase64(map[string]string{"test": "1234566"})
 	path := "/test1"
 	req := &node.ReqDto{
