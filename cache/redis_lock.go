@@ -50,10 +50,10 @@ func (lock *Lock) key() string {
 
 func (self *RedisManager) getLock(conn redis.Conn, resource string) (lock *Lock, ok bool, err error) {
 	timeout := time.Duration(self.LockTimeout) * time.Second
-	return self.getLockkWithTimeout(conn, resource, timeout)
+	return self.getLockWithTimeout(conn, resource, timeout)
 }
 
-func (self *RedisManager) getLockkWithTimeout(conn redis.Conn, resource string, timeout time.Duration) (lock *Lock, ok bool, err error) {
+func (self *RedisManager) getLockWithTimeout(conn redis.Conn, resource string, timeout time.Duration) (lock *Lock, ok bool, err error) {
 	lock = &Lock{resource, util.GetSnowFlakeStrID(), conn, timeout}
 	ok, err = lock.tryLock()
 	if !ok || err != nil {
@@ -69,12 +69,12 @@ func (self *RedisManager) TryLock(resource string, call func() error) error {
 
 func (self *RedisManager) TryLockWithTimeout(resource string, timeout int, call func() error) error {
 	client := self.Pool.Get()
-	lock, ok, err := self.getLockkWithTimeout(client, resource, time.Duration(timeout)*time.Second)
+	lock, ok, err := self.getLockWithTimeout(client, resource, time.Duration(timeout)*time.Second)
 	if err != nil {
 		return ex.Throw{Code: ex.REDIS_LOCK_GET, Msg: "获取凭证失败", Err: err}
 	}
 	if !ok {
-		return ex.Throw{Code: ex.REDIS_LOCK_PENDING, Msg: util.AddStr("您的请求正在处理,请耐心等待")}
+		return ex.Throw{Code: ex.REDIS_LOCK_PENDING, Msg: "您的请求正在处理,请耐心等待"}
 	}
 	err = call()
 	lock.unlock()
