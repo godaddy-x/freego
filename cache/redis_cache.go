@@ -7,8 +7,8 @@ import (
 )
 
 var (
-	MASTER         = "MASTER"
-	redis_sessions = make(map[string]*RedisManager, 0)
+	MASTER        = "MASTER"
+	redisSessions = make(map[string]*RedisManager, 0)
 )
 
 // redis配置参数
@@ -38,7 +38,7 @@ func (self *RedisManager) InitConfig(input ...RedisConfig) (*RedisManager, error
 		if len(v.DsName) > 0 {
 			dsName = v.DsName
 		}
-		if _, b := redis_sessions[dsName]; b {
+		if _, b := redisSessions[dsName]; b {
 			return nil, util.Error("初始化redis连接池失败: [", v.DsName, "]已存在")
 		}
 		pool := &redis.Pool{MaxIdle: v.MaxIdle, MaxActive: v.MaxActive, IdleTimeout: time.Duration(v.IdleTimeout) * time.Second, Dial: func() (redis.Conn, error) {
@@ -54,22 +54,20 @@ func (self *RedisManager) InitConfig(input ...RedisConfig) (*RedisManager, error
 			}
 			return c, err
 		}}
-		redis_sessions[dsName] = &RedisManager{Pool: pool, DsName: dsName, LockTimeout: v.LockTimeout}
+		redisSessions[dsName] = &RedisManager{Pool: pool, DsName: dsName, LockTimeout: v.LockTimeout}
 	}
-	if len(redis_sessions) == 0 {
+	if len(redisSessions) == 0 {
 		return nil, util.Error("初始化redis连接池失败: 数据源为0")
 	}
 	return self, nil
 }
 
-func (self *RedisManager) Client(dsname ...string) (*RedisManager, error) {
-	var ds string
-	if len(dsname) > 0 && len(dsname[0]) > 0 {
-		ds = dsname[0]
-	} else {
-		ds = MASTER
+func (self *RedisManager) Client(dsName ...string) (*RedisManager, error) {
+	ds := MASTER
+	if len(dsName) > 0 && len(dsName[0]) > 0 {
+		ds = dsName[0]
 	}
-	manager := redis_sessions[ds]
+	manager := redisSessions[ds]
 	if manager == nil {
 		return nil, util.Error("redis数据源[", ds, "]未找到,请检查...")
 	}
@@ -275,7 +273,7 @@ func (self *RedisManager) Rpush(key string, val interface{}) error {
 	return nil
 }
 
-func (self *RedisManager) LuaScript(cmd string, key []string, val ... interface{}) (interface{}, error) {
+func (self *RedisManager) LuaScript(cmd string, key []string, val ...interface{}) (interface{}, error) {
 	if len(cmd) == 0 || key == nil || len(key) == 0 {
 		return nil, nil
 	}
