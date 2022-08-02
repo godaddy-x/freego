@@ -10,7 +10,7 @@ import (
 )
 
 var (
-	publish_mgrs = make(map[string]*PublishManager)
+	publishMgrs = make(map[string]*PublishManager)
 )
 
 type PublishManager struct {
@@ -37,20 +37,20 @@ type QueueData struct {
 
 func (self *PublishManager) InitConfig(input ...AmqpConfig) (*PublishManager, error) {
 	for _, v := range input {
-		if _, b := publish_mgrs[v.DsName]; b {
+		if _, b := publishMgrs[v.DsName]; b {
 			return nil, util.Error("PublishManager RabbitMQ初始化失败: [", v.DsName, "]已存在")
 		}
 		if len(v.DsName) == 0 {
 			v.DsName = MASTER
 		}
-		publish_mgr := &PublishManager{
+		publishMgr := &PublishManager{
 			conf:     v,
 			channels: make(map[string]*PublishMQ),
 		}
-		if _, err := publish_mgr.Connect(); err != nil {
+		if _, err := publishMgr.Connect(); err != nil {
 			return nil, err
 		}
-		publish_mgrs[v.DsName] = publish_mgr
+		publishMgrs[v.DsName] = publishMgr
 	}
 	return self, nil
 }
@@ -62,7 +62,7 @@ func (self *PublishManager) Client(dsname ...string) (*PublishManager, error) {
 	} else {
 		ds = MASTER
 	}
-	return publish_mgrs[ds], nil
+	return publishMgrs[ds], nil
 }
 
 func (self *PublishManager) Connect() (*PublishManager, error) {
@@ -115,7 +115,7 @@ func (self *PublishManager) Queue(data *MsgData) (*QueueData, error) {
 	return &QueueData{
 		Name:      pub.queue.Name,
 		Consumers: pub.queue.Consumers,
-		Messages:  pub.queue.Messages,}, nil
+		Messages:  pub.queue.Messages}, nil
 }
 
 func (self *PublishManager) initQueue(data *MsgData) (*PublishMQ, error) {
@@ -164,7 +164,7 @@ func (self *PublishManager) initQueue(data *MsgData) (*PublishMQ, error) {
 	return pub, nil
 }
 
-func (self *PublishManager) listen(pub *PublishMQ) (error) {
+func (self *PublishManager) listen(pub *PublishMQ) error {
 	pub.mu.Lock()
 	defer pub.mu.Unlock()
 	if !pub.ready { // 重新连接channel
@@ -218,7 +218,7 @@ func (self *PublishManager) PublishMsgData(data *MsgData) error {
 	if len(sigKey) == 0 {
 		return util.Error("签名密钥为空")
 	}
-	content, err := util.ToJsonBase64(data.Content);
+	content, err := util.ToJsonBase64(data.Content)
 	if err != nil {
 		return err
 	}

@@ -14,8 +14,8 @@ import (
 )
 
 var (
-	mgo_sessions = make(map[string]*MGOManager)
-	mgo_slowlog  *zap.Logger
+	mgoSessions = make(map[string]*MGOManager)
+	mgoSlowlog  *zap.Logger
 )
 
 type CountResult struct {
@@ -81,7 +81,7 @@ func (self *MGOManager) GetDB(options ...Option) error {
 			option.DsName = dsName
 		}
 	}
-	mgo := mgo_sessions[dsName]
+	mgo := mgoSessions[dsName]
 	if mgo == nil {
 		return self.Error("mongo数据源[", dsName, "]未找到,请检查...")
 	}
@@ -129,7 +129,7 @@ func (self *MGOManager) buildByConfig(manager cache.ICache, input ...MGOConfig) 
 		if len(v.DsName) > 0 {
 			dsName = v.DsName
 		}
-		if _, b := mgo_sessions[dsName]; b {
+		if _, b := mgoSessions[dsName]; b {
 			return util.Error("mongo连接初始化失败: [", v.DsName, "]已存在")
 		}
 		if len(v.ConnectionURI) > 0 {
@@ -178,11 +178,11 @@ func (self *MGOManager) buildByConfig(manager cache.ICache, input ...MGOConfig) 
 		if v.OpenTx {
 			mgo.OpenTx = v.OpenTx
 		}
-		mgo_sessions[mgo.DsName] = mgo
+		mgoSessions[mgo.DsName] = mgo
 		// init log
 		mgo.initSlowLog()
 	}
-	if len(mgo_sessions) == 0 {
+	if len(mgoSessions) == 0 {
 		return util.Error("mongo连接初始化失败: 数据源为0")
 	}
 	return nil
@@ -192,8 +192,8 @@ func (self *MGOManager) initSlowLog() {
 	if self.SlowQuery == 0 || len(self.SlowLogPath) == 0 {
 		return
 	}
-	if mgo_slowlog == nil {
-		mgo_slowlog = log.InitNewLog(&log.ZapConfig{
+	if mgoSlowlog == nil {
+		mgoSlowlog = log.InitNewLog(&log.ZapConfig{
 			Level:   "warn",
 			Console: false,
 			FileConfig: &log.FileConfig{
@@ -203,12 +203,12 @@ func (self *MGOManager) initSlowLog() {
 				MaxBackups: 7,
 				MaxSize:    512,
 			}})
-		mgo_slowlog.Info("MGO查询监控日志服务启动成功...")
+		mgoSlowlog.Info("MGO查询监控日志服务启动成功...")
 	}
 }
 
 func (self *MGOManager) getSlowLog() *zap.Logger {
-	return mgo_slowlog
+	return mgoSlowlog
 }
 
 // 保存数据到mongo集合

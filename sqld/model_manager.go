@@ -25,8 +25,8 @@ type FieldElem struct {
 }
 
 type Hook struct {
-	NewObj    func() (interface{})
-	NewObjArr func() (interface{})
+	NewObj    func() interface{}
+	NewObjArr func() interface{}
 }
 
 type MdlDriver struct {

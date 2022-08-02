@@ -10,7 +10,7 @@ import (
 )
 
 var (
-	pull_mgrs = make(map[string]*PullManager)
+	pullMgrs = make(map[string]*PullManager)
 )
 
 type PullManager struct {
@@ -22,20 +22,20 @@ type PullManager struct {
 
 func (self *PullManager) InitConfig(input ...AmqpConfig) (*PullManager, error) {
 	for _, v := range input {
-		if _, b := pull_mgrs[v.DsName]; b {
+		if _, b := pullMgrs[v.DsName]; b {
 			return nil, util.Error("PullManager RabbitMQ初始化失败: [", v.DsName, "]已存在")
 		}
 		if len(v.DsName) == 0 {
 			v.DsName = MASTER
 		}
-		pull_mgr := &PullManager{
+		pullMgr := &PullManager{
 			conf:      v,
 			receivers: make([]*PullReceiver, 0),
 		}
-		if _, err := pull_mgr.Connect(); err != nil {
+		if _, err := pullMgr.Connect(); err != nil {
 			return nil, err
 		}
-		pull_mgrs[v.DsName] = pull_mgr
+		pullMgrs[v.DsName] = pullMgr
 	}
 	return self, nil
 }
@@ -47,7 +47,7 @@ func (self *PullManager) Client(dsname ...string) (*PullManager, error) {
 	} else {
 		ds = MASTER
 	}
-	return pull_mgrs[ds], nil
+	return pullMgrs[ds], nil
 }
 
 func (self *PullManager) AddPullReceiver(receivers ...*PullReceiver) {
