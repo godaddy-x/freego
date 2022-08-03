@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"github.com/godaddy-x/freego/component/consul"
 	"testing"
-	"time"
 )
 
 type ReqObj struct {
@@ -43,10 +42,7 @@ func (self *UserServiceImpl) FindUserList(req *ReqObj, obj *ResObj) error {
 }
 
 func TestConsulxAddRPC(t *testing.T) {
-	new(consul.ConsulManager).InitConfig(consul.ConsulConfig{
-		Host: "consulx.com:8500",
-		Node: "dc/consul",
-	})
+	new(consul.ConsulManager).InitConfig(consul.ConsulConfig{})
 
 	mgr, err := new(consul.ConsulManager).Client()
 	if err != nil {
@@ -54,22 +50,18 @@ func TestConsulxAddRPC(t *testing.T) {
 	}
 
 	mgr.AddRPC(&consul.CallInfo{
-		Tags:    []string{"用户服务"},
-		Package: "mytest",
-		Iface:   &UserServiceImpl{},
+		Tags:  []string{"用户服务"},
+		Iface: &UserServiceImpl{},
 	})
+
+	go consul.InitWorkIdRPC()
 
 	mgr.StartListenAndServe()
 
-	time.Sleep(1 * time.Hour)
-
 }
 
-func TestConsulxCallRPC(t *testing.T) {
-	new(consul.ConsulManager).InitConfig(consul.ConsulConfig{
-		Host: "consulx.com:8500",
-		Node: "dc/consul",
-	})
+func TestConsulxCallRPC_USER(t *testing.T) {
+	new(consul.ConsulManager).InitConfig(consul.ConsulConfig{})
 
 	mgr, err := new(consul.ConsulManager).Client()
 	if err != nil {
@@ -80,9 +72,31 @@ func TestConsulxCallRPC(t *testing.T) {
 	res := &ResObj{}
 
 	if err := mgr.CallRPC(&consul.CallInfo{
-		Package:  "mytest",
 		Service:  "UserServiceImpl",
 		Method:   "FindUser",
+		Request:  req,
+		Response: res,
+	}); err != nil {
+		fmt.Println(err)
+		return
+	}
+	fmt.Println("rpc result: ", res)
+}
+
+func TestConsulxCallRPC_ID(t *testing.T) {
+	new(consul.ConsulManager).InitConfig(consul.ConsulConfig{})
+
+	mgr, err := new(consul.ConsulManager).Client()
+	if err != nil {
+		panic(err)
+	}
+
+	req := &consul.ReqObj{}
+	res := &consul.ResObj{}
+
+	if err := mgr.CallRPC(&consul.CallInfo{
+		Service:  "SnowflakeWorkId",
+		Method:   "Generate",
 		Request:  req,
 		Response: res,
 	}); err != nil {

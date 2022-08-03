@@ -20,6 +20,7 @@ import (
 
 var (
 	defaultHost     = "consulx.com:8500"
+	defaultNode     = "dc/consul"
 	consul_sessions = make(map[string]*ConsulManager, 0)
 	consul_slowlog  *zap.Logger
 )
@@ -47,6 +48,7 @@ type ConsulConfig struct {
 	Timeout      string // 请求超时时间, 3s
 	Interval     string // 健康监测时间, 5s
 	DestroyAfter string // 销毁服务时间, 600s
+	CheckPath    string // 健康检测path /xxx/check
 	SlowQuery    int64  // 0.不开启筛选 >0开启筛选查询 毫秒
 	SlowLogPath  string // 慢查询写入地址
 }
@@ -80,9 +82,6 @@ type CallInfo struct {
 }
 
 func getConsulClient(conf ConsulConfig) *ConsulManager {
-	if len(conf.Host) == 0 {
-		panic("consul配置host参数为空")
-	}
 	config := consulapi.DefaultConfig()
 	config.Address = conf.Host
 	client, err := consulapi.NewClient(config)
@@ -98,8 +97,11 @@ func getConsulClient(conf ConsulConfig) *ConsulManager {
 
 func (self *ConsulManager) InitConfig(input ...ConsulConfig) (*ConsulManager, error) {
 	for _, conf := range input {
+		if len(conf.Host) == 0 {
+			conf.Host = defaultHost
+		}
 		if len(conf.Node) == 0 {
-			panic("线上consul节点配置数据为空")
+			conf.Node = defaultNode
 		}
 		localmgr := getConsulClient(conf)
 		config := ConsulConfig{}
@@ -224,7 +226,7 @@ func (self *ConsulManager) StartListenAndServe() {
 			}(conn)
 		}
 	}()
-	http.HandleFunc("/check", self.healthCheck)
+	http.HandleFunc(self.Config.CheckPath, self.healthCheck)
 	http.ListenAndServe(fmt.Sprintf(":%d", self.Config.CheckPort), nil)
 }
 
@@ -346,13 +348,13 @@ func (self *ConsulManager) AddRPC(callInfo ...*CallInfo) {
 		if exist {
 			continue
 		}
-		registration.ID = util.GetSnowFlakeStrID()
+		registration.ID = util.GetUUID()
 		registration.Name = srvName
 		registration.Tags = info.Tags
 		registration.Address = addr
 		registration.Port = self.Config.RpcPort
-		registration.Meta = make(map[string]string)
-		registration.Check = &consulapi.AgentServiceCheck{HTTP: fmt.Sprintf("http://%s:%d%s", registration.Address, self.Config.CheckPort, "/check"), Timeout: self.Config.Timeout, Interval: self.Config.Interval, DeregisterCriticalServiceAfter: self.Config.DestroyAfter,}
+		registration.Meta = make(map[string]string, 0)
+		registration.Check = &consulapi.AgentServiceCheck{HTTP: fmt.Sprintf("http://%s:%d%s", registration.Address, self.Config.CheckPort, self.Config.CheckPath), Timeout: self.Config.Timeout, Interval: self.Config.Interval, DeregisterCriticalServiceAfter: self.Config.DestroyAfter,}
 		// 启动RPC服务
 		log.Println(util.AddStr("Consul服务[", registration.Name, "][", registration.Address, "]注册成功"))
 		if err := self.Consulx.Agent().ServiceRegister(registration); err != nil {
