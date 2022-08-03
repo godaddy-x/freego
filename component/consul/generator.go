@@ -28,7 +28,7 @@ func (self *SnowflakeWorkId) Generate(req *ReqObj, res *ResObj) error {
 	return nil
 }
 
-func InitWorkIdRPC() {
+func StartSnowflakeServe() {
 	new(ConsulManager).InitConfig(ConsulConfig{Node: "dc/snowflake",})
 
 	mgr, err := new(ConsulManager).Client()

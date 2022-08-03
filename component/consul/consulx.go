@@ -207,7 +207,7 @@ func (self *ConsulManager) StartListenAndServe() {
 		for {
 			conn, err := l.Accept()
 			if err != nil {
-				log.Print("Error: accept rpc connection", err.Error())
+				log.Print("rpc accept rpc connection failed: ", err)
 				continue
 			}
 			go func(conn net.Conn) {
@@ -220,7 +220,7 @@ func (self *ConsulManager) StartListenAndServe() {
 				}
 				err = rpc.ServeRequest(srv)
 				if err != nil {
-					log.Print("Error: server rpc request", err.Error())
+					log.Print("server rpc request failed: ", err)
 				}
 				srv.Close()
 			}(conn)
@@ -366,10 +366,13 @@ func (self *ConsulManager) AddRPC(callInfo ...*CallInfo) {
 
 // 获取RPC服务,并执行访问 args参数不可变,reply参数可变
 func (self *ConsulManager) CallRPC(callInfo *CallInfo) error {
-	if callInfo.Service == "" {
+	if callInfo == nil {
+		return errors.New("CallInfo对象为空")
+	}
+	if len(callInfo.Service) == 0 {
 		return errors.New("服务名称为空")
 	}
-	if callInfo.Method == "" {
+	if len(callInfo.Method) == 0 {
 		return errors.New("方法名称为空")
 	}
 	if callInfo.Request == nil {

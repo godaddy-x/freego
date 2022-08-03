@@ -54,7 +54,7 @@ func TestConsulxAddRPC(t *testing.T) {
 		Iface: &UserServiceImpl{},
 	})
 
-	go consul.InitWorkIdRPC()
+	go consul.StartSnowflakeServe()
 
 	mgr.StartListenAndServe()
 
