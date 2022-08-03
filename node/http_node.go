@@ -280,9 +280,9 @@ func (self *HttpNode) PreHandle() error {
 	return self.OverrideFunc.PreHandleFunc(self.Context)
 }
 
-func (self *HttpNode) LogHandle() (*LogHandleRes, error) {
+func (self *HttpNode) LogHandle() (LogHandleRes, error) {
 	if self.OverrideFunc == nil || self.OverrideFunc.LogHandleFunc == nil {
-		return nil, nil
+		return LogHandleRes{}, nil
 	}
 	return self.OverrideFunc.LogHandleFunc(self.Context)
 }
@@ -300,7 +300,7 @@ func (self *HttpNode) PostHandle(err error) error {
 	return self.RenderTo()
 }
 
-func (self *HttpNode) AfterCompletion(res *LogHandleRes, err error) error {
+func (self *HttpNode) AfterCompletion(res LogHandleRes, err error) error {
 	if self.OverrideFunc == nil || self.OverrideFunc.AfterCompletionFunc == nil {
 		return nil
 	}

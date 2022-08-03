@@ -17,8 +17,8 @@ const (
 	AES    = "AES"
 	RSA    = "RSA"
 
-	FIVE_MINUTES = int64(300);
-	TWO_WEEK     = int64(1209600);
+	FIVE_MINUTES = int64(300)
+	TWO_WEEK     = int64(1209600)
 )
 
 type Subject struct {
@@ -42,7 +42,7 @@ type Payload struct {
 	Ext map[string]string `json:"ext"` // 扩展信息
 }
 
-func (self *Subject) Create(sub int64) (*Subject) {
+func (self *Subject) Create(sub int64) *Subject {
 	nsr := util.Substr(util.MD5(util.GetSnowFlakeStrID()), 5, 21)
 	iat := util.TimeSecond()
 	self.Payload = &Payload{
@@ -57,42 +57,42 @@ func (self *Subject) Create(sub int64) (*Subject) {
 }
 
 // exp seconds
-func (self *Subject) Expired(exp int64) (*Subject) {
+func (self *Subject) Expired(exp int64) *Subject {
 	if exp > 0 {
 		self.Payload.Exp = self.Payload.Iat + exp
 	}
 	return self
 }
 
-func (self *Subject) Dev(dev string) (*Subject) {
+func (self *Subject) Dev(dev string) *Subject {
 	if len(dev) > 0 {
 		self.Payload.Dev = dev
 	}
 	return self
 }
 
-func (self *Subject) Iss(iss string) (*Subject) {
+func (self *Subject) Iss(iss string) *Subject {
 	if len(iss) > 0 {
 		self.Payload.Iss = iss
 	}
 	return self
 }
 
-func (self *Subject) Aud(aud string) (*Subject) {
+func (self *Subject) Aud(aud string) *Subject {
 	if len(aud) > 0 {
 		self.Payload.Aud = aud
 	}
 	return self
 }
 
-func (self *Subject) Extinfo(key, value string) (*Subject) {
+func (self *Subject) Extinfo(key, value string) *Subject {
 	if len(key) > 0 && len(value) > 0 {
 		self.Payload.Ext[key] = value
 	}
 	return self
 }
 
-func (self *Subject) Generate(key string) (string) {
+func (self *Subject) Generate(key string) string {
 	result, err := util.ToJsonBase64(self.Payload)
 	if err != nil {
 		return ""
@@ -100,16 +100,15 @@ func (self *Subject) Generate(key string) (string) {
 	return result + "." + self.Signature(result, key)
 }
 
-func (self *Subject) Signature(text, key string) (string) {
+func (self *Subject) Signature(text, key string) string {
 	return util.HMAC_SHA256(text, key+util.GetLocalSecretKey())
 }
 
-func (self *Subject) GetTokenSecret(token string) (string) {
-	s := util.SHA256(token)
-	return util.SHA256(util.Substr(s, 15, 19), util.Substr(s, 12, 19), util.Substr(s, 11, 27), util.GetLocalSecretKey())
+func (self *Subject) GetTokenSecret(token string) string {
+	return util.SHA256(util.SHA256(token)+util.MD5(util.GetLocalSecretKey()), util.GetLocalSecretKey())
 }
 
-func (self *Subject) Verify(token, key string) (error) {
+func (self *Subject) Verify(token, key string) error {
 	if len(token) == 0 {
 		return util.Error("token is nil")
 	}

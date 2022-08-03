@@ -120,7 +120,7 @@ func (self *WebsocketNode) wsReadHandle(c *WSClient, rcvd []byte) error {
 		// 5.执行视图控制方法
 		post_ret := self.PostHandle(biz_ret)
 		// 6.执行释放资源,记录日志方法
-		if err := self.AfterCompletion(nil, post_ret); err != nil {
+		if err := self.AfterCompletion(LogHandleRes{}, post_ret); err != nil {
 			return err
 		}
 		return nil
@@ -245,9 +245,9 @@ func (self *WebsocketNode) PreHandle() error {
 	return self.OverrideFunc.PreHandleFunc(self.Context)
 }
 
-func (self *WebsocketNode) LogHandle() (*LogHandleRes, error) {
+func (self *WebsocketNode) LogHandle() (LogHandleRes, error) {
 	if self.OverrideFunc.LogHandleFunc == nil {
-		return nil, nil
+		return LogHandleRes{}, nil
 	}
 	return self.OverrideFunc.LogHandleFunc(self.Context)
 }
@@ -263,7 +263,7 @@ func (self *WebsocketNode) PostHandle(err error) error {
 	return self.RenderTo()
 }
 
-func (self *WebsocketNode) AfterCompletion(res *LogHandleRes, err error) error {
+func (self *WebsocketNode) AfterCompletion(res LogHandleRes, err error) error {
 	var ret error
 	if self.OverrideFunc.AfterCompletionFunc != nil {
 		ret = self.OverrideFunc.AfterCompletionFunc(self.Context, res, err)

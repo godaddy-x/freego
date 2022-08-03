@@ -126,8 +126,8 @@ func StartHttpNode() *MyWebNode {
 			}
 			return nil
 		},
-		LogHandleFunc: func(ctx *node.Context) (*node.LogHandleRes, error) {
-			res := &node.LogHandleRes{
+		LogHandleFunc: func(ctx *node.Context) (node.LogHandleRes, error) {
+			res := node.LogHandleRes{
 				LogNo:    util.GetSnowFlakeStrID(),
 				CreateAt: util.Time(),
 			}
@@ -138,7 +138,7 @@ func StartHttpNode() *MyWebNode {
 		PostHandleFunc: func(resp *node.Response, err error) error {
 			return err
 		},
-		AfterCompletionFunc: func(ctx *node.Context, res *node.LogHandleRes, err error) error {
+		AfterCompletionFunc: func(ctx *node.Context, res node.LogHandleRes, err error) error {
 			res.UpdateAt = util.Time()
 			res.CostMill = res.UpdateAt - res.CreateAt
 			// TODO send log to rabbitmq

@@ -98,11 +98,11 @@ type ProtocolNode interface {
 	// 前置检测方法(业务方法前执行)
 	PreHandle() error
 	// 日志监听方法(业务方法前执行)
-	LogHandle() (*LogHandleRes, error)
+	LogHandle() (LogHandleRes, error)
 	// 业务执行方法->自定义处理执行方法(业务方法执行后,视图渲染前执行)
 	PostHandle(err error) error
 	// 最终响应执行方法(视图渲染后执行,可操作资源释放,保存日志等)
-	AfterCompletion(res *LogHandleRes, err error) error
+	AfterCompletion(res LogHandleRes, err error) error
 	// 渲染输出
 	RenderTo() error
 	// 异常错误响应方法
@@ -163,9 +163,9 @@ type Response struct {
 
 type OverrideFunc struct {
 	PreHandleFunc       func(ctx *Context) error
-	LogHandleFunc       func(ctx *Context) (*LogHandleRes, error)
+	LogHandleFunc       func(ctx *Context) (LogHandleRes, error)
 	PostHandleFunc      func(resp *Response, err error) error
-	AfterCompletionFunc func(ctx *Context, res *LogHandleRes, err error) error
+	AfterCompletionFunc func(ctx *Context, res LogHandleRes, err error) error
 }
 
 func (self *Context) GetHeader(k string) string {
@@ -225,7 +225,7 @@ func (self *Context) SecurityCheck(req *ReqDto, config *Config) error {
 	} else if req.Plan == 2 { // RSA
 
 	}
-	data := make(map[string]interface{})
+	data := make(map[string]interface{}, 0)
 	if err := util.ParseJsonBase64(d, &data); err != nil {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "业务参数解析失败"}
 	}
