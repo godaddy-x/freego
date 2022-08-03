@@ -11,17 +11,18 @@ import (
 )
 
 type gobClientCodec struct {
-	rwc    io.ReadWriteCloser
-	dec    *gob.Decoder
-	enc    *gob.Encoder
-	encBuf *bufio.Writer
+	rwc     io.ReadWriteCloser
+	dec     *gob.Decoder
+	enc     *gob.Encoder
+	encBuf  *bufio.Writer
+	timeout int64
 }
 
 func (c *gobClientCodec) WriteRequest(r *rpc.Request, body interface{}) (err error) {
-	if err = TimeoutCoder(c.enc.Encode, r, "client write request"); err != nil {
+	if err = TimeoutCoder(c.enc.Encode, r, c.timeout, "client write request"); err != nil {
 		return
 	}
-	if err = TimeoutCoder(c.enc.Encode, body, "client write request body"); err != nil {
+	if err = TimeoutCoder(c.enc.Encode, body, c.timeout, "client write request body"); err != nil {
 		return
 	}
 	return c.encBuf.Flush()
@@ -39,42 +40,45 @@ func (c *gobClientCodec) Close() error {
 	return c.rwc.Close()
 }
 
-func TimeoutCoder(f func(interface{}) error, e interface{}, msg string) error {
+func TimeoutCoder(f func(interface{}) error, e interface{}, timeout int64, msg string) error {
 	echan := make(chan error, 1)
-	go func() { echan <- f(e) }()
+	go func() {
+		echan <- f(e)
+	}()
 	select {
 	case e := <-echan:
 		return e
-	case <-time.After(time.Minute):
-		return fmt.Errorf("Timeout %s", msg)
+	case <-time.After(time.Second*time.Duration(timeout) - 5): // connect timeout - 5s
+		return fmt.Errorf("TimeoutCoder failed: %s", msg)
 	}
 }
 
 type gobServerCodec struct {
-	rwc    io.ReadWriteCloser
-	dec    *gob.Decoder
-	enc    *gob.Encoder
-	encBuf *bufio.Writer
-	closed bool
+	rwc     io.ReadWriteCloser
+	dec     *gob.Decoder
+	enc     *gob.Encoder
+	encBuf  *bufio.Writer
+	closed  bool
+	timeout int64
 }
 
 func (c *gobServerCodec) ReadRequestHeader(r *rpc.Request) error {
-	return TimeoutCoder(c.dec.Decode, r, "server read request header")
+	return TimeoutCoder(c.dec.Decode, r, c.timeout, "server read request header")
 }
 
 func (c *gobServerCodec) ReadRequestBody(body interface{}) error {
-	return TimeoutCoder(c.dec.Decode, body, "server read request body")
+	return TimeoutCoder(c.dec.Decode, body, c.timeout, "server read request body")
 }
 
 func (c *gobServerCodec) WriteResponse(r *rpc.Response, body interface{}) (err error) {
-	if err = TimeoutCoder(c.enc.Encode, r, "server write response"); err != nil {
+	if err = TimeoutCoder(c.enc.Encode, r, c.timeout, "server write response"); err != nil {
 		if c.encBuf.Flush() == nil {
 			log.Error("rpc: gob error encoding response", 0, log.AddError(err))
 			c.Close()
 		}
 		return
 	}
-	if err = TimeoutCoder(c.enc.Encode, body, "server write response body"); err != nil {
+	if err = TimeoutCoder(c.enc.Encode, body, c.timeout, "server write response body"); err != nil {
 		if c.encBuf.Flush() == nil {
 			log.Error("rpc: gob error encoding body", 0, log.AddError(err))
 			c.Close()

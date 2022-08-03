@@ -40,7 +40,7 @@ type ConsulConfig struct {
 	DsName       string // 数据源名
 	Node         string // 配置数据节点, /dc/consul
 	Host         string // consul host
-	Domain       string
+	Domain       string // 自定义访问域名,为空时自动填充内网IP
 	CheckPort    int    // 健康监测端口
 	RpcPort      int    // RPC调用端口
 	ListenProt   int    // 客户端监听端口
@@ -78,7 +78,7 @@ type CallInfo struct {
 	Protocol string      // RPC访问协议,默认TCP
 	Request  interface{} // 请求参数对象
 	Response interface{} // 响应参数对象
-	Timeout  int64       // 连接请求超时,默认10秒
+	Timeout  int64       // 连接请求超时,默认15秒
 }
 
 func getConsulClient(conf ConsulConfig) *ConsulManager {
@@ -207,20 +207,20 @@ func (self *ConsulManager) StartListenAndServe() {
 		for {
 			conn, err := l.Accept()
 			if err != nil {
-				log.Print("rpc accept rpc connection failed: ", err)
+				log.Print("rpc accept connection failed: ", err)
 				continue
 			}
 			go func(conn net.Conn) {
 				buf := bufio.NewWriter(conn)
 				srv := &gobServerCodec{
-					rwc:    conn,
-					dec:    gob.NewDecoder(conn),
-					enc:    gob.NewEncoder(buf),
-					encBuf: buf,
+					rwc:     conn,
+					dec:     gob.NewDecoder(conn),
+					enc:     gob.NewEncoder(buf),
+					encBuf:  buf,
+					timeout: 15,
 				}
-				err = rpc.ServeRequest(srv)
-				if err != nil {
-					log.Print("server rpc request failed: ", err)
+				if err := rpc.ServeRequest(srv); err != nil {
+					log.Print("rpc request failed: ", err)
 				}
 				srv.Close()
 			}(conn)
@@ -277,7 +277,7 @@ func (self *ConsulManager) GetAllService(service string) ([]*consulapi.AgentServ
 	return result, nil
 }
 
-// 控制访问信号
+// 控制访问计数器
 func (self *ConsulManager) LockCounter() error {
 	self.mu.Lock()
 	defer self.mu.Unlock()
@@ -288,7 +288,7 @@ func (self *ConsulManager) LockCounter() error {
 	return nil
 }
 
-// 释放访问信号
+// 释放访问计数器
 func (self *ConsulManager) CloseCounter() error {
 	self.mu.Lock()
 	defer self.mu.Unlock()
@@ -318,7 +318,7 @@ func (self *ConsulManager) AddRPC(callInfo ...*CallInfo) {
 		vof := reflect.ValueOf(info.Iface)
 		registration := new(consulapi.AgentServiceRegistration)
 		addr := util.GetLocalIP()
-		if addr == "" {
+		if len(addr) == 0 {
 			panic("内网IP读取失败,请检查...")
 		}
 		if len(info.Domain) > 0 {
@@ -386,8 +386,8 @@ func (self *ConsulManager) CallRPC(callInfo *CallInfo) error {
 	if len(callInfo.Protocol) == 0 {
 		callInfo.Protocol = "tcp"
 	}
-	if callInfo.Timeout == 0 {
-		callInfo.Timeout = 10
+	if callInfo.Timeout <= 0 {
+		callInfo.Timeout = 15
 	}
 	serviceName := callInfo.Service
 	if len(callInfo.Package) > 0 {
@@ -426,7 +426,7 @@ func (self *ConsulManager) CallRPC(callInfo *CallInfo) error {
 	defer conn.Close()
 	conn.SetReadDeadline(time.Now().Add(time.Second * time.Duration(callInfo.Timeout)))
 	encBuf := bufio.NewWriter(conn)
-	codec := &gobClientCodec{conn, gob.NewDecoder(conn), gob.NewEncoder(encBuf), encBuf}
+	codec := &gobClientCodec{conn, gob.NewDecoder(conn), gob.NewEncoder(encBuf), encBuf, callInfo.Timeout}
 	cli := rpc.NewClientWithCodec(codec)
 	defer func() {
 		if err := cli.Close(); err != nil {
