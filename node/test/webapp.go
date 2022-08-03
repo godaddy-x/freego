@@ -114,28 +114,37 @@ func StartHttpNode() *MyWebNode {
 		Port:      8090,
 		SecretKey: GetSecretKey,
 	}
-	my.RateOpetion = &rate.RateOpetion{"gateway", 2, 5, 30}
+	my.GatewayRate = &rate.RateOpetion{Limit: 2, Bucket: 5, Expire: 30}
 	my.CacheAware = GetCacheAware
 	my.OverrideFunc = &node.OverrideFunc{
 		PreHandleFunc: func(ctx *node.Context) error {
-			if limiter.Validate(&rate.RateOpetion{ctx.Method, 2, 5, 30}) {
-				return ex.Throw{Code: 429, Msg: "系统正繁忙,人数过多"}
+			if limiter.Validate(&rate.RateOpetion{Key: ctx.Method, Limit: 2, Bucket: 5, Expire: 30}) {
+				return ex.Throw{Code: 429, Msg: "too many visitors, please try again later"}
 			}
 			if ctx.Subject != nil {
-				if limiter.Validate(&rate.RateOpetion{util.AnyToStr(ctx.Subject.Sub), 2, 5, 30}) {
-					return ex.Throw{Code: 429, Msg: "系统正繁忙,人数过多"}
+				if limiter.Validate(&rate.RateOpetion{Key: util.AnyToStr(ctx.Subject.Sub), Limit: 2, Bucket: 5, Expire: 30}) {
+					return ex.Throw{Code: 429, Msg: "the access frequency is too fast, please try again later"}
 				}
 			}
 			return nil
 		},
-		//PostHandleFunc: func(resp *node.Response, err error) error {
-		//	// resp.RespEntity = map[string]interface{}{"sssss": 3}
-		//	return err
-		//},
-		//AfterCompletionFunc: func(ctx *node.Context, resp *node.Response, err error) error {
-		//	return err
-		//},
-		//RenderErrorFunc: nil,
+		LogHandleFunc: func(ctx *node.Context) (*node.LogHandleRes, error) {
+			res := &node.LogHandleRes{
+				LogNo:    util.GetSnowFlakeStrID(),
+				CreateAt: util.Time(),
+			}
+			// TODO send log to rabbitmq
+			return res, nil
+		},
+		PostHandleFunc: func(resp *node.Response, err error) error {
+			return err
+		},
+		AfterCompletionFunc: func(ctx *node.Context, res *node.LogHandleRes, err error) error {
+			res.UpdateAt = util.Time()
+			res.CostMill = res.UpdateAt - res.CreateAt
+			// TODO send log to rabbitmq
+			return err
+		},
 	}
 	my.Router("/test1", my.test, nil)
 	my.Router("/login1", my.login, &node.Config{Authorization: false, RequestAesEncrypt: true, ResponseAesEncrypt: true})

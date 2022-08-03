@@ -117,11 +117,7 @@ func (self *HttpNode) InitContext(ptr *NodePtr) error {
 	output := ptr.Output
 	input := ptr.Input
 	node := ptr.Node.(*HttpNode)
-	if self.OverrideFunc == nil {
-		node.OverrideFunc = &OverrideFunc{}
-	} else {
-		node.OverrideFunc = self.OverrideFunc
-	}
+	node.OverrideFunc = self.OverrideFunc
 	node.CreateAt = util.Time()
 	node.SessionAware = self.SessionAware
 	node.CacheAware = self.CacheAware
@@ -218,12 +214,12 @@ func (self *HttpNode) ValidPermission() error {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "获取授权主体失败"}
 	}
 	access := 0
-	need_access := len(need.NeedRole)
+	needAccess := len(need.NeedRole)
 	for _, cr := range self.Context.Roles {
 		for _, nr := range need.NeedRole {
 			if cr == nr {
-				access ++
-				if need.MathchAll == 0 || access == need_access { // 任意授权通过则放行,或已满足授权长度
+				access++
+				if need.MathchAll == 0 || access == needAccess { // 任意授权通过则放行,或已满足授权长度
 					return nil
 				}
 			}
@@ -256,12 +252,17 @@ func (self *HttpNode) Proxy(ptr *NodePtr) {
 		if err := ob.PreHandle(); err != nil {
 			return err
 		}
-		// 6.执行业务方法
-		biz_ret := ptr.Handle(ob.Context) // 抛出业务异常,建议使用ex模式
-		// 7.执行视图控制方法
-		post_ret := ob.PostHandle(biz_ret)
-		// 8.执行释放资源,记录日志方法
-		if err := ob.AfterCompletion(post_ret); err != nil {
+		// 6.保存监听日志方法
+		res, err := ob.LogHandle()
+		if err != nil {
+			return err
+		}
+		// 7.执行业务方法
+		err = ptr.Handle(ob.Context) // 抛出业务异常,建议使用ex模式
+		// 8.执行视图控制方法
+		err = ob.PostHandle(err)
+		// 9.执行释放资源方法
+		if err := ob.AfterCompletion(res, err); err != nil {
 			return err
 		}
 		return nil
@@ -271,26 +272,38 @@ func (self *HttpNode) Proxy(ptr *NodePtr) {
 }
 
 func (self *HttpNode) PreHandle() error {
-	if self.OverrideFunc.PreHandleFunc == nil {
+	if self.OverrideFunc == nil || self.OverrideFunc.PreHandleFunc == nil {
 		return nil
 	}
 	return self.OverrideFunc.PreHandleFunc(self.Context)
 }
 
+func (self *HttpNode) LogHandle() (*LogHandleRes, error) {
+	if self.OverrideFunc == nil || self.OverrideFunc.LogHandleFunc == nil {
+		return nil, nil
+	}
+	return self.OverrideFunc.LogHandleFunc(self.Context)
+}
+
 func (self *HttpNode) PostHandle(err error) error {
-	if self.OverrideFunc.PostHandleFunc != nil {
-		if err := self.OverrideFunc.PostHandleFunc(self.Context.Response, err); err != nil {
-			return err
-		}
-	} else if err != nil {
+	if self.OverrideFunc == nil || self.OverrideFunc.PostHandleFunc == nil {
+		return nil
+	}
+	if err := self.OverrideFunc.PostHandleFunc(self.Context.Response, err); err != nil {
+		return err
+	}
+	if err != nil {
 		return err
 	}
 	return self.RenderTo()
 }
 
-func (self *HttpNode) AfterCompletion(err error) error {
-	if self.OverrideFunc.AfterCompletionFunc != nil {
-		return self.OverrideFunc.AfterCompletionFunc(self.Context, self.Context.Response, err)
+func (self *HttpNode) AfterCompletion(res *LogHandleRes, err error) error {
+	if self.OverrideFunc == nil || self.OverrideFunc.AfterCompletionFunc == nil {
+		return nil
+	}
+	if err := self.OverrideFunc.AfterCompletionFunc(self.Context, res, err); err != nil {
+		return err
 	}
 	return err
 }
@@ -388,20 +401,15 @@ func (self *HttpNode) StartServer() {
 }
 
 func (self *HttpNode) limiterHandler() http.Handler {
-	cache := new(cache.LocalMapManager).NewCache(20160, 20160)
-	if self.RateOpetion == nil {
-		self.RateOpetion = &rate.RateOpetion{
+	if self.GatewayRate == nil {
+		self.GatewayRate = &rate.RateOpetion{
+			Key:    "HttpThreshold",
 			Limit:  500,
 			Bucket: 500,
 			Expire: 1209600,
 		}
 	}
-	limiter := rate.NewLocalLimiterByOption(cache, &rate.RateOpetion{
-		"HttpThreshol",
-		self.RateOpetion.Limit,
-		self.RateOpetion.Bucket,
-		self.RateOpetion.Expire,
-	})
+	limiter := rate.NewLocalLimiterByOption(new(cache.LocalMapManager).NewCache(20160, 20160), self.GatewayRate)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if limiter.Validate(nil) {
 			w.WriteHeader(429)
@@ -411,7 +419,7 @@ func (self *HttpNode) limiterHandler() http.Handler {
 	})
 }
 
-var node_configs = make(map[string]*Config)
+var nodeConfigs = make(map[string]*Config)
 
 func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, config *Config) {
 	if !strings.HasPrefix(pattern, "/") {
@@ -430,18 +438,15 @@ func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, co
 	if self.Handler == nil {
 		self.Handler = http.NewServeMux()
 	}
-	if _, b := node_configs[pattern]; !b {
-		node_configs[pattern] = config
+	if _, b := nodeConfigs[pattern]; !b {
+		nodeConfigs[pattern] = config
 	}
 	self.Handler.Handle(pattern, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		self.Proxy(&NodePtr{self, node_configs[pattern], r, w, pattern, handle})
+		self.Proxy(&NodePtr{self, nodeConfigs[pattern], r, w, pattern, handle})
 	}))
 }
 
 func (self *HttpNode) Json(ctx *Context, data interface{}) error {
-	if data == nil {
-		data = map[string]interface{}{}
-	}
 	ctx.Response = &Response{UTF8, APPLICATION_JSON, data}
 	return nil
 }

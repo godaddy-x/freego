@@ -43,7 +43,7 @@ type HookNode struct {
 	SessionAware SessionAware
 	CacheAware   func(ds ...string) (cache.ICache, error)
 	OverrideFunc *OverrideFunc
-	RateOpetion  *rate.RateOpetion
+	GatewayRate  *rate.RateOpetion
 	Handler      *http.ServeMux
 	Config       *Config
 }
@@ -64,6 +64,13 @@ type Config struct {
 	ResponseAesEncrypt bool // 响应是否必须AES加密 false.否 true.是
 	RequestRsaEncrypt  bool // 请求是否必须RSA加密 false.否 true.是
 	ResponseRsaEncrypt bool // 响应是否必须RSA加密 false.否 true.是
+}
+
+type LogHandleRes struct {
+	LogNo    string // 日志唯一标记
+	CreateAt int64  // 日志创建时间
+	UpdateAt int64  // 日志完成时间
+	CostMill int64  // 业务耗时,毫秒
 }
 
 type ProtocolNode interface {
@@ -89,10 +96,12 @@ type ProtocolNode interface {
 	Text(ctx *Context, data string) error
 	// 前置检测方法(业务方法前执行)
 	PreHandle() error
+	// 日志监听方法(业务方法前执行)
+	LogHandle() (*LogHandleRes, error)
 	// 业务执行方法->自定义处理执行方法(业务方法执行后,视图渲染前执行)
 	PostHandle(err error) error
 	// 最终响应执行方法(视图渲染后执行,可操作资源释放,保存日志等)
-	AfterCompletion(err error) error
+	AfterCompletion(res *LogHandleRes, err error) error
 	// 渲染输出
 	RenderTo() error
 	// 异常错误响应方法
@@ -153,8 +162,9 @@ type Response struct {
 
 type OverrideFunc struct {
 	PreHandleFunc       func(ctx *Context) error
+	LogHandleFunc       func(ctx *Context) (*LogHandleRes, error)
 	PostHandleFunc      func(resp *Response, err error) error
-	AfterCompletionFunc func(ctx *Context, resp *Response, err error) error
+	AfterCompletionFunc func(ctx *Context, res *LogHandleRes, err error) error
 }
 
 func (self *Context) GetHeader(k string) string {

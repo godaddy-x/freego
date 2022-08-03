@@ -120,7 +120,7 @@ func (self *WebsocketNode) wsReadHandle(c *WSClient, rcvd []byte) error {
 		// 5.执行视图控制方法
 		post_ret := self.PostHandle(biz_ret)
 		// 6.执行释放资源,记录日志方法
-		if err := self.AfterCompletion(post_ret); err != nil {
+		if err := self.AfterCompletion(nil, post_ret); err != nil {
 			return err
 		}
 		return nil
@@ -215,7 +215,7 @@ func (self *WebsocketNode) ValidPermission() error {
 	for _, cr := range self.Context.Roles {
 		for _, nr := range need.NeedRole {
 			if cr == nr {
-				access ++
+				access++
 				if need.MathchAll == 0 || access == need_access { // 任意授权通过则放行,或已满足授权长度
 					return nil
 				}
@@ -245,6 +245,13 @@ func (self *WebsocketNode) PreHandle() error {
 	return self.OverrideFunc.PreHandleFunc(self.Context)
 }
 
+func (self *WebsocketNode) LogHandle() (*LogHandleRes, error) {
+	if self.OverrideFunc.LogHandleFunc == nil {
+		return nil, nil
+	}
+	return self.OverrideFunc.LogHandleFunc(self.Context)
+}
+
 func (self *WebsocketNode) PostHandle(err error) error {
 	if self.OverrideFunc.PostHandleFunc != nil {
 		if err := self.OverrideFunc.PostHandleFunc(self.Context.Response, err); err != nil {
@@ -256,10 +263,10 @@ func (self *WebsocketNode) PostHandle(err error) error {
 	return self.RenderTo()
 }
 
-func (self *WebsocketNode) AfterCompletion(err error) error {
+func (self *WebsocketNode) AfterCompletion(res *LogHandleRes, err error) error {
 	var ret error
 	if self.OverrideFunc.AfterCompletionFunc != nil {
-		ret = self.OverrideFunc.AfterCompletionFunc(self.Context, self.Context.Response, err)
+		ret = self.OverrideFunc.AfterCompletionFunc(self.Context, res, err)
 	} else if err != nil {
 		return err
 	} else if ret != nil {
