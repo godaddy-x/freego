@@ -84,7 +84,6 @@ func (self *MyWebNode) login(ctx *node.Context) error {
 	//self.LoginBySubject(subject, exp)
 	token := subject.Generate(GetSecretKey().TokenKey)
 	secret := jwt.GetTokenSecret(token)
-
 	return self.Json(ctx, map[string]interface{}{"token": token, "secret": secret})
 	//return self.Html(ctx, "/web/index.html", map[string]interface{}{"tewt": 1})
 }

@@ -1,6 +1,7 @@
 package node
 
 import (
+	"fmt"
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/component/jwt"
 	"github.com/godaddy-x/freego/component/limiter"
@@ -315,7 +316,6 @@ func (self *HttpNode) RenderError(err error) error {
 		Code:    out.Code,
 		Message: out.Msg,
 		Time:    util.Time(),
-		Data:    make(map[string]interface{}),
 	}
 	if self.Context.Subject == nil {
 		resp.Nonce = util.GetSnowFlakeStrID()
@@ -422,7 +422,8 @@ func (self *HttpNode) limiterTimeoutHandler() http.Handler {
 	if self.DisconnectTimeout <= 0 {
 		self.DisconnectTimeout = 60
 	}
-	return http.TimeoutHandler(handler, time.Duration(self.DisconnectTimeout)*time.Second, "http request timeout")
+	errmsg := `{"c":408,"m":"服务端主动断开客户端连接","d":null,"t":%d,"n":"%s","p":0,"s":""}`
+	return http.TimeoutHandler(handler, time.Duration(self.DisconnectTimeout)*time.Second, fmt.Sprintf(errmsg, util.Time(), util.GetSnowFlakeStrID()))
 }
 
 var nodeConfigs = make(map[string]*Config)
