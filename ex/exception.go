@@ -11,7 +11,7 @@ import (
  */
 
 const (
-	SEP     = ":|:"
+	SEP     = "∵∴"
 	BIZ     = 100000 // 普通业务异常
 	GOB     = 999993 // GOB转换异常
 	JSON    = 999994 // JSON转换异常
