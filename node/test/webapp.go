@@ -134,6 +134,7 @@ func StartHttpNode() *MyWebNode {
 				CreateAt: util.Time(),
 			}
 			// TODO send log to rabbitmq
+			fmt.Println("LogHandleFunc: ", res)
 			return res, nil
 		},
 		PostHandleFunc: func(resp *node.Response, err error) error {
@@ -143,6 +144,7 @@ func StartHttpNode() *MyWebNode {
 			res.UpdateAt = util.Time()
 			res.CostMill = res.UpdateAt - res.CreateAt
 			// TODO send log to rabbitmq
+			fmt.Println("AfterCompletionFunc: ", res)
 			return err
 		},
 	}

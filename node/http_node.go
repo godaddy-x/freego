@@ -398,6 +398,7 @@ func (self *HttpNode) StartServer() {
 			log.Error("初始化http服务失败", 0, log.AddError(err))
 		}
 	}()
+	select {}
 }
 
 func (self *HttpNode) limiterHandler() http.Handler {
