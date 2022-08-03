@@ -10,6 +10,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"strings"
+	"time"
 )
 
 type HttpNode struct {
@@ -394,14 +395,14 @@ func (self *HttpNode) RenderTo() error {
 
 func (self *HttpNode) StartServer() {
 	go func() {
-		if err := http.ListenAndServe(util.AddStr(self.Context.Host, ":", self.Context.Port), self.limiterHandler()); err != nil {
+		if err := http.ListenAndServe(util.AddStr(self.Context.Host, ":", self.Context.Port), self.limiterTimeoutHandler()); err != nil {
 			log.Error("初始化http服务失败", 0, log.AddError(err))
 		}
 	}()
 	select {}
 }
 
-func (self *HttpNode) limiterHandler() http.Handler {
+func (self *HttpNode) limiterTimeoutHandler() http.Handler {
 	if self.GatewayRate == nil {
 		self.GatewayRate = &rate.RateOpetion{
 			Key:    "HttpThreshold",
@@ -411,13 +412,17 @@ func (self *HttpNode) limiterHandler() http.Handler {
 		}
 	}
 	limiter := rate.NewLocalLimiterByOption(new(cache.LocalMapManager).NewCache(20160, 20160), self.GatewayRate)
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if limiter.Validate(nil) {
 			w.WriteHeader(429)
 			return
 		}
 		self.Handler.ServeHTTP(w, r)
 	})
+	if self.DisconnectTimeout <= 0 {
+		self.DisconnectTimeout = 60
+	}
+	return http.TimeoutHandler(handler, time.Duration(self.DisconnectTimeout)*time.Second, "http request timeout")
 }
 
 var nodeConfigs = make(map[string]*Config)

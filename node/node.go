@@ -38,14 +38,15 @@ const (
 )
 
 type HookNode struct {
-	CreateAt     int64
-	Context      *Context
-	SessionAware SessionAware
-	CacheAware   func(ds ...string) (cache.ICache, error)
-	OverrideFunc *OverrideFunc
-	GatewayRate  *rate.RateOpetion
-	Handler      *http.ServeMux
-	Config       *Config
+	CreateAt          int64
+	Context           *Context
+	SessionAware      SessionAware
+	CacheAware        func(ds ...string) (cache.ICache, error)
+	OverrideFunc      *OverrideFunc
+	GatewayRate       *rate.RateOpetion
+	Handler           *http.ServeMux
+	Config            *Config
+	DisconnectTimeout int64 // 超时主动断开客户端连接,秒
 }
 
 type NodePtr struct {

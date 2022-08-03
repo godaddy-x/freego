@@ -81,9 +81,7 @@ func test_callrpc() {
 func (self *MyWebNode) login(ctx *node.Context) error {
 	subject := &jwt.Subject{}
 	subject.Create(123456).Iss("1111").Aud("22222").Extinfo("test", "11").Extinfo("test2", "222").Dev("APP")
-
 	//self.LoginBySubject(subject, exp)
-
 	token := subject.Generate(GetSecretKey().TokenKey)
 	secret := jwt.GetTokenSecret(token)
 
@@ -114,6 +112,7 @@ func StartHttpNode() *MyWebNode {
 		Port:      8090,
 		SecretKey: GetSecretKey,
 	}
+	my.DisconnectTimeout = 10
 	my.GatewayRate = &rate.RateOpetion{Limit: 2, Bucket: 5, Expire: 30}
 	my.CacheAware = GetCacheAware
 	my.OverrideFunc = &node.OverrideFunc{
