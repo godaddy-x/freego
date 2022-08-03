@@ -147,7 +147,7 @@ type Task struct {
 //
 //每天的0点、13点、18点、21点都执行一次：0 0 0,13,18,21 * * ?
 
-func RunTask(task ... Task) {
+func Run(task ... Task) {
 	if task == nil || len(task) == 0 {
 		fmt.Println("no tasks to run")
 		return
@@ -160,6 +160,7 @@ func RunTask(task ... Task) {
 		c.Start()
 		select {}
 	}()
+	select {}
 }
 
 func NewJob() *Cron {

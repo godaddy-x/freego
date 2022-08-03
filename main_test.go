@@ -6,7 +6,6 @@ import (
 	"github.com/godaddy-x/freego/component/auth"
 	"github.com/godaddy-x/freego/component/goquery"
 	"github.com/godaddy-x/freego/concurrent"
-	"github.com/godaddy-x/freego/job"
 	"github.com/godaddy-x/freego/sqlc"
 	"github.com/godaddy-x/freego/sqld"
 	"github.com/godaddy-x/freego/util"
@@ -507,14 +506,6 @@ func TestB(t *testing.T) {
 		_ = util.Bytes2Str(a)
 	}
 	fmt.Println(util.Time() - l)
-}
-
-func TestRGX(t *testing.T) {
-	job.RunTask(
-		job.Task{"*/5 * * * * *", func() {
-			fmt.Println("----")
-		},
-		})
 }
 
 func TestRGX1(t *testing.T) {
