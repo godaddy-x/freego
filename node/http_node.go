@@ -408,8 +408,8 @@ func (self *HttpNode) limiterTimeoutHandler() http.Handler {
 	if self.GatewayRate == nil {
 		self.GatewayRate = &rate.RateOpetion{
 			Key:    "HttpThreshold",
-			Limit:  500,
-			Bucket: 500,
+			Limit:  1000,
+			Bucket: 1000,
 			Expire: 1209600,
 		}
 	}
