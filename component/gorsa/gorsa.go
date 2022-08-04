@@ -16,7 +16,7 @@ type RsaObj struct {
 	pubkey *rsa.PublicKey
 }
 
-func CreateRsaFile(filePath string) error {
+func CreateRsaFile(keyfile, pemfile string) error {
 	// 生成私钥文件
 	prikey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -26,7 +26,7 @@ func CreateRsaFile(filePath string) error {
 		Type:  "RSA PRIVATE KEY",
 		Bytes: x509.MarshalPKCS1PrivateKey(prikey),
 	}
-	file, err := os.Create(filePath + ".key")
+	file, err := os.Create(keyfile)
 	if err != nil {
 		return err
 	}
@@ -36,18 +36,38 @@ func CreateRsaFile(filePath string) error {
 	file.Close()
 
 	// 生成公钥文件
-	pubkey := prikey.PublicKey
-	bolck1 := pem.Block{
+	block1 := pem.Block{
 		Type:  "RSA PUBLICK KEY",
-		Bytes: x509.MarshalPKCS1PublicKey(&pubkey),
+		Bytes: x509.MarshalPKCS1PublicKey(&prikey.PublicKey),
 	}
-	file, err = os.Create(filePath + ".pem")
+	file, err = os.Create(pemfile)
 	if err != nil {
 		return err
 	}
-	pem.Encode(file, &bolck1)
+	pem.Encode(file, &block1)
 	file.Close()
 	return nil
+}
+
+func CreateRsaFileHex() (string, string, error) {
+	// 生成私钥文件
+	prikey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return "", "", err
+	}
+	block := pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509.MarshalPKCS1PrivateKey(prikey),
+	}
+	prikeyhex := hex.EncodeToString(pem.EncodeToMemory(&block))
+
+	// 生成公钥文件
+	block1 := pem.Block{
+		Type:  "RSA PUBLICK KEY",
+		Bytes: x509.MarshalPKCS1PublicKey(&prikey.PublicKey),
+	}
+	pubkeyhex := hex.EncodeToString(pem.EncodeToMemory(&block1))
+	return prikeyhex, pubkeyhex, nil
 }
 
 func (self *RsaObj) LoadRsaFile(filePath string) error {

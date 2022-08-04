@@ -7,11 +7,20 @@ import (
 )
 
 const keyfile = "testrsa.key"
+const pemfile = "testrsa.pem"
 const testmsg = "我爱中国test123"
 
-// 单元测试
 func TestRsaCreateFile(t *testing.T) {
-	gorsa.CreateRsaFile(keyfile)
+	gorsa.CreateRsaFile(keyfile, pemfile)
+}
+
+func TestRsaCreateFileHex(t *testing.T) {
+	prikey, pubkey, err := gorsa.CreateRsaFileHex()
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("私钥: ", prikey)
+	fmt.Println("公钥: ", pubkey)
 }
 
 func TestRsaLoadFile(t *testing.T) {
