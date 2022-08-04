@@ -51,7 +51,7 @@ func CreateRsaFile(filePath string) error {
 }
 
 func (self *RsaObj) LoadRsaFile(filePath string) error {
-	file, err := os.Open(filePath + ".key")
+	file, err := os.Open(filePath)
 	if err != nil {
 		return err
 	}
@@ -66,6 +66,25 @@ func (self *RsaObj) LoadRsaFile(filePath string) error {
 	}
 	self.prikey = prikey
 	self.pubkey = &prikey.PublicKey
+	//self.LoadRsaPubkey(filePath)
+	return nil
+}
+
+func (self *RsaObj) LoadRsaPubkey(filePath string) error {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return err
+	}
+	stat, _ := file.Stat()
+	content := make([]byte, stat.Size())
+	file.Read(content)
+	file.Close()
+	block, _ := pem.Decode(content)
+	pubkey, err := x509.ParsePKCS1PublicKey(block.Bytes)
+	if err != nil {
+		return err
+	}
+	self.pubkey = pubkey
 	return nil
 }
 

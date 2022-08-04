@@ -6,24 +6,27 @@ import (
 	"testing"
 )
 
+const keyfile = "testrsa.key"
+const testmsg = "我爱中国test123"
+
 // 单元测试
 func TestRsaCreateFile(t *testing.T) {
-	gorsa.CreateRsaFile("testrsa")
+	gorsa.CreateRsaFile(keyfile)
 }
 
 func TestRsaLoadFile(t *testing.T) {
 	obj := &gorsa.RsaObj{}
-	if err := obj.LoadRsaFile("testrsa"); err != nil {
+	if err := obj.LoadRsaFile(keyfile); err != nil {
 		panic(err)
 	}
 }
 
 func TestRsaPubkeyEncrypt(t *testing.T) {
 	obj := &gorsa.RsaObj{}
-	if err := obj.LoadRsaFile("testrsa"); err != nil {
+	if err := obj.LoadRsaFile(keyfile); err != nil {
 		panic(err)
 	}
-	res, err := obj.Encrypt("我爱中国test123")
+	res, err := obj.Encrypt((testmsg))
 	if err != nil {
 		panic(err)
 	}
@@ -32,10 +35,10 @@ func TestRsaPubkeyEncrypt(t *testing.T) {
 
 func TestRsaPrikeyDecrypt(t *testing.T) {
 	obj := &gorsa.RsaObj{}
-	if err := obj.LoadRsaFile("testrsa"); err != nil {
+	if err := obj.LoadRsaFile(keyfile); err != nil {
 		panic(err)
 	}
-	res, err := obj.Encrypt("我爱中国test123")
+	res, err := obj.Encrypt((testmsg))
 	if err != nil {
 		panic(err)
 	}
@@ -49,10 +52,10 @@ func TestRsaPrikeyDecrypt(t *testing.T) {
 
 func TestRsaSign(t *testing.T) {
 	obj := &gorsa.RsaObj{}
-	if err := obj.LoadRsaFile("testrsa"); err != nil {
+	if err := obj.LoadRsaFile(keyfile); err != nil {
 		panic(err)
 	}
-	res, err := obj.SignBySHA256("我爱中国test123")
+	res, err := obj.SignBySHA256((testmsg))
 	if err != nil {
 		panic(err)
 	}
@@ -61,14 +64,14 @@ func TestRsaSign(t *testing.T) {
 
 func TestRsaVerify(t *testing.T) {
 	obj := &gorsa.RsaObj{}
-	if err := obj.LoadRsaFile("testrsa"); err != nil {
+	if err := obj.LoadRsaFile(keyfile); err != nil {
 		panic(err)
 	}
-	res, err := obj.SignBySHA256("我爱中国test123")
+	res, err := obj.SignBySHA256((testmsg))
 	if err != nil {
 		panic(err)
 	}
-	if err := obj.VerifyBySHA256("我爱中国test123", res); err == nil {
+	if err := obj.VerifyBySHA256((testmsg), res); err == nil {
 		fmt.Println("RSA公钥验签结果: ", err == nil)
 	} else {
 		panic(err)
