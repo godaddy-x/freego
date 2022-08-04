@@ -420,7 +420,7 @@ func (self *HttpNode) limiterTimeoutHandler() http.Handler {
 		self.Handler.ServeHTTP(w, r)
 	})
 	if self.DisconnectTimeout <= 0 {
-		self.DisconnectTimeout = 60
+		self.DisconnectTimeout = 180
 	}
 	errmsg := `{"c":408,"m":"服务端主动断开客户端连接","d":null,"t":%d,"n":"%s","p":0,"s":""}`
 	return http.TimeoutHandler(handler, time.Duration(self.DisconnectTimeout)*time.Second, fmt.Sprintf(errmsg, util.Time(), util.GetSnowFlakeStrID()))

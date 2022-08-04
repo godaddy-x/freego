@@ -48,7 +48,7 @@ func TimeoutCoder(f func(interface{}) error, e interface{}, timeout int64, msg s
 	select {
 	case e := <-echan:
 		return e
-	case <-time.After(time.Second*time.Duration(timeout) - 5): // connect timeout - 5s
+	case <-time.After(time.Second*time.Duration(timeout)): // connect timeout - 5s
 		return fmt.Errorf("TimeoutCoder failed: %s", msg)
 	}
 }

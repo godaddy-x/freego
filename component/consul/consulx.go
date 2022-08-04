@@ -426,7 +426,7 @@ func (self *ConsulManager) CallRPC(callInfo *CallInfo) error {
 	defer conn.Close()
 	conn.SetReadDeadline(time.Now().Add(time.Second * time.Duration(callInfo.Timeout)))
 	encBuf := bufio.NewWriter(conn)
-	codec := &gobClientCodec{conn, gob.NewDecoder(conn), gob.NewEncoder(encBuf), encBuf, callInfo.Timeout}
+	codec := &gobClientCodec{conn, gob.NewDecoder(conn), gob.NewEncoder(encBuf), encBuf, callInfo.Timeout - 5}
 	cli := rpc.NewClientWithCodec(codec)
 	defer func() {
 		if err := cli.Close(); err != nil {
