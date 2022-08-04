@@ -50,6 +50,10 @@ func initMongoDB() {
 	fmt.Println("init mongo success")
 }
 
+func initConsul() {
+	new(consul.ConsulManager).InitConfig(consul.ConsulConfig{})
+}
+
 func init() {
 	// 注册对象
 	sqld.ModelDriver(
@@ -58,12 +62,9 @@ func init() {
 			func() interface{} { return &[]*OwWallet{} },
 		},
 	)
+	//initConsul()
 	//initMysqlDB()
 	//initMongoDB()
-	new(consul.ConsulManager).InitConfig(consul.ConsulConfig{
-		Host: "consulx.com:8500",
-		Node: "dc/consul",
-	})
 	//sqld.ModelDriver(
 	//	sqld.Hook{
 	//		func() interface{} { return &DxApp{} },

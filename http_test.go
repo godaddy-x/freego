@@ -12,11 +12,11 @@ import (
 
 const domain = "http://localhost:8090"
 
-const access_token = "eyJzdWIiOjEyMzQ1NiwiYXVkIjoiMjIyMjIiLCJpc3MiOiIxMTExIiwiaWF0IjoxNjU5NDI1MDYyLCJleHAiOjE2NjA2MzQ2NjIsImRldiI6IkFQUCIsImp0aSI6ImQyOWRkMjQwN2VhNzg2MWJhZDg1NGJiODJjYWIwMTU4NDQ4OWRmOThjMjA5MjgyODY4MjNmMjNiZDdiMzRmNTEiLCJuc3IiOiI4MzAyOGMyZDJhYTEwMDU2IiwiZXh0Ijp7InRlc3QiOiIxMSIsInRlc3QyIjoiMjIyIn19.d4b34ae8c0af2d1428574c79ac1570534163ca6f5a595f88b46c8b8b99397bc5"
-const token_secret = "e4072518580445e17004d7717c175bbdb2d63aaca66d5d2500e3c873c4f163ae"
+//const access_token = "eyJzdWIiOjEyMzQ1NiwiYXVkIjoiMjIyMjIiLCJpc3MiOiIxMTExIiwiaWF0IjoxNjU5NTc2NDExLCJleHAiOjE2NjA3ODYwMTEsImRldiI6IkFQUCIsImp0aSI6IjM0MTdlNGQ1YmJkMmQ5YWNkYzg4MzBmNmQ5NTE4MmI5ZjQ3YjhhNDBiNWI3YzQ5NDJkYzMwMGRlNGQ4YTIyZjgiLCJuc3IiOiJiZWI5ZmVkYmMzNDgzZDAzIiwiZXh0Ijp7InRlc3QiOiIxMSIsInRlc3QyIjoiMjIyIn19.fd12a7bfa21d66567ec8c6b4252279db21ad3662ac12970b24a5aa2a087239fe"
+//const token_secret = "79ed7b4447b43c6110b3031065e771e23b8c1798b1e9ff42933eb983a68301ed"
 
-//const access_token = ""
-//const token_secret = ""
+const access_token = ""
+const token_secret = ""
 
 // 测试使用的http post示例方法
 func ToPostBy(path string, req *node.ReqDto) {
