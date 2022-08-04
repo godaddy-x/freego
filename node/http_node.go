@@ -396,7 +396,7 @@ func (self *HttpNode) RenderTo() error {
 func (self *HttpNode) StartServer() {
 	go func() {
 		url := util.AddStr(self.Context.Host, ":", self.Context.Port)
-		log.Printf("http service 【%s】 has been started successfully", url)
+		log.Printf("http service【%s】has been started successfully", url)
 		if err := http.ListenAndServe(url, self.limiterTimeoutHandler()); err != nil {
 			log.Error("初始化http服务失败", 0, log.AddError(err))
 		}

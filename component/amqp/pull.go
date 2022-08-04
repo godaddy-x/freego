@@ -36,6 +36,7 @@ func (self *PullManager) InitConfig(input ...AmqpConfig) (*PullManager, error) {
 			return nil, err
 		}
 		pullMgrs[v.DsName] = pullMgr
+		log.Printf("rabbitmq pull service【%s】has been started successfully", v.DsName)
 	}
 	return self, nil
 }

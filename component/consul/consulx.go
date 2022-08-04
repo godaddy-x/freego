@@ -112,11 +112,12 @@ func (self *ConsulManager) InitConfig(input ...ConsulConfig) (*ConsulManager, er
 		onlinemgr := getConsulClient(config)
 		onlinemgr.Config = &config
 		if len(config.DsName) == 0 {
-			consul_sessions[conf.Host] = onlinemgr
+			consul_sessions[conf.Node] = onlinemgr
 		} else {
 			consul_sessions[config.DsName] = onlinemgr
 		}
 		onlinemgr.initSlowLog()
+		log.Printf("consul service %s【%s】has been started successfully", conf.Host, conf.Node)
 	}
 	if len(consul_sessions) == 0 {
 		log.Printf("consul连接初始化失败: 数据源为0")
@@ -152,7 +153,7 @@ func (self *ConsulManager) Client(dsname ...string) (*ConsulManager, error) {
 	if len(dsname) > 0 && len(dsname[0]) > 0 {
 		ds = dsname[0]
 	} else {
-		ds = defaultHost
+		ds = defaultNode
 	}
 	manager := consul_sessions[ds]
 	if manager == nil {

@@ -2,6 +2,7 @@ package cache
 
 import (
 	"github.com/garyburd/redigo/redis"
+	"github.com/godaddy-x/freego/component/log"
 	"github.com/godaddy-x/freego/util"
 	"time"
 )
@@ -55,6 +56,7 @@ func (self *RedisManager) InitConfig(input ...RedisConfig) (*RedisManager, error
 			return c, err
 		}}
 		redisSessions[dsName] = &RedisManager{Pool: pool, DsName: dsName, LockTimeout: v.LockTimeout}
+		log.Printf("redis service【%s】has been started successfully", v.DsName)
 	}
 	if len(redisSessions) == 0 {
 		return nil, util.Error("初始化redis连接池失败: 数据源为0")

@@ -181,6 +181,7 @@ func (self *MGOManager) buildByConfig(manager cache.ICache, input ...MGOConfig) 
 		mgoSessions[mgo.DsName] = mgo
 		// init log
 		mgo.initSlowLog()
+		log.Printf("mongodb service【%s】has been started successfully", v.DsName)
 	}
 	if len(mgoSessions) == 0 {
 		return util.Error("mongo连接初始化失败: 数据源为0")

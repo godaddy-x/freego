@@ -5,6 +5,7 @@ import (
 	"fmt"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/godaddy-x/freego/cache"
+	"github.com/godaddy-x/freego/component/log"
 	"github.com/godaddy-x/freego/util"
 	"time"
 )
@@ -74,6 +75,7 @@ func (self *MysqlManager) buildByConfig(manager cache.ICache, input ...MysqlConf
 			rdb.Timeout = v.Timeout
 		}
 		rdbs[rdb.DsName] = rdb
+		log.Printf("mysql service【%s】has been started successfully", v.DsName)
 	}
 	if len(rdbs) == 0 {
 		return util.Error("mysql连接初始化失败: 数据源为0")

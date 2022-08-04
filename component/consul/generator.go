@@ -28,18 +28,28 @@ func (self *SnowflakeWorkId) Generate(req *ReqObj, res *ResObj) error {
 	return nil
 }
 
-func StartSnowflakeServe() {
-	new(ConsulManager).InitConfig(ConsulConfig{Node: "dc/snowflake",})
-
-	mgr, err := new(ConsulManager).Client()
-	if err != nil {
-		panic(err)
-	}
-
-	mgr.AddRPC(&CallInfo{
+func (self *ConsulManager) AddSnowflakeService() {
+	self.AddRPC(&CallInfo{
 		Tags:  []string{"ID生成器服务"},
 		Iface: &SnowflakeWorkId{},
 	})
+}
 
-	mgr.StartListenAndServe()
+func GetWorkID() (int64, error) {
+	mgr, err := new(ConsulManager).Client()
+	if err != nil {
+		return 0, err
+	}
+	req := &ReqObj{}
+	res := &ResObj{}
+	call := &CallInfo{
+		Service:  "SnowflakeWorkId",
+		Method:   "Generate",
+		Request:  req,
+		Response: res,
+	}
+	if err := mgr.CallRPC(call); err != nil {
+		return 0, err
+	}
+	return res.Value, nil
 }

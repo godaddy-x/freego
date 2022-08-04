@@ -30,6 +30,7 @@ func init() {
 	//new(cache.RedisManager).InitConfig(redisConf)
 	//redis_cache, _ := new(cache.RedisManager).Client()
 	//limiter = rate.NewRedisLimiter(redis_cache)
+	new(consul.ConsulManager).InitConfig(consul.ConsulConfig{})
 }
 
 type MyWebNode struct {
@@ -79,6 +80,11 @@ func test_callrpc() {
 }
 
 func (self *MyWebNode) login(ctx *node.Context) error {
+	id, err := consul.GetWorkID()
+	if err != nil {
+		return err
+	}
+	fmt.Println("id: ", id)
 	subject := &jwt.Subject{}
 	subject.Create(123456).Iss("1111").Aud("22222").Extinfo("test", "11").Extinfo("test2", "222").Dev("APP")
 	//self.LoginBySubject(subject, exp)
@@ -104,7 +110,7 @@ func GetCacheAware(ds ...string) (cache.ICache, error) {
 	return local_cache, nil
 }
 
-func StartHttpNode() *MyWebNode {
+func StartHttpNode() {
 	my := &MyWebNode{}
 	my.Context = &node.Context{
 		Host:      "0.0.0.0",
@@ -150,5 +156,4 @@ func StartHttpNode() *MyWebNode {
 	my.Router("/login1", my.login, &node.Config{Authorization: false, RequestAesEncrypt: true, ResponseAesEncrypt: true})
 	my.Router("/callrpc", my.login, &node.Config{Authorization: false, RequestAesEncrypt: false, ResponseAesEncrypt: false})
 	my.StartServer()
-	return my
 }

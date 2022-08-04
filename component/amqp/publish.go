@@ -51,6 +51,7 @@ func (self *PublishManager) InitConfig(input ...AmqpConfig) (*PublishManager, er
 			return nil, err
 		}
 		publishMgrs[v.DsName] = publishMgr
+		log.Printf("rabbitmq publish service【%s】has been started successfully", v.DsName)
 	}
 	return self, nil
 }
