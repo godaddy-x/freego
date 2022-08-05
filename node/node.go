@@ -2,6 +2,7 @@ package node
 
 import (
 	"github.com/godaddy-x/freego/cache"
+	"github.com/godaddy-x/freego/component/gorsa"
 	"github.com/godaddy-x/freego/component/jwt"
 	"github.com/godaddy-x/freego/component/limiter"
 	"github.com/godaddy-x/freego/ex"
@@ -46,6 +47,7 @@ type HookNode struct {
 	GatewayRate       *rate.RateOpetion
 	Handler           *http.ServeMux
 	Config            *Config
+	Certificate       *gorsa.RsaObj
 	DisconnectTimeout int64 // 超时主动断开客户端连接,秒
 }
 

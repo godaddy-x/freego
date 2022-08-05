@@ -12,11 +12,12 @@ import (
 )
 
 type RsaObj struct {
-	prikey *rsa.PrivateKey
-	pubkey *rsa.PublicKey
+	prikey    *rsa.PrivateKey
+	pubkey    *rsa.PublicKey
+	PubkeyHex string
 }
 
-func CreateRsaFile(keyfile, pemfile string) error {
+func (self *RsaObj) CreateRsaFile(keyfile, pemfile string) error {
 	// 生成私钥文件
 	prikey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -49,7 +50,7 @@ func CreateRsaFile(keyfile, pemfile string) error {
 	return nil
 }
 
-func CreateRsaFileHex() (string, string, error) {
+func (self *RsaObj) CreateRsaFileHex() (string, string, error) {
 	// 生成私钥文件
 	prikey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -67,6 +68,9 @@ func CreateRsaFileHex() (string, string, error) {
 		Bytes: x509.MarshalPKCS1PublicKey(&prikey.PublicKey),
 	}
 	pubkeyhex := hex.EncodeToString(pem.EncodeToMemory(&block1))
+	self.prikey = prikey
+	self.pubkey = &prikey.PublicKey
+	self.PubkeyHex = pubkeyhex
 	return prikeyhex, pubkeyhex, nil
 }
 

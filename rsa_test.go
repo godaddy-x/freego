@@ -25,11 +25,13 @@ func BenchmarkRSA(b *testing.B) {
 }
 
 func TestRsaCreateFile(t *testing.T) {
-	gorsa.CreateRsaFile(keyfile, pemfile)
+	obj := &gorsa.RsaObj{}
+	obj.CreateRsaFile(keyfile, pemfile)
 }
 
 func TestRsaCreateFileHex(t *testing.T) {
-	prikey, pubkey, err := gorsa.CreateRsaFileHex()
+	obj := &gorsa.RsaObj{}
+	prikey, pubkey, err := obj.CreateRsaFileHex()
 	if err != nil {
 		panic(err)
 	}

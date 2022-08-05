@@ -3,6 +3,7 @@ package node
 import (
 	"fmt"
 	"github.com/godaddy-x/freego/cache"
+	"github.com/godaddy-x/freego/component/gorsa"
 	"github.com/godaddy-x/freego/component/jwt"
 	"github.com/godaddy-x/freego/component/limiter"
 	"github.com/godaddy-x/freego/component/log"
@@ -119,11 +120,12 @@ func (self *HttpNode) InitContext(ptr *NodePtr) error {
 	output := ptr.Output
 	input := ptr.Input
 	node := ptr.Node.(*HttpNode)
-	node.OverrideFunc = self.OverrideFunc
+	node.Config = ptr.Config
 	node.CreateAt = util.Time()
+	node.OverrideFunc = self.OverrideFunc
 	node.SessionAware = self.SessionAware
 	node.CacheAware = self.CacheAware
-	node.Config = ptr.Config
+	node.Certificate = self.Certificate
 	node.Context = &Context{
 		Host:          util.ClientIP(input),
 		Port:          self.Context.Port,
@@ -440,6 +442,17 @@ func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, co
 	if self.CacheAware == nil {
 		log.Error("缓存服务尚未初始化", 0)
 		return
+		log.Printf("cache service has been started successfully")
+	}
+	if self.Certificate == nil {
+		cert := &gorsa.RsaObj{}
+		_, _, err := cert.CreateRsaFileHex()
+		if err != nil {
+			log.Error("RSA证书生成失败", 0)
+			return
+		}
+		self.Certificate = cert
+		log.Printf("rsa certificate service has been started successfully")
 	}
 	if config == nil {
 		config = &Config{Authorization: true}

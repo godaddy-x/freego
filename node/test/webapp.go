@@ -94,6 +94,10 @@ func (self *MyWebNode) login(ctx *node.Context) error {
 	//return self.Html(ctx, "/web/index.html", map[string]interface{}{"tewt": 1})
 }
 
+func (self *MyWebNode) keyfile(ctx *node.Context) error {
+	return self.Text(ctx, self.Certificate.PubkeyHex)
+}
+
 func (self *MyWebNode) callrpc(ctx *node.Context) error {
 	test_callrpc()
 	return self.Json(ctx, map[string]interface{}{})
@@ -153,6 +157,7 @@ func StartHttpNode() {
 		},
 	}
 	my.Router("/test1", my.test, nil)
+	my.Router("/keyfile", my.keyfile, &node.Config{Original: true})
 	my.Router("/login1", my.login, &node.Config{Authorization: false, RequestAesEncrypt: true, ResponseAesEncrypt: true})
 	my.Router("/callrpc", my.login, &node.Config{Authorization: false, RequestAesEncrypt: false, ResponseAesEncrypt: false})
 	my.StartServer()
