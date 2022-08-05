@@ -82,7 +82,7 @@ func TestRsaPrikeyDecrypt(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println("RSA私钥解密结果: ", res2)
+	fmt.Println("RSA私钥解密结果: ", string(res2))
 }
 
 func TestRsaSign(t *testing.T) {

@@ -11,6 +11,8 @@ import (
 	"os"
 )
 
+const rsa_bits = 2048
+
 type RsaObj struct {
 	prikey    *rsa.PrivateKey
 	pubkey    *rsa.PublicKey
@@ -19,7 +21,7 @@ type RsaObj struct {
 
 func (self *RsaObj) CreateRsaFile(keyfile, pemfile string) error {
 	// 生成私钥文件
-	prikey, err := rsa.GenerateKey(rand.Reader, 2048)
+	prikey, err := rsa.GenerateKey(rand.Reader, rsa_bits)
 	if err != nil {
 		return err
 	}
@@ -52,7 +54,7 @@ func (self *RsaObj) CreateRsaFile(keyfile, pemfile string) error {
 
 func (self *RsaObj) CreateRsaFileHex() (string, string, error) {
 	// 生成私钥文件
-	prikey, err := rsa.GenerateKey(rand.Reader, 2048)
+	prikey, err := rsa.GenerateKey(rand.Reader, rsa_bits)
 	if err != nil {
 		return "", "", err
 	}
@@ -115,12 +117,11 @@ func (self *RsaObj) LoadRsaPemFileHex(fileHex string) error {
 		return err
 	}
 	block, _ := pem.Decode(dec)
-	prikey, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	pubkey, err := x509.ParsePKCS1PublicKey(block.Bytes)
 	if err != nil {
 		return err
 	}
-	self.prikey = prikey
-	self.pubkey = &prikey.PublicKey
+	self.pubkey = pubkey
 	return nil
 }
 
@@ -150,16 +151,16 @@ func (self *RsaObj) Encrypt(msg string) (string, error) {
 	return hex.EncodeToString(res), nil
 }
 
-func (self *RsaObj) Decrypt(msg string) (string, error) {
+func (self *RsaObj) Decrypt(msg string) ([]byte, error) {
 	bs, err := hex.DecodeString(msg)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	res, err := rsa.DecryptPKCS1v15(rand.Reader, self.prikey, bs)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return string(res), nil
+	return res, nil
 }
 
 func (self *RsaObj) SignBySHA256(msg string) (string, error) {
@@ -183,4 +184,12 @@ func (self *RsaObj) VerifyBySHA256(msg, sig string) error {
 		return err
 	}
 	return nil
+}
+
+func EncryptByRsaPubkey(pubkey, msg string) (string, error) {
+	rsaObj := RsaObj{}
+	if err := rsaObj.LoadRsaPemFileHex(pubkey); err != nil {
+		return "", err
+	}
+	return rsaObj.Encrypt(msg)
 }

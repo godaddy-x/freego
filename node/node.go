@@ -5,7 +5,6 @@ import (
 	"github.com/godaddy-x/freego/component/gorsa"
 	"github.com/godaddy-x/freego/component/jwt"
 	"github.com/godaddy-x/freego/component/limiter"
-	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/util"
 	"net/http"
 )
@@ -34,8 +33,7 @@ const (
 	MAX_QUERYSTRING_LEN = 1000 // 最大GET参数名长度
 	MAX_VALUE_LEN       = 4000 // 最大参数值长度
 
-	JWT_SUB_ = "jwt_sub_"
-	JWT_SIG_ = "jwt_sig_"
+	CLIENT_PUBKEY = "client_pubkey"
 )
 
 type HookNode struct {
@@ -65,8 +63,8 @@ type Config struct {
 	Authorization      bool // 游客模式 false.否 true.是
 	RequestAesEncrypt  bool // 请求是否必须AES加密 false.否 true.是
 	ResponseAesEncrypt bool // 响应是否必须AES加密 false.否 true.是
-	RequestRsaEncrypt  bool // 请求是否必须RSA加密 false.否 true.是
-	ResponseRsaEncrypt bool // 响应是否必须RSA加密 false.否 true.是
+	RequestRsaEncrypt  bool // 登录请求是否必须RSA加密 false.否 true.是
+	ResponseRsaEncrypt bool // 登录响应是否必须RSA加密 false.否 true.是
 }
 
 type LogHandleRes struct {
@@ -188,50 +186,14 @@ func (self *Context) GetDataSign(d, n string, t, p int64) string {
 	return util.HMAC_SHA256(util.AddStr(self.Method, d, n, t, p), self.GetTokenSecret())
 }
 
-// 按指定规则进行数据解码,校验参数安全
-func (self *Context) SecurityCheck(req *ReqDto, config *Config) error {
-	d, b := req.Data.(string)
-	if !b || len(d) == 0 {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "业务参数无效"}
+func (self *Context) GetStorageStringValue(k string) string {
+	v, b := self.Storage[k]
+	if b {
+		return v.(string)
 	}
-	if len(req.Sign) != 32 && len(req.Sign) != 64 {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "签名参数无效"}
-	}
-	if !util.CheckLen(req.Nonce, 8, 32) {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "随机参数无效"}
-	}
-	if req.Time <= 0 {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "时间参数为空"}
-	}
-	if util.MathAbs(util.TimeSecond()-req.Time) > jwt.FIVE_MINUTES { // 判断绝对时间差超过5分钟
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "时间参数无效"}
-	}
-	if !util.CheckInt64(req.Plan, 0, 1, 2) {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "计划参数无效"}
-	}
-	if config.RequestAesEncrypt && req.Plan != 1 {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "请求参数必须使用AES加密模式"}
-	}
-	if config.RequestRsaEncrypt && req.Plan != 2 {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "请求参数必须使用RSA加密模式"}
-	}
-	if self.GetDataSign(d, req.Nonce, req.Time, req.Plan) != req.Sign {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "API签名校验失败"}
-	}
-	if req.Plan == 1 { // AES
-		dec, err := util.AesDecrypt(d, self.GetTokenSecret(), util.AddStr(req.Nonce, req.Time))
-		if err != nil {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "请求数据解码失败", Err: err}
-		}
-		d = dec
-	} else if req.Plan == 2 { // RSA
+	return ""
+}
 
-	}
-	data := make(map[string]interface{}, 0)
-	if err := util.ParseJsonBase64(d, &data); err != nil {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "业务参数解析失败"}
-	}
-	req.Data = data
-	self.Params = req
-	return nil
+func (self *Context) GetClientPubkey() string {
+	return self.GetStorageStringValue(CLIENT_PUBKEY)
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"github.com/godaddy-x/freego/component/gorsa"
 	"github.com/godaddy-x/freego/node"
 	"github.com/godaddy-x/freego/util"
 	"io/ioutil"
@@ -25,7 +26,9 @@ func ToPostBy(path string, req *node.ReqDto) {
 		req.Data = d
 		fmt.Println("加密数据: ", req.Data, util.AddStr(req.Nonce, req.Time))
 	}
-	req.Sign = util.HMAC_SHA256(util.AddStr(path, req.Data.(string), req.Nonce, req.Time, req.Plan), token_secret)
+	if len(req.Sign) == 0 {
+		req.Sign = util.HMAC_SHA256(util.AddStr(path, req.Data.(string), req.Nonce, req.Time, req.Plan), token_secret)
+	}
 	bytesData, err := util.JsonMarshal(req)
 	if err != nil {
 		fmt.Println(err)
@@ -86,6 +89,45 @@ func TestLogin(t *testing.T) {
 	}
 	fmt.Println(req)
 	ToPostBy(path, req)
+}
+
+func TestRsaLogin(t *testing.T) {
+	resp, err := http.Get(domain + "/keyfile")
+	if err != nil {
+		panic(err)
+	}
+	respBytes, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	pubkey := string(respBytes)
+	rsaObj := &gorsa.RsaObj{}
+	rsaObj.CreateRsaFileHex()
+	data, _ := util.ToJsonBase64(map[string]string{"username": "1234567890123456", "password": "1234567890123456"})
+	path := "/login2"
+	req := &node.ReqDto{
+		Data:  data,
+		Time:  util.TimeSecond(),
+		Nonce: util.GetSnowFlakeStrID(),
+		Plan:  int64(2),
+		Sign:  "",
+	}
+	loginReq, _ := util.ToJsonBase64(req)
+	srvRsa := &gorsa.RsaObj{}
+	if err := srvRsa.LoadRsaPemFileHex(pubkey); err != nil {
+		panic(err)
+	}
+	res, err := srvRsa.Encrypt(loginReq)
+	if err != nil {
+		panic(err)
+	}
+	req2 := &node.ReqDto{
+		Data: res,
+		Sign: rsaObj.PubkeyHex,
+	}
+	fmt.Println(req2)
+	ToPostBy(path, req2)
 }
 
 func BenchmarkLogin(b *testing.B) {

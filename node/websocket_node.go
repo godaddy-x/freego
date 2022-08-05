@@ -180,7 +180,7 @@ func (self *WebsocketNode) ValidReplayAttack() error {
 	if param == nil || len(param.Sign) == 0 {
 		return nil
 	}
-	key := util.AddStr(JWT_SIG_, param.Sign)
+	key := util.AddStr(param.Sign)
 	if c, err := self.CacheAware(); err != nil {
 		return err
 	} else if b, err := c.GetInt64(key); err != nil {

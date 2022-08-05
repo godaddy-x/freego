@@ -49,6 +49,54 @@ func (self *HttpNode) GetHeader() error {
 	return nil
 }
 
+// 按指定规则进行数据解码,校验API参数安全
+func (self *HttpNode) Authenticate(req *ReqDto) error {
+	d, b := req.Data.(string)
+	if !b || len(d) == 0 {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "业务参数无效"}
+	}
+	if !util.CheckInt64(req.Plan, 0, 1, 2) {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "计划参数无效"}
+	}
+	if !util.CheckLen(req.Nonce, 8, 32) {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "随机参数无效"}
+	}
+	if req.Time <= 0 {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "时间参数为空"}
+	}
+	if util.MathAbs(util.TimeSecond()-req.Time) > jwt.FIVE_MINUTES { // 判断绝对时间差超过5分钟
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "时间参数无效"}
+	}
+	if self.Config.RequestAesEncrypt && req.Plan != 1 {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "请求参数必须使用AES加密模式"}
+	}
+	if self.Config.RequestRsaEncrypt && req.Plan != 2 {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "请求参数必须使用RSA加密模式"}
+	}
+	if req.Plan == 0 || req.Plan == 1 {
+		if len(req.Sign) != 32 && len(req.Sign) != 64 {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "签名参数无效"}
+		}
+		if self.Context.GetDataSign(d, req.Nonce, req.Time, req.Plan) != req.Sign {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "API签名校验失败"}
+		}
+		if req.Plan == 1 { // AES
+			dec, err := util.AesDecrypt(d, self.Context.GetTokenSecret(), util.AddStr(req.Nonce, req.Time))
+			if err != nil {
+				return ex.Throw{Code: http.StatusBadRequest, Msg: "请求数据解码失败", Err: err}
+			}
+			d = dec
+		}
+	}
+	data := make(map[string]interface{}, 0)
+	if err := util.ParseJsonBase64(d, &data); err != nil {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "业务参数解析失败"}
+	}
+	req.Data = data
+	self.Context.Params = req
+	return nil
+}
+
 func (self *HttpNode) GetParams() error {
 	r := self.Context.Input
 	if r.Method == POST {
@@ -66,7 +114,25 @@ func (self *HttpNode) GetParams() error {
 			if err := util.JsonUnmarshal(result, req); err != nil {
 				return ex.Throw{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err}
 			}
-			if err := self.Context.SecurityCheck(req, self.Config); err != nil {
+			if self.Config.RequestRsaEncrypt {
+				if len(req.Sign) != 856 {
+					return ex.Throw{Code: http.StatusBadRequest, Msg: "无效的参数"}
+				}
+				self.Context.Storage[CLIENT_PUBKEY] = req.Sign
+				b, ok := req.Data.(string)
+				if !ok {
+					return ex.Throw{Code: http.StatusBadRequest, Msg: "参数类型无效"}
+				}
+				dec, err := self.Certificate.Decrypt(b)
+				if err != nil {
+					return ex.Throw{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err}
+				}
+				if err := util.ParseJsonBase64(dec, req); err != nil {
+					return ex.Throw{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err}
+				}
+			}
+			// TODO important
+			if err := self.Authenticate(req); err != nil {
 				return err
 			}
 			return nil
@@ -137,7 +203,7 @@ func (self *HttpNode) InitContext(ptr *NodePtr) error {
 		Output:        output,
 		SecretKey:     self.Context.SecretKey,
 		PermissionKey: self.Context.PermissionKey,
-		Storage:       make(map[string]interface{}),
+		Storage:       make(map[string]interface{}, 0),
 	}
 	if err := node.GetHeader(); err != nil {
 		return err
@@ -376,7 +442,10 @@ func (self *HttpNode) RenderTo() error {
 		}
 		if self.Config.ResponseAesEncrypt {
 			resp.Plan = 1
-			data, _ = util.AesEncrypt(data, self.Context.GetTokenSecret(), util.AddStr(resp.Nonce, resp.Time))
+			data, err := util.AesEncrypt(data, self.Context.GetTokenSecret(), util.AddStr(resp.Nonce, resp.Time))
+			if err != nil {
+				return ex.Throw{Code: http.StatusInternalServerError, Msg: "参数加密失败", Err: err}
+			}
 			resp.Data = data
 		} else if self.Config.ResponseRsaEncrypt {
 			resp.Plan = 2
@@ -388,7 +457,6 @@ func (self *HttpNode) RenderTo() error {
 			self.Context.Output.Header().Set("Content-Type", APPLICATION_JSON)
 			self.Context.Output.Write(result)
 		}
-
 	default:
 		return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "无效的响应格式"}
 	}
