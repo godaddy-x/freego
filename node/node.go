@@ -5,6 +5,7 @@ import (
 	"github.com/godaddy-x/freego/component/gorsa"
 	"github.com/godaddy-x/freego/component/jwt"
 	"github.com/godaddy-x/freego/component/limiter"
+	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/util"
 	"net/http"
 )
@@ -63,8 +64,7 @@ type Config struct {
 	Authorization      bool // 游客模式 false.否 true.是
 	RequestAesEncrypt  bool // 请求是否必须AES加密 false.否 true.是
 	ResponseAesEncrypt bool // 响应是否必须AES加密 false.否 true.是
-	RequestRsaEncrypt  bool // 登录请求是否必须RSA加密 false.否 true.是
-	ResponseRsaEncrypt bool // 登录响应是否必须RSA加密 false.否 true.是
+	IsLogin            bool // 是否登录请求 false.否 true.是
 }
 
 type LogHandleRes struct {
@@ -115,7 +115,7 @@ type ReqDto struct {
 	Data  interface{} `json:"d"`
 	Time  int64       `json:"t"`
 	Nonce string      `json:"n"`
-	Plan  int64       `json:"p"`
+	Plan  int64       `json:"p"` // 0.默认 1.AES
 	Sign  string      `json:"s"`
 }
 
@@ -194,6 +194,22 @@ func (self *Context) GetStorageStringValue(k string) string {
 	return ""
 }
 
-func (self *Context) GetClientPubkey() string {
-	return self.GetStorageStringValue(CLIENT_PUBKEY)
+func (self *Context) GetRsaSecret(secret string) (string, error) {
+	v, b := self.Storage[CLIENT_PUBKEY]
+	if !b {
+		return "", ex.Throw{Code: http.StatusBadRequest, Msg: "客户端公钥为空"}
+	}
+	pem, b := v.(string)
+	if !b {
+		return "", ex.Throw{Code: http.StatusBadRequest, Msg: "客户端公钥参数异常"}
+	}
+	rsaObj := &gorsa.RsaObj{}
+	if err := rsaObj.LoadRsaPemFileHex(pem); err != nil {
+		return "", ex.Throw{Code: http.StatusBadRequest, Msg: "客户端公钥解析失败"}
+	}
+	res, err := rsaObj.Encrypt(secret)
+	if err != nil {
+		return "", ex.Throw{Code: http.StatusBadRequest, Msg: "客户端公钥加密数据失败"}
+	}
+	return res, nil
 }

@@ -20,7 +20,7 @@ const access_token = ""
 const token_secret = ""
 
 // 测试使用的http post示例方法
-func ToPostBy(path string, req *node.ReqDto) string {
+func ToPostBy(path string, req *node.ReqDto, isLogin bool) string {
 	if req.Plan == 1 {
 		d, _ := util.AesEncrypt(req.Data.(string), token_secret, util.AddStr(req.Nonce, req.Time))
 		req.Data = d
@@ -31,31 +31,36 @@ func ToPostBy(path string, req *node.ReqDto) string {
 	}
 	bytesData, err := util.JsonMarshal(req)
 	if err != nil {
-		panic(err)
+		fmt.Println(err)
+		return ""
 	}
 	fmt.Println("请求示例: ")
 	fmt.Println(string(bytesData))
 	reader := bytes.NewReader(bytesData)
 	request, err := http.NewRequest("POST", domain+path, reader)
 	if err != nil {
-		panic(err)
+		fmt.Println(err)
+		return ""
 	}
 	request.Header.Set("Content-Type", "application/json;charset=UTF-8")
 	request.Header.Set("Authorization", access_token)
 	client := http.Client{}
 	resp, err := client.Do(request)
 	if err != nil {
-		panic(err)
+		fmt.Println(err)
+		return ""
 	}
 	respBytes, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		panic(err)
+		fmt.Println(err)
+		return ""
 	}
 	fmt.Println("响应示例: ")
 	fmt.Println(util.Bytes2Str(respBytes))
 	respData := &node.RespDto{}
 	if err := util.JsonUnmarshal(respBytes, &respData); err != nil {
-		panic(err)
+		fmt.Println(err)
+		return ""
 	}
 	if respData.Code == 200 {
 		s := util.HMAC_SHA256(util.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan), token_secret)
@@ -68,7 +73,7 @@ func ToPostBy(path string, req *node.ReqDto) string {
 			respData.Data = dec
 			fmt.Println("数据明文: ", util.Bytes2Str(util.Base64Decode(respData.Data)))
 		}
-		if respData.Plan == 2 {
+		if isLogin {
 			a, _ := respData.Data.(string)
 			m := map[string]string{}
 			util.ParseJsonBase64(a, &m)
@@ -89,7 +94,7 @@ func TestLogin(t *testing.T) {
 		Sign:  "",
 	}
 	fmt.Println(req)
-	ToPostBy(path, req)
+	ToPostBy(path, req, false)
 }
 
 func TestRsaLogin(t *testing.T) {
@@ -111,7 +116,7 @@ func TestRsaLogin(t *testing.T) {
 		Data:  data,
 		Time:  util.TimeSecond(),
 		Nonce: util.GetSnowFlakeStrID(),
-		Plan:  int64(2),
+		Plan:  int64(0),
 		Sign:  "",
 	}
 	loginReq, _ := util.ToJsonBase64(req)
@@ -128,10 +133,11 @@ func TestRsaLogin(t *testing.T) {
 		Sign: rsaObj.PubkeyHex,
 	}
 	fmt.Println(req2)
-	secret := ToPostBy(path, req2)
+	secret := ToPostBy(path, req2, true)
 	bs, err := rsaObj.Decrypt(secret)
 	if err != nil {
-		panic(err)
+		fmt.Println(err)
+		return
 	}
 	fmt.Println("login secret: ", string(bs))
 }
@@ -147,7 +153,7 @@ func BenchmarkLogin(b *testing.B) {
 		Sign:  "",
 	}
 	fmt.Println(req)
-	ToPostBy(path, req)
+	ToPostBy(path, req, false)
 }
 
 func TestGetUser(t *testing.T) {
@@ -157,11 +163,11 @@ func TestGetUser(t *testing.T) {
 		Data:  data,
 		Time:  util.TimeSecond(),
 		Nonce: util.GetSnowFlakeStrID(),
-		Plan:  int64(0),
+		Plan:  int64(1),
 		Sign:  "",
 	}
 	fmt.Println(req)
-	ToPostBy(path, req)
+	ToPostBy(path, req, false)
 }
 
 func BenchmarkGetUser(b *testing.B) {
@@ -175,5 +181,5 @@ func BenchmarkGetUser(b *testing.B) {
 		Sign:  "",
 	}
 	fmt.Println(req)
-	ToPostBy(path, req)
+	ToPostBy(path, req, false)
 }

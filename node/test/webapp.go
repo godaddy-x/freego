@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/component/consul"
-	"github.com/godaddy-x/freego/component/gorsa"
 	"github.com/godaddy-x/freego/component/jwt"
 	"github.com/godaddy-x/freego/component/limiter"
 	"github.com/godaddy-x/freego/ex"
@@ -81,19 +80,13 @@ func test_callrpc() {
 }
 
 func (self *MyWebNode) login(ctx *node.Context) error {
-	//id, err := consul.GetWorkID()
-	//if err != nil {
-	//	return err
-	//}
-	//fmt.Println("id: ", id)
 	subject := &jwt.Subject{}
 	subject.Create(123456).Iss("1111").Aud("22222").Extinfo("test", "11").Extinfo("test2", "222").Dev("APP")
 	//self.LoginBySubject(subject, exp)
 	token := subject.Generate(GetSecretKey().TokenKey)
-	secret := jwt.GetTokenSecret(token)
-	secret, err := gorsa.EncryptByRsaPubkey(ctx.GetClientPubkey(), secret)
+	secret, err := ctx.GetRsaSecret(jwt.GetTokenSecret(token))
 	if err != nil {
-		return ex.Throw{Code: ex.BIZ, Msg: "加密失败", Err: err}
+		return err
 	}
 	return self.Json(ctx, map[string]interface{}{"token": token, "secret": secret})
 	//return self.Html(ctx, "/web/index.html", map[string]interface{}{"tewt": 1})
@@ -164,7 +157,7 @@ func StartHttpNode() {
 	my.Router("/test1", my.test, nil)
 	my.Router("/keyfile", my.keyfile, &node.Config{Original: true})
 	my.Router("/login1", my.login, &node.Config{Authorization: false, RequestAesEncrypt: true, ResponseAesEncrypt: true})
-	my.Router("/login2", my.login, &node.Config{Authorization: false, RequestRsaEncrypt: true, ResponseRsaEncrypt: true})
+	my.Router("/login2", my.login, &node.Config{Authorization: false, IsLogin: true})
 	my.Router("/callrpc", my.login, &node.Config{Authorization: false, RequestAesEncrypt: false, ResponseAesEncrypt: false})
 	my.StartServer()
 }

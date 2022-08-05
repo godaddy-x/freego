@@ -55,7 +55,7 @@ func (self *HttpNode) Authenticate(req *ReqDto) error {
 	if !b || len(d) == 0 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "业务参数无效"}
 	}
-	if !util.CheckInt64(req.Plan, 0, 1, 2) {
+	if !util.CheckInt64(req.Plan, 0, 1) {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "计划参数无效"}
 	}
 	if !util.CheckLen(req.Nonce, 8, 32) {
@@ -70,10 +70,10 @@ func (self *HttpNode) Authenticate(req *ReqDto) error {
 	if self.Config.RequestAesEncrypt && req.Plan != 1 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "请求参数必须使用AES加密模式"}
 	}
-	if self.Config.RequestRsaEncrypt && req.Plan != 2 {
+	if self.Config.IsLogin && req.Plan == 1 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "请求参数必须使用RSA加密模式"}
 	}
-	if req.Plan == 0 || req.Plan == 1 {
+	if !self.Config.IsLogin {
 		if len(req.Sign) != 32 && len(req.Sign) != 64 {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "签名参数无效"}
 		}
@@ -114,7 +114,7 @@ func (self *HttpNode) GetParams() error {
 			if err := util.JsonUnmarshal(result, req); err != nil {
 				return ex.Throw{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err}
 			}
-			if self.Config.RequestRsaEncrypt {
+			if self.Config.IsLogin { // {"d":"rsa(xxx)", "s":"rsa pub-key"}
 				if len(req.Sign) != 856 {
 					return ex.Throw{Code: http.StatusBadRequest, Msg: "无效的参数"}
 				}
@@ -447,8 +447,6 @@ func (self *HttpNode) RenderTo() error {
 				return ex.Throw{Code: http.StatusInternalServerError, Msg: "参数加密失败", Err: err}
 			}
 			resp.Data = data
-		} else if self.Config.ResponseRsaEncrypt {
-			resp.Plan = 2
 		}
 		resp.Sign = self.Context.GetDataSign(data, resp.Nonce, resp.Time, resp.Plan)
 		if result, err := util.JsonMarshal(resp); err != nil {
