@@ -20,7 +20,7 @@ const access_token = ""
 const token_secret = ""
 
 // 测试使用的http post示例方法
-func ToPostBy(path string, req *node.ReqDto) {
+func ToPostBy(path string, req *node.ReqDto) string {
 	if req.Plan == 1 {
 		d, _ := util.AesEncrypt(req.Data.(string), token_secret, util.AddStr(req.Nonce, req.Time))
 		req.Data = d
@@ -31,36 +31,31 @@ func ToPostBy(path string, req *node.ReqDto) {
 	}
 	bytesData, err := util.JsonMarshal(req)
 	if err != nil {
-		fmt.Println(err)
-		return
+		panic(err)
 	}
 	fmt.Println("请求示例: ")
 	fmt.Println(string(bytesData))
 	reader := bytes.NewReader(bytesData)
 	request, err := http.NewRequest("POST", domain+path, reader)
 	if err != nil {
-		fmt.Println(err)
-		return
+		panic(err)
 	}
 	request.Header.Set("Content-Type", "application/json;charset=UTF-8")
 	request.Header.Set("Authorization", access_token)
 	client := http.Client{}
 	resp, err := client.Do(request)
 	if err != nil {
-		fmt.Println(err)
-		return
+		panic(err)
 	}
 	respBytes, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		fmt.Println(err)
-		return
+		panic(err)
 	}
 	fmt.Println("响应示例: ")
 	fmt.Println(util.Bytes2Str(respBytes))
 	respData := &node.RespDto{}
 	if err := util.JsonUnmarshal(respBytes, &respData); err != nil {
-		fmt.Println("响应数据解析失败: ", err)
-		return
+		panic(err)
 	}
 	if respData.Code == 200 {
 		s := util.HMAC_SHA256(util.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan), token_secret)
@@ -68,13 +63,19 @@ func ToPostBy(path string, req *node.ReqDto) {
 		if respData.Plan == 1 {
 			dec, err := util.AesDecrypt(respData.Data.(string), token_secret, util.AddStr(respData.Nonce, respData.Time))
 			if err != nil {
-				fmt.Println("数据解密失败: ", err)
-				return
+				panic(err)
 			}
 			respData.Data = dec
 			fmt.Println("数据明文: ", util.Bytes2Str(util.Base64Decode(respData.Data)))
 		}
+		if respData.Plan == 2 {
+			a, _ := respData.Data.(string)
+			m := map[string]string{}
+			util.ParseJsonBase64(a, &m)
+			return m["secret"]
+		}
 	}
+	return ""
 }
 
 func TestLogin(t *testing.T) {
@@ -127,7 +128,12 @@ func TestRsaLogin(t *testing.T) {
 		Sign: rsaObj.PubkeyHex,
 	}
 	fmt.Println(req2)
-	ToPostBy(path, req2)
+	secret := ToPostBy(path, req2)
+	bs, err := rsaObj.Decrypt(secret)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("login secret: ", string(bs))
 }
 
 func BenchmarkLogin(b *testing.B) {

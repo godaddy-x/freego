@@ -1,12 +1,11 @@
 package main
 
 import (
-	"github.com/godaddy-x/freego/component/consul"
 	"github.com/godaddy-x/freego/node/test"
 )
 
 func http_test() {
-	new(consul.ConsulManager).InitConfig(consul.ConsulConfig{})
+	//new(consul.ConsulManager).InitConfig(consul.ConsulConfig{})
 	http_web.StartHttpNode()
 }
 

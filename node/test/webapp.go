@@ -81,17 +81,17 @@ func test_callrpc() {
 }
 
 func (self *MyWebNode) login(ctx *node.Context) error {
-	id, err := consul.GetWorkID()
-	if err != nil {
-		return err
-	}
-	fmt.Println("id: ", id)
+	//id, err := consul.GetWorkID()
+	//if err != nil {
+	//	return err
+	//}
+	//fmt.Println("id: ", id)
 	subject := &jwt.Subject{}
 	subject.Create(123456).Iss("1111").Aud("22222").Extinfo("test", "11").Extinfo("test2", "222").Dev("APP")
 	//self.LoginBySubject(subject, exp)
 	token := subject.Generate(GetSecretKey().TokenKey)
 	secret := jwt.GetTokenSecret(token)
-	secret, err = gorsa.EncryptByRsaPubkey(self.Context.GetClientPubkey(), secret)
+	secret, err := gorsa.EncryptByRsaPubkey(ctx.GetClientPubkey(), secret)
 	if err != nil {
 		return ex.Throw{Code: ex.BIZ, Msg: "加密失败", Err: err}
 	}
