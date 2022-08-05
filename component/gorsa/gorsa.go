@@ -90,6 +90,36 @@ func (self *RsaObj) LoadRsaFile(filePath string) error {
 	return nil
 }
 
+func (self *RsaObj) LoadRsaKeyFileHex(fileHex string) error {
+	dec, err := hex.DecodeString(fileHex)
+	if err != nil {
+		return err
+	}
+	block, _ := pem.Decode(dec)
+	prikey, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	if err != nil {
+		return err
+	}
+	self.prikey = prikey
+	self.pubkey = &prikey.PublicKey
+	return nil
+}
+
+func (self *RsaObj) LoadRsaPemFileHex(fileHex string) error {
+	dec, err := hex.DecodeString(fileHex)
+	if err != nil {
+		return err
+	}
+	block, _ := pem.Decode(dec)
+	prikey, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	if err != nil {
+		return err
+	}
+	self.prikey = prikey
+	self.pubkey = &prikey.PublicKey
+	return nil
+}
+
 func (self *RsaObj) LoadRsaPubkey(filePath string) error {
 	file, err := os.Open(filePath)
 	if err != nil {

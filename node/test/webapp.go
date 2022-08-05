@@ -30,7 +30,7 @@ func init() {
 	//new(cache.RedisManager).InitConfig(redisConf)
 	//redis_cache, _ := new(cache.RedisManager).Client()
 	//limiter = rate.NewRedisLimiter(redis_cache)
-	new(consul.ConsulManager).InitConfig(consul.ConsulConfig{})
+
 }
 
 type MyWebNode struct {
