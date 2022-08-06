@@ -119,7 +119,7 @@ func StartHttpNode() {
 		Port:      8090,
 		SecretKey: GetSecretKey,
 	}
-	my.DisconnectTimeout = 10
+	//my.DisconnectTimeout = 10
 	my.GatewayRate = &rate.RateOpetion{Limit: 2, Bucket: 5, Expire: 30}
 	my.CacheAware = GetCacheAware
 	my.OverrideFunc = &node.OverrideFunc{
@@ -156,7 +156,6 @@ func StartHttpNode() {
 	}
 	my.Router("/test1", my.test, nil)
 	my.Router("/keyfile", my.keyfile, &node.Config{Original: true})
-	my.Router("/login1", my.login, &node.Config{Authorization: false, RequestAesEncrypt: true, ResponseAesEncrypt: true})
 	my.Router("/login2", my.login, &node.Config{Authorization: false, IsLogin: true})
 	my.Router("/callrpc", my.login, &node.Config{Authorization: false, RequestAesEncrypt: false, ResponseAesEncrypt: false})
 	my.StartServer()

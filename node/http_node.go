@@ -43,6 +43,7 @@ func (self *HttpNode) GetHeader() error {
 	} else {
 		headers["User-Agent"] = r.Header.Get("User-Agent")
 		headers["Authorization"] = r.Header.Get("Authorization")
+		headers["ClientPubkey"] = r.Header.Get("ClientPubkey")
 	}
 	self.Context.Token = headers["Authorization"]
 	self.Context.Headers = headers
@@ -106,28 +107,31 @@ func (self *HttpNode) GetParams() error {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "获取参数失败", Err: err}
 		}
 		r.Body.Close()
+		if len(result) == 0 {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "获取参数为空", Err: nil}
+		}
 		if len(result) > (MAX_VALUE_LEN * 5) {
 			return ex.Throw{Code: http.StatusLengthRequired, Msg: "参数值长度溢出: " + util.AnyToStr(len(result))}
 		}
 		if !self.Config.Original {
 			req := &ReqDto{}
-			if err := util.JsonUnmarshal(result, req); err != nil {
-				return ex.Throw{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err}
-			}
-			if self.Config.IsLogin { // {"d":"rsa(xxx)", "s":"rsa pub-key"}
-				if len(req.Sign) != 856 {
-					return ex.Throw{Code: http.StatusBadRequest, Msg: "无效的参数"}
-				}
-				self.Context.Storage[CLIENT_PUBKEY] = req.Sign
-				b, ok := req.Data.(string)
+			if self.Config.IsLogin { // rsa encrypted data
+				pub, ok := self.Context.Headers[CLIENT_PUBKEY]
 				if !ok {
-					return ex.Throw{Code: http.StatusBadRequest, Msg: "参数类型无效"}
+					return ex.Throw{Code: http.StatusBadRequest, Msg: "客户端公钥为空"}
 				}
-				dec, err := self.Certificate.Decrypt(b)
+				if len(pub) != 856 {
+					return ex.Throw{Code: http.StatusBadRequest, Msg: "客户端公钥无效"}
+				}
+				dec, err := self.Certificate.Decrypt(util.Bytes2Str(result))
 				if err != nil {
 					return ex.Throw{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err}
 				}
 				if err := util.ParseJsonBase64(dec, req); err != nil {
+					return ex.Throw{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err}
+				}
+			} else {
+				if err := util.JsonUnmarshal(result, req); err != nil {
 					return ex.Throw{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err}
 				}
 			}

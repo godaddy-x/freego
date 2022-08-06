@@ -34,7 +34,7 @@ const (
 	MAX_QUERYSTRING_LEN = 1000 // 最大GET参数名长度
 	MAX_VALUE_LEN       = 4000 // 最大参数值长度
 
-	CLIENT_PUBKEY = "client_pubkey"
+	CLIENT_PUBKEY = "ClientPubkey"
 )
 
 type HookNode struct {
@@ -195,14 +195,7 @@ func (self *Context) GetStorageStringValue(k string) string {
 }
 
 func (self *Context) GetRsaSecret(secret string) (string, error) {
-	v, b := self.Storage[CLIENT_PUBKEY]
-	if !b {
-		return "", ex.Throw{Code: http.StatusBadRequest, Msg: "客户端公钥为空"}
-	}
-	pem, b := v.(string)
-	if !b {
-		return "", ex.Throw{Code: http.StatusBadRequest, Msg: "客户端公钥参数异常"}
-	}
+	pem, _ := self.Headers[CLIENT_PUBKEY]
 	rsaObj := &gorsa.RsaObj{}
 	if err := rsaObj.LoadRsaPemFileHex(pem); err != nil {
 		return "", ex.Throw{Code: http.StatusBadRequest, Msg: "客户端公钥解析失败"}
