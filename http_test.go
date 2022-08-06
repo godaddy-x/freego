@@ -77,7 +77,7 @@ func ToPostBy(path string, req *node.ReqDto) string {
 	return ""
 }
 
-func ToPostByLogin(path, loginData, clientPubkey string) string {
+func ToPostByLogin(path, loginData, clientSign, clientPubkey, servePubkey string) string {
 	fmt.Println("请求示例: ")
 	fmt.Println(string(loginData))
 	reader := bytes.NewReader(util.Str2Bytes(loginData))
@@ -88,6 +88,7 @@ func ToPostByLogin(path, loginData, clientPubkey string) string {
 	}
 	request.Header.Set("Content-Type", "application/json;charset=UTF-8")
 	request.Header.Set("ClientPubkey", clientPubkey)
+	request.Header.Set("ClientPubkeySign", clientSign)
 	client := http.Client{}
 	resp, err := client.Do(request)
 	if err != nil {
@@ -100,35 +101,23 @@ func ToPostByLogin(path, loginData, clientPubkey string) string {
 		return ""
 	}
 	fmt.Println("响应示例: ")
-	fmt.Println(util.Bytes2Str(respBytes))
+	fmt.Println(string(respBytes))
 	respData := &node.RespDto{}
 	if err := util.JsonUnmarshal(respBytes, &respData); err != nil {
 		fmt.Println(err)
 		return ""
 	}
 	if respData.Code == 200 {
-		s := util.HMAC_SHA256(util.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan), token_secret)
-		fmt.Println("数据验签: ", s == respData.Sign)
+		s := util.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan)
+		rsaObj := &gorsa.RsaObj{}
+		rsaObj.LoadRsaPemFileHex(servePubkey)
+		fmt.Println("RSA数据验签: ", rsaObj.VerifyBySHA256(s, respData.Sign) == nil)
 		a, _ := respData.Data.(string)
 		m := map[string]string{}
 		util.ParseJsonBase64(a, &m)
 		return m["secret"]
 	}
 	return ""
-}
-
-func TestLogin(t *testing.T) {
-	data, _ := util.ToJsonBase64(map[string]string{"test": "1234566"})
-	path := "/login1"
-	req := &node.ReqDto{
-		Data:  data,
-		Time:  util.TimeSecond(),
-		Nonce: util.GetSnowFlakeStrID(),
-		Plan:  int64(1),
-		Sign:  "",
-	}
-	fmt.Println(req)
-	ToPostBy(path, req)
 }
 
 func TestRsaLogin(t *testing.T) {
@@ -141,9 +130,9 @@ func TestRsaLogin(t *testing.T) {
 		fmt.Println(err)
 		return
 	}
-	pubkey := string(respBytes)
-	rsaObj := &gorsa.RsaObj{}
-	rsaObj.CreateRsaFileHex()
+	servePubkey := string(respBytes)
+	cliRsa := &gorsa.RsaObj{}
+	cliRsa.CreateRsaFileHex()
 	data, _ := util.ToJsonBase64(map[string]string{"username": "1234567890123456", "password": "1234567890123456"})
 	path := "/login2"
 	req := &node.ReqDto{
@@ -155,15 +144,16 @@ func TestRsaLogin(t *testing.T) {
 	}
 	loginReq, _ := util.ToJsonBase64(req)
 	srvRsa := &gorsa.RsaObj{}
-	if err := srvRsa.LoadRsaPemFileHex(pubkey); err != nil {
+	if err := srvRsa.LoadRsaPemFileHex(servePubkey); err != nil {
 		panic(err)
 	}
 	res, err := srvRsa.Encrypt(loginReq)
 	if err != nil {
 		panic(err)
 	}
-	secret := ToPostByLogin(path, res, rsaObj.PubkeyHex)
-	bs, err := rsaObj.Decrypt(secret)
+	clientSign, _ := cliRsa.SignBySHA256(res)
+	secret := ToPostByLogin(path, res, clientSign, cliRsa.PubkeyHex, servePubkey)
+	bs, err := cliRsa.Decrypt(secret)
 	if err != nil {
 		fmt.Println(err)
 		return
@@ -171,9 +161,9 @@ func TestRsaLogin(t *testing.T) {
 	fmt.Println("login secret: ", string(bs))
 }
 
-func BenchmarkLogin(b *testing.B) {
-	data, _ := util.ToJsonBase64(map[string]string{"test": "1234566"})
-	path := "/login1"
+func TestGetUser(t *testing.T) {
+	data, _ := util.ToJsonBase64(map[string]interface{}{"uid": 123, "name": "我爱中国", "limit": 20, "offset": 5})
+	path := "/test1"
 	req := &node.ReqDto{
 		Data:  data,
 		Time:  util.TimeSecond(),
@@ -185,9 +175,9 @@ func BenchmarkLogin(b *testing.B) {
 	ToPostBy(path, req)
 }
 
-func TestGetUser(t *testing.T) {
-	data, _ := util.ToJsonBase64(map[string]interface{}{"uid": 123, "name": "我爱中国"})
-	path := "/test1"
+func BenchmarkLogin(b *testing.B) {
+	data, _ := util.ToJsonBase64(map[string]string{"test": "1234566"})
+	path := "/login1"
 	req := &node.ReqDto{
 		Data:  data,
 		Time:  util.TimeSecond(),

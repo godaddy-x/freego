@@ -37,7 +37,9 @@ const (
 	MAX_QUERYSTRING_LEN = 1000 // 最大GET参数名长度
 	MAX_VALUE_LEN       = 4000 // 最大参数值长度
 
-	CLIENT_PUBKEY = "ClientPubkey"
+	Authorization      = "Authorization"
+	CLIENT_PUBKEY      = "ClientPubkey"
+	CLIENT_PUBKEY_SIGN = "ClientPubkeySign"
 )
 
 type HookNode struct {
@@ -148,7 +150,6 @@ type Context struct {
 	Headers       map[string]string
 	Params        *ReqDto
 	Subject       *jwt.Payload
-	Authenticated bool
 	Response      *Response
 	Version       string
 	Input         *http.Request
@@ -190,6 +191,10 @@ func (self *Context) GetDataSign(d, n string, t, p int64) string {
 	return util.HMAC_SHA256(util.AddStr(self.Method, d, n, t, p), self.GetTokenSecret())
 }
 
+func (self *Context) GetDataRsaSign(rsaObj *gorsa.RsaObj, d, n string, t, p int64) (string, error) {
+	return rsaObj.SignBySHA256(util.AddStr(self.Method, d, n, t, p))
+}
+
 func (self *Context) GetStorageStringValue(k string) string {
 	v, b := self.Storage[k]
 	if b {
@@ -211,6 +216,13 @@ func (self *Context) GetRsaSecret(secret string) (string, error) {
 	return res, nil
 }
 
+func (self *Context) Authenticated() bool {
+	if self.Subject == nil || self.Subject.Sub == 0 {
+		return false
+	}
+	return true
+}
+
 func (self *Context) Parser(v interface{}) error {
 	if err := util.JsonToAny(self.Params.Data, v); err != nil {
 		msg := "参数解析异常"
@@ -219,7 +231,7 @@ func (self *Context) Parser(v interface{}) error {
 	}
 	// TODO 备注: 已有会话状态时,指针填充context值,不能随意修改指针偏移值
 	userId := int64(0)
-	if self.Authenticated {
+	if self.Authenticated() {
 		userId = self.Subject.Sub
 	}
 	context := common.Context{

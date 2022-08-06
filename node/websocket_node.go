@@ -207,16 +207,16 @@ func (self *WebsocketNode) ValidPermission() error {
 	}
 	if need.NeedLogin == 0 { // 无登录状态,跳过
 		return nil
-	} else if self.Context.Subject == nil { // 需要登录状态,会话为空,抛出异常
-		return ex.Throw{Code: http.StatusUnauthorized, Msg: "获取授权令牌失败"}
+	} else if !self.Context.Authenticated() { // 需要登录状态,会话为空,抛出异常
+		return ex.Throw{Code: http.StatusUnauthorized, Msg: "获取授权会话失败"}
 	}
 	access := 0
-	need_access := len(need.NeedRole)
+	needAccess := len(need.NeedRole)
 	for _, cr := range self.Context.Roles {
 		for _, nr := range need.NeedRole {
 			if cr == nr {
 				access++
-				if need.MathchAll == 0 || access == need_access { // 任意授权通过则放行,或已满足授权长度
+				if need.MathchAll == 0 || access == needAccess { // 任意授权通过则放行,或已满足授权长度
 					return nil
 				}
 			}

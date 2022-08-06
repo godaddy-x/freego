@@ -42,11 +42,43 @@ func (self *HttpNode) GetHeader() error {
 		}
 	} else {
 		headers["User-Agent"] = r.Header.Get("User-Agent")
-		headers["Authorization"] = r.Header.Get("Authorization")
-		headers["ClientPubkey"] = r.Header.Get("ClientPubkey")
+		headers[Authorization] = r.Header.Get(Authorization)
+		if self.Config.IsLogin {
+			pub := r.Header.Get(CLIENT_PUBKEY)
+			if len(pub) != 856 {
+				return ex.Throw{Code: http.StatusBadRequest, Msg: "客户端公钥无效"}
+			}
+			headers[CLIENT_PUBKEY] = pub
+			sign := r.Header.Get(CLIENT_PUBKEY_SIGN)
+			if len(sign) == 0 {
+				return ex.Throw{Code: http.StatusBadRequest, Msg: "客户端公钥签名无效"}
+			}
+			headers[CLIENT_PUBKEY_SIGN] = sign
+		}
 	}
 	self.Context.Token = headers["Authorization"]
 	self.Context.Headers = headers
+	return nil
+}
+
+func (self *HttpNode) ValidClientRSA(result []byte, req *ReqDto) error {
+	pub, _ := self.Context.Headers[CLIENT_PUBKEY]
+	sign, _ := self.Context.Headers[CLIENT_PUBKEY_SIGN]
+	cliRsa := &gorsa.RsaObj{}
+	if err := cliRsa.LoadRsaPemFileHex(pub); err != nil {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "客户端公钥解析失败", Err: err}
+	}
+	res := util.Bytes2Str(result)
+	if err := cliRsa.VerifyBySHA256(res, sign); err != nil {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "客户端公钥验签失败", Err: err}
+	}
+	dec, err := self.Certificate.Decrypt(res)
+	if err != nil {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err}
+	}
+	if err := util.ParseJsonBase64(dec, req); err != nil {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "参数序列化失败", Err: err}
+	}
 	return nil
 }
 
@@ -116,19 +148,8 @@ func (self *HttpNode) GetParams() error {
 		if !self.Config.Original {
 			req := &ReqDto{}
 			if self.Config.IsLogin { // rsa encrypted data
-				pub, ok := self.Context.Headers[CLIENT_PUBKEY]
-				if !ok {
-					return ex.Throw{Code: http.StatusBadRequest, Msg: "客户端公钥为空"}
-				}
-				if len(pub) != 856 {
-					return ex.Throw{Code: http.StatusBadRequest, Msg: "客户端公钥无效"}
-				}
-				dec, err := self.Certificate.Decrypt(util.Bytes2Str(result))
-				if err != nil {
-					return ex.Throw{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err}
-				}
-				if err := util.ParseJsonBase64(dec, req); err != nil {
-					return ex.Throw{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err}
+				if err := self.ValidClientRSA(result, req); err != nil {
+					return err
 				}
 			} else {
 				if err := util.JsonUnmarshal(result, req); err != nil {
@@ -234,22 +255,18 @@ func (self *HttpNode) PaddDevice() error {
 }
 
 func (self *HttpNode) ValidSession() error {
-	if self.Config.Authorization {
-		if len(self.Context.Token) == 0 {
-			return ex.Throw{Code: http.StatusUnauthorized, Msg: "授权令牌为空"}
-		}
-		subject := &jwt.Subject{}
-		if err := subject.Verify(self.Context.Token, self.Context.SecretKey().TokenKey); err != nil {
-			return ex.Throw{Code: http.StatusUnauthorized, Msg: "授权令牌无效或已过期", Err: err}
-		}
-		self.Context.Roles = subject.GetTokenRole()
-		self.Context.Subject = subject.Payload
-		self.Context.Authenticated = true
+	if !self.Config.Authorization { // 非必须权限类型
 		return nil
 	}
-	if len(self.Context.Token) > 0 {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "非验证权限接口无需上传授权令牌"}
+	if len(self.Context.Token) == 0 {
+		return ex.Throw{Code: http.StatusUnauthorized, Msg: "授权令牌为空"}
 	}
+	subject := &jwt.Subject{}
+	if err := subject.Verify(self.Context.Token, self.Context.SecretKey().TokenKey); err != nil {
+		return ex.Throw{Code: http.StatusUnauthorized, Msg: "授权令牌无效或已过期", Err: err}
+	}
+	self.Context.Roles = subject.GetTokenRole()
+	self.Context.Subject = subject.Payload
 	return nil
 }
 
@@ -285,7 +302,7 @@ func (self *HttpNode) ValidPermission() error {
 	}
 	if need.NeedLogin == 0 { // 无登录状态,跳过
 		return nil
-	} else if self.Context.Subject == nil { // 需要登录状态,会话为空,抛出异常
+	} else if !self.Context.Authenticated() { // 需要登录状态,会话为空,抛出异常
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "获取授权主体失败"}
 	}
 	access := 0
@@ -390,7 +407,7 @@ func (self *HttpNode) RenderError(err error) error {
 		Message: out.Msg,
 		Time:    util.Time(),
 	}
-	if self.Context.Subject == nil {
+	if !self.Context.Authenticated() {
 		resp.Nonce = util.GetSnowFlakeStrID()
 	} else {
 		resp.Nonce = self.Context.Params.Nonce
@@ -437,7 +454,10 @@ func (self *HttpNode) RenderTo() error {
 			}
 			break
 		}
-		data, _ := util.ToJsonBase64(self.Context.Response.ContentEntity)
+		data, err := util.ToJsonBase64(self.Context.Response.ContentEntity)
+		if err != nil {
+			return ex.Throw{Code: http.StatusInternalServerError, Msg: "响应数据序列化失败", Err: err}
+		}
 		resp := &RespDto{
 			Code:    http.StatusOK,
 			Message: "success",
@@ -449,11 +469,19 @@ func (self *HttpNode) RenderTo() error {
 			resp.Plan = 1
 			data, err := util.AesEncrypt(data, self.Context.GetTokenSecret(), util.AddStr(resp.Nonce, resp.Time))
 			if err != nil {
-				return ex.Throw{Code: http.StatusInternalServerError, Msg: "参数加密失败", Err: err}
+				return ex.Throw{Code: http.StatusInternalServerError, Msg: "响应数据加密失败", Err: err}
 			}
 			resp.Data = data
 		}
-		resp.Sign = self.Context.GetDataSign(data, resp.Nonce, resp.Time, resp.Plan)
+		if self.Config.IsLogin {
+			sign, err := self.Context.GetDataRsaSign(self.Certificate, data, resp.Nonce, resp.Time, resp.Plan)
+			if err != nil {
+				return ex.Throw{Code: http.StatusInternalServerError, Msg: "响应数据加密失败", Err: err}
+			}
+			resp.Sign = sign
+		} else {
+			resp.Sign = self.Context.GetDataSign(data, resp.Nonce, resp.Time, resp.Plan)
+		}
 		if result, err := util.JsonMarshal(resp); err != nil {
 			return ex.Throw{Code: http.StatusInternalServerError, Msg: "响应数据异常", Err: err}
 		} else {
