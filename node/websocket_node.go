@@ -42,16 +42,15 @@ func (self *WebsocketNode) InitContext(ptr *NodePtr) error {
 	node.CacheAware = self.CacheAware
 	node.WSManager = self.WSManager
 	node.Context = &Context{
-		Host:      util.ClientIP(input),
-		Port:      self.Context.Port,
-		Style:     WEBSOCKET,
-		Method:    ptr.Pattern,
-		Version:   self.Context.Version,
-		Response:  &Response{UTF8, APPLICATION_JSON, nil},
-		Input:     input,
-		Output:    output,
-		SecretKey: self.Context.SecretKey,
-		Storage:   make(map[string]interface{}),
+		Host:     util.ClientIP(input),
+		Port:     self.Context.Port,
+		Style:    WEBSOCKET,
+		Method:   ptr.Pattern,
+		Version:  self.Context.Version,
+		Response: &Response{UTF8, APPLICATION_JSON, nil},
+		Input:    input,
+		Output:   output,
+		Storage:  make(map[string]interface{}),
 	}
 	return nil
 }
@@ -194,13 +193,13 @@ func (self *WebsocketNode) ValidReplayAttack() error {
 }
 
 func (self *WebsocketNode) ValidPermission() error {
-	if self.Context.PermissionKey == nil {
+	if self.PermConfig == nil {
 		return nil
 	}
-	need, err := self.Context.PermissionKey(self.Context.Method)
+	need, err := self.PermConfig(self.Context.Method)
 	if err != nil {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "读取授权资源失败", Err: err}
-	} else if need == nil { // 无授权资源配置,跳过
+	} else if !need.ready { // 无授权资源配置,跳过
 		return nil
 	} else if need.NeedRole == nil || len(need.NeedRole) == 0 { // 无授权角色配置跳过
 		return nil
@@ -335,7 +334,15 @@ func (self *WebsocketNode) Router(pattern string, handle func(ctx *Context) erro
 		self.Handler = http.NewServeMux()
 	}
 	http.DefaultServeMux.HandleFunc(pattern, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		self.Proxy(&NodePtr{self, nil, r, w, pattern, handle})
+		self.Proxy(
+			&NodePtr{
+				Node:    self,
+				Config:  nodeConfigs[pattern],
+				Input:   r,
+				Output:  w,
+				Pattern: pattern,
+				Handle:  handle,
+			})
 	}))
 }
 

@@ -25,7 +25,7 @@ type Subject struct {
 	Payload *Payload
 }
 
-type JwtSecretKey struct {
+type JwtConfig struct {
 	TokenKey string
 	TokenAlg string
 }

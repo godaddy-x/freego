@@ -94,7 +94,7 @@ func (self *MyWebNode) login(ctx *node.Context) error {
 	subject := &jwt.Subject{}
 	subject.Create(123456).Iss("1111").Aud("22222").Extinfo("test", "11").Extinfo("test2", "222").Dev("APP")
 	//self.LoginBySubject(subject, exp)
-	token := subject.Generate(GetSecretKey().TokenKey)
+	token := subject.Generate(self.JwtConfig().TokenKey)
 	secret, err := ctx.GetRsaSecret(jwt.GetTokenSecret(token))
 	if err != nil {
 		return err
@@ -103,7 +103,7 @@ func (self *MyWebNode) login(ctx *node.Context) error {
 	//return self.Html(ctx, "/web/index.html", map[string]interface{}{"tewt": 1})
 }
 
-func (self *MyWebNode) keyfile(ctx *node.Context) error {
+func (self *MyWebNode) pubkey(ctx *node.Context) error {
 	return self.Text(ctx, self.Certificate.PubkeyHex)
 }
 
@@ -112,8 +112,8 @@ func (self *MyWebNode) callrpc(ctx *node.Context) error {
 	return self.Json(ctx, map[string]interface{}{})
 }
 
-func GetSecretKey() *jwt.JwtSecretKey {
-	return &jwt.JwtSecretKey{
+func GetJwtConfig() jwt.JwtConfig {
+	return jwt.JwtConfig{
 		TokenKey: "123456",
 		TokenAlg: jwt.SHA256,
 	}
@@ -126,22 +126,23 @@ func GetCacheAware(ds ...string) (cache.ICache, error) {
 func StartHttpNode() {
 	my := &MyWebNode{}
 	my.Context = &node.Context{
-		Host:      "0.0.0.0",
-		Port:      8090,
-		SecretKey: GetSecretKey,
+		Host: "0.0.0.0",
+		Port: 8090,
 	}
 	//my.DisconnectTimeout = 10
-	my.GatewayRate = &rate.RateOpetion{Limit: 2, Bucket: 5, Expire: 30}
+	//my.GatewayRate = &rate.RateOpetion{Limit: 2, Bucket: 5, Expire: 30}
+	//my.PermConfig = func(url string) (node.Permission, error) {
+	//	return node.Permission{}, nil
+	//}
+	my.JwtConfig = GetJwtConfig
 	my.CacheAware = GetCacheAware
 	my.OverrideFunc = &node.OverrideFunc{
 		PreHandleFunc: func(ctx *node.Context) error {
 			if limiter.Validate(&rate.RateOpetion{Key: ctx.Method, Limit: 2, Bucket: 5, Expire: 30}) {
 				return ex.Throw{Code: 429, Msg: "too many visitors, please try again later"}
 			}
-			if ctx.Subject != nil {
-				if limiter.Validate(&rate.RateOpetion{Key: util.AnyToStr(ctx.Subject.Sub), Limit: 2, Bucket: 5, Expire: 30}) {
-					return ex.Throw{Code: 429, Msg: "the access frequency is too fast, please try again later"}
-				}
+			if ctx.Authenticated() && limiter.Validate(&rate.RateOpetion{Key: util.AnyToStr(ctx.Subject.Sub), Limit: 2, Bucket: 5, Expire: 30}) {
+				return ex.Throw{Code: 429, Msg: "the access frequency is too fast, please try again later"}
 			}
 			return nil
 		},
@@ -166,7 +167,7 @@ func StartHttpNode() {
 		},
 	}
 	my.Router("/test1", my.test, nil)
-	my.Router("/keyfile", my.keyfile, &node.Config{Original: true})
+	my.Router("/pubkey", my.pubkey, &node.Config{Original: true})
 	my.Router("/login2", my.login, &node.Config{Authorization: false, IsLogin: true})
 	my.Router("/callrpc", my.login, &node.Config{Authorization: false, RequestAesEncrypt: false, ResponseAesEncrypt: false})
 	my.StartServer()

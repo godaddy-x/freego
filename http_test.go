@@ -121,7 +121,7 @@ func ToPostByLogin(path, loginData, clientSign, clientPubkey, servePubkey string
 }
 
 func TestRsaLogin(t *testing.T) {
-	resp, err := http.Get(domain + "/keyfile")
+	resp, err := http.Get(domain + "/pubkey")
 	if err != nil {
 		panic(err)
 	}

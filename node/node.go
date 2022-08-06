@@ -52,16 +52,20 @@ type HookNode struct {
 	Handler           *http.ServeMux
 	Config            *Config
 	Certificate       *gorsa.RsaObj
+	JwtConfig         func() jwt.JwtConfig
+	PermConfig        func(url string) (Permission, error)
 	DisconnectTimeout int64 // 超时主动断开客户端连接,秒
 }
 
 type NodePtr struct {
-	Node    interface{}
-	Config  *Config
-	Input   *http.Request
-	Output  http.ResponseWriter
-	Pattern string
-	Handle  func(ctx *Context) error
+	Node       interface{}
+	Config     *Config
+	Input      *http.Request
+	Output     http.ResponseWriter
+	Pattern    string
+	JwtConfig  func() jwt.JwtConfig
+	PermConfig func(url string) (Permission, error)
+	Handle     func(ctx *Context) error
 }
 
 type Config struct {
@@ -135,29 +139,28 @@ type RespDto struct {
 }
 
 type Permission struct {
+	ready     bool
 	MathchAll int64
 	NeedLogin int64
 	NeedRole  []int64
 }
 
 type Context struct {
-	Host          string
-	Port          int64
-	Style         string
-	Device        string
-	Method        string
-	Token         string
-	Headers       map[string]string
-	Params        *ReqDto
-	Subject       *jwt.Payload
-	Response      *Response
-	Version       string
-	Input         *http.Request
-	Output        http.ResponseWriter
-	Storage       map[string]interface{}
-	Roles         []int64
-	SecretKey     func() *jwt.JwtSecretKey
-	PermissionKey func(url string) (*Permission, error)
+	Host     string
+	Port     int64
+	Style    string
+	Device   string
+	Method   string
+	Token    string
+	Headers  map[string]string
+	Params   *ReqDto
+	Subject  *jwt.Payload
+	Response *Response
+	Version  string
+	Input    *http.Request
+	Output   http.ResponseWriter
+	Storage  map[string]interface{}
+	Roles    []int64
 }
 
 type Response struct {

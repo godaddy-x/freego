@@ -217,18 +217,18 @@ func (self *HttpNode) InitContext(ptr *NodePtr) error {
 	node.SessionAware = self.SessionAware
 	node.CacheAware = self.CacheAware
 	node.Certificate = self.Certificate
+	node.JwtConfig = self.JwtConfig
+	node.PermConfig = self.PermConfig
 	node.Context = &Context{
-		Host:          util.ClientIP(input),
-		Port:          self.Context.Port,
-		Style:         HTTP,
-		Method:        ptr.Pattern,
-		Version:       self.Context.Version,
-		Response:      &Response{UTF8, APPLICATION_JSON, nil},
-		Input:         input,
-		Output:        output,
-		SecretKey:     self.Context.SecretKey,
-		PermissionKey: self.Context.PermissionKey,
-		Storage:       make(map[string]interface{}, 0),
+		Host:     util.ClientIP(input),
+		Port:     self.Context.Port,
+		Style:    HTTP,
+		Method:   ptr.Pattern,
+		Version:  self.Context.Version,
+		Response: &Response{UTF8, APPLICATION_JSON, nil},
+		Input:    input,
+		Output:   output,
+		Storage:  make(map[string]interface{}, 0),
 	}
 	if err := node.GetHeader(); err != nil {
 		return err
@@ -262,7 +262,7 @@ func (self *HttpNode) ValidSession() error {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "授权令牌为空"}
 	}
 	subject := &jwt.Subject{}
-	if err := subject.Verify(self.Context.Token, self.Context.SecretKey().TokenKey); err != nil {
+	if err := subject.Verify(self.Context.Token, self.JwtConfig().TokenKey); err != nil {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "授权令牌无效或已过期", Err: err}
 	}
 	self.Context.Roles = subject.GetTokenRole()
@@ -289,13 +289,13 @@ func (self *HttpNode) ValidReplayAttack() error {
 }
 
 func (self *HttpNode) ValidPermission() error {
-	if self.Context.PermissionKey == nil {
+	if self.PermConfig == nil {
 		return nil
 	}
-	need, err := self.Context.PermissionKey(self.Context.Method)
+	need, err := self.PermConfig(self.Context.Method)
 	if err != nil {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "读取授权资源失败", Err: err}
-	} else if need == nil { // 无授权资源配置,跳过
+	} else if !need.ready { // 无授权资源配置,跳过
 		return nil
 	} else if need.NeedRole == nil || len(need.NeedRole) == 0 { // 无授权角色配置跳过
 		return nil
@@ -496,6 +496,12 @@ func (self *HttpNode) RenderTo() error {
 
 func (self *HttpNode) StartServer() {
 	go func() {
+		if self.CacheAware != nil {
+			log.Printf("cache service has been started successfully")
+		}
+		if self.Certificate != nil {
+			log.Printf("rsa2048/sha256 certificate service has been started successfully")
+		}
 		url := util.AddStr(self.Context.Host, ":", self.Context.Port)
 		log.Printf("http service【%s】has been started successfully", url)
 		if err := http.ListenAndServe(url, self.limiterTimeoutHandler()); err != nil {
@@ -541,7 +547,6 @@ func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, co
 	if self.CacheAware == nil {
 		log.Error("缓存服务尚未初始化", 0)
 		return
-		log.Printf("cache service has been started successfully")
 	}
 	if self.Certificate == nil {
 		cert := &gorsa.RsaObj{}
@@ -551,7 +556,6 @@ func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, co
 			return
 		}
 		self.Certificate = cert
-		log.Printf("rsa certificate service has been started successfully")
 	}
 	if config == nil {
 		config = &Config{Authorization: true}
@@ -563,7 +567,15 @@ func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, co
 		nodeConfigs[pattern] = config
 	}
 	self.Handler.Handle(pattern, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		self.Proxy(&NodePtr{self, nodeConfigs[pattern], r, w, pattern, handle})
+		self.Proxy(
+			&NodePtr{
+				Node:    self,
+				Config:  nodeConfigs[pattern],
+				Input:   r,
+				Output:  w,
+				Pattern: pattern,
+				Handle:  handle,
+			})
 	}))
 }
 
