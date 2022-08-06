@@ -186,7 +186,7 @@ func BenchmarkLogin(b *testing.B) {
 }
 
 func TestGetUser(t *testing.T) {
-	data, _ := util.ToJsonBase64(map[string]string{"test": "1234566"})
+	data, _ := util.ToJsonBase64(map[string]interface{}{"uid": 123, "name": "我爱中国"})
 	path := "/test1"
 	req := &node.ReqDto{
 		Data:  data,

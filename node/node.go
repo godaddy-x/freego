@@ -5,9 +5,12 @@ import (
 	"github.com/godaddy-x/freego/component/gorsa"
 	"github.com/godaddy-x/freego/component/jwt"
 	"github.com/godaddy-x/freego/component/limiter"
+	"github.com/godaddy-x/freego/component/log"
 	"github.com/godaddy-x/freego/ex"
+	"github.com/godaddy-x/freego/node/common"
 	"github.com/godaddy-x/freego/util"
 	"net/http"
+	"unsafe"
 )
 
 const (
@@ -145,6 +148,7 @@ type Context struct {
 	Headers       map[string]string
 	Params        *ReqDto
 	Subject       *jwt.Payload
+	Authenticated bool
 	Response      *Response
 	Version       string
 	Input         *http.Request
@@ -205,4 +209,27 @@ func (self *Context) GetRsaSecret(secret string) (string, error) {
 		return "", ex.Throw{Code: http.StatusBadRequest, Msg: "客户端公钥加密数据失败"}
 	}
 	return res, nil
+}
+
+func (self *Context) Parser(v interface{}) error {
+	if err := util.JsonToAny(self.Params.Data, v); err != nil {
+		msg := "参数解析异常"
+		log.Error(msg, 0, log.String("method", self.Method), log.String("host", self.Host), log.String("device", self.Device), log.Any("data", self.Params))
+		return ex.Throw{Msg: msg}
+	}
+	// TODO 备注: 已有会话状态时,指针填充context值,不能随意修改指针偏移值
+	userId := int64(0)
+	if self.Authenticated {
+		userId = self.Subject.Sub
+	}
+	context := common.Context{
+		UserId: userId,
+		UserIP: self.Host,
+	}
+	src := util.GetPtr(v, 0)
+	req := common.GetBaseReq(src)
+	dst := common.BaseReq{Context: context, Offset: req.Offset, Limit: req.Limit}
+	*((*common.BaseReq)(unsafe.Pointer(src))) = dst
+	self.Params.Data = v
+	return nil
 }

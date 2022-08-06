@@ -8,6 +8,7 @@ import (
 	"github.com/godaddy-x/freego/component/limiter"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/node"
+	"github.com/godaddy-x/freego/node/common"
 	"github.com/godaddy-x/freego/util"
 )
 
@@ -52,7 +53,17 @@ type ResObj struct {
 	Status int
 }
 
+type GetUserReq struct {
+	common.BaseReq
+	Uid  int    `json:"uid"`
+	Name string `json:"name"`
+}
+
 func (self *MyWebNode) test(ctx *node.Context) error {
+	req := &GetUserReq{}
+	if err := ctx.Parser(req); err != nil {
+		return err
+	}
 	//return self.Html(ctx, "/resource/index.html", map[string]interface{}{"tewt": 1})
 	return self.Json(ctx, map[string]interface{}{"test": 1})
 	//return ex.Throw{Code: ex.BIZ, Msg: "测试错误"}

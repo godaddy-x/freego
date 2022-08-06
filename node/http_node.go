@@ -244,6 +244,7 @@ func (self *HttpNode) ValidSession() error {
 		}
 		self.Context.Roles = subject.GetTokenRole()
 		self.Context.Subject = subject.Payload
+		self.Context.Authenticated = true
 		return nil
 	}
 	if len(self.Context.Token) > 0 {
