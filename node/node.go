@@ -37,9 +37,10 @@ const (
 	MAX_QUERYSTRING_LEN = 1000 // 最大GET参数名长度
 	MAX_VALUE_LEN       = 4000 // 最大参数值长度
 
-	Authorization      = "Authorization"
-	CLIENT_PUBKEY      = "ClientPubkey"
-	CLIENT_PUBKEY_SIGN = "ClientPubkeySign"
+	Authorization        = "Authorization"
+	CLIENT_PUBKEY        = "ClientPubkey"
+	CLIENT_PUBKEY_SIGN   = "ClientPubkeySign"
+	CLIENT_PUBKEY_OBJECT = "ClientPubkeyObject"
 )
 
 type HookNode struct {
@@ -195,7 +196,12 @@ func (self *Context) GetDataSign(d, n string, t, p int64) string {
 }
 
 func (self *Context) GetDataRsaSign(rsaObj *gorsa.RsaObj, d, n string, t, p int64) (string, error) {
-	return rsaObj.SignBySHA256(util.AddStr(self.Method, d, n, t, p))
+	msg := util.Str2Bytes(util.AddStr(self.Method, d, n, t, p))
+	r, err := rsaObj.SignBySHA256(msg)
+	if err != nil {
+		return "", ex.Throw{Code: ex.BIZ, Msg: "RSA签名失败", Err: err}
+	}
+	return util.Base64Encode(r), nil
 }
 
 func (self *Context) GetStorageStringValue(k string) string {
@@ -207,16 +213,15 @@ func (self *Context) GetStorageStringValue(k string) string {
 }
 
 func (self *Context) GetRsaSecret(secret string) (string, error) {
-	pem, _ := self.Headers[CLIENT_PUBKEY]
-	rsaObj := &gorsa.RsaObj{}
-	if err := rsaObj.LoadRsaPemFileHex(pem); err != nil {
-		return "", ex.Throw{Code: http.StatusBadRequest, Msg: "客户端公钥解析失败"}
+	obj, ok := self.Storage[CLIENT_PUBKEY_OBJECT]
+	if !ok {
+		return "", ex.Throw{Code: http.StatusBadRequest, Msg: "客户端公钥无效"}
 	}
-	res, err := rsaObj.Encrypt(secret)
+	res, err := obj.(*gorsa.RsaObj).Encrypt(util.Str2Bytes(secret))
 	if err != nil {
 		return "", ex.Throw{Code: http.StatusBadRequest, Msg: "客户端公钥加密数据失败"}
 	}
-	return res, nil
+	return util.Base64Encode(res), nil
 }
 
 func (self *Context) Authenticated() bool {

@@ -104,7 +104,7 @@ func (self *MyWebNode) login(ctx *node.Context) error {
 }
 
 func (self *MyWebNode) pubkey(ctx *node.Context) error {
-	return self.Text(ctx, self.Certificate.PubkeyHex)
+	return self.Text(ctx, self.Certificate.PubkeyBase64)
 }
 
 func (self *MyWebNode) callrpc(ctx *node.Context) error {

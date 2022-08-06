@@ -45,9 +45,9 @@ func (self *HttpNode) GetHeader() error {
 		headers[Authorization] = r.Header.Get(Authorization)
 		if self.Config.IsLogin {
 			pub := r.Header.Get(CLIENT_PUBKEY)
-			if len(pub) != 856 {
-				return ex.Throw{Code: http.StatusBadRequest, Msg: "客户端公钥无效"}
-			}
+			//if len(pub) != 856 {
+			//	return ex.Throw{Code: http.StatusBadRequest, Msg: "客户端公钥无效"}
+			//}
 			headers[CLIENT_PUBKEY] = pub
 			sign := r.Header.Get(CLIENT_PUBKEY_SIGN)
 			if len(sign) == 0 {
@@ -62,23 +62,35 @@ func (self *HttpNode) GetHeader() error {
 }
 
 func (self *HttpNode) ValidClientRSA(result []byte, req *ReqDto) error {
+	bs := util.Base64Decode(result)
+	if bs == nil {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "参数序列化失败"}
+	}
 	pub, _ := self.Context.Headers[CLIENT_PUBKEY]
-	sign, _ := self.Context.Headers[CLIENT_PUBKEY_SIGN]
-	cliRsa := &gorsa.RsaObj{}
-	if err := cliRsa.LoadRsaPemFileHex(pub); err != nil {
+	pub_bs := util.Base64Decode(pub)
+	if pub_bs == nil {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "公钥参数序列化失败"}
+	}
+	pub_dec, err := self.Certificate.Decrypt(pub_bs)
+	if err != nil {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "客户端公钥解析失败", Err: err}
 	}
-	res := util.Bytes2Str(result)
-	if err := cliRsa.VerifyBySHA256(res, sign); err != nil {
+	cliRsa := &gorsa.RsaObj{}
+	if err := cliRsa.LoadRsaPemFileByte(pub_dec); err != nil {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "客户端公钥加载失败", Err: err}
+	}
+	sign, _ := self.Context.Headers[CLIENT_PUBKEY_SIGN]
+	if err := cliRsa.VerifyBySHA256(bs, sign); err != nil {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "客户端公钥验签失败", Err: err}
 	}
-	dec, err := self.Certificate.Decrypt(res)
+	dec, err := self.Certificate.Decrypt(bs)
 	if err != nil {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err}
 	}
 	if err := util.ParseJsonBase64(dec, req); err != nil {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "参数序列化失败", Err: err}
 	}
+	self.Context.Storage[CLIENT_PUBKEY_OBJECT] = cliRsa
 	return nil
 }
 
@@ -503,7 +515,7 @@ func (self *HttpNode) StartServer() {
 			log.Printf("rsa2048/sha256 certificate service has been started successfully")
 		}
 		url := util.AddStr(self.Context.Host, ":", self.Context.Port)
-		log.Printf("http service【%s】has been started successfully", url)
+		log.Printf("http【%s】service has been started successfully", url)
 		if err := http.ListenAndServe(url, self.limiterTimeoutHandler()); err != nil {
 			log.Error("初始化http服务失败", 0, log.AddError(err))
 		}
@@ -550,7 +562,7 @@ func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, co
 	}
 	if self.Certificate == nil {
 		cert := &gorsa.RsaObj{}
-		_, _, err := cert.CreateRsaFileHex()
+		_, _, err := cert.CreateRsaFileBase64()
 		if err != nil {
 			log.Error("RSA证书生成失败", 0)
 			return
