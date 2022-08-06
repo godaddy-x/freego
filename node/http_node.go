@@ -41,18 +41,18 @@ func (self *HttpNode) GetHeader() error {
 			}
 		}
 	} else {
-		headers["User-Agent"] = r.Header.Get("User-Agent")
+		headers[USER_AGENT] = r.Header.Get(USER_AGENT)
 		headers[Authorization] = r.Header.Get(Authorization)
 		if self.Config.IsLogin {
 			pub := r.Header.Get(CLIENT_PUBKEY)
-			//if len(pub) != 856 {
-			//	return ex.Throw{Code: http.StatusBadRequest, Msg: "客户端公钥无效"}
-			//}
-			headers[CLIENT_PUBKEY] = pub
+			if !util.CheckStrLen(pub, 340, 350) {
+				return ex.Throw{Code: http.StatusBadRequest, Msg: "客户端公钥无效"}
+			}
 			sign := r.Header.Get(CLIENT_PUBKEY_SIGN)
-			if len(sign) == 0 {
+			if !util.CheckStrLen(sign, 110, 120) {
 				return ex.Throw{Code: http.StatusBadRequest, Msg: "客户端公钥签名无效"}
 			}
+			headers[CLIENT_PUBKEY] = pub
 			headers[CLIENT_PUBKEY_SIGN] = sign
 		}
 	}
@@ -61,19 +61,22 @@ func (self *HttpNode) GetHeader() error {
 	return nil
 }
 
-func (self *HttpNode) ValidClientRSA(result []byte, req *ReqDto) error {
-	bs := util.Base64Decode(result)
+func (self *HttpNode) ValidRsaLogin(body []byte, req *ReqDto) error {
+	bs := util.Base64Decode(body)
 	if bs == nil {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "参数序列化失败"}
 	}
 	pub, _ := self.Context.Headers[CLIENT_PUBKEY]
 	pub_bs := util.Base64Decode(pub)
-	if pub_bs == nil {
+	if pub_bs == nil || len(pub_bs) == 0 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "公钥参数序列化失败"}
 	}
 	pub_dec, err := self.Certificate.Decrypt(pub_bs)
 	if err != nil {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "客户端公钥解析失败", Err: err}
+	}
+	if pub_dec == nil || len(pub_dec) == 0 {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "客户端公钥解析无效", Err: err}
 	}
 	cliRsa := &gorsa.RsaObj{}
 	if err := cliRsa.LoadRsaPemFileByte(pub_dec); err != nil {
@@ -86,6 +89,9 @@ func (self *HttpNode) ValidClientRSA(result []byte, req *ReqDto) error {
 	dec, err := self.Certificate.Decrypt(bs)
 	if err != nil {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err}
+	}
+	if dec == nil || len(dec) == 0 {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "参数解析无效", Err: err}
 	}
 	if err := util.ParseJsonBase64(dec, req); err != nil {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "参数序列化失败", Err: err}
@@ -146,27 +152,25 @@ func (self *HttpNode) GetParams() error {
 	r := self.Context.Input
 	if r.Method == POST {
 		r.ParseForm()
-		result, err := ioutil.ReadAll(r.Body)
+		body, err := ioutil.ReadAll(r.Body)
 		if err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "获取参数失败", Err: err}
 		}
 		r.Body.Close()
-		if len(result) == 0 {
+		if len(body) == 0 {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "获取参数为空", Err: nil}
 		}
-		if len(result) > (MAX_VALUE_LEN * 5) {
-			return ex.Throw{Code: http.StatusLengthRequired, Msg: "参数值长度溢出: " + util.AnyToStr(len(result))}
+		if len(body) > (MAX_VALUE_LEN * 5) {
+			return ex.Throw{Code: http.StatusLengthRequired, Msg: "参数值长度溢出"}
 		}
 		if !self.Config.Original {
 			req := &ReqDto{}
-			if self.Config.IsLogin { // rsa encrypted data
-				if err := self.ValidClientRSA(result, req); err != nil {
+			if self.Config.IsLogin { // rsa valid
+				if err := self.ValidRsaLogin(body, req); err != nil {
 					return err
 				}
-			} else {
-				if err := util.JsonUnmarshal(result, req); err != nil {
-					return ex.Throw{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err}
-				}
+			} else if err := util.JsonUnmarshal(body, req); err != nil {
+				return ex.Throw{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err}
 			}
 			// TODO important
 			if err := self.Authenticate(req); err != nil {
@@ -175,7 +179,7 @@ func (self *HttpNode) GetParams() error {
 			return nil
 		}
 		data := map[string]interface{}{}
-		if result == nil || len(result) == 0 {
+		if body == nil || len(body) == 0 {
 			for k, v := range r.Form {
 				if len(v) == 0 {
 					continue
@@ -183,7 +187,7 @@ func (self *HttpNode) GetParams() error {
 				data[k] = v[0]
 			}
 		} else {
-			if err := util.JsonUnmarshal(result, &data); err != nil {
+			if err := util.JsonUnmarshal(body, &data); err != nil {
 				return ex.Throw{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err}
 			}
 		}
@@ -512,7 +516,7 @@ func (self *HttpNode) StartServer() {
 			log.Printf("cache service has been started successfully")
 		}
 		if self.Certificate != nil {
-			log.Printf("rsa2048/sha256 certificate service has been started successfully")
+			log.Printf("server【rsa2048/sha256】-> client【rsa668/sha256】certificate service has been started successfully")
 		}
 		url := util.AddStr(self.Context.Host, ":", self.Context.Port)
 		log.Printf("http【%s】service has been started successfully", url)

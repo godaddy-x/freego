@@ -9,7 +9,6 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"errors"
-	"fmt"
 	"os"
 )
 
@@ -80,7 +79,6 @@ func (self *RsaObj) CreateRsaFileBase64(bits ...int) (string, string, error) {
 	self.prikey = prikey
 	self.pubkey = &prikey.PublicKey
 	self.PubkeyBase64 = pubkeybase64
-	fmt.Println(self.pubkey.Size(), len(bs))
 	return prikeybase64, pubkeybase64, nil
 }
 
@@ -213,12 +211,4 @@ func (self *RsaObj) VerifyBySHA256(msg []byte, sign string) error {
 		return err
 	}
 	return nil
-}
-
-func EncryptByRsaPubkey(pubkey string, msg []byte) ([]byte, error) {
-	rsaObj := RsaObj{}
-	if err := rsaObj.LoadRsaPemFileBase64(pubkey); err != nil {
-		return nil, err
-	}
-	return rsaObj.Encrypt(msg)
 }

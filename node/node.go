@@ -38,6 +38,7 @@ const (
 	MAX_VALUE_LEN       = 4000 // 最大参数值长度
 
 	Authorization        = "Authorization"
+	USER_AGENT           = "User-Agent"
 	CLIENT_PUBKEY        = "ClientPubkey"
 	CLIENT_PUBKEY_SIGN   = "ClientPubkeySign"
 	CLIENT_PUBKEY_OBJECT = "ClientPubkeyObject"

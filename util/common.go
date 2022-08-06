@@ -978,3 +978,12 @@ func CheckLen(o interface{}, min, max int) bool {
 	}
 	return false
 }
+
+// 获取并校验字符串长度
+func CheckStrLen(str string, min, max int) bool {
+	l := len(str)
+	if l >= min && l <= max {
+		return true
+	}
+	return false
+}
