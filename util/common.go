@@ -455,66 +455,64 @@ func StrToFloat(str string) (float64, error) {
 }
 
 // MD5加密
-func MD5(s string, salt ...string) string {
-	for _, v := range salt {
-		s = v + s
-	}
+func MD5(s string, useBase64 ...bool) string {
 	has := md5.Sum(Str2Bytes(s))
-	//return fmt.Sprintf("%x", has) //将[]byte转成16进制
-	return hex.EncodeToString(has[:])
+	if len(useBase64) == 0 {
+		return hex.EncodeToString(has[:])
+	}
+	return Base64Encode(has[:])
 }
 
 // HMAC-MD5加密
-func HMAC_MD5(data, key string) string {
+func HMAC_MD5(data, key string, useBase64 ...bool) string {
 	hmac := hmac.New(md5.New, []byte(key))
 	hmac.Write([]byte(data))
-	return hex.EncodeToString(hmac.Sum([]byte("")))
+	if len(useBase64) == 0 {
+		return hex.EncodeToString(hmac.Sum([]byte("")))
+	}
+	return Base64Encode(hmac.Sum([]byte("")))
 }
 
 // HMAC-SHA1加密
-func HMAC_SHA1(data, key string) string {
+func HMAC_SHA1(data, key string, useBase64 ...bool) string {
 	hmac := hmac.New(sha1.New, []byte(key))
 	hmac.Write([]byte(data))
-	return hex.EncodeToString(hmac.Sum([]byte("")))
+	if len(useBase64) == 0 {
+		return hex.EncodeToString(hmac.Sum([]byte("")))
+	}
+	return Base64Encode(hmac.Sum([]byte("")))
 }
 
 // HMAC-SHA256加密
-func HMAC_SHA256(data, key string) string {
+func HMAC_SHA256(data, key string, useBase64 ...bool) string {
 	hmac := hmac.New(sha256.New, []byte(key))
 	hmac.Write([]byte(data))
-	return hex.EncodeToString(hmac.Sum([]byte("")))
+	if len(useBase64) == 0 {
+		return hex.EncodeToString(hmac.Sum([]byte("")))
+	}
+	return Base64Encode(hmac.Sum([]byte("")))
 }
 
 // SHA256加密
-func SHA256(s string, salt ...string) string {
-	if salt != nil && len(salt) > 0 {
-		for _, v := range salt {
-			if len(v) > 0 {
-				s = v + s
-			}
-		}
-	}
+func SHA256(s string, useBase64 ...bool) string {
 	h := sha256.New()
 	h.Write(Str2Bytes(s))
 	bs := h.Sum(nil)
-	//return fmt.Sprintf("%x", bs) //将[]byte转成16进制
-	return hex.EncodeToString(bs)
+	if len(useBase64) == 0 {
+		return hex.EncodeToString(bs)
+	}
+	return Base64Encode(bs)
 }
 
 // SHA256加密
-func SHA1(s string, salt ...string) string {
-	if salt != nil && len(salt) > 0 {
-		for _, v := range salt {
-			if len(v) > 0 {
-				s = v + s
-			}
-		}
-	}
+func SHA1(s string, useBase64 ...bool) string {
 	h := sha1.New()
 	h.Write(Str2Bytes(s))
 	bs := h.Sum(nil)
-	//return fmt.Sprintf("%x", bs) //将[]byte转成16进制
-	return hex.EncodeToString(bs)
+	if len(useBase64) == 0 {
+		return hex.EncodeToString(bs)
+	}
+	return Base64Encode(bs)
 }
 
 // default base64 - 正向
@@ -597,7 +595,7 @@ func ToJsonBase64(input interface{}) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return Base64URLEncode(Bytes2Str(b)), nil
+	return Base64URLEncode(b), nil
 }
 
 func ParseJsonBase64(input interface{}, ouput interface{}) error {
@@ -661,22 +659,6 @@ func Bytes2Str(b []byte) string {
 func StartWait(msg string) {
 	log.Println(msg)
 	select {}
-}
-
-// 生成API签名MD5密钥
-func GetApiAccessKeyByMD5(access_token, api_secret_key string) string {
-	if len(access_token) == 0 || len(access_token) < 32 {
-		return ""
-	}
-	return MD5(access_token, api_secret_key)
-}
-
-// 生成API签名SHA256密钥
-func GetApiAccessKeyBySHA256(access_token, api_secret_key string) string {
-	if len(access_token) == 0 || len(access_token) < 32 {
-		return ""
-	}
-	return SHA256(access_token, api_secret_key)
 }
 
 // 检测int数值是否在区间

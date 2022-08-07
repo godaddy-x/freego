@@ -193,7 +193,7 @@ func (self *Context) GetTokenSecret() string {
 }
 
 func (self *Context) GetDataSign(d, n string, t, p int64) string {
-	return util.HMAC_SHA256(util.AddStr(self.Method, d, n, t, p), self.GetTokenSecret())
+	return util.HMAC_SHA256(util.AddStr(self.Method, d, n, t, p), self.GetTokenSecret(), true)
 }
 
 func (self *Context) GetDataRsaSign(rsaObj *gorsa.RsaObj, d, n string, t, p int64) (string, error) {

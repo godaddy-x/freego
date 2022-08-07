@@ -125,7 +125,7 @@ func (self *HttpNode) Authenticate(req *ReqDto) error {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "请求参数必须使用RSA加密模式"}
 	}
 	if !self.Config.Login {
-		if len(req.Sign) != 32 && len(req.Sign) != 64 {
+		if !util.CheckStrLen(req.Sign, 32, 64) {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "签名参数无效"}
 		}
 		if self.Context.GetDataSign(d, req.Nonce, req.Time, req.Plan) != req.Sign {

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
-	"encoding/hex"
 )
 
 func PKCS7Padding(ciphertext []byte, blockSize int) []byte {
@@ -31,7 +30,7 @@ func AesEncrypt(s, key1, key2 string) (string, error) {
 	blockModel := cipher.NewCBCEncrypter(block, s2)
 	ciphertext := make([]byte, len(plantText))
 	blockModel.CryptBlocks(ciphertext, plantText)
-	return hex.EncodeToString(ciphertext), nil
+	return Base64Encode(ciphertext), nil
 }
 
 func AesDecrypt(s, key1, key2 string) (string, error) {
@@ -41,8 +40,8 @@ func AesDecrypt(s, key1, key2 string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	ciphertext, err := hex.DecodeString(s)
-	if err != nil {
+	ciphertext := Base64Decode(s)
+	if ciphertext == nil || len(ciphertext) == 0 {
 		return "", err
 	}
 	blockModel := cipher.NewCBCDecrypter(block, s2)

@@ -228,10 +228,10 @@ func (self *PublishManager) PublishMsgData(data *MsgData) error {
 	}
 	if sigTyp == MD5 { // MD5模式
 		data.Content = content
-		data.Signature = util.MD5(content+data.Nonce, sigKey)
+		data.Signature = util.HMAC_MD5(content+data.Nonce, sigKey, true)
 	} else if sigTyp == SHA256 { // SHA256模式
 		data.Content = content
-		data.Signature = util.SHA256(content+data.Nonce, sigKey)
+		data.Signature = util.HMAC_SHA256(content+data.Nonce, sigKey, true)
 	} else if sigTyp == MD5_AES { // AES+MD5模式
 	} else if sigTyp == SHA256_AES { // AES+MD5模式
 	} else {

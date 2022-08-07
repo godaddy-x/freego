@@ -22,12 +22,18 @@ const (
 )
 
 type Subject struct {
+	Header  *Header
 	Payload *Payload
 }
 
 type JwtConfig struct {
 	TokenKey string
 	TokenAlg string
+}
+
+type Header struct {
+	Alg string `json:"alg"`
+	Typ string `json:"typ"`
 }
 
 type Payload struct {
@@ -45,6 +51,7 @@ type Payload struct {
 func (self *Subject) Create(sub int64) *Subject {
 	nsr := util.Substr(util.MD5(util.GetSnowFlakeStrID()), 5, 21)
 	iat := util.TimeSecond()
+	self.Header = &Header{Alg: "HS256", Typ: "JWT"}
 	self.Payload = &Payload{
 		Sub: sub,
 		Iat: iat,
@@ -93,19 +100,24 @@ func (self *Subject) Extinfo(key, value string) *Subject {
 }
 
 func (self *Subject) Generate(key string) string {
-	result, err := util.ToJsonBase64(self.Payload)
+	header, err := util.ToJsonBase64(self.Header)
 	if err != nil {
 		return ""
 	}
-	return result + "." + self.Signature(result, key)
+	payload, err := util.ToJsonBase64(self.Payload)
+	if err != nil {
+		return ""
+	}
+	part1 := header + "." + payload
+	return part1 + "." + self.Signature(part1, key)
 }
 
 func (self *Subject) Signature(text, key string) string {
-	return util.HMAC_SHA256(text, key+util.GetLocalSecretKey())
+	return util.HMAC_SHA256(text, key+util.GetLocalSecretKey(), true)
 }
 
 func (self *Subject) GetTokenSecret(token string) string {
-	return util.SHA256(util.SHA256(token)+util.MD5(util.GetLocalSecretKey()), util.GetLocalSecretKey())
+	return util.SHA256(util.SHA256(token, true) + util.MD5(util.GetLocalSecretKey()) + util.GetLocalSecretKey())
 }
 
 func (self *Subject) Verify(token, key string) error {
@@ -113,16 +125,17 @@ func (self *Subject) Verify(token, key string) error {
 		return util.Error("token is nil")
 	}
 	part := strings.Split(token, ".")
-	if part == nil || len(part) != 2 {
+	if part == nil || len(part) != 3 {
 		return util.Error("token part invalid")
 	}
 	part0 := part[0]
 	part1 := part[1]
-	if len(part1) != 64 || self.Signature(part0, key) != part1 {
+	part2 := part[2]
+	if self.Signature(part0+"."+part1, key) != part2 {
 		return util.Error("token sign invalid")
 	}
 	payload := &Payload{}
-	if err := util.ParseJsonBase64(part0, payload); err != nil {
+	if err := util.ParseJsonBase64(part1, payload); err != nil {
 		return err
 	}
 	if payload.Exp <= util.TimeSecond() {

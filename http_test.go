@@ -13,8 +13,8 @@ import (
 
 const domain = "http://localhost:8090"
 
-const access_token = "eyJzdWIiOjEyMzQ1NiwiYXVkIjoiMjIyMjIiLCJpc3MiOiIxMTExIiwiaWF0IjoxNjU5NTc2NDExLCJleHAiOjE2NjA3ODYwMTEsImRldiI6IkFQUCIsImp0aSI6IjM0MTdlNGQ1YmJkMmQ5YWNkYzg4MzBmNmQ5NTE4MmI5ZjQ3YjhhNDBiNWI3YzQ5NDJkYzMwMGRlNGQ4YTIyZjgiLCJuc3IiOiJiZWI5ZmVkYmMzNDgzZDAzIiwiZXh0Ijp7InRlc3QiOiIxMSIsInRlc3QyIjoiMjIyIn19.fd12a7bfa21d66567ec8c6b4252279db21ad3662ac12970b24a5aa2a087239fe"
-const token_secret = "79ed7b4447b43c6110b3031065e771e23b8c1798b1e9ff42933eb983a68301ed"
+const access_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOjEyMzQ1NiwiYXVkIjoiMjIyMjIiLCJpc3MiOiIxMTExIiwiaWF0IjoxNjU5ODc3NDI0LCJleHAiOjE2NjEwODcwMjQsImRldiI6IkFQUCIsImp0aSI6Ijc3MWUyMmRkNTYxNDdmZGNmM2YyZjdkNWQ4MTk4NTVhNDZiYTJlMzQ4ZDk4MTBkMDVkN2VhNmQyMmQwZWZjMjkiLCJuc3IiOiJlMGQxMTE2Njk2OTE4N2M5IiwiZXh0Ijp7InRlc3QiOiIxMSIsInRlc3QyIjoiMjIyIn19.4A75hqiogV6xsHG1ZhghBM1yXFTKQjbSogiLWQpqQKA="
+const token_secret = "b4514b6894253ecab109f82419861f748a65902e84b9c58585e1411261c8b9a1"
 
 //const access_token = ""
 //const token_secret = ""
@@ -27,7 +27,7 @@ func ToPostBy(path string, req *node.ReqDto) string {
 		fmt.Println("加密数据: ", req.Data, util.AddStr(req.Nonce, req.Time))
 	}
 	if len(req.Sign) == 0 {
-		req.Sign = util.HMAC_SHA256(util.AddStr(path, req.Data.(string), req.Nonce, req.Time, req.Plan), token_secret)
+		req.Sign = util.HMAC_SHA256(util.AddStr(path, req.Data.(string), req.Nonce, req.Time, req.Plan), token_secret, true)
 	}
 	bytesData, err := util.JsonMarshal(req)
 	if err != nil {
@@ -63,7 +63,7 @@ func ToPostBy(path string, req *node.ReqDto) string {
 		return ""
 	}
 	if respData.Code == 200 {
-		s := util.HMAC_SHA256(util.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan), token_secret)
+		s := util.HMAC_SHA256(util.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan), token_secret, true)
 		fmt.Println("数据验签: ", s == respData.Sign)
 		if respData.Plan == 1 {
 			dec, err := util.AesDecrypt(respData.Data.(string), token_secret, util.AddStr(respData.Nonce, respData.Time))

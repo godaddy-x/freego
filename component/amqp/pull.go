@@ -233,12 +233,12 @@ func (self *PullReceiver) OnReceive(b []byte) bool {
 		return true
 	}
 	if sigTyp == MD5 {
-		if len(msg.Signature) != 32 || msg.Signature != util.MD5(v+msg.Nonce, sigKey) {
+		if msg.Signature != util.HMAC_MD5(v+msg.Nonce, sigKey, true) {
 			log.Error("MQ消费数据MD5签名校验失败", 0, log.Any("option", self.Config.Option), log.Any("message", msg))
 			return true
 		}
 	} else if sigTyp == SHA256 {
-		if len(msg.Signature) != 64 || msg.Signature != util.SHA256(v+msg.Nonce, sigKey) {
+		if msg.Signature != util.HMAC_SHA256(v+msg.Nonce, sigKey, true) {
 			log.Error("MQ消费数据SHA256签名校验失败", 0, log.Any("option", self.Config.Option), log.Any("message", msg))
 			return true
 		}
