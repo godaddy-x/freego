@@ -43,7 +43,7 @@ func (self *HttpNode) GetHeader() error {
 	} else {
 		headers[USER_AGENT] = r.Header.Get(USER_AGENT)
 		headers[Authorization] = r.Header.Get(Authorization)
-		if self.Config.IsLogin {
+		if self.Config.Login {
 			pub := r.Header.Get(CLIENT_PUBKEY)
 			if !util.CheckStrLen(pub, 340, 350) {
 				return ex.Throw{Code: http.StatusBadRequest, Msg: "客户端公钥无效"}
@@ -118,13 +118,13 @@ func (self *HttpNode) Authenticate(req *ReqDto) error {
 	if util.MathAbs(util.TimeSecond()-req.Time) > jwt.FIVE_MINUTES { // 判断绝对时间差超过5分钟
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "时间参数无效"}
 	}
-	if self.Config.RequestAesEncrypt && req.Plan != 1 {
+	if self.Config.EncryptRequest && req.Plan != 1 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "请求参数必须使用AES加密模式"}
 	}
-	if self.Config.IsLogin && req.Plan == 1 {
+	if self.Config.Login && req.Plan == 1 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "请求参数必须使用RSA加密模式"}
 	}
-	if !self.Config.IsLogin {
+	if !self.Config.Login {
 		if len(req.Sign) != 32 && len(req.Sign) != 64 {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "签名参数无效"}
 		}
@@ -165,7 +165,7 @@ func (self *HttpNode) GetParams() error {
 		}
 		if !self.Config.Original {
 			req := &ReqDto{}
-			if self.Config.IsLogin { // rsa valid
+			if self.Config.Login { // rsa valid
 				if err := self.ValidRsaLogin(body, req); err != nil {
 					return err
 				}
@@ -198,16 +198,16 @@ func (self *HttpNode) GetParams() error {
 			return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "暂不支持GET类型"}
 		}
 		r.ParseForm()
-		result, err := ioutil.ReadAll(r.Body)
+		body, err := ioutil.ReadAll(r.Body)
 		if err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "获取参数失败", Err: err}
 		}
 		r.Body.Close()
-		if len(result) > (MAX_VALUE_LEN * 5) {
-			return ex.Throw{Code: http.StatusLengthRequired, Msg: "参数值长度溢出: " + util.AnyToStr(len(result))}
+		if len(body) > (MAX_VALUE_LEN * 5) {
+			return ex.Throw{Code: http.StatusLengthRequired, Msg: "参数值长度溢出"}
 		}
 		data := map[string]interface{}{}
-		if err := util.JsonUnmarshal(result, &data); err != nil {
+		if err := util.JsonUnmarshal(body, &data); err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err}
 		}
 		self.Context.Params = &ReqDto{Data: data}
@@ -271,7 +271,7 @@ func (self *HttpNode) PaddDevice() error {
 }
 
 func (self *HttpNode) ValidSession() error {
-	if !self.Config.Authorization { // 非必须权限类型
+	if self.Config.Login || self.Config.Guest { // 登录接口和游客模式跳过会话认证
 		return nil
 	}
 	if len(self.Context.Token) == 0 {
@@ -481,7 +481,7 @@ func (self *HttpNode) RenderTo() error {
 			Data:    data,
 			Nonce:   self.Context.Params.Nonce,
 		}
-		if self.Config.ResponseAesEncrypt {
+		if self.Config.EncryptResponse {
 			resp.Plan = 1
 			data, err := util.AesEncrypt(data, self.Context.GetTokenSecret(), util.AddStr(resp.Nonce, resp.Time))
 			if err != nil {
@@ -489,7 +489,7 @@ func (self *HttpNode) RenderTo() error {
 			}
 			resp.Data = data
 		}
-		if self.Config.IsLogin {
+		if self.Config.Login {
 			sign, err := self.Context.GetDataRsaSign(self.Certificate, data, resp.Nonce, resp.Time, resp.Plan)
 			if err != nil {
 				return ex.Throw{Code: http.StatusInternalServerError, Msg: "响应数据加密失败", Err: err}
@@ -574,7 +574,7 @@ func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, co
 		self.Certificate = cert
 	}
 	if config == nil {
-		config = &Config{Authorization: true}
+		config = &Config{}
 	}
 	if self.Handler == nil {
 		self.Handler = http.NewServeMux()

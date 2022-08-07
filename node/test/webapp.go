@@ -69,6 +69,14 @@ func (self *MyWebNode) test(ctx *node.Context) error {
 	//return ex.Throw{Code: ex.BIZ, Msg: "测试错误"}
 }
 
+func (self *MyWebNode) test2(ctx *node.Context) error {
+	req := &GetUserReq{}
+	if err := ctx.Parser(req); err != nil {
+		return err
+	}
+	return self.Json(ctx, map[string]interface{}{"test": 789456})
+}
+
 func test_callrpc() {
 	mgr, err := new(consul.ConsulManager).Client()
 	if err != nil {
@@ -108,8 +116,8 @@ func (self *MyWebNode) pubkey(ctx *node.Context) error {
 }
 
 func (self *MyWebNode) callrpc(ctx *node.Context) error {
-	test_callrpc()
-	return self.Json(ctx, map[string]interface{}{})
+	//test_callrpc()
+	return self.Json(ctx, map[string]interface{}{"test": "无权限接口测试"})
 }
 
 func GetJwtConfig() jwt.JwtConfig {
@@ -167,8 +175,9 @@ func StartHttpNode() {
 		},
 	}
 	my.Router("/test1", my.test, nil)
-	my.Router("/pubkey", my.pubkey, &node.Config{Original: true})
-	my.Router("/login2", my.login, &node.Config{Authorization: false, IsLogin: true})
-	my.Router("/callrpc", my.login, &node.Config{Authorization: false, RequestAesEncrypt: false, ResponseAesEncrypt: false})
+	my.Router("/test2", my.test2, &node.Config{Guest: true})
+	my.Router("/pubkey", my.pubkey, &node.Config{Original: true, Guest: true})
+	my.Router("/login2", my.login, &node.Config{Login: true})
+	my.Router("/callrpc", my.login, &node.Config{Guest: false, EncryptRequest: false, EncryptResponse: false})
 	my.StartServer()
 }
