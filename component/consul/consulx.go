@@ -86,7 +86,7 @@ func getConsulClient(conf ConsulConfig) *ConsulManager {
 	config.Address = conf.Host
 	client, err := consulapi.NewClient(config)
 	if err != nil {
-		panic(util.AddStr("连接[", conf.Host, "]Consul配置中心失败: ", err))
+		panic(util.AddStr("consul [", conf.Host, "] init failed: ", err))
 	}
 	counter := conf.Counter
 	if counter == 0 {
@@ -120,7 +120,7 @@ func (self *ConsulManager) InitConfig(input ...ConsulConfig) (*ConsulManager, er
 		log.Printf("consul service %s【%s】has been started successfully", conf.Host, conf.Node)
 	}
 	if len(consul_sessions) == 0 {
-		log.Printf("consul连接初始化失败: 数据源为0")
+		log.Printf("consul init failed: sessions is nil")
 	}
 	return self, nil
 }
@@ -140,7 +140,7 @@ func (self *ConsulManager) initSlowLog() {
 				MaxBackups: 7,
 				MaxSize:    512,
 			}})
-		fmt.Println("Consul监控日志服务启动成功...")
+		fmt.Println("consul monitoring service started successfully...")
 	}
 }
 
@@ -157,7 +157,7 @@ func (self *ConsulManager) Client(dsname ...string) (*ConsulManager, error) {
 	}
 	manager := consul_sessions[ds]
 	if manager == nil {
-		return nil, util.Error("consul数据源[", ds, "]未找到,请检查...")
+		return nil, util.Error("consul session [", ds, "] notfound...")
 	}
 	return manager, nil
 }
@@ -167,17 +167,17 @@ func (self *ConsulManager) GetJsonValue(key string, result interface{}, isEncryp
 	client := self.Consulx
 	kv := client.KV()
 	if kv == nil {
-		return util.Error("Consul配置[", key, "]没找到,请检查...")
+		return util.Error("consul node [", key, "] notfound...")
 	}
 	k, _, err := kv.Get(key, nil)
 	if err != nil {
-		return util.Error("Consul配置数据[", key, "]读取异常,请检查...")
+		return util.Error("consul node [", key, "] read failed...")
 	}
 	if k == nil || k.Value == nil || len(k.Value) == 0 {
-		return util.Error("Consul配置数据[", key, "]读取为空,请检查...")
+		return util.Error("consul node [", key, "] read is nil...")
 	}
 	if err := util.JsonUnmarshal(k.Value, result); err != nil {
-		return util.Error("Consul配置数据[", key, "]解析失败,请检查...")
+		return util.Error("consul node [", key, "] parse failed...")
 	}
 	return nil
 }
@@ -186,14 +186,14 @@ func (self *ConsulManager) GetTextValue(key string) ([]byte, error) {
 	client := self.Consulx
 	kv := client.KV()
 	if kv == nil {
-		return nil, util.Error("Consul配置[", key, "]没找到,请检查...")
+		return nil, util.Error("consul node [", key, "] notfound...")
 	}
 	k, _, err := kv.Get(key, nil)
 	if err != nil {
-		return nil, util.Error("Consul配置数据[", key, "]读取异常,请检查...")
+		return nil, util.Error("consul node [", key, "] read failed...")
 	}
 	if k == nil || k.Value == nil || len(k.Value) == 0 {
-		return nil, util.Error("Consul配置数据[", key, "]读取为空,请检查...")
+		return nil, util.Error("consul node [", key, "] read is nil...")
 	}
 	return k.Value, nil
 }
@@ -202,7 +202,7 @@ func (self *ConsulManager) GetTextValue(key string) ([]byte, error) {
 func (self *ConsulManager) StartListenAndServe() {
 	l, e := net.Listen(self.Config.Protocol, util.AddStr(":", util.AnyToStr(self.Config.ListenProt)))
 	if e != nil {
-		panic("Consul监听服务异常: " + e.Error())
+		panic("consul listening service exception: " + e.Error())
 	}
 	go func() {
 		for {
@@ -243,7 +243,7 @@ func (self *ConsulManager) RemoveService(serviceIDs ...string) {
 					if err := self.Consulx.Agent().ServiceDeregister(v.ID); err != nil {
 						log.Println(err)
 					}
-					log.Println("移除服务成功: ", v.Service, " - ", v.ID)
+					log.Println("remove rpc serveice successful: ", v.Service, " - ", v.ID)
 				}
 			}
 		}
@@ -253,7 +253,7 @@ func (self *ConsulManager) RemoveService(serviceIDs ...string) {
 		if err := self.Consulx.Agent().ServiceDeregister(v.ID); err != nil {
 			log.Println(err)
 		}
-		log.Println("移除服务成功: ", v.Service, " - ", v.ID)
+		log.Println("remove rpc serveice successful: ", v.Service, " - ", v.ID)
 	}
 }
 
@@ -283,7 +283,7 @@ func (self *ConsulManager) LockCounter() error {
 	self.mu.Lock()
 	defer self.mu.Unlock()
 	if self.Counter <= 0 {
-		return util.Error("RPC服务请求已满,请稍后再尝试")
+		return util.Error("RPC service request is full, please try again later")
 	}
 	self.Counter = self.Counter - 1
 	return nil
@@ -308,7 +308,7 @@ func (self *ConsulManager) GetHealthService(service string) ([]*consulapi.Servic
 // 中心注册接口服务
 func (self *ConsulManager) AddRPC(callInfo ...*CallInfo) {
 	if len(callInfo) == 0 {
-		panic("服务对象列表为空,请检查...")
+		panic("callInfo is nil...")
 	}
 	services, err := self.GetAllService("")
 	if err != nil {
@@ -320,7 +320,7 @@ func (self *ConsulManager) AddRPC(callInfo ...*CallInfo) {
 		registration := new(consulapi.AgentServiceRegistration)
 		addr := util.GetLocalIP()
 		if len(addr) == 0 {
-			panic("内网IP读取失败,请检查...")
+			panic("Intranet IP reading failed")
 		}
 		if len(info.Domain) > 0 {
 			addr = info.Domain
@@ -335,13 +335,13 @@ func (self *ConsulManager) AddRPC(callInfo ...*CallInfo) {
 			methods = append(methods, method.Name)
 		}
 		if len(methods) == 0 {
-			panic(util.AddStr("服务对象[", srvName, "]尚未有方法..."))
+			panic(util.AddStr("service [", srvName, "] method is nil"))
 		}
 		exist := false
 		for _, v := range services {
 			if v.Service == srvName && v.Address == addr {
 				exist = true
-				log.Println(util.AddStr("Consul服务[", v.Service, "][", v.Address, "]已存在,跳过注册"))
+				log.Println(util.AddStr("rpc service [", v.Service, "][", v.Address, "] exist, skip..."))
 				rpc.Register(info.Iface)
 				break
 			}
@@ -357,9 +357,9 @@ func (self *ConsulManager) AddRPC(callInfo ...*CallInfo) {
 		registration.Meta = make(map[string]string, 0)
 		registration.Check = &consulapi.AgentServiceCheck{HTTP: fmt.Sprintf("http://%s:%d%s", registration.Address, self.Config.CheckPort, self.Config.CheckPath), Timeout: self.Config.Timeout, Interval: self.Config.Interval, DeregisterCriticalServiceAfter: self.Config.DestroyAfter,}
 		// 启动RPC服务
-		log.Println(util.AddStr("Consul服务[", registration.Name, "][", registration.Address, "]注册成功"))
+		log.Println(util.AddStr("rpc service [", registration.Name, "][", registration.Address, "] added successful"))
 		if err := self.Consulx.Agent().ServiceRegister(registration); err != nil {
-			panic(util.AddStr("Consul注册[", srvName, "]服务失败: ", err.Error()))
+			panic(util.AddStr("rpc service [", srvName, "] add failed: ", err.Error()))
 		}
 		rpc.Register(info.Iface)
 	}
@@ -368,19 +368,19 @@ func (self *ConsulManager) AddRPC(callInfo ...*CallInfo) {
 // 获取RPC服务,并执行访问 args参数不可变,reply参数可变
 func (self *ConsulManager) CallRPC(callInfo *CallInfo) error {
 	if callInfo == nil {
-		return errors.New("CallInfo对象为空")
+		return errors.New("callInfo is nil")
 	}
 	if len(callInfo.Service) == 0 {
-		return errors.New("服务名称为空")
+		return errors.New("call service is nil")
 	}
 	if len(callInfo.Method) == 0 {
-		return errors.New("方法名称为空")
+		return errors.New("call method is nil")
 	}
 	if callInfo.Request == nil {
-		return errors.New("请求对象为空")
+		return errors.New("call request object is nil")
 	}
 	if callInfo.Response == nil {
-		return errors.New("响应对象为空")
+		return errors.New("call response object is nil")
 	}
 	self.LockCounter()
 	defer self.CloseCounter()
@@ -396,10 +396,10 @@ func (self *ConsulManager) CallRPC(callInfo *CallInfo) error {
 	}
 	services, err := self.GetHealthService(serviceName)
 	if err != nil {
-		return util.Error("读取[", serviceName, "]服务失败: ", err)
+		return util.Error("read service [", serviceName, "] failed: ", err)
 	}
 	if len(services) == 0 {
-		return util.Error("没有找到可用[", serviceName, "]服务")
+		return util.Error("no available services found: [", serviceName, "]")
 	}
 	var service *consulapi.AgentService
 	if self.Selection == nil { // 选取规则为空则默认随机
@@ -421,8 +421,8 @@ func (self *ConsulManager) CallRPC(callInfo *CallInfo) error {
 	var conn net.Conn
 	conn, err = net.DialTimeout(callInfo.Protocol, util.AddStr(service.Address, ":", self.Config.ListenProt), time.Second*time.Duration(callInfo.Timeout))
 	if err != nil {
-		log.Error("consul服务连接失败", 0, log.String("ID", service.ID), log.String("host", service.Address), log.String("srv", service.Service), log.AddError(err))
-		return util.Error("RPC连接失败: ", err)
+		log.Error("consul service connect failed", 0, log.String("ID", service.ID), log.String("host", service.Address), log.String("srv", service.Service), log.AddError(err))
+		return util.Error("consul service connect failed: ", err)
 	}
 	defer conn.Close()
 	conn.SetReadDeadline(time.Now().Add(time.Second * time.Duration(callInfo.Timeout)))
@@ -431,12 +431,12 @@ func (self *ConsulManager) CallRPC(callInfo *CallInfo) error {
 	cli := rpc.NewClientWithCodec(codec)
 	defer func() {
 		if err := cli.Close(); err != nil {
-			log.Error("consul服务关闭失败", 0, log.String("ID", service.ID), log.String("host", service.Address), log.String("srv", service.Service), log.AddError(err))
+			log.Error("consul service client close failed", 0, log.String("ID", service.ID), log.String("host", service.Address), log.String("srv", service.Service), log.AddError(err))
 		}
 	}()
 	if err := cli.Call(util.AddStr(callInfo.Service, ".", callInfo.Method), callInfo.Request, callInfo.Response); err != nil {
-		log.Error("consul服务访问失败", 0, log.String("ID", service.ID), log.String("host", service.Address), log.String("srv", service.Service), log.AddError(err))
-		return util.Error("RPC访问失败: ", err)
+		log.Error("consul service call failed", 0, log.String("ID", service.ID), log.String("host", service.Address), log.String("srv", service.Service), log.AddError(err))
+		return util.Error("consul service call failed: ", err)
 	}
 	return nil
 }

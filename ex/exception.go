@@ -27,22 +27,22 @@ const (
 )
 
 const (
-	JSON_ERR    = "响应数据构建失败"
-	GOB_ERR     = "响应数据构建失败"
-	DATA_ERR    = "数据服务加载失败"
-	DATA_C_ERR  = "数据保存失败"
-	DATA_R_ERR  = "数据查询失败"
-	DATA_U_ERR  = "数据更新失败"
-	DATA_D_ERR  = "数据删除失败"
-	CACHE_ERR   = "缓存服务加载失败"
-	CACHE_C_ERR = "缓存数据保存失败"
-	CACHE_R_ERR = "缓存数据读取失败"
-	CACHE_U_ERR = "缓存数据更新失败"
-	CACHE_D_ERR = "缓存数据删除失败"
+	JSON_ERR    = "failed to respond to JSON data"
+	GOB_ERR     = "failed to respond to GOB data"
+	DATA_ERR    = "failed to loaded data service"
+	DATA_C_ERR  = "failed to save data"
+	DATA_R_ERR  = "failed to read data"
+	DATA_U_ERR  = "failed to update data"
+	DATA_D_ERR  = "failed to delete data"
+	CACHE_ERR   = "failed to loaded cache service"
+	CACHE_C_ERR = "failed to save cache data"
+	CACHE_R_ERR = "failed to read cache data"
+	CACHE_U_ERR = "failed to update cache data"
+	CACHE_D_ERR = "failed to delete cache data"
 
-	MQ_ERR      = "MQ服务加载失败"
-	MQ_SEND_ERR = "MQ发送数据失败"
-	MQ_REVD_ERR = "MQ接收数据失败"
+	MQ_ERR      = "failed to loaded mq service"
+	MQ_SEND_ERR = "failed to send mq data"
+	MQ_REVD_ERR = "failed to receive mq data"
 )
 
 type Throw struct {
@@ -76,5 +76,5 @@ func Catch(err error) Throw {
 			return Throw{Code: c, Msg: spl[1], Url: spl[2]}
 		}
 	}
-	return Throw{Code: UNKNOWN, Msg: "异常捕获解析失败", Err: err}
+	return Throw{Code: UNKNOWN, Msg: "failed to catch exception", Err: err}
 }

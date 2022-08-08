@@ -38,7 +38,7 @@ type QueueData struct {
 func (self *PublishManager) InitConfig(input ...AmqpConfig) (*PublishManager, error) {
 	for _, v := range input {
 		if _, b := publishMgrs[v.DsName]; b {
-			return nil, util.Error("PublishManager RabbitMQ初始化失败: [", v.DsName, "]已存在")
+			return nil, util.Error("rabbitmq publish init failed: [", v.DsName, "] exist")
 		}
 		if len(v.DsName) == 0 {
 			v.DsName = MASTER
@@ -95,11 +95,11 @@ func (self *PublishManager) getChannel() *amqp.Channel {
 	index := 0
 	for {
 		if index > 0 {
-			log.Warn("PublishManager正在重新尝试连接rabbitmq", 0, log.Int("尝试次数", index))
+			log.Warn("rabbitmq publish trying to connect again", 0, log.Int("tried", index))
 		}
 		channel, err := self.openChannel()
 		if err != nil {
-			log.Error("PublishManager初始化Connection/Channel异常: ", 0, log.AddError(err))
+			log.Error("rabbitmq publish init Connection/Channel failed: ", 0, log.AddError(err))
 			time.Sleep(2500 * time.Millisecond)
 			index++
 			continue
@@ -176,7 +176,7 @@ func (self *PublishManager) listen(pub *PublishMQ) error {
 	go func(chan<- bool) {
 		mqErr := make(chan *amqp.Error)
 		closeErr := <-pub.channel.NotifyClose(mqErr)
-		log.Error("PublishManager connection/channel receive failed", 0, log.String("exchange", pub.option.Exchange), log.String("queue", pub.option.Queue), log.AddError(closeErr))
+		log.Error("rabbitmq publish connection/channel receive failed", 0, log.String("exchange", pub.option.Exchange), log.String("queue", pub.option.Queue), log.AddError(closeErr))
 		closeChan <- true
 	}(closeChan)
 
@@ -186,7 +186,7 @@ func (self *PublishManager) listen(pub *PublishMQ) error {
 			case <-closeChan:
 				pub.ready = false
 				self.listen(pub)
-				log.Warn("PublishManager接收到channel异常,已重新连接成功", 0, log.String("exchange", pub.option.Exchange), log.String("queue", pub.option.Queue))
+				log.Warn("rabbitmq publish received channel exception, successfully reconnected", 0, log.String("exchange", pub.option.Exchange), log.String("queue", pub.option.Queue))
 				return
 			}
 		}
@@ -217,14 +217,14 @@ func (self *PublishManager) PublishMsgData(data *MsgData) error {
 	sigTyp := data.Option.SigTyp
 	sigKey := data.Option.SigKey
 	if len(sigKey) == 0 {
-		return util.Error("签名密钥为空")
+		return util.Error("rabbitmq publish data key is nil")
 	}
 	content, err := util.ToJsonBase64(data.Content)
 	if err != nil {
 		return err
 	}
 	if len(content) == 0 {
-		return util.Error("发送数据编码为空")
+		return util.Error("rabbitmq publish content is nil")
 	}
 	if sigTyp == MD5 { // MD5模式
 		data.Content = content
@@ -235,7 +235,7 @@ func (self *PublishManager) PublishMsgData(data *MsgData) error {
 	} else if sigTyp == MD5_AES { // AES+MD5模式
 	} else if sigTyp == SHA256_AES { // AES+MD5模式
 	} else {
-		return util.Error("签名类型无效")
+		return util.Error("rabbitmq publish signature type invalid")
 	}
 	data.Option.SigKey = ""
 	if _, err := pub.sendMessage(data); err != nil {
@@ -257,7 +257,7 @@ func (self *PublishMQ) sendMessage(msg *MsgData) (bool, error) {
 }
 
 func (self *PublishMQ) prepareExchange() error {
-	log.Println(fmt.Sprintf("PublishManager初始化交换机 [%s - %s]成功", self.option.Kind, self.option.Exchange))
+	log.Println(fmt.Sprintf("rabbitmq publish init [%s - %s] successful", self.option.Kind, self.option.Exchange))
 	return self.channel.ExchangeDeclare(self.option.Exchange, self.option.Kind, true, false, false, false, nil)
 }
 

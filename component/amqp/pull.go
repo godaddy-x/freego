@@ -23,7 +23,7 @@ type PullManager struct {
 func (self *PullManager) InitConfig(input ...AmqpConfig) (*PullManager, error) {
 	for _, v := range input {
 		if _, b := pullMgrs[v.DsName]; b {
-			return nil, util.Error("PullManager RabbitMQ初始化失败: [", v.DsName, "]已存在")
+			return nil, util.Error("rabbitmq pull init failed: [", v.DsName, "] exist")
 		}
 		if len(v.DsName) == 0 {
 			v.DsName = MASTER
@@ -92,11 +92,11 @@ func (self *PullManager) getChannel() *amqp.Channel {
 	index := 0
 	for {
 		if index > 0 {
-			log.Warn("PullManager正在重新尝试连接rabbitmq", 0, log.Int("尝试次数", index))
+			log.Warn("rabbitmq pull trying to connect again", 0, log.Int("tried", index))
 		}
 		channel, err := self.openChannel()
 		if err != nil {
-			log.Error("PullManager初始化Connection/Channel异常: ", 0, log.AddError(err))
+			log.Error("rabbitmq pull init Connection/Channel failed", 0, log.AddError(err))
 			time.Sleep(2500 * time.Millisecond)
 			index++
 			continue
@@ -123,7 +123,7 @@ func (self *PullManager) listen(receiver *PullReceiver) {
 		receiver.Config.Option.SigKey = util.GetLocalSecretKey() + self.conf.SecretKey
 	}
 	if sigTyp == 2 && len(sigKey) != 16 {
-		log.Println(fmt.Sprintf("PullManager消费队列 [%s - %s - %s - %s] 服务启动失败: 签名密钥无效,应为16个字符长度", kind, exchange, router, queue))
+		log.Println(fmt.Sprintf("rabbitmq pull init queue failed: invalid signature key, expected 16 characters"))
 		return
 	}
 	if len(kind) == 0 {
@@ -135,26 +135,26 @@ func (self *PullManager) listen(receiver *PullReceiver) {
 	if prefetchCount == 0 {
 		prefetchCount = 1
 	}
-	log.Println(fmt.Sprintf("PullManager消费队列 [%s - %s - %s - %s] 服务启动成功...", kind, exchange, router, queue))
+	log.Println(fmt.Sprintf("rabbitmq pull init queue [%s - %s - %s - %s] successful...", kind, exchange, router, queue))
 	if err := self.prepareExchange(channel, exchange, kind); err != nil {
-		receiver.OnError(fmt.Errorf("PullManager初始化交换机 [%s] 失败: %s", exchange, err.Error()))
+		receiver.OnError(fmt.Errorf("rabbitmq pull init exchange [%s] failed: %s", exchange, err.Error()))
 		return
 	}
 	if err := self.prepareQueue(channel, exchange, queue, router); err != nil {
-		receiver.OnError(fmt.Errorf("PullManager绑定队列 [%s] 到交换机 [%s] 失败: %s", queue, exchange, err.Error()))
+		receiver.OnError(fmt.Errorf("rabbitmq pull bind queue [%s] to exchange [%s] failed: %s", queue, exchange, err.Error()))
 		return
 	}
 	channel.Qos(prefetchCount, prefetchSize, false)
 	// 开启消费数据
 	msgs, err := channel.Consume(queue, "", false, false, false, false, nil)
 	if err != nil {
-		receiver.OnError(fmt.Errorf("PullManager获取队列 %s 的消费通道失败: %s", queue, err.Error()))
+		receiver.OnError(fmt.Errorf("rabbitmq pull get queue %s failed: %s", queue, err.Error()))
 	}
 	closeChan := make(chan bool, 1)
 	go func(chan<- bool) {
 		mqErr := make(chan *amqp.Error)
 		closeErr := <-channel.NotifyClose(mqErr)
-		log.Error("PullManager connection/channel receive failed", 0, log.String("exchange", exchange), log.String("queue", queue), log.AddError(closeErr))
+		log.Error("rabbitmq pull connection/channel receive failed", 0, log.String("exchange", exchange), log.String("queue", queue), log.AddError(closeErr))
 		closeChan <- true
 	}(closeChan)
 
@@ -168,7 +168,7 @@ func (self *PullManager) listen(receiver *PullReceiver) {
 				d.Ack(false)
 			case <-closeChan:
 				self.listen(receiver)
-				log.Warn("PullManager接收到channel异常,已重新连接成功", 0, log.String("exchange", exchange), log.String("queue", queue))
+				log.Warn("rabbitmq pull received channel exception, successfully reconnected", 0, log.String("exchange", exchange), log.String("queue", queue))
 				return
 			}
 		}
@@ -190,7 +190,7 @@ func (self *PullManager) prepareQueue(channel *amqp.Channel, exchange, queue, ro
 }
 
 func (self *PullReceiver) OnError(err error) {
-	log.Error("PullManager Receiver data failed", 0, log.AddError(err))
+	log.Error("rabbitmq pull receiver data failed", 0, log.AddError(err))
 }
 
 // 监听对象
@@ -207,11 +207,11 @@ func (self *PullReceiver) OnReceive(b []byte) bool {
 		return true
 	}
 	if log.IsDebug() {
-		defer log.Debug("MQ消费数据监控日志", util.Time(), log.String("message", util.Bytes2Str(b)))
+		defer log.Debug("rabbitmq pull consumption data monitoring", util.Time(), log.String("message", util.Bytes2Str(b)))
 	}
 	msg := MsgData{}
 	if err := util.JsonUnmarshal(b, &msg); err != nil {
-		log.Error("MQ消费数据解析失败", 0, log.Any("option", self.Config.Option), log.Any("message", msg), log.AddError(err))
+		log.Error("rabbitmq pull consumption data parsing failed", 0, log.Any("option", self.Config.Option), log.Any("message", msg), log.AddError(err))
 	}
 	if msg.Content == nil {
 		return true
@@ -220,57 +220,57 @@ func (self *PullReceiver) OnReceive(b []byte) bool {
 	sigKey := self.Config.Option.SigKey
 
 	if len(msg.Signature) == 0 {
-		log.Error("MQ消费数据签名为空", 0, log.Any("option", self.Config.Option), log.Any("message", msg))
+		log.Error("rabbitmq pull consumption data signature is nil", 0, log.Any("option", self.Config.Option), log.Any("message", msg))
 		return true
 	}
 	v, ok := msg.Content.(string)
 	if !ok {
-		log.Error("MQ消费数据非string类型", 0, log.Any("option", self.Config.Option), log.Any("message", msg))
+		log.Error("rabbitmq consumption data (non string type)", 0, log.Any("option", self.Config.Option), log.Any("message", msg))
 		return true
 	}
 	if len(v) == 0 {
-		log.Error("MQ消费数据消息内容为空", 0, log.Any("option", self.Config.Option), log.Any("message", msg))
+		log.Error("rabbitmq consumption data is nil", 0, log.Any("option", self.Config.Option), log.Any("message", msg))
 		return true
 	}
 	if sigTyp == MD5 {
 		if msg.Signature != util.HMAC_MD5(v+msg.Nonce, sigKey, true) {
-			log.Error("MQ消费数据MD5签名校验失败", 0, log.Any("option", self.Config.Option), log.Any("message", msg))
+			log.Error("rabbitmq consumption data MD5 signature invalid", 0, log.Any("option", self.Config.Option), log.Any("message", msg))
 			return true
 		}
 	} else if sigTyp == SHA256 {
 		if msg.Signature != util.HMAC_SHA256(v+msg.Nonce, sigKey, true) {
-			log.Error("MQ消费数据SHA256签名校验失败", 0, log.Any("option", self.Config.Option), log.Any("message", msg))
+			log.Error("rabbitmq consumption data SHA256 signature invalid", 0, log.Any("option", self.Config.Option), log.Any("message", msg))
 			return true
 		}
 	} else if sigTyp == MD5_AES {
 	} else if sigTyp == SHA256_AES {
 	} else {
-		log.Error("MQ消费数据签名类型无效", 0, log.Any("option", self.Config.Option), log.Any("message", msg))
+		log.Error("rabbitmq pull signature type invalid", 0, log.Any("option", self.Config.Option), log.Any("message", msg))
 		return true
 	}
 	btv := util.Base64Decode(v)
 	if btv == nil || len(btv) == 0 {
-		log.Error("MQ消费数据base64解码失败", 0, log.Any("option", self.Config.Option), log.Any("message", msg))
+		log.Error("rabbitmq pull consumption data Base64 parsing failed", 0, log.Any("option", self.Config.Option), log.Any("message", msg))
 		return true
 	}
 	if self.ContentInter == nil {
 		content := map[string]interface{}{}
 		if err := util.JsonUnmarshal(btv, &content); err != nil {
-			log.Error("MQ消费数据处理失败", 0, log.Any("option", self.Config.Option), log.Any("message", msg), log.AddError(err))
+			log.Error("rabbitmq pull consumption data conversion type(Map) failed", 0, log.Any("option", self.Config.Option), log.Any("message", msg), log.AddError(err))
 			return true
 		}
 		msg.Content = content
 	} else {
 		content := self.ContentInter()
 		if err := util.JsonUnmarshal(btv, &content); err != nil {
-			log.Error("MQ消费数据处理失败", 0, log.Any("option", self.Config.Option), log.Any("message", msg), log.AddError(err))
+			log.Error("rabbitmq pull consumption data conversion type(ContentInter) failed", 0, log.Any("option", self.Config.Option), log.Any("message", msg), log.AddError(err))
 			return true
 		}
 		msg.Content = content
 	}
 
 	if err := self.Callback(&msg); err != nil {
-		log.Error("MQ消费数据处理失败", 0, log.Any("option", self.Config.Option), log.Any("message", msg), log.AddError(err))
+		log.Error("rabbitmq pull consumption data processing failed", 0, log.Any("option", self.Config.Option), log.Any("message", msg), log.AddError(err))
 		if self.Config.IsNack {
 			return false
 		}

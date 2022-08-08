@@ -30,7 +30,7 @@ func (self *SnowflakeWorkId) Generate(req *ReqObj, res *ResObj) error {
 
 func (self *ConsulManager) AddSnowflakeService() {
 	self.AddRPC(&CallInfo{
-		Tags:  []string{"ID生成器服务"},
+		Tags:  []string{"ID Generator"},
 		Iface: &SnowflakeWorkId{},
 	})
 }

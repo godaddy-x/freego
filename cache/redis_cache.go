@@ -40,7 +40,7 @@ func (self *RedisManager) InitConfig(input ...RedisConfig) (*RedisManager, error
 			dsName = v.DsName
 		}
 		if _, b := redisSessions[dsName]; b {
-			return nil, util.Error("初始化redis连接池失败: [", v.DsName, "]已存在")
+			return nil, util.Error("init redis pool failed: [", v.DsName, "] exist")
 		}
 		pool := &redis.Pool{MaxIdle: v.MaxIdle, MaxActive: v.MaxActive, IdleTimeout: time.Duration(v.IdleTimeout) * time.Second, Dial: func() (redis.Conn, error) {
 			c, err := redis.Dial(v.Network, util.AddStr(v.Host, ":", util.AnyToStr(v.Port)))
@@ -59,7 +59,7 @@ func (self *RedisManager) InitConfig(input ...RedisConfig) (*RedisManager, error
 		log.Printf("redis service【%s】has been started successfully", v.DsName)
 	}
 	if len(redisSessions) == 0 {
-		return nil, util.Error("初始化redis连接池失败: 数据源为0")
+		return nil, util.Error("init redis pool failed: sessions is nil")
 	}
 	return self, nil
 }
@@ -71,7 +71,7 @@ func (self *RedisManager) Client(dsName ...string) (*RedisManager, error) {
 	}
 	manager := redisSessions[ds]
 	if manager == nil {
-		return nil, util.Error("redis数据源[", ds, "]未找到,请检查...")
+		return nil, util.Error("redis session [", ds, "] notfound...")
 	}
 	return manager, nil
 }

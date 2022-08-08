@@ -76,7 +76,7 @@ func ConnectRabbitMQ(conf AmqpConfig) (*amqp.Connection, error) {
 		},
 	})
 	if err != nil {
-		return nil, util.Error("RabbitMQ初始化失败: ", err)
+		return nil, util.Error("rabbitmq init failed: ", err)
 	}
 	return c, nil
 }

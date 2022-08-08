@@ -71,10 +71,10 @@ func (self *RedisManager) TryLockWithTimeout(resource string, timeout int, call 
 	client := self.Pool.Get()
 	lock, ok, err := self.getLockWithTimeout(client, resource, time.Duration(timeout)*time.Second)
 	if err != nil {
-		return ex.Throw{Code: ex.REDIS_LOCK_GET, Msg: "获取凭证失败", Err: err}
+		return ex.Throw{Code: ex.REDIS_LOCK_GET, Msg: "failed to get locker", Err: err}
 	}
 	if !ok {
-		return ex.Throw{Code: ex.REDIS_LOCK_PENDING, Msg: "您的请求正在处理,请耐心等待"}
+		return ex.Throw{Code: ex.REDIS_LOCK_PENDING, Msg: "locker pending"}
 	}
 	err = call()
 	lock.unlock()
