@@ -13,8 +13,8 @@ import (
 
 const domain = "http://localhost:8090"
 
-const access_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOjEyMzQ1NiwiYXVkIjoiMjIyMjIiLCJpc3MiOiIxMTExIiwiaWF0IjoxNjU5OTIyODI3LCJleHAiOjE2NjExMzI0MjcsImRldiI6IkFQUCIsImp0aSI6ImE5YTlkYTVhMjNmOWIyOTE4NmY1Y2U2Y2NiZjE0Y2EzNDE3ZTEyMjc4M2QwZDc3YWI3MWJlMjk5YzI3ZDI1YjEiLCJuc3IiOiIxYzJmODYxOTM4YWE2NTliIiwiZXh0Ijp7InRlc3QiOiIxMSIsInRlc3QyIjoiMjIyIn19.iKrVB118mQLJmeqz3vhSRTjF6eXk25dQ6tnk2c02ctY="
-const token_secret = "NQ2PPYy/cXxzU/D8h0GWfA91VnCRTbDKN4V7wEeKey4="
+const access_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOjEyMzQ1NiwiYXVkIjoiMjIyMjIiLCJpc3MiOiIxMTExIiwiaWF0IjoxNjU5OTI0MjkwLCJleHAiOjE2NjExMzM4OTAsImRldiI6IkFQUCIsImp0aSI6ImI4NzY1MjZlYmUwNzVjNjBjOWFiYjFiZDNhZDQ3NjFkZjI5MGQ3ZmYyNmM0NTk2M2QyMWY0NTU2NzIyMWIyMWIiLCJuc3IiOiJmZjI0MWM2NGVjZGZkNTdhIiwiZXh0Ijp7InRlc3QiOiIxMSIsInRlc3QyIjoiMjIyIn19.OiJVmovPzKmfpXWkveGvzTLM6HRrIyeM9le8rzZq96U="
+const token_secret = "dVeh4rykHcUyi3WA9DVxkpdGq/rA8CwV37YfQZParkc="
 
 //const access_token = ""
 //const token_secret = ""
@@ -166,8 +166,8 @@ func TestRsaLogin(t *testing.T) {
 }
 
 func TestGetUser(t *testing.T) {
-	data, _ := util.ToJsonBase64(map[string]interface{}{"uid": 123, "name": "我爱中国", "limit": 20, "offset": 5})
-	path := "/test1"
+	data, _ := util.ToJsonBase64(map[string]interface{}{"uid": 123, "name": "我爱中国/+_=/1df", "limit": 20, "offset": 5})
+	path := "/test2"
 	req := &node.ReqDto{
 		Data:  data,
 		Time:  util.TimeSecond(),

@@ -74,7 +74,7 @@ func (self *MyWebNode) test2(ctx *node.Context) error {
 	if err := ctx.Parser(req); err != nil {
 		return err
 	}
-	return self.Json(ctx, map[string]interface{}{"test": 789456})
+	return self.Json(ctx, map[string]interface{}{"test": "我爱中国+-/+_=/1df"})
 }
 
 func test_callrpc() {
@@ -100,9 +100,9 @@ func test_callrpc() {
 
 func (self *MyWebNode) login(ctx *node.Context) error {
 	subject := &jwt.Subject{}
-	subject.Create(123456).Iss("1111").Aud("22222").Extinfo("test", "11").Extinfo("test2", "222").Dev("APP")
 	//self.LoginBySubject(subject, exp)
-	token := subject.Generate(self.JwtConfig().TokenKey)
+	config := self.JwtConfig()
+	token := subject.Create(123456).Iss("1111").Aud("22222").Extinfo("test", "11").Extinfo("test2", "222").Dev("APP").Generate(config)
 	secret, err := ctx.GetRsaSecret(jwt.GetTokenSecret(token))
 	if err != nil {
 		return err
@@ -123,7 +123,8 @@ func (self *MyWebNode) callrpc(ctx *node.Context) error {
 func GetJwtConfig() jwt.JwtConfig {
 	return jwt.JwtConfig{
 		TokenKey: "123456",
-		TokenAlg: jwt.SHA256,
+		TokenAlg: jwt.HS256,
+		TokenTyp: jwt.JWT,
 	}
 }
 
@@ -175,7 +176,7 @@ func StartHttpNode() {
 		},
 	}
 	my.Router("/test1", my.test, nil)
-	my.Router("/test2", my.test2, &node.Config{Guest: true})
+	my.Router("/test2", my.test2, &node.Config{})
 	my.Router("/pubkey", my.pubkey, &node.Config{Original: true, Guest: true})
 	my.Router("/login2", my.login, &node.Config{Login: true})
 	my.Router("/callrpc", my.login, &node.Config{Guest: false, EncryptRequest: false, EncryptResponse: false})

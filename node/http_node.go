@@ -129,7 +129,7 @@ func (self *HttpNode) Authenticate(req *ReqDto) error {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "签名参数无效"}
 		}
 		if self.Context.GetDataSign(d, req.Nonce, req.Time, req.Plan) != req.Sign {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "API签名校验失败"}
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "数据包签名校验失败"}
 		}
 		if req.Plan == 1 { // AES
 			dec, err := util.AesDecrypt(d, self.Context.GetTokenSecret(), util.AddStr(req.Nonce, req.Time))

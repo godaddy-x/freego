@@ -12,6 +12,7 @@ import (
 
 const (
 	JWT    = "JWT"
+	HS256  = "HS256"
 	SHA256 = "SHA256"
 	MD5    = "MD5"
 	AES    = "AES"
@@ -29,6 +30,7 @@ type Subject struct {
 type JwtConfig struct {
 	TokenKey string
 	TokenAlg string
+	TokenTyp string
 }
 
 type Header struct {
@@ -48,10 +50,14 @@ type Payload struct {
 	Ext map[string]string `json:"ext"` // 扩展信息
 }
 
+func (self *Subject) AddHeader(config JwtConfig) *Subject {
+	self.Header = &Header{Alg: config.TokenAlg, Typ: config.TokenTyp}
+	return self
+}
+
 func (self *Subject) Create(sub int64) *Subject {
 	nsr := util.Substr(util.MD5(util.GetSnowFlakeStrID()), 5, 21)
 	iat := util.TimeSecond()
-	self.Header = &Header{Alg: "HS256", Typ: "JWT"}
 	self.Payload = &Payload{
 		Sub: sub,
 		Iat: iat,
@@ -99,7 +105,8 @@ func (self *Subject) Extinfo(key, value string) *Subject {
 	return self
 }
 
-func (self *Subject) Generate(key string) string {
+func (self *Subject) Generate(config JwtConfig) string {
+	self.AddHeader(config)
 	header, err := util.ToJsonBase64(self.Header)
 	if err != nil {
 		return ""
@@ -109,7 +116,7 @@ func (self *Subject) Generate(key string) string {
 		return ""
 	}
 	part1 := header + "." + payload
-	return part1 + "." + self.Signature(part1, key)
+	return part1 + "." + self.Signature(part1, config.TokenKey)
 }
 
 func (self *Subject) Signature(text, key string) string {
