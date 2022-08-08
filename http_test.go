@@ -78,7 +78,7 @@ func ToPostBy(path string, req *node.ReqDto) string {
 }
 
 func ToPostByLogin(path, loginData, clientSign, clientPubkey, servePubkey string) string {
-	//fmt.Println(len(clientPubkey), len(clientSign))
+	fmt.Println("pubkey len: ", len(clientPubkey), " pubkey sign len: ", len(clientSign))
 	fmt.Println("请求示例: ")
 	fmt.Println(string(loginData))
 	reader := bytes.NewReader(util.Str2Bytes(loginData))
@@ -133,7 +133,9 @@ func TestRsaLogin(t *testing.T) {
 	}
 	servePubkey := string(respBytes)
 	cliRsa := &gorsa.RsaObj{}
-	cliRsa.CreateRsaFileBase64()
+	// 1024 pubkey len:  689  pubkey sign len:  172
+	// 2048 pubkey len:  1034  pubkey sign len:  344
+	cliRsa.CreateRsaFileBase64(668)
 	data, _ := util.ToJsonBase64(map[string]string{"username": "1234567890123456", "password": "1234567890123456"})
 	path := "/login2"
 	req := &node.ReqDto{
@@ -153,7 +155,7 @@ func TestRsaLogin(t *testing.T) {
 		panic(err)
 	}
 	clientSign, _ := cliRsa.SignBySHA256(loginDataRes)
-	clipubkeyEncrpty, err := srvRsa.Encrypt2048Pubkey(cliRsa.PubkeyBase64)
+	clipubkeyEncrpty, err := srvRsa.EncryptPubkey(cliRsa.PubkeyBase64)
 	if err != nil {
 		panic(err)
 	}

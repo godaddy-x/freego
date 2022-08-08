@@ -180,32 +180,6 @@ func (self *RsaObj) Encrypt(msg []byte) ([]byte, error) {
 	return res, nil
 }
 
-func (self *RsaObj) Encrypt2048Pubkey(pubkey string) (string, error) {
-	if len(pubkey) < 550 && len(pubkey) > 600 {
-		return "", errors.New("invalid pubkey")
-	}
-	result := ""
-	index := 0
-	for ; ; {
-		if index >= 600 {
-			break
-		}
-		var part string
-		if index >= 400 {
-			part = pubkey[index:]
-		} else {
-			part = pubkey[index : index+200]
-		}
-		res, err := rsa.EncryptPKCS1v15(rand.Reader, self.pubkey, []byte(part))
-		if err != nil {
-			return "", err
-		}
-		result = result + "." + base64.StdEncoding.EncodeToString(res)
-		index += 200
-	}
-	return result[1:], nil
-}
-
 func (self *RsaObj) Decrypt(msg []byte) ([]byte, error) {
 	res, err := rsa.DecryptPKCS1v15(rand.Reader, self.prikey, msg)
 	if err != nil {
@@ -214,9 +188,45 @@ func (self *RsaObj) Decrypt(msg []byte) ([]byte, error) {
 	return res, nil
 }
 
-func (self *RsaObj) Decrypt2048Pubkey(msg string) ([]byte, error) {
+// support 1024/2048
+func (self *RsaObj) EncryptPubkey(pubkey string) (string, error) {
+	length := len(pubkey)
+	if length < 300 && length > 600 {
+		return "", errors.New("rsa public-key invalid")
+	}
+	size := 200
+	count := 0
+	if length%size == 0 {
+		count = length / size
+	} else {
+		count = length/size + 1
+	}
+	if count < 2 || count > 3 {
+		return "", errors.New("rsa public-key invalid bits")
+	}
+	result := ""
+	index := 0
+	for i := 1; i <= count; i++ {
+		var part string
+		if i == count {
+			part = pubkey[index:]
+		} else {
+			part = pubkey[index : index+size]
+		}
+		res, err := rsa.EncryptPKCS1v15(rand.Reader, self.pubkey, []byte(part))
+		if err != nil {
+			return "", err
+		}
+		result = result + "." + base64.StdEncoding.EncodeToString(res)
+		index += size
+	}
+	return result[1:], nil
+}
+
+// support 1024/2048
+func (self *RsaObj) DecryptPubkey(msg string) ([]byte, error) {
 	parts := strings.Split(msg, ".")
-	if len(parts) != 3 {
+	if len(parts) < 2 || len(parts) > 3 {
 		return nil, errors.New("invalid pubkey length")
 	}
 	result := ""

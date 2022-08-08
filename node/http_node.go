@@ -44,16 +44,20 @@ func (self *HttpNode) GetHeader() error {
 		headers[USER_AGENT] = r.Header.Get(USER_AGENT)
 		headers[Authorization] = r.Header.Get(Authorization)
 		if self.Config.Login {
+			// 1024 pubkey len:  689  pubkey sign len:  172
+			// 2048 pubkey len:  1034  pubkey sign len:  344
 			pub := r.Header.Get(CLIENT_PUBKEY)
-			if !util.CheckStrLen(pub, 1000, 1050) {
+			if util.CheckStrLen(pub, 680, 700) || util.CheckStrLen(pub, 1020, 1040) {
+				headers[CLIENT_PUBKEY] = pub
+			} else {
 				return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key invalid length"}
 			}
 			sign := r.Header.Get(CLIENT_PUBKEY_SIGN)
-			if !util.CheckStrLen(sign, 330, 350) {
-				return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key signature invalid length"}
+			if util.CheckStrLen(sign, 160, 180) || util.CheckStrLen(sign, 330, 350) {
+				headers[CLIENT_PUBKEY_SIGN] = sign
+			} else {
+				return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key signature invalid"}
 			}
-			headers[CLIENT_PUBKEY] = pub
-			headers[CLIENT_PUBKEY_SIGN] = sign
 		}
 	}
 	self.Context.Token = headers["Authorization"]
@@ -67,7 +71,7 @@ func (self *HttpNode) ValidRsaLogin(body []byte, req *ReqDto) error {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "body base64 decode failed"}
 	}
 	pub, _ := self.Context.Headers[CLIENT_PUBKEY]
-	pub_dec, err := self.Certificate.Decrypt2048Pubkey(pub)
+	pub_dec, err := self.Certificate.DecryptPubkey(pub)
 	if err != nil {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key decrypt failed", Err: err}
 	}
