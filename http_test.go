@@ -77,10 +77,11 @@ func ToPostBy(path string, req *node.ReqDto) string {
 	return ""
 }
 
-func ToPostByLogin(path, loginData, clientSign, clientPubkey, servePubkey string) string {
-	fmt.Println("pubkey len: ", len(clientPubkey), " pubkey sign len: ", len(clientSign))
+func ToPostByLogin(path, loginData, servePubkey string) string {
+	//fmt.Println("pubkey len: ", len(clientPubkey), " pubkey sign len: ", len(clientSign))
+	fmt.Println("login data length: ", len(loginData))
 	fmt.Println("请求示例: ")
-	fmt.Println(string(loginData))
+	fmt.Println(loginData)
 	reader := bytes.NewReader(util.Str2Bytes(loginData))
 	request, err := http.NewRequest("POST", domain+path, reader)
 	if err != nil {
@@ -88,8 +89,8 @@ func ToPostByLogin(path, loginData, clientSign, clientPubkey, servePubkey string
 		return ""
 	}
 	request.Header.Set("Content-Type", "application/json;charset=UTF-8")
-	request.Header.Set("ClientPubkey", clientPubkey)
-	request.Header.Set("ClientPubkeySign", clientSign)
+	//request.Header.Set("ClientPubkey", clientPubkey)
+	//request.Header.Set("ClientPubkeySign", clientSign)
 	client := http.Client{}
 	resp, err := client.Do(request)
 	if err != nil {
@@ -135,7 +136,7 @@ func TestRsaLogin(t *testing.T) {
 	cliRsa := &gorsa.RsaObj{}
 	// 1024 pubkey len:  689  pubkey sign len:  172
 	// 2048 pubkey len:  1034  pubkey sign len:  344
-	cliRsa.CreateRsaFileBase64(668)
+	cliRsa.CreateRsaFileBase64(1024)
 	data, _ := util.ToJsonBase64(map[string]string{"username": "1234567890123456", "password": "1234567890123456"})
 	path := "/login2"
 	req := &node.ReqDto{
@@ -143,23 +144,23 @@ func TestRsaLogin(t *testing.T) {
 		Time:  util.TimeSecond(),
 		Nonce: util.GetSnowFlakeStrID(),
 		Plan:  int64(0),
-		Sign:  "",
+		Sign:  cliRsa.PubkeyBase64,
 	}
 	srvRsa := &gorsa.RsaObj{}
 	if err := srvRsa.LoadRsaPemFileBase64(servePubkey); err != nil {
 		panic(err)
 	}
 	loginData, _ := util.ToJsonBase64(req)
-	loginDataRes, err := srvRsa.Encrypt([]byte(loginData))
+	loginDataRes, err := srvRsa.EncryptPlanText(loginData)
 	if err != nil {
 		panic(err)
 	}
-	clientSign, _ := cliRsa.SignBySHA256(loginDataRes)
-	clipubkeyEncrpty, err := srvRsa.EncryptPubkey(cliRsa.PubkeyBase64)
-	if err != nil {
-		panic(err)
-	}
-	secret := ToPostByLogin(path, util.Base64Encode(loginDataRes), util.Base64Encode(clientSign), clipubkeyEncrpty, servePubkey)
+	//clientSign, _ := cliRsa.SignBySHA256(loginDataRes)
+	//clipubkeyEncrpty, err := srvRsa.EncryptPubkey(cliRsa.PubkeyBase64)
+	//if err != nil {
+	//	panic(err)
+	//}
+	secret := ToPostByLogin(path, loginDataRes, servePubkey)
 	bs, err := cliRsa.Decrypt(util.Base64Decode(secret))
 	if err != nil {
 		fmt.Println(err)

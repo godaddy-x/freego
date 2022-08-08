@@ -46,18 +46,18 @@ func (self *HttpNode) GetHeader() error {
 		if self.Config.Login {
 			// 1024 pubkey len:  689  pubkey sign len:  172
 			// 2048 pubkey len:  1034  pubkey sign len:  344
-			pub := r.Header.Get(CLIENT_PUBKEY)
-			if util.CheckStrLen(pub, 680, 700) || util.CheckStrLen(pub, 1020, 1040) {
-				headers[CLIENT_PUBKEY] = pub
-			} else {
-				return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key invalid length"}
-			}
-			sign := r.Header.Get(CLIENT_PUBKEY_SIGN)
-			if util.CheckStrLen(sign, 160, 180) || util.CheckStrLen(sign, 330, 350) {
-				headers[CLIENT_PUBKEY_SIGN] = sign
-			} else {
-				return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key signature invalid"}
-			}
+			//pub := r.Header.Get(CLIENT_PUBKEY)
+			//if util.CheckStrLen(pub, 680, 700) || util.CheckStrLen(pub, 1020, 1040) {
+			//	headers[CLIENT_PUBKEY] = pub
+			//} else {
+			//	return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key invalid length"}
+			//}
+			//sign := r.Header.Get(CLIENT_PUBKEY_SIGN)
+			//if util.CheckStrLen(sign, 160, 180) || util.CheckStrLen(sign, 330, 350) {
+			//	headers[CLIENT_PUBKEY_SIGN] = sign
+			//} else {
+			//	return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key signature invalid"}
+			//}
 		}
 	}
 	self.Context.Token = headers["Authorization"]
@@ -66,35 +66,29 @@ func (self *HttpNode) GetHeader() error {
 }
 
 func (self *HttpNode) ValidRsaLogin(body []byte, req *ReqDto) error {
-	bs := util.Base64Decode(body)
-	if bs == nil {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "body base64 decode failed"}
+	if len(body) > 2000 {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "rsa login data length invalid"}
 	}
-	pub, _ := self.Context.Headers[CLIENT_PUBKEY]
-	pub_dec, err := self.Certificate.DecryptPubkey(pub)
+	dec, err := self.Certificate.DecryptPlanText(util.Bytes2Str(body))
 	if err != nil {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key decrypt failed", Err: err}
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "server private-key decrypt failed", Err: err}
 	}
-	if pub_dec == nil || len(pub_dec) == 0 {
+	if dec == nil || len(dec) == 0 {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "server private-key decrypt data is nil", Err: err}
+	}
+	if err := util.JsonUnmarshal(dec, req); err != nil {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter JSON parsing failed", Err: err}
+	}
+	if len(req.Sign) == 0 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key is nil", Err: err}
+	}
+	pub_dec := util.Base64Decode(req.Sign)
+	if len(pub_dec) == 0 {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key decode is nil", Err: err}
 	}
 	cliRsa := &gorsa.RsaObj{}
 	if err := cliRsa.LoadRsaPemFileByte(pub_dec); err != nil {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key loading failed", Err: err}
-	}
-	sign, _ := self.Context.Headers[CLIENT_PUBKEY_SIGN]
-	if err := cliRsa.VerifyBySHA256(bs, sign); err != nil {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key signature invalid", Err: err}
-	}
-	dec, err := self.Certificate.Decrypt(bs)
-	if err != nil {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter decrypt failed", Err: err}
-	}
-	if dec == nil || len(dec) == 0 {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter is nil", Err: err}
-	}
-	if err := util.ParseJsonBase64(dec, req); err != nil {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter JSON parsing failed", Err: err}
 	}
 	self.Context.Storage[CLIENT_PUBKEY_OBJECT] = cliRsa
 	return nil

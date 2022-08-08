@@ -189,20 +189,14 @@ func (self *RsaObj) Decrypt(msg []byte) ([]byte, error) {
 }
 
 // support 1024/2048
-func (self *RsaObj) EncryptPubkey(pubkey string) (string, error) {
-	length := len(pubkey)
-	if length < 300 && length > 600 {
-		return "", errors.New("rsa public-key invalid")
-	}
+func (self *RsaObj) EncryptPlanText(pubkey string) (string, error) {
 	size := 200
 	count := 0
+	length := len(pubkey)
 	if length%size == 0 {
 		count = length / size
 	} else {
 		count = length/size + 1
-	}
-	if count < 2 || count > 3 {
-		return "", errors.New("rsa public-key invalid bits")
 	}
 	result := ""
 	index := 0
@@ -224,10 +218,10 @@ func (self *RsaObj) EncryptPubkey(pubkey string) (string, error) {
 }
 
 // support 1024/2048
-func (self *RsaObj) DecryptPubkey(msg string) ([]byte, error) {
+func (self *RsaObj) DecryptPlanText(msg string) ([]byte, error) {
 	parts := strings.Split(msg, ".")
-	if len(parts) < 2 || len(parts) > 3 {
-		return nil, errors.New("invalid pubkey length")
+	if len(parts) > 6 {
+		return nil, errors.New("invalid base64 data length")
 	}
 	result := ""
 	for _, v := range parts {
@@ -241,11 +235,11 @@ func (self *RsaObj) DecryptPubkey(msg string) ([]byte, error) {
 		}
 		result += string(res)
 	}
-	pub_dec, err := base64.StdEncoding.DecodeString(result)
+	dec, err := base64.StdEncoding.DecodeString(result)
 	if err != nil {
 		return nil, err
 	}
-	return pub_dec, nil
+	return dec, nil
 }
 
 func (self *RsaObj) SignBySHA256(msg []byte) ([]byte, error) {
