@@ -61,11 +61,11 @@ func (self *MGOManager) Get(option ...Option) (*MGOManager, error) {
 func (self *MGOManager) GetDatabase(copySession *mgo.Session, tb string) (*mgo.Collection, error) {
 	database := copySession.DB(self.Database)
 	if database == nil {
-		return nil, self.Error("获取mongo数据库失败")
+		return nil, self.Error("failed to get Mongo database")
 	}
 	collection := database.C(tb)
 	if collection == nil {
-		return nil, self.Error("获取mongo数据集合失败")
+		return nil, self.Error("failed to get Mongo collection")
 	}
 	return collection, nil
 }
@@ -83,7 +83,7 @@ func (self *MGOManager) GetDB(options ...Option) error {
 	}
 	mgo := mgoSessions[dsName]
 	if mgo == nil {
-		return self.Error("mongo数据源[", dsName, "]未找到,请检查...")
+		return self.Error("mongo session [", dsName, "] not found...")
 	}
 	self.Session = mgo.Session
 	self.Node = mgo.Node
@@ -130,18 +130,18 @@ func (self *MGOManager) buildByConfig(manager cache.ICache, input ...MGOConfig) 
 			dsName = v.DsName
 		}
 		if _, b := mgoSessions[dsName]; b {
-			return util.Error("mongo连接初始化失败: [", v.DsName, "]已存在")
+			return util.Error("mongo init failed: [", v.DsName, "] exist")
 		}
 		if len(v.ConnectionURI) > 0 {
 			dialInfo, err := mgo.ParseURL(v.ConnectionURI)
 			if err != nil {
-				panic("mongoUri解析失败: " + err.Error())
+				panic("mongo URI parse failed: " + err.Error())
 			}
 			dialInfo.Timeout = time.Second * time.Duration(v.ConnectTimeout)
 			dialInfo.PoolLimit = v.PoolLimit
 			session, err = mgo.DialWithInfo(dialInfo)
 			if err != nil {
-				panic("mongo连接初始化失败: " + err.Error())
+				panic("mongo init failed: " + err.Error())
 			}
 		} else {
 			dialInfo := &mgo.DialInfo{
@@ -159,7 +159,7 @@ func (self *MGOManager) buildByConfig(manager cache.ICache, input ...MGOConfig) 
 			}
 			session, err = mgo.DialWithInfo(dialInfo)
 			if err != nil {
-				return util.Error("mongo连接初始化失败: ", err)
+				return util.Error("mongo init failed: ", err)
 			}
 		}
 
@@ -184,7 +184,7 @@ func (self *MGOManager) buildByConfig(manager cache.ICache, input ...MGOConfig) 
 		log.Printf("mongodb service【%s】has been started successfully", v.DsName)
 	}
 	if len(mgoSessions) == 0 {
-		return util.Error("mongo连接初始化失败: 数据源为0")
+		return util.Error("mongo init failed: sessions is nil")
 	}
 	return nil
 }
@@ -204,7 +204,7 @@ func (self *MGOManager) initSlowLog() {
 				MaxBackups: 7,
 				MaxSize:    512,
 			}})
-		mgoSlowlog.Info("MGO查询监控日志服务启动成功...")
+		mgoSlowlog.Info("MGO query monitoring service started successfully...")
 	}
 }
 
@@ -215,10 +215,10 @@ func (self *MGOManager) getSlowLog() *zap.Logger {
 // 保存数据到mongo集合
 func (self *MGOManager) Save(data ...interface{}) error {
 	if data == nil || len(data) == 0 {
-		return self.Error("[Mongo.Save]参数对象为空")
+		return self.Error("[Mongo.Save] data is nil")
 	}
 	if len(data) > 2000 {
-		return self.Error("[Mongo.Save]参数对象数量不能超过2000")
+		return self.Error("[Mongo.Save] data length > 2000")
 	}
 	d := data[0]
 	if len(self.MGOSyncData) > 0 {
@@ -227,7 +227,7 @@ func (self *MGOManager) Save(data ...interface{}) error {
 	obk := reflect.TypeOf(d).String()
 	obv, ok := modelDrivers[obk]
 	if !ok {
-		return self.Error("[Mongo.Save]没有找到注册对象类型[", obk, "]")
+		return self.Error("[Mongo.Save] registration object type not found [", obk, "]")
 	}
 	copySession := self.Session.Copy()
 	defer copySession.Close()
@@ -252,11 +252,11 @@ func (self *MGOManager) Save(data ...interface{}) error {
 				util.SetString(util.GetPtr(v, obv.PkOffset), lastInsertId)
 			}
 		} else {
-			return util.Error("只支持int64和string类型ID")
+			return util.Error("only Int64 and string type IDs are supported")
 		}
 	}
 	if err := db.Insert(data...); err != nil {
-		return self.Error("[Mongo.Save]保存数据失败: ", err)
+		return self.Error("[Mongo.Save] save failed: ", err)
 	}
 	return nil
 }
@@ -264,10 +264,10 @@ func (self *MGOManager) Save(data ...interface{}) error {
 // 更新数据到mongo集合
 func (self *MGOManager) Update(data ...interface{}) error {
 	if data == nil || len(data) == 0 {
-		return self.Error("[Mongo.Update]参数对象为空")
+		return self.Error("[Mongo.Update] data is nil")
 	}
 	if len(data) > 2000 {
-		return self.Error("[Mongo.Update]参数对象数量不能超过2000")
+		return self.Error("[Mongo.Update] data length > 2000")
 	}
 	d := data[0]
 	if len(self.MGOSyncData) > 0 {
@@ -276,7 +276,7 @@ func (self *MGOManager) Update(data ...interface{}) error {
 	obk := reflect.TypeOf(d).String()
 	obv, ok := modelDrivers[obk]
 	if !ok {
-		return self.Error("[Mongo.Update]没有找到注册对象类型[", obk, "]")
+		return self.Error("[Mongo.Update] registration object type not found [", obk, "]")
 	}
 	copySession := self.Session.Copy()
 	defer copySession.Close()
@@ -291,27 +291,27 @@ func (self *MGOManager) Update(data ...interface{}) error {
 		if obv.PkKind == reflect.Int64 {
 			lastInsertId := util.GetInt64(util.GetPtr(v, obv.PkOffset))
 			if lastInsertId == 0 {
-				return self.Error("[Mongo.Update]对象ID为空")
+				return self.Error("[Mongo.Update] data object id is nil")
 			}
 			if err := db.UpdateId(lastInsertId, v); err != nil {
 				if err == mgo.ErrNotFound {
-					return self.Error("[Mongo.Update]数据ID[", lastInsertId, "]不存在")
+					return self.Error("[Mongo.Update] data object id [", lastInsertId, "] not found")
 				}
-				return self.Error("[Mongo.Update]更新数据失败: ", err)
+				return self.Error("[Mongo.Update] update failed: ", err)
 			}
 		} else if obv.PkKind == reflect.String {
 			lastInsertId := util.GetString(util.GetPtr(v, obv.PkOffset))
 			if len(lastInsertId) == 0 {
-				return self.Error("[Mongo.Update]对象ID为空")
+				return self.Error("[Mongo.Update] data object id is nil")
 			}
 			if err := db.UpdateId(lastInsertId, v); err != nil {
 				if err == mgo.ErrNotFound {
-					return self.Error("[Mongo.Update]数据ID[", lastInsertId, "]不存在")
+					return self.Error("[Mongo.Update] data object id [", lastInsertId, "] not found")
 				}
-				return self.Error("[Mongo.Update]更新数据失败: ", err)
+				return self.Error("[Mongo.Update] update failed: ", err)
 			}
 		} else {
-			return util.Error("只支持int64和string类型ID")
+			return util.Error("only Int64 and string type IDs are supported")
 		}
 	}
 	return nil
@@ -319,10 +319,10 @@ func (self *MGOManager) Update(data ...interface{}) error {
 
 func (self *MGOManager) Delete(data ...interface{}) error {
 	if data == nil || len(data) == 0 {
-		return self.Error("[Mongo.Delete]参数对象为空")
+		return self.Error("[Mongo.Delete] data is nil")
 	}
 	if len(data) > 2000 {
-		return self.Error("[Mongo.Delete]参数对象数量不能超过2000")
+		return self.Error("[Mongo.Delete] data length > 2000")
 	}
 	d := data[0]
 	if len(self.MGOSyncData) > 0 {
@@ -331,7 +331,7 @@ func (self *MGOManager) Delete(data ...interface{}) error {
 	obk := reflect.TypeOf(d).String()
 	obv, ok := modelDrivers[obk]
 	if !ok {
-		return self.Error("[Mongo.Delete]没有找到注册对象类型[", obk, "]")
+		return self.Error("[Mongo.Delete] registration object type not found [", obk, "]")
 	}
 	copySession := self.Session.Copy()
 	defer copySession.Close()
@@ -347,22 +347,22 @@ func (self *MGOManager) Delete(data ...interface{}) error {
 		if obv.PkKind == reflect.Int64 {
 			lastInsertId := util.GetInt64(util.GetPtr(v, obv.PkOffset))
 			if lastInsertId == 0 {
-				return self.Error("[Mongo.Delete]对象ID为空")
+				return self.Error("[Mongo.Delete] data object id is nil")
 			}
 			delIds = append(delIds, lastInsertId)
 		} else if obv.PkKind == reflect.String {
 			lastInsertId := util.GetString(util.GetPtr(v, obv.PkOffset))
 			if len(lastInsertId) == 0 {
-				return self.Error("[Mongo.Delete]对象ID为空")
+				return self.Error("[Mongo.Delete] data object id is nil")
 			}
 			delIds = append(delIds, lastInsertId)
 		} else {
-			return util.Error("只支持int64和string类型ID")
+			return util.Error("only Int64 and string type IDs are supported")
 		}
 	}
 	if len(delIds) > 0 {
 		if _, err := db.RemoveAll(bson.M{"_id": bson.M{"$in": delIds}}); err != nil {
-			return self.Error("[Mongo.Delete]删除数据失败: ", err)
+			return self.Error("[Mongo.Delete] delete failed: ", err)
 		}
 	}
 	return nil
@@ -371,12 +371,12 @@ func (self *MGOManager) Delete(data ...interface{}) error {
 // 统计数据
 func (self *MGOManager) Count(cnd *sqlc.Cnd) (int64, error) {
 	if cnd.Model == nil {
-		return 0, self.Error("[Mongo.Count]ORM对象类型不能为空,请通过M(...)方法设置对象类型")
+		return 0, self.Error("[Mongo.Count] data model is nil")
 	}
 	obk := reflect.TypeOf(cnd.Model).String()
 	obv, ok := modelDrivers[obk]
 	if !ok {
-		return 0, self.Error(util.AddStr("[Mongo.Count]没有找到注册对象类型[", obk, "]"))
+		return 0, self.Error(util.AddStr("[Mongo.Count] registration object type not found [", obk, "]"))
 	}
 	copySession := self.Session.Copy()
 	defer copySession.Close()
@@ -386,7 +386,7 @@ func (self *MGOManager) Count(cnd *sqlc.Cnd) (int64, error) {
 	}
 	pipe, err := self.buildPipeCondition(cnd, true)
 	if err != nil {
-		return 0, util.Error("[Mongo.Count]构建查询命令失败: ", err)
+		return 0, util.Error("[Mongo.Count] build pipe failed: ", err)
 	}
 	defer self.writeLog("[Mongo.Count]", util.Time(), pipe)
 	result := CountResult{}
@@ -394,7 +394,7 @@ func (self *MGOManager) Count(cnd *sqlc.Cnd) (int64, error) {
 		if err == mgo.ErrNotFound {
 			return 0, nil
 		}
-		return 0, util.Error("[Mongo.Count]查询数据失败: ", err)
+		return 0, util.Error("[Mongo.Count] query failed: ", err)
 	}
 	pageTotal := result.Total
 	if pageTotal > 0 && cnd.Pagination.PageSize > 0 {
@@ -415,12 +415,12 @@ func (self *MGOManager) Count(cnd *sqlc.Cnd) (int64, error) {
 // 查询单条数据
 func (self *MGOManager) FindOne(cnd *sqlc.Cnd, data interface{}) error {
 	if data == nil {
-		return self.Error("[Mongo.FindOne]参数对象为空")
+		return self.Error("[Mongo.FindOne] data is nil")
 	}
 	obk := reflect.TypeOf(data).String()
 	obv, ok := modelDrivers[obk]
 	if !ok {
-		return self.Error("[Mongo.FindOne]没有找到注册对象类型[", obk, "]")
+		return self.Error("[Mongo.FindOne] registration object type not found [", obk, "]")
 	}
 	copySession := self.Session.Copy()
 	defer copySession.Close()
@@ -430,14 +430,14 @@ func (self *MGOManager) FindOne(cnd *sqlc.Cnd, data interface{}) error {
 	}
 	pipe, err := self.buildPipeCondition(cnd.ResultSize(1), false)
 	if err != nil {
-		return util.Error("[Mongo.FindOne]构建查询命令失败: ", err)
+		return util.Error("[Mongo.FindOne]build pipe failed: ", err)
 	}
 	defer self.writeLog("[Mongo.FindOne]", util.Time(), pipe)
 	if err := db.Pipe(pipe).One(data); err != nil {
 		if err == mgo.ErrNotFound {
 			return nil
 		}
-		return util.Error("[Mongo.FindOne]查询数据失败: ", err)
+		return util.Error("[Mongo.FindOne] query failed: ", err)
 	}
 	return nil
 }
@@ -445,17 +445,17 @@ func (self *MGOManager) FindOne(cnd *sqlc.Cnd, data interface{}) error {
 // 查询多条数据
 func (self *MGOManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	if data == nil {
-		return self.Error("[Mongo.FindList]返回参数对象为空")
+		return self.Error("[Mongo.FindList] data is nil")
 	}
 	obk := reflect.TypeOf(data).String()
 	if !strings.HasPrefix(obk, "*[]") {
-		return self.Error("[Mongo.FindList]返回参数必须为数组指针类型")
+		return self.Error("[Mongo.FindList] the return parameter must be an array pointer type")
 	} else {
 		obk = util.Substr(obk, 3, len(obk))
 	}
 	obv, ok := modelDrivers[obk]
 	if !ok {
-		return self.Error("[Mongo.FindList]没有找到注册对象类型[", obk, "]")
+		return self.Error("[Mongo.FindList] registration object type not found [", obk, "]")
 	}
 	copySession := self.Session.Copy()
 	defer copySession.Close()
@@ -465,14 +465,14 @@ func (self *MGOManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	}
 	pipe, err := self.buildPipeCondition(cnd, false)
 	if err != nil {
-		return util.Error("[Mongo.FindList]构建查询命令失败: ", err)
+		return util.Error("[Mongo.FindList] build pipe failed: ", err)
 	}
 	defer self.writeLog("[Mongo.FindList]", util.Time(), pipe)
 	if err := db.Pipe(pipe).All(data); err != nil {
 		if err == mgo.ErrNotFound {
 			return nil
 		}
-		return util.Error("[Mongo.FindList]查询数据失败: ", err)
+		return util.Error("[Mongo.FindList] query failed: ", err)
 	}
 	return nil
 }
@@ -480,12 +480,12 @@ func (self *MGOManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 // 根据条件更新数据
 func (self *MGOManager) UpdateByCnd(cnd *sqlc.Cnd) error {
 	if cnd.Model == nil {
-		return self.Error("[Mongo.UpdateByCnd]ORM对象类型不能为空,请通过M(...)方法设置对象类型")
+		return self.Error("[Mongo.UpdateByCnd] data model is nil")
 	}
 	obk := reflect.TypeOf(cnd.Model).String()
 	obv, ok := modelDrivers[obk]
 	if !ok {
-		return self.Error(util.AddStr("[Mongo.UpdateByCnd]没有找到注册对象类型[", obk, "]"))
+		return self.Error(util.AddStr("[Mongo.UpdateByCnd] registration object type not found [", obk, "]"))
 	}
 	copySession := self.Session.Copy()
 	defer copySession.Close()
@@ -496,14 +496,14 @@ func (self *MGOManager) UpdateByCnd(cnd *sqlc.Cnd) error {
 	match := buildMongoMatch(cnd)
 	upset := buildMongoUpset(cnd)
 	if match == nil || len(match) == 0 {
-		return util.Error("筛选条件不能为空")
+		return util.Error("pipe math is nil")
 	}
 	if upset == nil || len(upset) == 0 {
-		return util.Error("更新条件不能为空")
+		return util.Error("pipe upset is nil")
 	}
 	defer self.writeLog("[Mongo.UpdateByCnd]", util.Time(), map[string]interface{}{"match": match, "upset": upset})
 	if _, err := db.UpdateAll(match, upset); err != nil {
-		return util.Error("[Mongo.UpdateByCnd]更新数据失败: ", err)
+		return util.Error("[Mongo.UpdateByCnd] update failed: ", err)
 	}
 	return nil
 }
@@ -517,7 +517,7 @@ func (self *MGOManager) getByCache(cnd *sqlc.Cnd, data interface{}) (bool, bool,
 	config := cnd.CacheConfig
 	if config.Open && len(config.Key) > 0 {
 		if self.CacheManager == nil {
-			return true, false, self.Error("缓存管理器尚未初始化")
+			return true, false, self.Error("cache manager hasn't been initialized")
 		}
 		_, b, err := self.CacheManager.Get(config.Prefix+config.Key, data)
 		return true, b, self.Error(err)

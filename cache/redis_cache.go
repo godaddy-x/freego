@@ -71,7 +71,7 @@ func (self *RedisManager) Client(dsName ...string) (*RedisManager, error) {
 	}
 	manager := redisSessions[ds]
 	if manager == nil {
-		return nil, util.Error("redis session [", ds, "] notfound...")
+		return nil, util.Error("redis session [", ds, "] not found...")
 	}
 	return manager, nil
 }

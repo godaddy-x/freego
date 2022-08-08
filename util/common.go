@@ -12,7 +12,6 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/gob"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -94,7 +93,7 @@ func JsonUnmarshal(data []byte, v interface{}) error {
 // 对象转对象
 func JsonToAny(src interface{}, target interface{}) error {
 	if src == nil || target == nil {
-		return errors.New("参数不能为空")
+		return errors.New("src or target is nil")
 	}
 	if data, err := JsonMarshal(src); err != nil {
 		return err
@@ -227,47 +226,47 @@ func ReadJsonConfig(conf []byte, result interface{}) error {
 	return JsonUnmarshal(conf, result)
 }
 
-// string转int
+// string to int
 func StrToInt(str string) (int, error) {
 	b, err := strconv.Atoi(str)
 	if err != nil {
-		return 0, errors.New("string转int失败")
+		return 0, errors.New("string to int failed")
 	}
 	return b, nil
 }
 
-// string转int8
+// string to int8
 func StrToInt8(str string) (int8, error) {
 	b, err := strconv.ParseInt(str, 10, 64)
 	if err != nil {
-		return 0, errors.New("string转int8失败")
+		return 0, errors.New("string to int8 failed")
 	}
 	return int8(b), nil
 }
 
-// string转int16
+// string to int16
 func StrToInt16(str string) (int16, error) {
 	b, err := strconv.ParseInt(str, 10, 64)
 	if err != nil {
-		return 0, errors.New("string转int16失败")
+		return 0, errors.New("string to int16 failed")
 	}
 	return int16(b), nil
 }
 
-// string转int32
+// string to int32
 func StrToInt32(str string) (int32, error) {
 	b, err := strconv.ParseInt(str, 10, 64)
 	if err != nil {
-		return 0, errors.New("string转int32失败")
+		return 0, errors.New("string to int32 failed")
 	}
 	return int32(b), nil
 }
 
-// string转int64
+// string to int64
 func StrToInt64(str string) (int64, error) {
 	b, err := strconv.ParseInt(str, 10, 64)
 	if err != nil {
-		return 0, errors.New("string转int64失败")
+		return 0, errors.New("string to int64 failed")
 	}
 	return b, nil
 }
@@ -278,7 +277,7 @@ func Float64ToInt64(f float64) int64 {
 	return a.IntPart()
 }
 
-// string转bool
+// string to bool
 func StrToBool(str string) (bool, error) {
 	if str == "true" {
 		return true, nil
@@ -328,25 +327,13 @@ func AnyToStr(any interface{}) string {
 		return "false"
 	} else {
 		if ret, err := JsonMarshal(any); err != nil {
-			log.Println("any转json失败: ", err)
+			log.Println("any to json failed: ", err)
 			return ""
 		} else {
 			return Bytes2Str(ret)
 		}
 	}
 	return ""
-}
-
-// 深度复制对象
-func GobCopy(src, dst interface{}) error {
-	var buf bytes.Buffer
-	if err := gob.NewEncoder(&buf).Encode(src); err != nil {
-		return Error("GOB序列化异常: ", err)
-	}
-	if err := gob.NewDecoder(bytes.NewBuffer(buf.Bytes())).Decode(dst); err != nil {
-		return Error("GOB反序列异常: ", err)
-	}
-	return nil
 }
 
 // 65-96大写字母 97-122小写字母
@@ -397,7 +384,7 @@ func GetUUID() string {
 	b := make([]byte, 16)
 	_, err := rand.Read(b)
 	if err != nil {
-		fmt.Println("生成uuid异常: ", err)
+		fmt.Println("generate UUID failed: ", err)
 		return ""
 	}
 	return fmt.Sprintf("%x-%x-%x-%x-%x",
@@ -426,10 +413,10 @@ func GetSnowFlakeIntID(sec ...int64) int64 {
 // 读取文件
 func ReadFile(path string) ([]byte, error) {
 	if len(path) == 0 {
-		return nil, Error("文件路径不能为空")
+		return nil, Error("path is nil")
 	}
 	if b, err := ioutil.ReadFile(path); err != nil {
-		return nil, Error("读取文件[", path, "]失败: ", err)
+		return nil, Error("read file [", path, "] failed: ", err)
 	} else {
 		return b, nil
 	}

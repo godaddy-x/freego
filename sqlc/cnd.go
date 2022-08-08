@@ -430,7 +430,7 @@ func (self *Cnd) Upset(keys []string, values ...interface{}) *Cnd {
 		return self
 	}
 	if len(keys) == 0 || len(keys) != len(values) {
-		fmt.Println("keys和values参数下标不对等")
+		fmt.Println("the keys and values parameter size are not equal")
 		return self
 	}
 	if self.Upsets == nil {

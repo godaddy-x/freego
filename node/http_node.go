@@ -28,14 +28,14 @@ func (self *HttpNode) GetHeader() error {
 			for k, v := range r.Header {
 				i++
 				if i > MAX_HEADER_SIZE {
-					return ex.Throw{Code: http.StatusLengthRequired, Msg: util.AddStr("请求头数量溢出: ", i)}
+					return ex.Throw{Code: http.StatusLengthRequired, Msg: util.AddStr("too many header parameters: ", i)}
 				}
 				if len(k) > MAX_FIELD_LEN {
-					return ex.Throw{Code: http.StatusLengthRequired, Msg: util.AddStr("参数名长度溢出: ", len(k))}
+					return ex.Throw{Code: http.StatusLengthRequired, Msg: util.AddStr("header name length is too long: ", len(k))}
 				}
 				v0 := v[0]
 				if len(v0) > MAX_VALUE_LEN {
-					return ex.Throw{Code: http.StatusLengthRequired, Msg: util.AddStr("参数值长度溢出: ", len(v0))}
+					return ex.Throw{Code: http.StatusLengthRequired, Msg: util.AddStr("header value length is too long: ", len(v0))}
 				}
 				headers[k] = v0
 			}
@@ -46,11 +46,11 @@ func (self *HttpNode) GetHeader() error {
 		if self.Config.Login {
 			pub := r.Header.Get(CLIENT_PUBKEY)
 			if !util.CheckStrLen(pub, 1000, 1050) {
-				return ex.Throw{Code: http.StatusBadRequest, Msg: "客户端公钥无效"}
+				return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key invalid length"}
 			}
 			sign := r.Header.Get(CLIENT_PUBKEY_SIGN)
 			if !util.CheckStrLen(sign, 330, 350) {
-				return ex.Throw{Code: http.StatusBadRequest, Msg: "客户端公钥签名无效"}
+				return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key signature invalid length"}
 			}
 			headers[CLIENT_PUBKEY] = pub
 			headers[CLIENT_PUBKEY_SIGN] = sign
@@ -64,33 +64,33 @@ func (self *HttpNode) GetHeader() error {
 func (self *HttpNode) ValidRsaLogin(body []byte, req *ReqDto) error {
 	bs := util.Base64Decode(body)
 	if bs == nil {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "参数序列化失败"}
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "body base64 decode failed"}
 	}
 	pub, _ := self.Context.Headers[CLIENT_PUBKEY]
 	pub_dec, err := self.Certificate.Decrypt2048Pubkey(pub)
 	if err != nil {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "客户端公钥解析失败", Err: err}
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key decrypt failed", Err: err}
 	}
 	if pub_dec == nil || len(pub_dec) == 0 {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "客户端公钥解析无效", Err: err}
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key is nil", Err: err}
 	}
 	cliRsa := &gorsa.RsaObj{}
 	if err := cliRsa.LoadRsaPemFileByte(pub_dec); err != nil {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "客户端公钥加载失败", Err: err}
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key loading failed", Err: err}
 	}
 	sign, _ := self.Context.Headers[CLIENT_PUBKEY_SIGN]
 	if err := cliRsa.VerifyBySHA256(bs, sign); err != nil {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "客户端公钥验签失败", Err: err}
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key signature invalid", Err: err}
 	}
 	dec, err := self.Certificate.Decrypt(bs)
 	if err != nil {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err}
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter decrypt failed", Err: err}
 	}
 	if dec == nil || len(dec) == 0 {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "参数解析无效", Err: err}
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter is nil", Err: err}
 	}
 	if err := util.ParseJsonBase64(dec, req); err != nil {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "参数序列化失败", Err: err}
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter JSON parsing failed", Err: err}
 	}
 	self.Context.Storage[CLIENT_PUBKEY_OBJECT] = cliRsa
 	return nil
@@ -100,44 +100,44 @@ func (self *HttpNode) ValidRsaLogin(body []byte, req *ReqDto) error {
 func (self *HttpNode) Authenticate(req *ReqDto) error {
 	d, b := req.Data.(string)
 	if !b || len(d) == 0 {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "业务参数无效"}
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "request data is nil"}
 	}
 	if !util.CheckInt64(req.Plan, 0, 1) {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "计划参数无效"}
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "request plan invalid"}
 	}
 	if !util.CheckLen(req.Nonce, 8, 32) {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "随机参数无效"}
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "request nonce invalid"}
 	}
 	if req.Time <= 0 {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "时间参数为空"}
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "request time must be > 0"}
 	}
 	if util.MathAbs(util.TimeSecond()-req.Time) > jwt.FIVE_MINUTES { // 判断绝对时间差超过5分钟
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "时间参数无效"}
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "request time invalid"}
 	}
 	if self.Config.EncryptRequest && req.Plan != 1 {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "请求参数必须使用AES加密模式"}
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters must use AES encryption"}
 	}
 	if self.Config.Login && req.Plan == 1 {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "请求参数必须使用RSA加密模式"}
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters must use RSA encryption"}
 	}
 	if !self.Config.Login {
 		if !util.CheckStrLen(req.Sign, 32, 64) {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "签名参数无效"}
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature length invalid"}
 		}
 		if self.Context.GetDataSign(d, req.Nonce, req.Time, req.Plan) != req.Sign {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "数据包签名校验失败"}
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature invalid"}
 		}
 		if req.Plan == 1 { // AES
 			dec, err := util.AesDecrypt(d, self.Context.GetTokenSecret(), util.AddStr(req.Nonce, req.Time))
 			if err != nil {
-				return ex.Throw{Code: http.StatusBadRequest, Msg: "请求数据解码失败", Err: err}
+				return ex.Throw{Code: http.StatusBadRequest, Msg: "AES failed to parse data", Err: err}
 			}
 			d = dec
 		}
 	}
 	data := make(map[string]interface{}, 0)
 	if err := util.ParseJsonBase64(d, &data); err != nil {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "业务参数解析失败"}
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter JSON parsing failed"}
 	}
 	req.Data = data
 	self.Context.Params = req
@@ -150,14 +150,14 @@ func (self *HttpNode) GetParams() error {
 		r.ParseForm()
 		body, err := ioutil.ReadAll(r.Body)
 		if err != nil {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "获取参数失败", Err: err}
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "failed to read body parameters", Err: err}
 		}
 		r.Body.Close()
 		if len(body) == 0 {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "获取参数为空", Err: nil}
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters is nil"}
 		}
 		if len(body) > (MAX_VALUE_LEN * 5) {
-			return ex.Throw{Code: http.StatusLengthRequired, Msg: "参数值长度溢出"}
+			return ex.Throw{Code: http.StatusLengthRequired, Msg: "body parameters length is too long"}
 		}
 		if !self.Config.Original {
 			req := &ReqDto{}
@@ -166,7 +166,7 @@ func (self *HttpNode) GetParams() error {
 					return err
 				}
 			} else if err := util.JsonUnmarshal(body, req); err != nil {
-				return ex.Throw{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err}
+				return ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters JSON parsing failed", Err: err}
 			}
 			// TODO important
 			if err := self.Authenticate(req); err != nil {
@@ -184,37 +184,37 @@ func (self *HttpNode) GetParams() error {
 			}
 		} else {
 			if err := util.JsonUnmarshal(body, &data); err != nil {
-				return ex.Throw{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err}
+				return ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters JSON parsing failed", Err: err}
 			}
 		}
 		self.Context.Params = &ReqDto{Data: data}
 		return nil
 	} else if r.Method == GET {
 		if !self.Config.Original {
-			return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "暂不支持GET类型"}
+			return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "GET type is not supported"}
 		}
 		r.ParseForm()
 		body, err := ioutil.ReadAll(r.Body)
 		if err != nil {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "获取参数失败", Err: err}
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "failed to read body parameters", Err: err}
 		}
 		r.Body.Close()
 		if len(body) > (MAX_VALUE_LEN * 5) {
-			return ex.Throw{Code: http.StatusLengthRequired, Msg: "参数值长度溢出"}
+			return ex.Throw{Code: http.StatusLengthRequired, Msg: "body parameters length is too long"}
 		}
 		data := map[string]interface{}{}
 		if err := util.JsonUnmarshal(body, &data); err != nil {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err}
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters JSON parsing failed", Err: err}
 		}
 		self.Context.Params = &ReqDto{Data: data}
 	} else if r.Method == PUT {
-		return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "暂不支持PUT类型"}
+		return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "PUT type is not supported"}
 	} else if r.Method == PATCH {
-		return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "暂不支持PATCH类型"}
+		return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "PATCH type is not supported"}
 	} else if r.Method == DELETE {
-		return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "暂不支持DELETE类型"}
+		return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "DELETE type is not supported"}
 	} else {
-		return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "未知的请求类型"}
+		return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "unknown request type"}
 	}
 	return nil
 }
@@ -271,11 +271,11 @@ func (self *HttpNode) ValidSession() error {
 		return nil
 	}
 	if len(self.Context.Token) == 0 {
-		return ex.Throw{Code: http.StatusUnauthorized, Msg: "授权令牌为空"}
+		return ex.Throw{Code: http.StatusUnauthorized, Msg: "AccessToken is ni"}
 	}
 	subject := &jwt.Subject{}
 	if err := subject.Verify(self.Context.Token, self.JwtConfig().TokenKey); err != nil {
-		return ex.Throw{Code: http.StatusUnauthorized, Msg: "授权令牌无效或已过期", Err: err}
+		return ex.Throw{Code: http.StatusUnauthorized, Msg: "AccessToken is invalid or expired", Err: err}
 	}
 	self.Context.Roles = subject.GetTokenRole()
 	self.Context.Subject = subject.Payload
@@ -306,7 +306,7 @@ func (self *HttpNode) ValidPermission() error {
 	}
 	need, err := self.PermConfig(self.Context.Method)
 	if err != nil {
-		return ex.Throw{Code: http.StatusUnauthorized, Msg: "读取授权资源失败", Err: err}
+		return ex.Throw{Code: http.StatusUnauthorized, Msg: "failed to read authorization resource", Err: err}
 	} else if !need.ready { // 无授权资源配置,跳过
 		return nil
 	} else if need.NeedRole == nil || len(need.NeedRole) == 0 { // 无授权角色配置跳过
@@ -315,7 +315,7 @@ func (self *HttpNode) ValidPermission() error {
 	if need.NeedLogin == 0 { // 无登录状态,跳过
 		return nil
 	} else if !self.Context.Authenticated() { // 需要登录状态,会话为空,抛出异常
-		return ex.Throw{Code: http.StatusUnauthorized, Msg: "获取授权主体失败"}
+		return ex.Throw{Code: http.StatusUnauthorized, Msg: "login status required"}
 	}
 	access := 0
 	needAccess := len(need.NeedRole)
@@ -329,7 +329,7 @@ func (self *HttpNode) ValidPermission() error {
 			}
 		}
 	}
-	return ex.Throw{Code: http.StatusUnauthorized, Msg: "访问权限不足"}
+	return ex.Throw{Code: http.StatusUnauthorized, Msg: "access defined"}
 }
 
 func (self *HttpNode) Proxy(ptr *NodePtr) {
@@ -459,7 +459,7 @@ func (self *HttpNode) RenderTo() error {
 	case APPLICATION_JSON:
 		if self.Config.Original {
 			if result, err := util.JsonMarshal(self.Context.Response.ContentEntity); err != nil {
-				return ex.Throw{Code: http.StatusInternalServerError, Msg: "响应数据异常", Err: err}
+				return ex.Throw{Code: http.StatusInternalServerError, Msg: "response JSON data failed", Err: err}
 			} else {
 				self.Context.Output.Header().Set("Content-Type", APPLICATION_JSON)
 				self.Context.Output.Write(result)
@@ -468,7 +468,7 @@ func (self *HttpNode) RenderTo() error {
 		}
 		data, err := util.ToJsonBase64(self.Context.Response.ContentEntity)
 		if err != nil {
-			return ex.Throw{Code: http.StatusInternalServerError, Msg: "响应数据序列化失败", Err: err}
+			return ex.Throw{Code: http.StatusInternalServerError, Msg: "response conversion JSON failed", Err: err}
 		}
 		resp := &RespDto{
 			Code:    http.StatusOK,
@@ -481,27 +481,27 @@ func (self *HttpNode) RenderTo() error {
 			resp.Plan = 1
 			data, err := util.AesEncrypt(data, self.Context.GetTokenSecret(), util.AddStr(resp.Nonce, resp.Time))
 			if err != nil {
-				return ex.Throw{Code: http.StatusInternalServerError, Msg: "响应数据加密失败", Err: err}
+				return ex.Throw{Code: http.StatusInternalServerError, Msg: "AES encryption response data failed", Err: err}
 			}
 			resp.Data = data
 		}
 		if self.Config.Login {
 			sign, err := self.Context.GetDataRsaSign(self.Certificate, data, resp.Nonce, resp.Time, resp.Plan)
 			if err != nil {
-				return ex.Throw{Code: http.StatusInternalServerError, Msg: "响应数据加密失败", Err: err}
+				return ex.Throw{Code: http.StatusInternalServerError, Msg: "RSA login failed to generate signature data", Err: err}
 			}
 			resp.Sign = sign
 		} else {
 			resp.Sign = self.Context.GetDataSign(data, resp.Nonce, resp.Time, resp.Plan)
 		}
 		if result, err := util.JsonMarshal(resp); err != nil {
-			return ex.Throw{Code: http.StatusInternalServerError, Msg: "响应数据异常", Err: err}
+			return ex.Throw{Code: http.StatusInternalServerError, Msg: "response JSON data failed", Err: err}
 		} else {
 			self.Context.Output.Header().Set("Content-Type", APPLICATION_JSON)
 			self.Context.Output.Write(result)
 		}
 	default:
-		return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "无效的响应格式"}
+		return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "invalid response format"}
 	}
 	return nil
 }
@@ -517,7 +517,7 @@ func (self *HttpNode) StartServer() {
 		url := util.AddStr(self.Context.Host, ":", self.Context.Port)
 		log.Printf("http【%s】service has been started successfully", url)
 		if err := http.ListenAndServe(url, self.limiterTimeoutHandler()); err != nil {
-			log.Error("初始化http服务失败", 0, log.AddError(err))
+			log.Error("http service init failed", 0, log.AddError(err))
 		}
 	}()
 	select {}
@@ -543,7 +543,7 @@ func (self *HttpNode) limiterTimeoutHandler() http.Handler {
 	if self.DisconnectTimeout <= 0 {
 		self.DisconnectTimeout = 180
 	}
-	errmsg := `{"c":408,"m":"服务端主动断开客户端连接","d":null,"t":%d,"n":"%s","p":0,"s":""}`
+	errmsg := `{"c":408,"m":"server actively disconnects the client","d":null,"t":%d,"n":"%s","p":0,"s":""}`
 	return http.TimeoutHandler(handler, time.Duration(self.DisconnectTimeout)*time.Second, fmt.Sprintf(errmsg, util.Time(), util.GetSnowFlakeStrID()))
 }
 
@@ -557,14 +557,14 @@ func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, co
 		pattern = util.AddStr("/", self.Context.Version, pattern)
 	}
 	if self.CacheAware == nil {
-		log.Error("缓存服务尚未初始化", 0)
+		log.Error("cache service hasn't been initialized", 0)
 		return
 	}
 	if self.Certificate == nil {
 		cert := &gorsa.RsaObj{}
 		_, _, err := cert.CreateRsaFileBase64()
 		if err != nil {
-			log.Error("RSA证书生成失败", 0)
+			log.Error("RSA certificate generation failed", 0)
 			return
 		}
 		self.Certificate = cert

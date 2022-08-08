@@ -157,7 +157,7 @@ func (self *ConsulManager) Client(dsname ...string) (*ConsulManager, error) {
 	}
 	manager := consul_sessions[ds]
 	if manager == nil {
-		return nil, util.Error("consul session [", ds, "] notfound...")
+		return nil, util.Error("consul session [", ds, "] not found...")
 	}
 	return manager, nil
 }
@@ -167,7 +167,7 @@ func (self *ConsulManager) GetJsonValue(key string, result interface{}, isEncryp
 	client := self.Consulx
 	kv := client.KV()
 	if kv == nil {
-		return util.Error("consul node [", key, "] notfound...")
+		return util.Error("consul node [", key, "] not found...")
 	}
 	k, _, err := kv.Get(key, nil)
 	if err != nil {
@@ -186,7 +186,7 @@ func (self *ConsulManager) GetTextValue(key string) ([]byte, error) {
 	client := self.Consulx
 	kv := client.KV()
 	if kv == nil {
-		return nil, util.Error("consul node [", key, "] notfound...")
+		return nil, util.Error("consul node [", key, "] not found...")
 	}
 	k, _, err := kv.Get(key, nil)
 	if err != nil {
@@ -355,7 +355,7 @@ func (self *ConsulManager) AddRPC(callInfo ...*CallInfo) {
 		registration.Address = addr
 		registration.Port = self.Config.RpcPort
 		registration.Meta = make(map[string]string, 0)
-		registration.Check = &consulapi.AgentServiceCheck{HTTP: fmt.Sprintf("http://%s:%d%s", registration.Address, self.Config.CheckPort, self.Config.CheckPath), Timeout: self.Config.Timeout, Interval: self.Config.Interval, DeregisterCriticalServiceAfter: self.Config.DestroyAfter,}
+		registration.Check = &consulapi.AgentServiceCheck{HTTP: fmt.Sprintf("http://%s:%d%s", registration.Address, self.Config.CheckPort, self.Config.CheckPath), Timeout: self.Config.Timeout, Interval: self.Config.Interval, DeregisterCriticalServiceAfter: self.Config.DestroyAfter}
 		// 启动RPC服务
 		log.Println(util.AddStr("rpc service [", registration.Name, "][", registration.Address, "] added successful"))
 		if err := self.Consulx.Agent().ServiceRegister(registration); err != nil {

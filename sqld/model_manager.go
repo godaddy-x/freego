@@ -47,15 +47,15 @@ func Model(v interface{}) func() interface{} {
 
 func ModelDriver(hook ...Hook) error {
 	if hook == nil || len(hook) == 0 {
-		return util.Error("注册对象函数不能为空")
+		return util.Error("hook is nil")
 	}
 	for _, v := range hook {
 		model := v.NewObj()
 		if model == nil {
-			return util.Error("注册对象不能为空")
+			return util.Error("hook model is nil")
 		}
 		if reflect.ValueOf(model).Kind() != reflect.Ptr {
-			return util.Error("注册对象必须为指针类型")
+			return util.Error("hook model must be a pointer type")
 		}
 		v := &MdlDriver{
 			Hook:      v,

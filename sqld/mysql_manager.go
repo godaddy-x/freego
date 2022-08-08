@@ -46,12 +46,12 @@ func (self *MysqlManager) buildByConfig(manager cache.ICache, input ...MysqlConf
 			dsName = v.DsName
 		}
 		if _, b := rdbs[dsName]; b {
-			return util.Error("mysql初始化失败: [", v.DsName, "]已存在")
+			return util.Error("mysql init failed: [", v.DsName, "] exist")
 		}
 		link := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8", v.Username, v.Password, v.Host, v.Port, v.Database)
 		db, err := sql.Open("mysql", link)
 		if err != nil {
-			return util.Error("mysql初始化失败: ", err)
+			return util.Error("mysql init failed: ", err)
 		}
 		db.SetMaxIdleConns(v.MaxIdleConns)
 		db.SetMaxOpenConns(v.MaxOpenConns)
@@ -78,7 +78,7 @@ func (self *MysqlManager) buildByConfig(manager cache.ICache, input ...MysqlConf
 		log.Printf("mysql service【%s】has been started successfully", v.DsName)
 	}
 	if len(rdbs) == 0 {
-		return util.Error("mysql连接初始化失败: 数据源为0")
+		return util.Error("mysql init failed: sessions is nil")
 	}
 	return nil
 }

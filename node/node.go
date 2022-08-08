@@ -200,7 +200,7 @@ func (self *Context) GetDataRsaSign(rsaObj *gorsa.RsaObj, d, n string, t, p int6
 	msg := util.Str2Bytes(util.AddStr(self.Method, d, n, t, p))
 	r, err := rsaObj.SignBySHA256(msg)
 	if err != nil {
-		return "", ex.Throw{Code: ex.BIZ, Msg: "RSA签名失败", Err: err}
+		return "", ex.Throw{Code: ex.BIZ, Msg: "RSA failed to generate signature", Err: err}
 	}
 	return util.Base64Encode(r), nil
 }
@@ -216,11 +216,11 @@ func (self *Context) GetStorageStringValue(k string) string {
 func (self *Context) GetRsaSecret(secret string) (string, error) {
 	obj, ok := self.Storage[CLIENT_PUBKEY_OBJECT]
 	if !ok {
-		return "", ex.Throw{Code: http.StatusBadRequest, Msg: "客户端公钥无效"}
+		return "", ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key is nil"}
 	}
 	res, err := obj.(*gorsa.RsaObj).Encrypt(util.Str2Bytes(secret))
 	if err != nil {
-		return "", ex.Throw{Code: http.StatusBadRequest, Msg: "客户端公钥加密数据失败"}
+		return "", ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key failed to encrypt data"}
 	}
 	return util.Base64Encode(res), nil
 }
@@ -234,7 +234,7 @@ func (self *Context) Authenticated() bool {
 
 func (self *Context) Parser(v interface{}) error {
 	if err := util.JsonToAny(self.Params.Data, v); err != nil {
-		msg := "参数解析异常"
+		msg := "JSON parameter parsing failed"
 		log.Error(msg, 0, log.String("method", self.Method), log.String("host", self.Host), log.String("device", self.Device), log.Any("data", self.Params))
 		return ex.Throw{Msg: msg}
 	}
