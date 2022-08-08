@@ -45,11 +45,11 @@ func (self *HttpNode) GetHeader() error {
 		headers[Authorization] = r.Header.Get(Authorization)
 		if self.Config.Login {
 			pub := r.Header.Get(CLIENT_PUBKEY)
-			if !util.CheckStrLen(pub, 340, 350) {
+			if !util.CheckStrLen(pub, 1000, 1050) {
 				return ex.Throw{Code: http.StatusBadRequest, Msg: "客户端公钥无效"}
 			}
 			sign := r.Header.Get(CLIENT_PUBKEY_SIGN)
-			if !util.CheckStrLen(sign, 110, 120) {
+			if !util.CheckStrLen(sign, 330, 350) {
 				return ex.Throw{Code: http.StatusBadRequest, Msg: "客户端公钥签名无效"}
 			}
 			headers[CLIENT_PUBKEY] = pub
@@ -67,11 +67,7 @@ func (self *HttpNode) ValidRsaLogin(body []byte, req *ReqDto) error {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "参数序列化失败"}
 	}
 	pub, _ := self.Context.Headers[CLIENT_PUBKEY]
-	pub_bs := util.Base64Decode(pub)
-	if pub_bs == nil || len(pub_bs) == 0 {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "公钥参数序列化失败"}
-	}
-	pub_dec, err := self.Certificate.Decrypt(pub_bs)
+	pub_dec, err := self.Certificate.Decrypt2048Pubkey(pub)
 	if err != nil {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "客户端公钥解析失败", Err: err}
 	}
@@ -516,7 +512,7 @@ func (self *HttpNode) StartServer() {
 			log.Printf("cache service has been started successfully")
 		}
 		if self.Certificate != nil {
-			log.Printf("server【rsa2048/sha256】-> client【rsa668/sha256】certificate service has been started successfully")
+			log.Printf("server/client【rsa2048/sha256】certificate service has been started successfully")
 		}
 		url := util.AddStr(self.Context.Host, ":", self.Context.Port)
 		log.Printf("http【%s】service has been started successfully", url)

@@ -10,6 +10,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"os"
+	"strings"
 )
 
 const rsa_bits = 2048
@@ -179,12 +180,62 @@ func (self *RsaObj) Encrypt(msg []byte) ([]byte, error) {
 	return res, nil
 }
 
+func (self *RsaObj) Encrypt2048Pubkey(pubkey string) (string, error) {
+	if len(pubkey) < 550 && len(pubkey) > 600 {
+		return "", errors.New("invalid pubkey")
+	}
+	result := ""
+	index := 0
+	for ; ; {
+		if index >= 600 {
+			break
+		}
+		var part string
+		if index >= 400 {
+			part = pubkey[index:]
+		} else {
+			part = pubkey[index : index+200]
+		}
+		res, err := rsa.EncryptPKCS1v15(rand.Reader, self.pubkey, []byte(part))
+		if err != nil {
+			return "", err
+		}
+		result = result + "." + base64.StdEncoding.EncodeToString(res)
+		index += 200
+	}
+	return result[1:], nil
+}
+
 func (self *RsaObj) Decrypt(msg []byte) ([]byte, error) {
 	res, err := rsa.DecryptPKCS1v15(rand.Reader, self.prikey, msg)
 	if err != nil {
 		return nil, err
 	}
 	return res, nil
+}
+
+func (self *RsaObj) Decrypt2048Pubkey(msg string) ([]byte, error) {
+	parts := strings.Split(msg, ".")
+	if len(parts) != 3 {
+		return nil, errors.New("invalid pubkey length")
+	}
+	result := ""
+	for _, v := range parts {
+		bs, err := base64.StdEncoding.DecodeString(v)
+		if err != nil {
+			return nil, err
+		}
+		res, err := rsa.DecryptPKCS1v15(rand.Reader, self.prikey, bs)
+		if err != nil {
+			return nil, err
+		}
+		result += string(res)
+	}
+	pub_dec, err := base64.StdEncoding.DecodeString(result)
+	if err != nil {
+		return nil, err
+	}
+	return pub_dec, nil
 }
 
 func (self *RsaObj) SignBySHA256(msg []byte) ([]byte, error) {
