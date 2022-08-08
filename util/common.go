@@ -465,32 +465,32 @@ func MD5(s string, useBase64 ...bool) string {
 
 // HMAC-MD5加密
 func HMAC_MD5(data, key string, useBase64 ...bool) string {
-	hmac := hmac.New(md5.New, []byte(key))
-	hmac.Write([]byte(data))
+	hmac := hmac.New(md5.New, Str2Bytes(key))
+	hmac.Write(Str2Bytes(data))
 	if len(useBase64) == 0 {
-		return hex.EncodeToString(hmac.Sum([]byte("")))
+		return hex.EncodeToString(hmac.Sum([]byte(nil)))
 	}
-	return Base64Encode(hmac.Sum([]byte("")))
+	return Base64Encode(hmac.Sum([]byte(nil)))
 }
 
 // HMAC-SHA1加密
 func HMAC_SHA1(data, key string, useBase64 ...bool) string {
-	hmac := hmac.New(sha1.New, []byte(key))
-	hmac.Write([]byte(data))
+	hmac := hmac.New(sha1.New, Str2Bytes(key))
+	hmac.Write(Str2Bytes(data))
 	if len(useBase64) == 0 {
-		return hex.EncodeToString(hmac.Sum([]byte("")))
+		return hex.EncodeToString(hmac.Sum([]byte(nil)))
 	}
-	return Base64Encode(hmac.Sum([]byte("")))
+	return Base64Encode(hmac.Sum([]byte(nil)))
 }
 
 // HMAC-SHA256加密
 func HMAC_SHA256(data, key string, useBase64 ...bool) string {
-	hmac := hmac.New(sha256.New, []byte(key))
-	hmac.Write([]byte(data))
+	hmac := hmac.New(sha256.New, Str2Bytes(key))
+	hmac.Write(Str2Bytes(data))
 	if len(useBase64) == 0 {
-		return hex.EncodeToString(hmac.Sum([]byte("")))
+		return hex.EncodeToString(hmac.Sum([]byte(nil)))
 	}
-	return Base64Encode(hmac.Sum([]byte("")))
+	return Base64Encode(hmac.Sum([]byte(nil)))
 }
 
 // SHA256加密

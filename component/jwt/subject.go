@@ -117,7 +117,7 @@ func (self *Subject) Signature(text, key string) string {
 }
 
 func (self *Subject) GetTokenSecret(token string) string {
-	return util.SHA256(util.SHA256(token, true) + util.MD5(util.GetLocalSecretKey()) + util.GetLocalSecretKey())
+	return util.SHA256(util.SHA256(token, true)+util.MD5(util.GetLocalSecretKey())+util.GetLocalSecretKey(), true)
 }
 
 func (self *Subject) Verify(token, key string) error {
