@@ -155,11 +155,6 @@ func TestRsaLogin(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	//clientSign, _ := cliRsa.SignBySHA256(loginDataRes)
-	//clipubkeyEncrpty, err := srvRsa.EncryptPubkey(cliRsa.PubkeyBase64)
-	//if err != nil {
-	//	panic(err)
-	//}
 	secret := ToPostByLogin(path, loginDataRes, servePubkey)
 	bs, err := cliRsa.Decrypt(util.Base64Decode(secret))
 	if err != nil {

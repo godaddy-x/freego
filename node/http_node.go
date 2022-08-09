@@ -453,11 +453,11 @@ func (self *HttpNode) RenderTo() error {
 			return ex.Throw{Code: http.StatusInternalServerError, Msg: "response conversion JSON failed", Err: err}
 		}
 		resp := &RespDto{
-			Code:    http.StatusOK,
-			Message: "success",
-			Time:    util.Time(),
-			Data:    data,
-			Nonce:   self.Context.Params.Nonce,
+			Code: http.StatusOK,
+			//Message: "success",
+			Time:  util.Time(),
+			Data:  data,
+			Nonce: self.Context.Params.Nonce,
 		}
 		if self.RouterConfig.EncryptResponse {
 			resp.Plan = 1
