@@ -402,7 +402,7 @@ func (self *HttpNode) RenderError(err error) error {
 		Time:    util.Time(),
 	}
 	if !self.Context.Authenticated() {
-		resp.Nonce = util.GetSnowFlakeStrID()
+		resp.Nonce = util.RandNonce()
 	} else {
 		resp.Nonce = self.Context.Params.Nonce
 	}

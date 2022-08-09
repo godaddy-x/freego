@@ -36,7 +36,7 @@ var (
 	snowflakes       = make(map[int64]*snowflake.Node, 0)
 	mu               sync.Mutex
 	random_byte_sp   = Str2Bytes("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!@#$%^&*")
-	local_secret_key = createLocalSecretKey()
+	local_secret_key = createDefaultLocalSecretKey()
 )
 
 const (
@@ -59,10 +59,18 @@ func GetLocalSecretKey() string {
 	return local_secret_key
 }
 
-func createLocalSecretKey() string {
-	a := []int{65, 68, 45, 34, 67, 23, 53, 61, 12, 69, 23, 42, 24, 66, 29, 39, 10, 1, 8, 55, 60, 40, 64, 62}
-	result := []byte{}
-	for _, v := range a {
+func createDefaultLocalSecretKey() string {
+	arr := []int{65, 68, 45, 34, 67, 23, 53, 61, 12, 69, 23, 42, 24, 66, 29, 39, 10, 1, 8, 55, 60, 40, 64, 62}
+	return CreateLocalSecretKey(arr...)
+}
+
+func CreateLocalSecretKey(arr ...int) string {
+	l := len(random_byte_sp)
+	var result []byte
+	for _, v := range arr {
+		if v > l {
+			panic("key arr value > random length")
+		}
 		result = append(result, random_byte_sp[v])
 	}
 	return Bytes2Str(result)
@@ -71,7 +79,7 @@ func createLocalSecretKey() string {
 // 对象转JSON字符串
 func JsonMarshal(v interface{}) ([]byte, error) {
 	if v == nil {
-		return nil, errors.New("参数不能为空")
+		return nil, errors.New("data is nil")
 	}
 	return json.Marshal(v)
 }

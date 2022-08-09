@@ -47,3 +47,7 @@ func RandStr(n int, b ...bool) string {
 func RandInt(n int) string {
 	return gorand(n, numbers)
 }
+
+func RandNonce() string {
+	return RandStr(10)
+}

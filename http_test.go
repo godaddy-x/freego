@@ -13,8 +13,8 @@ import (
 
 const domain = "http://localhost:8090"
 
-const access_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOjEyMzQ1NiwiYXVkIjoiMjIyMjIiLCJpc3MiOiIxMTExIiwiaWF0IjoxNjU5OTQ3OTU2LCJleHAiOjE2NjExNTc1NTYsImRldiI6IkFQUCIsImp0aSI6IjVlMDgwOTA1N2U2OWYzOTEwNDY0YmM2N2RjNjZiZDZkZGYzM2QwZWVhM2I1ZGExMTgxMWVhZjY5NzQzZDAyMmMiLCJuc3IiOiJlMzY0MWU3MTczZGU4ZmNmIiwiZXh0Ijp7InRlc3QiOiIxMSIsInRlc3QyIjoiMjIyIn19.IBYD2IEREzGyxhLySG8BXdSfgMevdvS2LGZuvM/Ca7k="
-const token_secret = "BvsZ+46Wwlj6E904VcfG8sZ7fEVfVbf8zAvFN3iFtf0="
+const access_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOjEyMzQ1NiwiYXVkIjoiIiwiaXNzIjoiIiwiaWF0IjowLCJleHAiOjE2NjEyMzY2NzIsImRldiI6IkFQUCIsImp0aSI6IisxQkxQQVZFSjdTcWpyZXVma0l1ODlhNTRaakRhVDRQT3grNHU0aWtUYzQ9IiwiZXh0Ijp7fX0=.fV3PoyChfaRLS4DfzR4d5OAeT/f7KqfY4fYxTv+hldk="
+const token_secret = "eDi3MbyznGsaN748X5rlwrZy4FAzMyNLJ+iGbLnqhKk="
 
 //const access_token = ""
 //const token_secret = ""
@@ -142,7 +142,7 @@ func TestRsaLogin(t *testing.T) {
 	req := &node.ReqDto{
 		Data:  data,
 		Time:  util.TimeSecond(),
-		Nonce: util.GetSnowFlakeStrID(),
+		Nonce: util.RandNonce(),
 		Plan:  int64(0),
 		Sign:  cliRsa.PubkeyBase64,
 	}
@@ -175,7 +175,7 @@ func TestGetUser(t *testing.T) {
 	req := &node.ReqDto{
 		Data:  data,
 		Time:  util.TimeSecond(),
-		Nonce: util.GetSnowFlakeStrID(),
+		Nonce: util.RandNonce(),
 		Plan:  int64(1),
 		Sign:  "",
 	}
@@ -189,7 +189,7 @@ func BenchmarkLogin(b *testing.B) {
 	req := &node.ReqDto{
 		Data:  data,
 		Time:  util.TimeSecond(),
-		Nonce: util.GetSnowFlakeStrID(),
+		Nonce: util.RandNonce(),
 		Plan:  int64(1),
 		Sign:  "",
 	}
@@ -203,7 +203,7 @@ func BenchmarkGetUser(b *testing.B) {
 	req := &node.ReqDto{
 		Data:  data,
 		Time:  util.TimeSecond(),
-		Nonce: util.GetSnowFlakeStrID(),
+		Nonce: util.RandNonce(),
 		Plan:  int64(0),
 		Sign:  "",
 	}

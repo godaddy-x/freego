@@ -102,7 +102,7 @@ func (self *MyWebNode) login(ctx *node.Context) error {
 	subject := &jwt.Subject{}
 	//self.LoginBySubject(subject, exp)
 	config := ctx.JwtConfig()
-	token := subject.Create(123456).Iss("1111").Aud("22222").Extinfo("test", "11").Extinfo("test2", "222").Dev("APP").Generate(config)
+	token := subject.Create(123456).Dev("APP").Generate(config)
 	secret, err := ctx.GetRsaSecret(jwt.GetTokenSecret(token, config.TokenKey))
 	if err != nil {
 		return err
@@ -120,11 +120,13 @@ func (self *MyWebNode) callrpc(ctx *node.Context) error {
 	return self.Json(ctx, map[string]interface{}{"test": "无权限接口测试"})
 }
 
+var tokenKey = "123456" + util.CreateLocalSecretKey(12, 45, 23, 60, 58, 30)
+
 func GetJwtConfig() jwt.JwtConfig {
 	return jwt.JwtConfig{
-		TokenKey: "123456",
-		TokenAlg: jwt.HS256,
 		TokenTyp: jwt.JWT,
+		TokenAlg: jwt.HS256,
+		TokenKey: tokenKey,
 	}
 }
 
