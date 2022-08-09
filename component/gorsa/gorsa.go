@@ -1,6 +1,7 @@
 package gorsa
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
@@ -10,7 +11,6 @@ import (
 	"encoding/pem"
 	"errors"
 	"os"
-	"strings"
 )
 
 const rsa_bits = 2048
@@ -188,58 +188,33 @@ func (self *RsaObj) Decrypt(msg []byte) ([]byte, error) {
 	return res, nil
 }
 
-// support 1024/2048
-func (self *RsaObj) EncryptPlanText(pubkey string) (string, error) {
-	size := 200
-	count := 0
-	length := len(pubkey)
-	if length%size == 0 {
-		count = length / size
-	} else {
-		count = length/size + 1
-	}
-	result := ""
-	index := 0
-	for i := 1; i <= count; i++ {
-		var part string
-		if i == count {
-			part = pubkey[index:]
-		} else {
-			part = pubkey[index : index+size]
-		}
-		res, err := rsa.EncryptPKCS1v15(rand.Reader, self.pubkey, []byte(part))
+func (self *RsaObj) EncryptPlanText(msg string) (string, error) {
+	partLen := self.pubkey.N.BitLen()/8 - 11
+	chunks := split([]byte(msg), partLen)
+	buffer := bytes.NewBufferString("")
+	for _, chunk := range chunks {
+		bytes, err := rsa.EncryptPKCS1v15(rand.Reader, self.pubkey, chunk)
 		if err != nil {
 			return "", err
 		}
-		result = result + "." + base64.StdEncoding.EncodeToString(res)
-		index += size
+		buffer.Write(bytes)
 	}
-	return result[1:], nil
+	return base64.RawURLEncoding.EncodeToString(buffer.Bytes()), nil
 }
 
-// support 1024/2048
-func (self *RsaObj) DecryptPlanText(msg string) ([]byte, error) {
-	parts := strings.Split(msg, ".")
-	if len(parts) > 6 {
-		return nil, errors.New("invalid base64 data length")
-	}
-	result := ""
-	for _, v := range parts {
-		bs, err := base64.StdEncoding.DecodeString(v)
+func (self *RsaObj) DecryptPlanText(msg string) (string, error) {
+	partLen := self.pubkey.N.BitLen() / 8
+	raw, err := base64.RawURLEncoding.DecodeString(msg)
+	chunks := split([]byte(raw), partLen)
+	buffer := bytes.NewBufferString("")
+	for _, chunk := range chunks {
+		decrypted, err := rsa.DecryptPKCS1v15(rand.Reader, self.prikey, chunk)
 		if err != nil {
-			return nil, err
+			return "", err
 		}
-		res, err := rsa.DecryptPKCS1v15(rand.Reader, self.prikey, bs)
-		if err != nil {
-			return nil, err
-		}
-		result += string(res)
+		buffer.Write(decrypted)
 	}
-	dec, err := base64.StdEncoding.DecodeString(result)
-	if err != nil {
-		return nil, err
-	}
-	return dec, nil
+	return buffer.String(), err
 }
 
 func (self *RsaObj) SignBySHA256(msg []byte) ([]byte, error) {
@@ -266,4 +241,17 @@ func (self *RsaObj) VerifyBySHA256(msg []byte, sign string) error {
 		return err
 	}
 	return nil
+}
+
+func split(buf []byte, lim int) [][]byte {
+	var chunk []byte
+	chunks := make([][]byte, 0, len(buf)/lim+1)
+	for len(buf) >= lim {
+		chunk, buf = buf[:lim], buf[lim:]
+		chunks = append(chunks, chunk)
+	}
+	if len(buf) > 0 {
+		chunks = append(chunks, buf[:])
+	}
+	return chunks
 }

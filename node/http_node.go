@@ -50,17 +50,17 @@ func (self *HttpNode) GetHeader() error {
 }
 
 func (self *HttpNode) ValidRsaLogin(body []byte, req *ReqDto) error {
-	if len(body) > 2000 {
+	if len(body) > 1500 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "rsa login data length invalid"}
 	}
 	dec, err := self.Context.Certificate.DecryptPlanText(util.Bytes2Str(body))
 	if err != nil {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "server private-key decrypt failed", Err: err}
 	}
-	if dec == nil || len(dec) == 0 {
+	if len(dec) == 0 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "server private-key decrypt data is nil", Err: err}
 	}
-	if err := util.JsonUnmarshal(dec, req); err != nil {
+	if err := util.ParseJsonBase64(dec, req); err != nil {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter JSON parsing failed", Err: err}
 	}
 	if len(req.Sign) == 0 {
@@ -96,7 +96,7 @@ func (self *HttpNode) Authenticate(req *ReqDto) error {
 	if util.MathAbs(util.TimeSecond()-req.Time) > jwt.FIVE_MINUTES { // 判断绝对时间差超过5分钟
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request time invalid"}
 	}
-	if self.RouterConfig.EncryptRequest && req.Plan != 1 {
+	if self.RouterConfig.AesRequest && req.Plan != 1 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters must use AES encryption"}
 	}
 	if self.RouterConfig.Login && req.Plan == 1 {
@@ -459,7 +459,7 @@ func (self *HttpNode) RenderTo() error {
 			Data:  data,
 			Nonce: self.Context.Params.Nonce,
 		}
-		if self.RouterConfig.EncryptResponse {
+		if self.RouterConfig.AesResponse {
 			resp.Plan = 1
 			data, err := util.AesEncrypt(data, self.Context.GetTokenSecret(), util.AddStr(resp.Nonce, resp.Time))
 			if err != nil {

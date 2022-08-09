@@ -66,11 +66,11 @@ type NodePtr struct {
 }
 
 type RouterConfig struct {
-	Guest           bool // 游客模式 false.否 true.是
-	Login           bool // 是否登录请求 false.否 true.是
-	Original        bool // 是否原始方式 false.否 true.是
-	EncryptRequest  bool // 请求是否必须AES加密 false.否 true.是
-	EncryptResponse bool // 响应是否必须AES加密 false.否 true.是
+	Guest       bool // 游客模式 false.否 true.是
+	Login       bool // 是否登录请求 false.否 true.是
+	Original    bool // 是否原始方式 false.否 true.是
+	AesRequest  bool // 请求是否必须AES加密 false.否 true.是
+	AesResponse bool // 响应是否必须AES加密 false.否 true.是
 }
 
 type LogHandleRes struct {

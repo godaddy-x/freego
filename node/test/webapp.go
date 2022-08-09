@@ -178,9 +178,9 @@ func StartHttpNode() {
 		},
 	}
 	my.Router("/test1", my.test, nil)
-	my.Router("/test2", my.test2, &node.RouterConfig{EncryptRequest: true, EncryptResponse: true})
+	my.Router("/test2", my.test2, &node.RouterConfig{})
 	my.Router("/pubkey", my.pubkey, &node.RouterConfig{Original: true, Guest: true})
 	my.Router("/login2", my.login, &node.RouterConfig{Login: true})
-	my.Router("/callrpc", my.login, &node.RouterConfig{Guest: false, EncryptRequest: false, EncryptResponse: false})
+	my.Router("/callrpc", my.login, &node.RouterConfig{Guest: false, AesRequest: false, AesResponse: false})
 	my.StartServer()
 }
