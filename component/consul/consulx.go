@@ -349,7 +349,7 @@ func (self *ConsulManager) AddRPC(callInfo ...*CallInfo) {
 		if exist {
 			continue
 		}
-		registration.ID = util.GetUUID()
+		registration.ID = util.MD5(util.GetSnowFlakeStrID()+util.RandStr(6, true), true)
 		registration.Name = srvName
 		registration.Tags = info.Tags
 		registration.Address = addr

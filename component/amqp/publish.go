@@ -130,7 +130,7 @@ func (self *PublishManager) initQueue(data *MsgData) (*PublishMQ, error) {
 		data.Option.SigKey = util.GetLocalSecretKey() + self.conf.SecretKey
 	}
 	if len(data.Nonce) == 0 {
-		data.Nonce = util.Random6str()
+		data.Nonce = util.RandStr(6)
 	}
 	chanKey := util.AddStr(data.Option.Exchange, data.Option.Router, data.Option.Queue)
 	// 判断生成通道

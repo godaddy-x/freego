@@ -46,7 +46,6 @@ type Payload struct {
 	Exp int64             `json:"exp"` // 授权token过期时间
 	Dev string            `json:"dev"` // 设备类型,web/app
 	Jti string            `json:"jti"` // 唯一身份标识,主要用来作为一次性token,从而回避重放攻击
-	Nsr string            `json:"nsr"` // 随机种子
 	Ext map[string]string `json:"ext"` // 扩展信息
 }
 
@@ -56,14 +55,10 @@ func (self *Subject) AddHeader(config JwtConfig) *Subject {
 }
 
 func (self *Subject) Create(sub int64) *Subject {
-	nsr := util.Substr(util.MD5(util.GetSnowFlakeStrID()), 5, 21)
-	iat := util.TimeSecond()
 	self.Payload = &Payload{
 		Sub: sub,
-		Iat: iat,
-		Exp: iat + TWO_WEEK,
-		Jti: util.HMAC_SHA256(util.GetSnowFlakeStrID(), nsr),
-		Nsr: nsr,
+		Exp: util.TimeSecond() + TWO_WEEK,
+		Jti: util.SHA256(util.GetSnowFlakeStrID()+util.RandStr(6, true), true),
 		Ext: map[string]string{},
 	}
 	return self
@@ -72,7 +67,11 @@ func (self *Subject) Create(sub int64) *Subject {
 // exp seconds
 func (self *Subject) Expired(exp int64) *Subject {
 	if exp > 0 {
-		self.Payload.Exp = self.Payload.Iat + exp
+		if self.Payload.Iat > 0 {
+			self.Payload.Exp = self.Payload.Iat + exp
+		} else {
+			self.Payload.Exp = util.TimeSecond() + exp
+		}
 	}
 	return self
 }

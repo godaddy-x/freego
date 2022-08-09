@@ -15,7 +15,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"github.com/godaddy-x/freego/component/decimal"
 	"github.com/godaddy-x/freego/component/snowflake"
 	"io/ioutil"
@@ -33,14 +32,11 @@ import (
 )
 
 var (
-	cst_sh, _          = time.LoadLocation("Asia/Shanghai") //上海
-	snowflakes         = make(map[int64]*snowflake.Node, 0)
-	mu                 sync.Mutex
-	random_byte        = Str2Bytes("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
-	random_byte_len    = len(random_byte)
-	random_byte_sp     = Str2Bytes("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!@#$%^&*")
-	random_byte_sp_len = len(random_byte_sp)
-	local_secret_key   = createLocalSecretKey()
+	cst_sh, _        = time.LoadLocation("Asia/Shanghai") //上海
+	snowflakes       = make(map[int64]*snowflake.Node, 0)
+	mu               sync.Mutex
+	random_byte_sp   = Str2Bytes("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!@#$%^&*")
+	local_secret_key = createLocalSecretKey()
 )
 
 const (
@@ -379,18 +375,6 @@ func GetSnowFlakeStrID(sec ...int64) string {
 	return AnyToStr(GetSnowFlakeIntID(sec...))
 }
 
-// 获取UUID
-func GetUUID() string {
-	b := make([]byte, 16)
-	_, err := rand.Read(b)
-	if err != nil {
-		fmt.Println("generate UUID failed: ", err)
-		return ""
-	}
-	return fmt.Sprintf("%x-%x-%x-%x-%x",
-		b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
-}
-
 // 获取雪花int64 ID,默认为0区
 func GetSnowFlakeIntID(sec ...int64) int64 {
 	seed := int64(0)
@@ -593,16 +577,6 @@ func ParseJsonBase64(input interface{}, ouput interface{}) error {
 	return JsonUnmarshal(b, ouput)
 }
 
-// 随机获得6位数字
-func Random6str() string {
-	return fmt.Sprintf("%06v", rand.New(rand.NewSource(GetSnowFlakeIntID())).Int31n(1000000))
-}
-
-// 获取随机区间数值
-func RandomInt(max int) int {
-	return rand.New(rand.NewSource(GetSnowFlakeIntID())).Intn(max) + 1
-}
-
 // 获取项目绝对路径
 func GetPath() string {
 	if path, err := os.Getwd(); err != nil {
@@ -713,22 +687,6 @@ func Shift(input interface{}, ln int, fz bool) string {
 		part1 = AddStr(part1, ".", part2)
 	}
 	return part1
-}
-
-// 雪花算法种子,高效随机值生成,sp=true复杂组合模式
-func GetRandStr(n int, sp ...bool) string {
-	result := []byte{}
-	r := rand.New(rand.NewSource(GetSnowFlakeIntID()))
-	if sp == nil || len(sp) != 1 {
-		for i := 0; i < n; i++ {
-			result = append(result, random_byte[r.Intn(random_byte_len)])
-		}
-	} else {
-		for i := 0; i < n; i++ {
-			result = append(result, random_byte_sp[r.Intn(random_byte_sp_len)])
-		}
-	}
-	return Bytes2Str(result)
 }
 
 // 获取动态区间ID

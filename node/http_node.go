@@ -43,24 +43,8 @@ func (self *HttpNode) GetHeader() error {
 	} else {
 		headers[USER_AGENT] = r.Header.Get(USER_AGENT)
 		headers[Authorization] = r.Header.Get(Authorization)
-		if self.RouterConfig.Login {
-			// 1024 pubkey len:  689  pubkey sign len:  172
-			// 2048 pubkey len:  1034  pubkey sign len:  344
-			//pub := r.Header.Get(CLIENT_PUBKEY)
-			//if util.CheckStrLen(pub, 680, 700) || util.CheckStrLen(pub, 1020, 1040) {
-			//	headers[CLIENT_PUBKEY] = pub
-			//} else {
-			//	return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key invalid length"}
-			//}
-			//sign := r.Header.Get(CLIENT_PUBKEY_SIGN)
-			//if util.CheckStrLen(sign, 160, 180) || util.CheckStrLen(sign, 330, 350) {
-			//	headers[CLIENT_PUBKEY_SIGN] = sign
-			//} else {
-			//	return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key signature invalid"}
-			//}
-		}
 	}
-	self.Context.Token = headers["Authorization"]
+	self.Context.Token = headers[Authorization]
 	self.Context.Headers = headers
 	return nil
 }
