@@ -151,7 +151,7 @@ func TestRsaLogin(t *testing.T) {
 		panic(err)
 	}
 	loginData, _ := util.ToJsonBase64(req)
-	loginDataRes, err := srvRsa.EncryptPlanText(loginData)
+	loginDataRes, err := srvRsa.EncryptPlanText(util.Str2Bytes(loginData))
 	if err != nil {
 		panic(err)
 	}
