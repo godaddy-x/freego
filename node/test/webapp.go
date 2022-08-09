@@ -101,9 +101,9 @@ func test_callrpc() {
 func (self *MyWebNode) login(ctx *node.Context) error {
 	subject := &jwt.Subject{}
 	//self.LoginBySubject(subject, exp)
-	config := self.JwtConfig()
+	config := ctx.JwtConfig()
 	token := subject.Create(123456).Iss("1111").Aud("22222").Extinfo("test", "11").Extinfo("test2", "222").Dev("APP").Generate(config)
-	secret, err := ctx.GetRsaSecret(jwt.GetTokenSecret(token))
+	secret, err := ctx.GetRsaSecret(jwt.GetTokenSecret(token, config.TokenKey))
 	if err != nil {
 		return err
 	}
@@ -112,7 +112,7 @@ func (self *MyWebNode) login(ctx *node.Context) error {
 }
 
 func (self *MyWebNode) pubkey(ctx *node.Context) error {
-	return self.Text(ctx, self.Certificate.PubkeyBase64)
+	return self.Text(ctx, ctx.Certificate.PubkeyBase64)
 }
 
 func (self *MyWebNode) callrpc(ctx *node.Context) error {
@@ -135,15 +135,15 @@ func GetCacheAware(ds ...string) (cache.ICache, error) {
 func StartHttpNode() {
 	my := &MyWebNode{}
 	my.Context = &node.Context{
-		Host: "0.0.0.0",
-		Port: 8090,
+		Host:      "0.0.0.0",
+		Port:      8090,
+		JwtConfig: GetJwtConfig,
 	}
 	//my.DisconnectTimeout = 10
 	//my.GatewayRate = &rate.RateOpetion{Limit: 2, Bucket: 5, Expire: 30}
 	//my.PermConfig = func(url string) (node.Permission, error) {
 	//	return node.Permission{}, nil
 	//}
-	my.JwtConfig = GetJwtConfig
 	my.CacheAware = GetCacheAware
 	my.OverrideFunc = &node.OverrideFunc{
 		PreHandleFunc: func(ctx *node.Context) error {
@@ -176,9 +176,9 @@ func StartHttpNode() {
 		},
 	}
 	my.Router("/test1", my.test, nil)
-	my.Router("/test2", my.test2, &node.Config{})
-	my.Router("/pubkey", my.pubkey, &node.Config{Original: true, Guest: true})
-	my.Router("/login2", my.login, &node.Config{Login: true})
-	my.Router("/callrpc", my.login, &node.Config{Guest: false, EncryptRequest: false, EncryptResponse: false})
+	my.Router("/test2", my.test2, &node.RouterConfig{})
+	my.Router("/pubkey", my.pubkey, &node.RouterConfig{Original: true, Guest: true})
+	my.Router("/login2", my.login, &node.RouterConfig{Login: true})
+	my.Router("/callrpc", my.login, &node.RouterConfig{Guest: false, EncryptRequest: false, EncryptResponse: false})
 	my.StartServer()
 }

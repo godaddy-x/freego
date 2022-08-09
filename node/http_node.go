@@ -22,7 +22,7 @@ type HttpNode struct {
 func (self *HttpNode) GetHeader() error {
 	r := self.Context.Input
 	headers := map[string]string{}
-	if self.Config.Original {
+	if self.RouterConfig.Original {
 		if len(r.Header) > 0 {
 			i := 0
 			for k, v := range r.Header {
@@ -43,7 +43,7 @@ func (self *HttpNode) GetHeader() error {
 	} else {
 		headers[USER_AGENT] = r.Header.Get(USER_AGENT)
 		headers[Authorization] = r.Header.Get(Authorization)
-		if self.Config.Login {
+		if self.RouterConfig.Login {
 			// 1024 pubkey len:  689  pubkey sign len:  172
 			// 2048 pubkey len:  1034  pubkey sign len:  344
 			//pub := r.Header.Get(CLIENT_PUBKEY)
@@ -69,7 +69,7 @@ func (self *HttpNode) ValidRsaLogin(body []byte, req *ReqDto) error {
 	if len(body) > 2000 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "rsa login data length invalid"}
 	}
-	dec, err := self.Certificate.DecryptPlanText(util.Bytes2Str(body))
+	dec, err := self.Context.Certificate.DecryptPlanText(util.Bytes2Str(body))
 	if err != nil {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "server private-key decrypt failed", Err: err}
 	}
@@ -112,13 +112,13 @@ func (self *HttpNode) Authenticate(req *ReqDto) error {
 	if util.MathAbs(util.TimeSecond()-req.Time) > jwt.FIVE_MINUTES { // 判断绝对时间差超过5分钟
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request time invalid"}
 	}
-	if self.Config.EncryptRequest && req.Plan != 1 {
+	if self.RouterConfig.EncryptRequest && req.Plan != 1 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters must use AES encryption"}
 	}
-	if self.Config.Login && req.Plan == 1 {
+	if self.RouterConfig.Login && req.Plan == 1 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters must use RSA encryption"}
 	}
-	if !self.Config.Login {
+	if !self.RouterConfig.Login {
 		if !util.CheckStrLen(req.Sign, 32, 64) {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature length invalid"}
 		}
@@ -157,9 +157,9 @@ func (self *HttpNode) GetParams() error {
 		if len(body) > (MAX_VALUE_LEN * 5) {
 			return ex.Throw{Code: http.StatusLengthRequired, Msg: "body parameters length is too long"}
 		}
-		if !self.Config.Original {
+		if !self.RouterConfig.Original {
 			req := &ReqDto{}
-			if self.Config.Login { // rsa valid
+			if self.RouterConfig.Login { // rsa valid
 				if err := self.ValidRsaLogin(body, req); err != nil {
 					return err
 				}
@@ -188,7 +188,7 @@ func (self *HttpNode) GetParams() error {
 		self.Context.Params = &ReqDto{Data: data}
 		return nil
 	} else if r.Method == GET {
-		if !self.Config.Original {
+		if !self.RouterConfig.Original {
 			return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "GET type is not supported"}
 		}
 		r.ParseForm()
@@ -221,24 +221,24 @@ func (self *HttpNode) InitContext(ptr *NodePtr) error {
 	output := ptr.Output
 	input := ptr.Input
 	node := ptr.Node.(*HttpNode)
-	node.Config = ptr.Config
+	node.RouterConfig = ptr.RouterConfig
 	node.CreateAt = util.Time()
 	node.OverrideFunc = self.OverrideFunc
 	node.SessionAware = self.SessionAware
 	node.CacheAware = self.CacheAware
-	node.Certificate = self.Certificate
-	node.JwtConfig = self.JwtConfig
-	node.PermConfig = self.PermConfig
 	node.Context = &Context{
-		Host:     util.ClientIP(input),
-		Port:     self.Context.Port,
-		Style:    HTTP,
-		Method:   ptr.Pattern,
-		Version:  self.Context.Version,
-		Response: &Response{UTF8, APPLICATION_JSON, nil},
-		Input:    input,
-		Output:   output,
-		Storage:  make(map[string]interface{}, 0),
+		Host:        util.ClientIP(input),
+		Port:        self.Context.Port,
+		Style:       HTTP,
+		Method:      ptr.Pattern,
+		Version:     self.Context.Version,
+		Response:    &Response{UTF8, APPLICATION_JSON, nil},
+		Input:       input,
+		Output:      output,
+		Certificate: self.Context.Certificate,
+		JwtConfig:   self.Context.JwtConfig,
+		PermConfig:  self.Context.PermConfig,
+		Storage:     make(map[string]interface{}, 0),
 	}
 	if err := node.GetHeader(); err != nil {
 		return err
@@ -265,14 +265,14 @@ func (self *HttpNode) PaddDevice() error {
 }
 
 func (self *HttpNode) ValidSession() error {
-	if self.Config.Login || self.Config.Guest { // 登录接口和游客模式跳过会话认证
+	if self.RouterConfig.Login || self.RouterConfig.Guest { // 登录接口和游客模式跳过会话认证
 		return nil
 	}
 	if len(self.Context.Token) == 0 {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "AccessToken is ni"}
 	}
 	subject := &jwt.Subject{}
-	if err := subject.Verify(self.Context.Token, self.JwtConfig().TokenKey); err != nil {
+	if err := subject.Verify(self.Context.Token, self.Context.JwtConfig().TokenKey); err != nil {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "AccessToken is invalid or expired", Err: err}
 	}
 	self.Context.Roles = subject.GetTokenRole()
@@ -299,10 +299,10 @@ func (self *HttpNode) ValidReplayAttack() error {
 }
 
 func (self *HttpNode) ValidPermission() error {
-	if self.PermConfig == nil {
+	if self.Context.PermConfig == nil {
 		return nil
 	}
-	need, err := self.PermConfig(self.Context.Method)
+	need, err := self.Context.PermConfig(self.Context.Method)
 	if err != nil {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "failed to read authorization resource", Err: err}
 	} else if !need.ready { // 无授权资源配置,跳过
@@ -422,7 +422,7 @@ func (self *HttpNode) RenderError(err error) error {
 	} else {
 		resp.Nonce = self.Context.Params.Nonce
 	}
-	if self.Config.Original {
+	if self.RouterConfig.Original {
 		if out.Code > 600 {
 			self.Context.Output.Header().Set("Content-Type", TEXT_PLAIN)
 			self.Context.Output.WriteHeader(http.StatusOK)
@@ -455,7 +455,7 @@ func (self *HttpNode) RenderTo() error {
 			self.Context.Output.Write(util.Str2Bytes(""))
 		}
 	case APPLICATION_JSON:
-		if self.Config.Original {
+		if self.RouterConfig.Original {
 			if result, err := util.JsonMarshal(self.Context.Response.ContentEntity); err != nil {
 				return ex.Throw{Code: http.StatusInternalServerError, Msg: "response JSON data failed", Err: err}
 			} else {
@@ -475,7 +475,7 @@ func (self *HttpNode) RenderTo() error {
 			Data:    data,
 			Nonce:   self.Context.Params.Nonce,
 		}
-		if self.Config.EncryptResponse {
+		if self.RouterConfig.EncryptResponse {
 			resp.Plan = 1
 			data, err := util.AesEncrypt(data, self.Context.GetTokenSecret(), util.AddStr(resp.Nonce, resp.Time))
 			if err != nil {
@@ -483,8 +483,8 @@ func (self *HttpNode) RenderTo() error {
 			}
 			resp.Data = data
 		}
-		if self.Config.Login {
-			sign, err := self.Context.GetDataRsaSign(self.Certificate, data, resp.Nonce, resp.Time, resp.Plan)
+		if self.RouterConfig.Login {
+			sign, err := self.Context.GetDataRsaSign(data, resp.Nonce, resp.Time, resp.Plan)
 			if err != nil {
 				return ex.Throw{Code: http.StatusInternalServerError, Msg: "RSA login failed to generate signature data", Err: err}
 			}
@@ -509,7 +509,7 @@ func (self *HttpNode) StartServer() {
 		if self.CacheAware != nil {
 			log.Printf("cache service has been started successfully")
 		}
-		if self.Certificate != nil {
+		if self.Context.Certificate != nil {
 			log.Printf("server/client【rsa2048/sha256】certificate service has been started successfully")
 		}
 		url := util.AddStr(self.Context.Host, ":", self.Context.Port)
@@ -545,9 +545,9 @@ func (self *HttpNode) limiterTimeoutHandler() http.Handler {
 	return http.TimeoutHandler(handler, time.Duration(self.DisconnectTimeout)*time.Second, fmt.Sprintf(errmsg, util.Time(), util.GetSnowFlakeStrID()))
 }
 
-var nodeConfigs = make(map[string]*Config)
+var routerConfigs = make(map[string]*RouterConfig)
 
-func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, config *Config) {
+func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, routerConfig *RouterConfig) {
 	if !strings.HasPrefix(pattern, "/") {
 		pattern = util.AddStr("/", pattern)
 	}
@@ -558,33 +558,33 @@ func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, co
 		log.Error("cache service hasn't been initialized", 0)
 		return
 	}
-	if self.Certificate == nil {
+	if self.Context.Certificate == nil {
 		cert := &gorsa.RsaObj{}
 		_, _, err := cert.CreateRsaFileBase64()
 		if err != nil {
 			log.Error("RSA certificate generation failed", 0)
 			return
 		}
-		self.Certificate = cert
+		self.Context.Certificate = cert
 	}
-	if config == nil {
-		config = &Config{}
+	if routerConfig == nil {
+		routerConfig = &RouterConfig{}
 	}
 	if self.Handler == nil {
 		self.Handler = http.NewServeMux()
 	}
-	if _, b := nodeConfigs[pattern]; !b {
-		nodeConfigs[pattern] = config
+	if _, b := routerConfigs[pattern]; !b {
+		routerConfigs[pattern] = routerConfig
 	}
 	self.Handler.Handle(pattern, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		self.Proxy(
 			&NodePtr{
-				Node:    self,
-				Config:  nodeConfigs[pattern],
-				Input:   r,
-				Output:  w,
-				Pattern: pattern,
-				Handle:  handle,
+				Node:         self,
+				RouterConfig: routerConfigs[pattern],
+				Input:        r,
+				Output:       w,
+				Pattern:      pattern,
+				Handle:       handle,
 			})
 	}))
 }

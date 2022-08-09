@@ -126,7 +126,7 @@ func (self *PublishManager) initQueue(data *MsgData) (*PublishMQ, error) {
 	if !util.CheckInt(data.Option.SigTyp, MD5, SHA256, MD5_AES, SHA256_AES) {
 		data.Option.SigTyp = 1
 	}
-	if len(data.Option.SigKey) == 0 || len(data.Option.SigKey) < 32 {
+	if len(data.Option.SigKey) < 32 {
 		data.Option.SigKey = util.GetLocalSecretKey() + self.conf.SecretKey
 	}
 	if len(data.Nonce) == 0 {

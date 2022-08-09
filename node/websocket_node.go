@@ -193,10 +193,10 @@ func (self *WebsocketNode) ValidReplayAttack() error {
 }
 
 func (self *WebsocketNode) ValidPermission() error {
-	if self.PermConfig == nil {
+	if self.Context.PermConfig == nil {
 		return nil
 	}
-	need, err := self.PermConfig(self.Context.Method)
+	need, err := self.Context.PermConfig(self.Context.Method)
 	if err != nil {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "读取授权资源失败", Err: err}
 	} else if !need.ready { // 无授权资源配置,跳过
@@ -315,7 +315,7 @@ func (self *WebsocketNode) StartServer() {
 	}()
 }
 
-func (self *WebsocketNode) Router(pattern string, handle func(ctx *Context) error, config *Config) {
+func (self *WebsocketNode) Router(pattern string, handle func(ctx *Context) error, config *RouterConfig) {
 	if !strings.HasPrefix(pattern, "/") {
 		pattern = util.AddStr("/", pattern)
 	}
@@ -327,21 +327,21 @@ func (self *WebsocketNode) Router(pattern string, handle func(ctx *Context) erro
 		return
 	}
 	if config == nil {
-		config = &Config{}
+		config = &RouterConfig{}
 	}
-	self.Config = config
+	self.RouterConfig = config
 	if self.Handler == nil {
 		self.Handler = http.NewServeMux()
 	}
 	http.DefaultServeMux.HandleFunc(pattern, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		self.Proxy(
 			&NodePtr{
-				Node:    self,
-				Config:  nodeConfigs[pattern],
-				Input:   r,
-				Output:  w,
-				Pattern: pattern,
-				Handle:  handle,
+				Node:         self,
+				RouterConfig: routerConfigs[pattern],
+				Input:        r,
+				Output:       w,
+				Pattern:      pattern,
+				Handle:       handle,
 			})
 	}))
 }

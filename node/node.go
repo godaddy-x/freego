@@ -52,25 +52,20 @@ type HookNode struct {
 	OverrideFunc      *OverrideFunc
 	GatewayRate       *rate.RateOpetion
 	Handler           *http.ServeMux
-	Config            *Config
-	Certificate       *gorsa.RsaObj
-	JwtConfig         func() jwt.JwtConfig
-	PermConfig        func(url string) (Permission, error)
+	RouterConfig      *RouterConfig
 	DisconnectTimeout int64 // 超时主动断开客户端连接,秒
 }
 
 type NodePtr struct {
-	Node       interface{}
-	Config     *Config
-	Input      *http.Request
-	Output     http.ResponseWriter
-	Pattern    string
-	JwtConfig  func() jwt.JwtConfig
-	PermConfig func(url string) (Permission, error)
-	Handle     func(ctx *Context) error
+	Node         interface{}
+	RouterConfig *RouterConfig
+	Input        *http.Request
+	Output       http.ResponseWriter
+	Pattern      string
+	Handle       func(ctx *Context) error
 }
 
-type Config struct {
+type RouterConfig struct {
 	Guest           bool // 游客模式 false.否 true.是
 	Login           bool // 是否登录请求 false.否 true.是
 	Original        bool // 是否原始方式 false.否 true.是
@@ -101,7 +96,7 @@ type ProtocolNode interface {
 	// 核心代理方法
 	Proxy(ptr *NodePtr)
 	// 核心绑定路由方法, customize=true自定义不执行默认流程
-	Router(pattern string, handle func(ctx *Context) error, config *Config)
+	Router(pattern string, handle func(ctx *Context) error, routerConfig *RouterConfig)
 	// json响应模式
 	Json(ctx *Context, data interface{}) error
 	// text响应模式
@@ -148,21 +143,24 @@ type Permission struct {
 }
 
 type Context struct {
-	Host     string
-	Port     int64
-	Style    string
-	Device   string
-	Method   string
-	Token    string
-	Headers  map[string]string
-	Params   *ReqDto
-	Subject  *jwt.Payload
-	Response *Response
-	Version  string
-	Input    *http.Request
-	Output   http.ResponseWriter
-	Storage  map[string]interface{}
-	Roles    []int64
+	Host        string
+	Port        int64
+	Style       string
+	Device      string
+	Method      string
+	Token       string
+	Headers     map[string]string
+	Params      *ReqDto
+	Subject     *jwt.Payload
+	Response    *Response
+	Version     string
+	Input       *http.Request
+	Output      http.ResponseWriter
+	Certificate *gorsa.RsaObj
+	JwtConfig   func() jwt.JwtConfig
+	PermConfig  func(url string) (Permission, error)
+	Storage     map[string]interface{}
+	Roles       []int64
 }
 
 type Response struct {
@@ -189,16 +187,16 @@ func (self *Context) GetHeader(k string) string {
 }
 
 func (self *Context) GetTokenSecret() string {
-	return jwt.GetTokenSecret(self.Token)
+	return jwt.GetTokenSecret(self.Token, self.JwtConfig().TokenKey)
 }
 
 func (self *Context) GetDataSign(d, n string, t, p int64) string {
 	return util.HMAC_SHA256(util.AddStr(self.Method, d, n, t, p), self.GetTokenSecret(), true)
 }
 
-func (self *Context) GetDataRsaSign(rsaObj *gorsa.RsaObj, d, n string, t, p int64) (string, error) {
+func (self *Context) GetDataRsaSign(d, n string, t, p int64) (string, error) {
 	msg := util.Str2Bytes(util.AddStr(self.Method, d, n, t, p))
-	r, err := rsaObj.SignBySHA256(msg)
+	r, err := self.Certificate.SignBySHA256(msg)
 	if err != nil {
 		return "", ex.Throw{Code: ex.BIZ, Msg: "RSA failed to generate signature", Err: err}
 	}

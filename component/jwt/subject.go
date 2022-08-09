@@ -120,11 +120,11 @@ func (self *Subject) Generate(config JwtConfig) string {
 }
 
 func (self *Subject) Signature(text, key string) string {
-	return util.HMAC_SHA256(text, key+util.GetLocalSecretKey(), true)
+	return util.HMAC_SHA256(text, util.GetLocalSecretKey()+key, true)
 }
 
-func (self *Subject) GetTokenSecret(token string) string {
-	return util.SHA256(util.SHA256(token, true)+util.MD5(util.GetLocalSecretKey())+util.GetLocalSecretKey(), true)
+func (self *Subject) GetTokenSecret(token, secret string) string {
+	return util.HMAC_SHA256(util.SHA256(token, true)+util.MD5(util.GetLocalSecretKey(), true), secret, true)
 }
 
 func (self *Subject) Verify(token, key string) error {
@@ -133,20 +133,20 @@ func (self *Subject) Verify(token, key string) error {
 	}
 	part := strings.Split(token, ".")
 	if part == nil || len(part) != 3 {
-		return util.Error("token part invalid")
+		return util.Error("token part length invalid")
 	}
 	part0 := part[0]
 	part1 := part[1]
 	part2 := part[2]
 	if self.Signature(part0+"."+part1, key) != part2 {
-		return util.Error("token sign invalid")
+		return util.Error("token signature invalid")
 	}
 	payload := &Payload{}
 	if err := util.ParseJsonBase64(part1, payload); err != nil {
 		return err
 	}
 	if payload.Exp <= util.TimeSecond() {
-		return util.Error("token expired")
+		return util.Error("token expired or invalid")
 	}
 	self.Payload = payload
 	return nil
@@ -176,10 +176,10 @@ func (self *Subject) GetTokenRole() []int64 {
 }
 
 // 获取token的私钥
-func GetTokenSecret(token string) string {
+func GetTokenSecret(token, secret string) string {
 	if len(token) == 0 {
 		return ""
 	}
 	subject := &Subject{}
-	return subject.GetTokenSecret(token)
+	return subject.GetTokenSecret(token, secret)
 }
