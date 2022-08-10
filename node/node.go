@@ -39,9 +39,7 @@ const (
 
 	Authorization = "Authorization"
 	USER_AGENT    = "User-Agent"
-	//CLIENT_PUBKEY        = "ClientPubkey"
-	//CLIENT_PUBKEY_SIGN   = "ClientPubkeySign"
-	CLIENT_PUBKEY_OBJECT = "ClientPubkeyObject"
+	CLIENT_PUBKEY = "pubkey"
 )
 
 type HookNode struct {
@@ -143,24 +141,25 @@ type Permission struct {
 }
 
 type Context struct {
-	Host        string
-	Port        int64
-	Style       string
-	Device      string
-	Method      string
-	Token       string
-	Headers     map[string]string
-	Params      *ReqDto
-	Subject     *jwt.Payload
-	Response    *Response
-	Version     string
-	Input       *http.Request
-	Output      http.ResponseWriter
-	Certificate *gorsa.RsaObj
-	JwtConfig   func() jwt.JwtConfig
-	PermConfig  func(url string) (Permission, error)
-	Storage     map[string]interface{}
-	Roles       []int64
+	Host       string
+	Port       int64
+	Style      string
+	Device     string
+	Method     string
+	Token      string
+	Headers    map[string]string
+	Params     *ReqDto
+	Subject    *jwt.Payload
+	Response   *Response
+	Version    string
+	Input      *http.Request
+	Output     http.ResponseWriter
+	ServerCert *gorsa.RsaObj
+	ClientCert *gorsa.RsaObj
+	JwtConfig  func() jwt.JwtConfig
+	PermConfig func(url string) (Permission, error)
+	Storage    map[string]interface{}
+	Roles      []int64
 }
 
 type Response struct {
@@ -190,17 +189,14 @@ func (self *Context) GetTokenSecret() string {
 	return jwt.GetTokenSecret(self.Token, self.JwtConfig().TokenKey)
 }
 
-func (self *Context) GetDataSign(d, n string, t, p int64) string {
-	return util.HMAC_SHA256(util.AddStr(self.Method, d, n, t, p), self.GetTokenSecret(), true)
-}
-
-func (self *Context) GetDataRsaSign(d, n string, t, p int64) (string, error) {
-	msg := util.Str2Bytes(util.AddStr(self.Method, d, n, t, p))
-	r, err := self.Certificate.SignBySHA256(msg)
-	if err != nil {
-		return "", ex.Throw{Code: ex.BIZ, Msg: "RSA failed to generate signature", Err: err}
+func (self *Context) GetDataSign(d, n string, t, p int64, key ...string) string {
+	var secret string
+	if len(key) > 0 && len(key[0]) > 0 {
+		secret = key[0]
+	} else {
+		secret = self.GetTokenSecret()
 	}
-	return util.Base64Encode(r), nil
+	return util.HMAC_SHA256(util.AddStr(self.Method, d, n, t, p), secret, true)
 }
 
 func (self *Context) GetStorageStringValue(k string) string {
@@ -209,18 +205,6 @@ func (self *Context) GetStorageStringValue(k string) string {
 		return v.(string)
 	}
 	return ""
-}
-
-func (self *Context) GetRsaSecret(secret string) (string, error) {
-	obj, ok := self.Storage[CLIENT_PUBKEY_OBJECT]
-	if !ok {
-		return "", ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key is nil"}
-	}
-	res, err := obj.(*gorsa.RsaObj).Encrypt(util.Str2Bytes(secret))
-	if err != nil {
-		return "", ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key failed to encrypt data"}
-	}
-	return util.Base64Encode(res), nil
 }
 
 func (self *Context) Authenticated() bool {

@@ -54,6 +54,14 @@ func (self *RsaObj) CreateRsaFile(keyfile, pemfile string) error {
 	return nil
 }
 
+func (self *RsaObj) CreateRsa2048() (string, string, error) {
+	return self.CreateRsaFileBase64()
+}
+
+func (self *RsaObj) CreateRsa1024() (string, string, error) {
+	return self.CreateRsaFileBase64(1024)
+}
+
 func (self *RsaObj) CreateRsaFileBase64(bits ...int) (string, string, error) {
 	x := rsa_bits
 	if len(bits) > 0 {
@@ -151,6 +159,7 @@ func (self *RsaObj) LoadRsaPemFileBase64(fileBase64 string) error {
 		return err
 	}
 	self.pubkey = pubkey
+	self.PubkeyBase64 = fileBase64
 	return nil
 }
 
@@ -199,14 +208,14 @@ func (self *RsaObj) EncryptPlanText(msg []byte) (string, error) {
 		}
 		buffer.Write(bytes)
 	}
-	return base64.RawURLEncoding.EncodeToString(buffer.Bytes()), nil
+	return base64.StdEncoding.EncodeToString(buffer.Bytes()), nil
 }
 
 func (self *RsaObj) DecryptPlanText(msg string) (string, error) {
 	partLen := self.pubkey.N.BitLen() / 8
-	raw, err := base64.RawURLEncoding.DecodeString(msg)
+	raw, err := base64.StdEncoding.DecodeString(msg)
 	if err != nil {
-		return "", errors.New("msg base64 RawURL decode failed")
+		return "", errors.New("msg base64 decode failed")
 	}
 	chunks := split(raw, partLen)
 	buffer := bytes.NewBufferString("")

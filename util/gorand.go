@@ -49,5 +49,5 @@ func RandInt(n int) string {
 }
 
 func RandNonce() string {
-	return RandStr(10)
+	return RandStr(8)
 }

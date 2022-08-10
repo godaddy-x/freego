@@ -69,7 +69,7 @@ func (self *MyWebNode) test(ctx *node.Context) error {
 	//return ex.Throw{Code: ex.BIZ, Msg: "测试错误"}
 }
 
-func (self *MyWebNode) test2(ctx *node.Context) error {
+func (self *MyWebNode) getUser(ctx *node.Context) error {
 	req := &GetUserReq{}
 	if err := ctx.Parser(req); err != nil {
 		return err
@@ -103,16 +103,13 @@ func (self *MyWebNode) login(ctx *node.Context) error {
 	//self.LoginBySubject(subject, exp)
 	config := ctx.JwtConfig()
 	token := subject.Create(123456).Dev("APP").Generate(config)
-	secret, err := ctx.GetRsaSecret(jwt.GetTokenSecret(token, config.TokenKey))
-	if err != nil {
-		return err
-	}
+	secret := jwt.GetTokenSecret(token, config.TokenKey)
 	return self.Json(ctx, map[string]interface{}{"token": token, "secret": secret})
 	//return self.Html(ctx, "/web/index.html", map[string]interface{}{"tewt": 1})
 }
 
 func (self *MyWebNode) pubkey(ctx *node.Context) error {
-	return self.Text(ctx, ctx.Certificate.PubkeyBase64)
+	return self.Text(ctx, ctx.ServerCert.PubkeyBase64)
 }
 
 func (self *MyWebNode) callrpc(ctx *node.Context) error {
@@ -178,7 +175,7 @@ func StartHttpNode() {
 		},
 	}
 	my.Router("/test1", my.test, nil)
-	my.Router("/test2", my.test2, &node.RouterConfig{})
+	my.Router("/test2", my.getUser, &node.RouterConfig{AesResponse: true})
 	my.Router("/pubkey", my.pubkey, &node.RouterConfig{Original: true, Guest: true})
 	my.Router("/login2", my.login, &node.RouterConfig{Login: true})
 	my.Router("/callrpc", my.login, &node.RouterConfig{Guest: false, AesRequest: false, AesResponse: false})

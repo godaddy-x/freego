@@ -53,7 +53,7 @@ func (self *HttpNode) ValidRsaLogin(body []byte, req *ReqDto) error {
 	if len(body) > 1500 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "rsa login data length invalid"}
 	}
-	dec, err := self.Context.Certificate.DecryptPlanText(util.Bytes2Str(body))
+	dec, err := self.Context.ServerCert.DecryptPlanText(util.Bytes2Str(body))
 	if err != nil {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "server private-key decrypt failed", Err: err}
 	}
@@ -74,7 +74,7 @@ func (self *HttpNode) ValidRsaLogin(body []byte, req *ReqDto) error {
 	if err := cliRsa.LoadRsaPemFileByte(pub_dec); err != nil {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key loading failed", Err: err}
 	}
-	self.Context.Storage[CLIENT_PUBKEY_OBJECT] = cliRsa
+	//self.Context.Storage[CLIENT_PUBKEY_OBJECT] = cliRsa
 	return nil
 }
 
@@ -102,20 +102,32 @@ func (self *HttpNode) Authenticate(req *ReqDto) error {
 	if self.RouterConfig.Login && req.Plan == 1 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters must use RSA encryption"}
 	}
-	if !self.RouterConfig.Login {
-		if !util.CheckStrLen(req.Sign, 32, 64) {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature length invalid"}
+	if !util.CheckStrLen(req.Sign, 32, 64) {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature length invalid"}
+	}
+	var key string
+	if self.RouterConfig.Login {
+		key = self.Context.ServerCert.PubkeyBase64
+	}
+	if self.Context.GetDataSign(d, req.Nonce, req.Time, req.Plan, key) != req.Sign {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature invalid"}
+	}
+	if req.Plan == 1 { // AES
+		dec, err := util.AesDecrypt(d, self.Context.GetTokenSecret(), util.AddStr(req.Nonce, req.Time))
+		if err != nil {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "AES failed to parse data", Err: err}
 		}
-		if self.Context.GetDataSign(d, req.Nonce, req.Time, req.Plan) != req.Sign {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature invalid"}
+		d = dec
+	}
+	if self.RouterConfig.Login { // RSA
+		dec, err := self.Context.ServerCert.DecryptPlanText(d)
+		if err != nil {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "server private-key decrypt failed", Err: err}
 		}
-		if req.Plan == 1 { // AES
-			dec, err := util.AesDecrypt(d, self.Context.GetTokenSecret(), util.AddStr(req.Nonce, req.Time))
-			if err != nil {
-				return ex.Throw{Code: http.StatusBadRequest, Msg: "AES failed to parse data", Err: err}
-			}
-			d = dec
+		if len(dec) == 0 {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "server private-key decrypt data is nil", Err: err}
 		}
+		d = dec
 	}
 	data := make(map[string]interface{}, 0)
 	if err := util.ParseJsonBase64(d, &data); err != nil {
@@ -123,6 +135,26 @@ func (self *HttpNode) Authenticate(req *ReqDto) error {
 	}
 	req.Data = data
 	self.Context.Params = req
+	return self.AddClientCert(data)
+}
+
+func (self *HttpNode) AddClientCert(data map[string]interface{}) error {
+	if !self.RouterConfig.Login {
+		return nil
+	}
+	v, b := data[CLIENT_PUBKEY]
+	if !b {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key not found"}
+	}
+	s, b := v.(string)
+	if !b {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key not string type"}
+	}
+	cliRsa := &gorsa.RsaObj{}
+	if err := cliRsa.LoadRsaPemFileBase64(s); err != nil {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key loading failed", Err: err}
+	}
+	self.Context.ClientCert = cliRsa
 	return nil
 }
 
@@ -143,11 +175,12 @@ func (self *HttpNode) GetParams() error {
 		}
 		if !self.RouterConfig.Original {
 			req := &ReqDto{}
-			if self.RouterConfig.Login { // rsa valid
-				if err := self.ValidRsaLogin(body, req); err != nil {
-					return err
-				}
-			} else if err := util.JsonUnmarshal(body, req); err != nil {
+			//if self.RouterConfig.Login { // rsa valid
+			//	if err := self.ValidRsaLogin(body, req); err != nil {
+			//		return err
+			//	}
+			//}
+			if err := util.JsonUnmarshal(body, req); err != nil {
 				return ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters JSON parsing failed", Err: err}
 			}
 			// TODO important
@@ -211,18 +244,18 @@ func (self *HttpNode) InitContext(ptr *NodePtr) error {
 	node.SessionAware = self.SessionAware
 	node.CacheAware = self.CacheAware
 	node.Context = &Context{
-		Host:        util.ClientIP(input),
-		Port:        self.Context.Port,
-		Style:       HTTP,
-		Method:      ptr.Pattern,
-		Version:     self.Context.Version,
-		Response:    &Response{UTF8, APPLICATION_JSON, nil},
-		Input:       input,
-		Output:      output,
-		Certificate: self.Context.Certificate,
-		JwtConfig:   self.Context.JwtConfig,
-		PermConfig:  self.Context.PermConfig,
-		Storage:     make(map[string]interface{}, 0),
+		Host:       util.ClientIP(input),
+		Port:       self.Context.Port,
+		Style:      HTTP,
+		Method:     ptr.Pattern,
+		Version:    self.Context.Version,
+		Response:   &Response{UTF8, APPLICATION_JSON, nil},
+		Input:      input,
+		Output:     output,
+		ServerCert: self.Context.ServerCert,
+		JwtConfig:  self.Context.JwtConfig,
+		PermConfig: self.Context.PermConfig,
+		Storage:    make(map[string]interface{}, 0),
 	}
 	if err := node.GetHeader(); err != nil {
 		return err
@@ -467,15 +500,16 @@ func (self *HttpNode) RenderTo() error {
 			}
 			resp.Data = data
 		}
+		var key string
 		if self.RouterConfig.Login {
-			sign, err := self.Context.GetDataRsaSign(data, resp.Nonce, resp.Time, resp.Plan)
+			key = self.Context.ClientCert.PubkeyBase64
+			data, err := self.Context.ClientCert.EncryptPlanText(util.Str2Bytes(data))
 			if err != nil {
-				return ex.Throw{Code: http.StatusInternalServerError, Msg: "RSA login failed to generate signature data", Err: err}
+				return ex.Throw{Code: http.StatusInternalServerError, Msg: "RSA encryption response data failed", Err: err}
 			}
-			resp.Sign = sign
-		} else {
-			resp.Sign = self.Context.GetDataSign(data, resp.Nonce, resp.Time, resp.Plan)
+			resp.Data = data
 		}
+		resp.Sign = self.Context.GetDataSign(resp.Data.(string), resp.Nonce, resp.Time, resp.Plan, key)
 		if result, err := util.JsonMarshal(resp); err != nil {
 			return ex.Throw{Code: http.StatusInternalServerError, Msg: "response JSON data failed", Err: err}
 		} else {
@@ -493,7 +527,7 @@ func (self *HttpNode) StartServer() {
 		if self.CacheAware != nil {
 			log.Printf("cache service has been started successfully")
 		}
-		if self.Context.Certificate != nil {
+		if self.Context.ServerCert != nil {
 			log.Printf("server/client【rsa2048/sha256】certificate service has been started successfully")
 		}
 		url := util.AddStr(self.Context.Host, ":", self.Context.Port)
@@ -542,14 +576,14 @@ func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, ro
 		log.Error("cache service hasn't been initialized", 0)
 		return
 	}
-	if self.Context.Certificate == nil {
+	if self.Context.ServerCert == nil {
 		cert := &gorsa.RsaObj{}
-		_, _, err := cert.CreateRsaFileBase64()
+		_, _, err := cert.CreateRsa2048()
 		if err != nil {
 			log.Error("RSA certificate generation failed", 0)
 			return
 		}
-		self.Context.Certificate = cert
+		self.Context.ServerCert = cert
 	}
 	if routerConfig == nil {
 		routerConfig = &RouterConfig{}
