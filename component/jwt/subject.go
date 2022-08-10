@@ -123,7 +123,9 @@ func (self *Subject) Signature(text, key string) string {
 }
 
 func (self *Subject) GetTokenSecret(token, secret string) string {
-	return util.HMAC_SHA256(util.SHA256(token, true)+util.MD5(util.GetLocalSecretKey(), true), secret, true)
+	key := util.GetLocalTokenSecretKey()
+	key2 := util.HMAC_SHA256(util.SHA256(token, true)+util.MD5(util.GetLocalSecretKey(), true), secret, true)
+	return key2[0:15] + key[3:13] + key2[15:30] + key[10:20] + key2[30:]
 }
 
 func (self *Subject) Verify(token, key string) error {

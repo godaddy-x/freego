@@ -13,8 +13,8 @@ import (
 
 const domain = "http://localhost:8090"
 
-const access_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOjEyMzQ1NiwiYXVkIjoiIiwiaXNzIjoiIiwiaWF0IjowLCJleHAiOjE2NjEzMTU0NTksImRldiI6IkFQUCIsImp0aSI6IjNxRUhrM1FuWU1MZmVRRGhJNlhsVFFOQ0MyR3Fjckg2elNmU0pCUWNOVmM9IiwiZXh0Ijp7fX0=.mGBg3y7/iAnMk9L4nKJFRvaRcigMUUP/NwjCJjFz2pc="
-const token_secret = "VoynMTV4dr2rC4td07FbEv7R/awi3huQY573sOqizBQ="
+const access_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOjEyMzQ1NiwiYXVkIjoiIiwiaXNzIjoiIiwiaWF0IjowLCJleHAiOjE2NjEzMjc2OTcsImRldiI6IkFQUCIsImp0aSI6InRKT1pEWG5PNzV6THc3MTl6RU0vejhHeXY5aXJpTEpKN1UwOXRtc3psNGs9IiwiZXh0Ijp7fX0=.d2hVmPghML9NOtuDCc1DEjD5zcZlIpuWimRE3MEsOzw="
+const token_secret = "gaJ7/YrJBaBG62oHy*kT^j#lKDgUKV7Yv+Rj++QH#lK!ZC@diQEifttsdNRYrgg="
 
 //const access_token = ""
 //const token_secret = ""
@@ -102,6 +102,7 @@ func TestRsaLogin(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
+	util.AddStr()
 	respBytes, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		fmt.Println(err)
@@ -127,15 +128,15 @@ func TestRsaLogin(t *testing.T) {
 }
 
 func TestGetUser(t *testing.T) {
-	//data, _ := util.ToJsonBase64(map[string]interface{}{"uid": 123, "name": "我爱中国/+_=/1df", "limit": 20, "offset": 5})
-	//path := "/test2"
-	//req := &node.ReqDto{
-	//	Data:  data,
-	//	Time:  util.TimeSecond(),
-	//	Nonce: util.RandNonce(),
-	//	Plan:  int64(1),
-	//}
-	//ToPostBy(path, req, nil, nil)
+	data, _ := util.ToJsonBase64(map[string]interface{}{"uid": 123, "name": "我爱中国/+_=/1df", "limit": 20, "offset": 5})
+	path := "/test2"
+	req := &node.ReqDto{
+		Data:  data,
+		Time:  util.TimeSecond(),
+		Nonce: util.RandNonce(),
+		Plan:  int64(1),
+	}
+	ToPostBy(path, req, nil, nil)
 }
 
 func BenchmarkLogin(b *testing.B) {

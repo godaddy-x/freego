@@ -32,11 +32,12 @@ import (
 )
 
 var (
-	cst_sh, _        = time.LoadLocation("Asia/Shanghai") //上海
-	snowflakes       = make(map[int64]*snowflake.Node, 0)
-	mu               sync.Mutex
-	random_byte_sp   = Str2Bytes("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!@#$%^&*")
-	local_secret_key = createDefaultLocalSecretKey()
+	cst_sh, _              = time.LoadLocation("Asia/Shanghai") //上海
+	snowflakes             = make(map[int64]*snowflake.Node, 0)
+	mu                     sync.Mutex
+	random_byte_sp         = Str2Bytes("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!@#$%^*+-_=")
+	local_secret_key       = createDefaultLocalSecretKey()
+	local_token_secret_key = createLocalTokenSecretKey()
 )
 
 const (
@@ -59,8 +60,17 @@ func GetLocalSecretKey() string {
 	return local_secret_key
 }
 
+func GetLocalTokenSecretKey() string {
+	return local_token_secret_key
+}
+
 func createDefaultLocalSecretKey() string {
 	arr := []int{65, 68, 45, 34, 67, 23, 53, 61, 12, 69, 23, 42, 24, 66, 29, 39, 10, 1, 8, 55, 60, 40, 64, 62}
+	return CreateLocalSecretKey(arr...)
+}
+
+func createLocalTokenSecretKey() string {
+	arr := []int{69, 63, 72, 43, 34, 68, 20, 55, 67, 19, 64, 21, 46, 62, 61, 38, 63, 13, 18, 52, 61, 44, 65, 66}
 	return CreateLocalSecretKey(arr...)
 }
 
