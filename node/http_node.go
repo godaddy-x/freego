@@ -66,7 +66,7 @@ func (self *HttpNode) ValidRsaLogin(body []byte, req *ReqDto) error {
 	if len(req.Sign) == 0 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key is nil", Err: err}
 	}
-	pub_dec := util.Base64Decode(req.Sign)
+	pub_dec := util.Base64URLDecode(req.Sign)
 	if len(pub_dec) == 0 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key decode is nil", Err: err}
 	}

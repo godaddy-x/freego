@@ -248,7 +248,7 @@ func (self *PullReceiver) OnReceive(b []byte) bool {
 		log.Error("rabbitmq pull signature type invalid", 0, log.Any("option", self.Config.Option), log.Any("message", msg))
 		return true
 	}
-	btv := util.Base64Decode(v)
+	btv := util.Base64URLDecode(v)
 	if btv == nil || len(btv) == 0 {
 		log.Error("rabbitmq pull consumption data Base64 parsing failed", 0, log.Any("option", self.Config.Option), log.Any("message", msg))
 		return true

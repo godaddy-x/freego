@@ -54,7 +54,7 @@ func TestRsaLoadFileBase64(t *testing.T) {
 	}
 	sig, err := obj.SignBySHA256([]byte(testmsg))
 	fmt.Println(sig, err)
-	fmt.Println(obj.VerifyBySHA256([]byte(testmsg), base64.StdEncoding.EncodeToString(sig)))
+	fmt.Println(obj.VerifyBySHA256([]byte(testmsg), base64.URLEncoding.EncodeToString(sig)))
 }
 
 func TestRsaPubkeyEncrypt(t *testing.T) {
@@ -107,7 +107,7 @@ func TestRsaVerify(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	if err := obj.VerifyBySHA256([]byte(testmsg), base64.StdEncoding.EncodeToString(res)); err == nil {
+	if err := obj.VerifyBySHA256([]byte(testmsg), base64.URLEncoding.EncodeToString(res)); err == nil {
 		fmt.Println("RSA公钥验签结果: ", err == nil)
 	} else {
 		panic(err)

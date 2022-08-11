@@ -76,7 +76,7 @@ func (self *RsaObj) CreateRsaFileBase64(bits ...int) (string, string, error) {
 		Type:  "RSA PRIVATE KEY",
 		Bytes: x509.MarshalPKCS1PrivateKey(prikey),
 	}
-	prikeybase64 := base64.StdEncoding.EncodeToString(pem.EncodeToMemory(&block))
+	prikeybase64 := base64.URLEncoding.EncodeToString(pem.EncodeToMemory(&block))
 
 	// 生成公钥文件
 	block1 := pem.Block{
@@ -84,7 +84,7 @@ func (self *RsaObj) CreateRsaFileBase64(bits ...int) (string, string, error) {
 		Bytes: x509.MarshalPKCS1PublicKey(&prikey.PublicKey),
 	}
 	bs := pem.EncodeToMemory(&block1)
-	pubkeybase64 := base64.StdEncoding.EncodeToString(bs)
+	pubkeybase64 := base64.URLEncoding.EncodeToString(bs)
 	self.prikey = prikey
 	self.pubkey = &prikey.PublicKey
 	self.PubkeyBase64 = pubkeybase64
@@ -115,7 +115,7 @@ func (self *RsaObj) LoadRsaFile(filePath string) error {
 }
 
 func (self *RsaObj) LoadRsaKeyFileBase64(fileBase64 string) error {
-	dec, err := base64.StdEncoding.DecodeString(fileBase64)
+	dec, err := base64.URLEncoding.DecodeString(fileBase64)
 	if err != nil {
 		return err
 	}
@@ -146,7 +146,7 @@ func (self *RsaObj) LoadRsaPemFileByte(fileByte []byte) error {
 }
 
 func (self *RsaObj) LoadRsaPemFileBase64(fileBase64 string) error {
-	dec, err := base64.StdEncoding.DecodeString(fileBase64)
+	dec, err := base64.URLEncoding.DecodeString(fileBase64)
 	if err != nil {
 		return err
 	}
@@ -208,12 +208,12 @@ func (self *RsaObj) EncryptPlanText(msg []byte) (string, error) {
 		}
 		buffer.Write(bytes)
 	}
-	return base64.StdEncoding.EncodeToString(buffer.Bytes()), nil
+	return base64.URLEncoding.EncodeToString(buffer.Bytes()), nil
 }
 
 func (self *RsaObj) DecryptPlanText(msg string) (string, error) {
 	partLen := self.pubkey.N.BitLen() / 8
-	raw, err := base64.StdEncoding.DecodeString(msg)
+	raw, err := base64.URLEncoding.DecodeString(msg)
 	if err != nil {
 		return "", errors.New("msg base64 decode failed")
 	}
@@ -241,7 +241,7 @@ func (self *RsaObj) SignBySHA256(msg []byte) ([]byte, error) {
 }
 
 func (self *RsaObj) VerifyBySHA256(msg []byte, sign string) error {
-	bs, err := base64.StdEncoding.DecodeString(sign)
+	bs, err := base64.URLEncoding.DecodeString(sign)
 	if err != nil {
 		return err
 	}

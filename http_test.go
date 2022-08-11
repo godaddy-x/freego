@@ -83,7 +83,7 @@ func ToPostBy(path string, req *node.ReqDto, srvRsa, cliRsa *gorsa.RsaObj) strin
 				panic(err)
 			}
 			respData.Data = dec
-			fmt.Println("AES数据明文: ", util.Bytes2Str(util.Base64Decode(respData.Data)))
+			fmt.Println("AES数据明文: ", util.Bytes2Str(util.Base64URLDecode(respData.Data)))
 		}
 		if cliRsa != nil {
 			dec, err := cliRsa.DecryptPlanText(respData.Data.(string))
@@ -91,7 +91,7 @@ func ToPostBy(path string, req *node.ReqDto, srvRsa, cliRsa *gorsa.RsaObj) strin
 				panic(err)
 			}
 			respData.Data = dec
-			fmt.Println("RSA数据明文: ", util.Bytes2Str(util.Base64Decode(respData.Data)))
+			fmt.Println("RSA数据明文: ", util.Bytes2Str(util.Base64URLDecode(respData.Data)))
 		}
 	}
 	return ""
