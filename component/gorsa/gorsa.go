@@ -181,23 +181,7 @@ func (self *RsaObj) LoadRsaPubkey(filePath string) error {
 	return nil
 }
 
-func (self *RsaObj) Encrypt(msg []byte) ([]byte, error) {
-	res, err := rsa.EncryptPKCS1v15(rand.Reader, self.pubkey, msg)
-	if err != nil {
-		return nil, err
-	}
-	return res, nil
-}
-
-func (self *RsaObj) Decrypt(msg []byte) ([]byte, error) {
-	res, err := rsa.DecryptPKCS1v15(rand.Reader, self.prikey, msg)
-	if err != nil {
-		return nil, err
-	}
-	return res, nil
-}
-
-func (self *RsaObj) EncryptPlanText(msg []byte) (string, error) {
+func (self *RsaObj) Encrypt(msg []byte) (string, error) {
 	partLen := self.pubkey.N.BitLen()/8 - 11
 	chunks := split(msg, partLen)
 	buffer := bytes.NewBufferString("")
@@ -211,7 +195,7 @@ func (self *RsaObj) EncryptPlanText(msg []byte) (string, error) {
 	return base64.URLEncoding.EncodeToString(buffer.Bytes()), nil
 }
 
-func (self *RsaObj) DecryptPlanText(msg string) (string, error) {
+func (self *RsaObj) Decrypt(msg string) (string, error) {
 	partLen := self.pubkey.N.BitLen() / 8
 	raw, err := base64.URLEncoding.DecodeString(msg)
 	if err != nil {

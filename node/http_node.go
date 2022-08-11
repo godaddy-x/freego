@@ -53,7 +53,7 @@ func (self *HttpNode) ValidRsaLogin(body []byte, req *ReqDto) error {
 	if len(body) > 1500 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "rsa login data length invalid"}
 	}
-	dec, err := self.Context.ServerCert.DecryptPlanText(util.Bytes2Str(body))
+	dec, err := self.Context.ServerCert.Decrypt(util.Bytes2Str(body))
 	if err != nil {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "server private-key decrypt failed", Err: err}
 	}
@@ -122,7 +122,7 @@ func (self *HttpNode) Authenticate(req *ReqDto) error {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter JSON parsing failed"}
 		}
 	} else if req.Plan == 2 && self.RouterConfig.Login { // RSA
-		dec, err := self.Context.ServerCert.DecryptPlanText(d)
+		dec, err := self.Context.ServerCert.Decrypt(d)
 		if err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "server private-key decrypt failed", Err: err}
 		}
@@ -496,18 +496,19 @@ func (self *HttpNode) RenderTo() error {
 		var key string
 		if self.RouterConfig.Login {
 			key = self.Context.ClientCert.PubkeyBase64
-			data, err := self.Context.ClientCert.EncryptPlanText(data)
+			data, err := self.Context.ClientCert.Encrypt(data)
 			if err != nil {
 				return ex.Throw{Code: http.StatusInternalServerError, Msg: "RSA encryption response data failed", Err: err}
 			}
 			resp.Data = data
+			resp.Plan = 2
 		} else if self.RouterConfig.AesResponse {
-			resp.Plan = 1
 			data, err := util.AesEncrypt(data, self.Context.GetTokenSecret(), util.AddStr(resp.Nonce, resp.Time))
 			if err != nil {
 				return ex.Throw{Code: http.StatusInternalServerError, Msg: "AES encryption response data failed", Err: err}
 			}
 			resp.Data = data
+			resp.Plan = 1
 		} else {
 			resp.Data = util.Base64URLEncode(data)
 		}
