@@ -18,17 +18,16 @@ func PKCS7UnPadding(plantText []byte, blockSize int) []byte {
 	return plantText[:(length - unpadding)]
 }
 
-func AesEncrypt(msg, key, iv string) (string, error) {
+func AesEncrypt(plantText []byte, key, iv string) (string, error) {
 	block, err := aes.NewCipher(GetAesKey(key)) //选择加密算法
 	if err != nil {
 		return "", err
 	}
-	plantText := Str2Bytes(msg)
 	plantText = PKCS7Padding(plantText, block.BlockSize())
 	blockModel := cipher.NewCBCEncrypter(block, GetAesIV(iv))
 	ciphertext := make([]byte, len(plantText))
 	blockModel.CryptBlocks(ciphertext, plantText)
-	return Base64Encode(ciphertext), nil
+	return Base64URLEncode(ciphertext), nil
 }
 
 func AesDecrypt(msg, key, iv string) (string, error) {
@@ -36,7 +35,7 @@ func AesDecrypt(msg, key, iv string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	ciphertext := Base64Decode(msg)
+	ciphertext := Base64URLDecode(msg)
 	if ciphertext == nil || len(ciphertext) == 0 {
 		return "", err
 	}

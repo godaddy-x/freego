@@ -27,10 +27,24 @@ func init() {
 
 // 测试使用的http post示例方法
 func ToPostBy(path string, req *node.ReqDto, srvRsa, cliRsa *gorsa.RsaObj) string {
-	if req.Plan == 1 {
-		d, _ := util.AesEncrypt(req.Data.(string), token_secret, util.AddStr(req.Nonce, req.Time))
+	if req.Plan == 0 {
+		d := util.Base64URLEncode(req.Data.([]byte))
 		req.Data = d
-		fmt.Println("加密数据: ", req.Data, util.AddStr(req.Nonce, req.Time))
+		fmt.Println("Base64数据: ", req.Data)
+	} else if req.Plan == 1 {
+		d, err := util.AesEncrypt(req.Data.([]byte), token_secret, util.AddStr(req.Nonce, req.Time))
+		if err != nil {
+			panic(err)
+		}
+		req.Data = d
+		fmt.Println("AES加密数据: ", req.Data, util.AddStr(req.Nonce, req.Time))
+	} else if req.Plan == 2 {
+		rsaData, err := srvRsa.EncryptPlanText(req.Data.([]byte))
+		if err != nil {
+			panic(err)
+		}
+		req.Data = rsaData
+		fmt.Println("RSA加密数据: ", req.Data)
 	}
 	secret := token_secret
 	if srvRsa != nil {
@@ -90,8 +104,7 @@ func ToPostBy(path string, req *node.ReqDto, srvRsa, cliRsa *gorsa.RsaObj) strin
 			if err != nil {
 				panic(err)
 			}
-			respData.Data = dec
-			fmt.Println("RSA数据明文: ", util.Bytes2Str(util.Base64URLDecode(respData.Data)))
+			fmt.Println("RSA数据明文: ", dec)
 		}
 	}
 	return ""
@@ -112,23 +125,22 @@ func TestRsaLogin(t *testing.T) {
 	if err := srvRsa.LoadRsaPemFileBase64(string(respBytes)); err != nil {
 		panic(err)
 	}
-	data, _ := util.ToJsonBase64(map[string]string{"username": "1234567890123456", "password": "1234567890123456", "pubkey": cliRsa.PubkeyBase64})
-	rsaData, err := srvRsa.EncryptPlanText(util.Str2Bytes(data))
+	data, _ := util.JsonMarshal(map[string]string{"username": "1234567890123456", "password": "1234567890123456", "pubkey": cliRsa.PubkeyBase64})
 	if err != nil {
 		panic(err)
 	}
 	path := "/login2"
 	req := &node.ReqDto{
-		Data:  rsaData,
+		Data:  data,
 		Time:  util.TimeSecond(),
 		Nonce: util.RandNonce(),
-		Plan:  int64(0),
+		Plan:  int64(2),
 	}
 	ToPostBy(path, req, srvRsa, cliRsa)
 }
 
 func TestGetUser(t *testing.T) {
-	data, _ := util.ToJsonBase64(map[string]interface{}{"uid": 123, "name": "我爱中国/+_=/1df", "limit": 20, "offset": 5})
+	data, _ := util.JsonMarshal(map[string]interface{}{"uid": 123, "name": "我爱中国/+_=/1df", "limit": 20, "offset": 5})
 	path := "/test2"
 	req := &node.ReqDto{
 		Data:  data,
@@ -140,7 +152,7 @@ func TestGetUser(t *testing.T) {
 }
 
 func BenchmarkLogin(b *testing.B) {
-	data, _ := util.ToJsonBase64(map[string]string{"test": "1234566"})
+	data, _ := util.JsonMarshal(map[string]string{"test": "1234566"})
 	path := "/login1"
 	req := &node.ReqDto{
 		Data:  data,
@@ -152,7 +164,7 @@ func BenchmarkLogin(b *testing.B) {
 }
 
 func BenchmarkGetUser(b *testing.B) {
-	data, _ := util.ToJsonBase64(map[string]string{"test": "1234566"})
+	data, _ := util.JsonMarshal(map[string]string{"test": "1234566"})
 	path := "/test1"
 	req := &node.ReqDto{
 		Data:  data,

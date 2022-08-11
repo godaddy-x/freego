@@ -84,7 +84,7 @@ func (self *HttpNode) Authenticate(req *ReqDto) error {
 	if !b || len(d) == 0 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request data is nil"}
 	}
-	if !util.CheckInt64(req.Plan, 0, 1) {
+	if !util.CheckInt64(req.Plan, 0, 1, 2) {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request plan invalid"}
 	}
 	if !util.CheckLen(req.Nonce, 8, 32) {
@@ -99,7 +99,7 @@ func (self *HttpNode) Authenticate(req *ReqDto) error {
 	if self.RouterConfig.AesRequest && req.Plan != 1 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters must use AES encryption"}
 	}
-	if self.RouterConfig.Login && req.Plan == 1 {
+	if self.RouterConfig.Login && req.Plan != 2 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters must use RSA encryption"}
 	}
 	if !util.CheckStrLen(req.Sign, 32, 64) {
@@ -112,14 +112,16 @@ func (self *HttpNode) Authenticate(req *ReqDto) error {
 	if self.Context.GetDataSign(d, req.Nonce, req.Time, req.Plan, key) != req.Sign {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature invalid"}
 	}
-	if req.Plan == 1 { // AES
+	data := make(map[string]interface{}, 0)
+	if req.Plan == 1 && !self.RouterConfig.Login { // AES
 		dec, err := util.AesDecrypt(d, self.Context.GetTokenSecret(), util.AddStr(req.Nonce, req.Time))
 		if err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "AES failed to parse data", Err: err}
 		}
-		d = dec
-	}
-	if self.RouterConfig.Login { // RSA
+		if err := util.JsonUnmarshal(util.Str2Bytes(dec), &data); err != nil {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter JSON parsing failed"}
+		}
+	} else if req.Plan == 2 && self.RouterConfig.Login { // RSA
 		dec, err := self.Context.ServerCert.DecryptPlanText(d)
 		if err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "server private-key decrypt failed", Err: err}
@@ -127,11 +129,15 @@ func (self *HttpNode) Authenticate(req *ReqDto) error {
 		if len(dec) == 0 {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "server private-key decrypt data is nil", Err: err}
 		}
-		d = dec
-	}
-	data := make(map[string]interface{}, 0)
-	if err := util.ParseJsonBase64(d, &data); err != nil {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter JSON parsing failed"}
+		if err := util.JsonUnmarshal(util.Str2Bytes(dec), &data); err != nil {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter JSON parsing failed"}
+		}
+	} else if req.Plan == 0 && !self.RouterConfig.Login && !self.RouterConfig.AesRequest {
+		if err := util.ParseJsonBase64(d, &data); err != nil {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter JSON parsing failed"}
+		}
+	} else {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters plan invalid"}
 	}
 	req.Data = data
 	self.Context.Params = req
@@ -175,11 +181,6 @@ func (self *HttpNode) GetParams() error {
 		}
 		if !self.RouterConfig.Original {
 			req := &ReqDto{}
-			//if self.RouterConfig.Login { // rsa valid
-			//	if err := self.ValidRsaLogin(body, req); err != nil {
-			//		return err
-			//	}
-			//}
 			if err := util.JsonUnmarshal(body, req); err != nil {
 				return ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters JSON parsing failed", Err: err}
 			}
@@ -481,33 +482,34 @@ func (self *HttpNode) RenderTo() error {
 			}
 			break
 		}
-		data, err := util.ToJsonBase64(self.Context.Response.ContentEntity)
+		data, err := util.JsonMarshal(self.Context.Response.ContentEntity)
 		if err != nil {
 			return ex.Throw{Code: http.StatusInternalServerError, Msg: "response conversion JSON failed", Err: err}
 		}
 		resp := &RespDto{
 			Code: http.StatusOK,
 			//Message: "success",
-			Time:  util.Time(),
-			Data:  data,
+			Time: util.Time(),
+			//Data:  data,
 			Nonce: self.Context.Params.Nonce,
 		}
-		if self.RouterConfig.AesResponse {
+		var key string
+		if self.RouterConfig.Login {
+			key = self.Context.ClientCert.PubkeyBase64
+			data, err := self.Context.ClientCert.EncryptPlanText(data)
+			if err != nil {
+				return ex.Throw{Code: http.StatusInternalServerError, Msg: "RSA encryption response data failed", Err: err}
+			}
+			resp.Data = data
+		} else if self.RouterConfig.AesResponse {
 			resp.Plan = 1
 			data, err := util.AesEncrypt(data, self.Context.GetTokenSecret(), util.AddStr(resp.Nonce, resp.Time))
 			if err != nil {
 				return ex.Throw{Code: http.StatusInternalServerError, Msg: "AES encryption response data failed", Err: err}
 			}
 			resp.Data = data
-		}
-		var key string
-		if self.RouterConfig.Login {
-			key = self.Context.ClientCert.PubkeyBase64
-			data, err := self.Context.ClientCert.EncryptPlanText(util.Str2Bytes(data))
-			if err != nil {
-				return ex.Throw{Code: http.StatusInternalServerError, Msg: "RSA encryption response data failed", Err: err}
-			}
-			resp.Data = data
+		} else {
+			resp.Data = util.Base64URLEncode(data)
 		}
 		resp.Sign = self.Context.GetDataSign(resp.Data.(string), resp.Nonce, resp.Time, resp.Plan, key)
 		if result, err := util.JsonMarshal(resp); err != nil {

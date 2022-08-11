@@ -119,7 +119,7 @@ type ReqDto struct {
 	Data  interface{} `json:"d"`
 	Time  int64       `json:"t"`
 	Nonce string      `json:"n"`
-	Plan  int64       `json:"p"` // 0.默认 1.AES
+	Plan  int64       `json:"p"` // 0.默认 1.AES 2.RSA登录
 	Sign  string      `json:"s"`
 }
 
