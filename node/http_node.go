@@ -100,24 +100,25 @@ func (self *HttpNode) Authenticate(req *ReqDto) error {
 		if err := util.JsonUnmarshal(util.Str2Bytes(dec), &data); err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter JSON parsing failed"}
 		}
+		pubkey, b := data[CLIENT_PUBKEY]
+		if !b {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key not found"}
+		}
+		pubkey_v, b := pubkey.(string)
+		if !b {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key not string type"}
+		}
+		if len(pubkey_v) != 24 {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key length invalid"}
+		}
+		delete(data, CLIENT_PUBKEY)
+		self.Context.ClientCert = &gorsa.RsaObj{PubkeyBase64: pubkey_v}
 	} else if req.Plan == 0 && !self.RouterConfig.Login && !self.RouterConfig.AesRequest {
 		if err := util.ParseJsonBase64(d, &data); err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter JSON parsing failed"}
 		}
 	} else {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters plan invalid"}
-	}
-	if self.RouterConfig.Login {
-		v, b := data[CLIENT_PUBKEY]
-		if !b {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key not found"}
-		}
-		s, b := v.(string)
-		if !b {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key not string type"}
-		}
-		delete(data, CLIENT_PUBKEY)
-		self.Context.ClientCert = &gorsa.RsaObj{PubkeyBase64: s}
 	}
 	req.Data = data
 	self.Context.Params = req

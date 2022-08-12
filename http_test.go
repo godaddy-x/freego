@@ -19,7 +19,7 @@ const token_secret = "gaJ7/YrJBaBG62oHy*kT^j#lKDgUKV7Yv+Rj++QH#lK!ZC@diQEifttsdN
 //const access_token = ""
 //const token_secret = ""
 
-var pubkey = util.RandStr(16)
+var pubkey = util.MD5(util.RandStr(16), true)
 var srvPubkeyBase64 = initSrvPubkey()
 
 func init() {
@@ -73,6 +73,7 @@ func ToPostBy(path string, req *node.ReqDto) {
 	secret := token_secret
 	if req.Plan == 2 {
 		secret = srvPubkeyBase64
+		fmt.Println("nonce secret:", pubkey)
 	}
 	req.Sign = util.HMAC_SHA256(util.AddStr(path, req.Data.(string), req.Nonce, req.Time, req.Plan), secret, true)
 	bytesData, err := util.JsonMarshal(req)
