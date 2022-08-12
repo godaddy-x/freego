@@ -130,61 +130,53 @@ func (self *HttpNode) Authenticate(req *ReqDto) error {
 
 func (self *HttpNode) GetParams() error {
 	r := self.Context.Input
-	if r.Method == POST {
+	if r.Method == POST { // only body json parameter is accepted
 		r.ParseForm()
 		body, err := ioutil.ReadAll(r.Body)
 		if err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "failed to read body parameters", Err: err}
 		}
 		r.Body.Close()
+		if self.RouterConfig.Original { //
+			data := map[string]interface{}{}
+			if len(body) == 0 {
+				self.Context.Params = &ReqDto{Data: data}
+				return nil
+			}
+			if len(body) > (MAX_VALUE_LEN * 5) {
+				return ex.Throw{Code: http.StatusLengthRequired, Msg: "body parameters length is too long"}
+			}
+			if err := util.JsonUnmarshal(body, &data); err != nil {
+				return ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters JSON parsing failed", Err: err}
+			}
+			self.Context.Params = &ReqDto{Data: data}
+			return nil
+		}
 		if len(body) == 0 {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters is nil"}
 		}
 		if len(body) > (MAX_VALUE_LEN * 5) {
 			return ex.Throw{Code: http.StatusLengthRequired, Msg: "body parameters length is too long"}
 		}
-		if !self.RouterConfig.Original {
-			req := &ReqDto{}
-			if err := util.JsonUnmarshal(body, req); err != nil {
-				return ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters JSON parsing failed", Err: err}
-			}
-			// TODO important
-			if err := self.Authenticate(req); err != nil {
-				return err
-			}
-			return nil
+		req := &ReqDto{}
+		if err := util.JsonUnmarshal(body, req); err != nil {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters JSON parsing failed", Err: err}
 		}
-		data := map[string]interface{}{}
-		if body == nil || len(body) == 0 {
-			for k, v := range r.Form {
-				if len(v) == 0 {
-					continue
-				}
-				data[k] = v[0]
-			}
-		} else {
-			if err := util.JsonUnmarshal(body, &data); err != nil {
-				return ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters JSON parsing failed", Err: err}
-			}
+		if err := self.Authenticate(req); err != nil { // TODO important
+			return err
 		}
-		self.Context.Params = &ReqDto{Data: data}
 		return nil
-	} else if r.Method == GET {
+	} else if r.Method == GET { // only url key/value parameter is accepted
 		if !self.RouterConfig.Original {
 			return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "GET type is not supported"}
 		}
 		r.ParseForm()
-		body, err := ioutil.ReadAll(r.Body)
-		if err != nil {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "failed to read body parameters", Err: err}
-		}
-		r.Body.Close()
-		if len(body) > (MAX_VALUE_LEN * 5) {
-			return ex.Throw{Code: http.StatusLengthRequired, Msg: "body parameters length is too long"}
-		}
 		data := map[string]interface{}{}
-		if err := util.JsonUnmarshal(body, &data); err != nil {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters JSON parsing failed", Err: err}
+		for k, v := range r.Form {
+			if len(v) == 0 {
+				continue
+			}
+			data[k] = v[0]
 		}
 		self.Context.Params = &ReqDto{Data: data}
 	} else if r.Method == PUT {
