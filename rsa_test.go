@@ -32,12 +32,11 @@ func TestRsaCreateFile(t *testing.T) {
 
 func TestRsaCreateFileBase64(t *testing.T) {
 	obj := &gorsa.RsaObj{}
-	prikey, pubkey, err := obj.CreateRsaFileBase64(4096)
-	if err != nil {
+	if err := obj.CreateRsaFileBase64(2048); err != nil {
 		panic(err)
 	}
-	fmt.Println("私钥: ", prikey)
-	fmt.Println("公钥: ", pubkey)
+	fmt.Println("私钥: ", obj.PrikeyBase64)
+	fmt.Println("公钥: ", obj.PubkeyBase64)
 }
 
 func TestRsaLoadFile(t *testing.T) {

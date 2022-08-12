@@ -19,6 +19,7 @@ type RsaObj struct {
 	prikey       *rsa.PrivateKey
 	pubkey       *rsa.PublicKey
 	PubkeyBase64 string
+	PrikeyBase64 string
 }
 
 func (self *RsaObj) CreateRsaFile(keyfile, pemfile string) error {
@@ -54,15 +55,15 @@ func (self *RsaObj) CreateRsaFile(keyfile, pemfile string) error {
 	return nil
 }
 
-func (self *RsaObj) CreateRsa2048() (string, string, error) {
+func (self *RsaObj) CreateRsa2048() error {
 	return self.CreateRsaFileBase64()
 }
 
-func (self *RsaObj) CreateRsa1024() (string, string, error) {
+func (self *RsaObj) CreateRsa1024() error {
 	return self.CreateRsaFileBase64(1024)
 }
 
-func (self *RsaObj) CreateRsaFileBase64(bits ...int) (string, string, error) {
+func (self *RsaObj) CreateRsaFileBase64(bits ...int) error {
 	x := rsa_bits
 	if len(bits) > 0 {
 		x = bits[0]
@@ -70,7 +71,7 @@ func (self *RsaObj) CreateRsaFileBase64(bits ...int) (string, string, error) {
 	// 生成私钥文件
 	prikey, err := rsa.GenerateKey(rand.Reader, x)
 	if err != nil {
-		return "", "", err
+		return err
 	}
 	block := pem.Block{
 		Type:  "RSA PRIVATE KEY",
@@ -83,12 +84,12 @@ func (self *RsaObj) CreateRsaFileBase64(bits ...int) (string, string, error) {
 		Type:  "RSA PUBLICK KEY",
 		Bytes: x509.MarshalPKCS1PublicKey(&prikey.PublicKey),
 	}
-	bs := pem.EncodeToMemory(&block1)
-	pubkeybase64 := base64.URLEncoding.EncodeToString(bs)
+	pubkeybase64 := base64.URLEncoding.EncodeToString(pem.EncodeToMemory(&block1))
 	self.prikey = prikey
 	self.pubkey = &prikey.PublicKey
 	self.PubkeyBase64 = pubkeybase64
-	return prikeybase64, pubkeybase64, nil
+	self.PrikeyBase64 = prikeybase64
+	return nil
 }
 
 func (self *RsaObj) LoadRsaFile(filePath string) error {
@@ -110,7 +111,6 @@ func (self *RsaObj) LoadRsaFile(filePath string) error {
 	}
 	self.prikey = prikey
 	self.pubkey = &prikey.PublicKey
-	//self.LoadRsaPubkey(filePath)
 	return nil
 }
 

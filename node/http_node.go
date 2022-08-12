@@ -49,35 +49,6 @@ func (self *HttpNode) GetHeader() error {
 	return nil
 }
 
-func (self *HttpNode) ValidRsaLogin(body []byte, req *ReqDto) error {
-	if len(body) > 1500 {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "rsa login data length invalid"}
-	}
-	dec, err := self.Context.ServerCert.Decrypt(util.Bytes2Str(body))
-	if err != nil {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "server private-key decrypt failed", Err: err}
-	}
-	if len(dec) == 0 {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "server private-key decrypt data is nil", Err: err}
-	}
-	if err := util.ParseJsonBase64(dec, req); err != nil {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter JSON parsing failed", Err: err}
-	}
-	if len(req.Sign) == 0 {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key is nil", Err: err}
-	}
-	pub_dec := util.Base64URLDecode(req.Sign)
-	if len(pub_dec) == 0 {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key decode is nil", Err: err}
-	}
-	cliRsa := &gorsa.RsaObj{}
-	if err := cliRsa.LoadRsaPemFileByte(pub_dec); err != nil {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key loading failed", Err: err}
-	}
-	//self.Context.Storage[CLIENT_PUBKEY_OBJECT] = cliRsa
-	return nil
-}
-
 // 按指定规则进行数据解码,校验API参数安全
 func (self *HttpNode) Authenticate(req *ReqDto) error {
 	d, b := req.Data.(string)
@@ -122,6 +93,7 @@ func (self *HttpNode) Authenticate(req *ReqDto) error {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter JSON parsing failed"}
 		}
 	} else if req.Plan == 2 && self.RouterConfig.Login { // RSA
+		//a := "To0IaxMwcWbX2CsQRv6jmUcPiNcPHn-73708NG8n99WAr5AS3ry7zEBtNRcDUuqhMjHS6NbQQrBOGVMKCfA1Mig2cgCh4wSq50p4omyAExEf1mDDA4bRo2_yPLCDBp63ERC3FJSJY_7ru07darWH6sZbymLigEjA4CWrpxmBQGKkr0gs6nYPIZg3eMuJj_RYmoIPYQtBU5BdPpKqPvtRWOAJBMtZbpSrxDBcCoA_0m3MbNYC4vvb1ivkABp_RXT_SlQqr9IEOqyBQpWpm5FBsoMZkXnMxFBhL1syaZwTK5Fr6Vj-85D0UsTXVPJmdLOBSirlJTgHLPKMMh70PxlEGQ=="
 		dec, err := self.Context.ServerCert.Decrypt(d)
 		if err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "server private-key decrypt failed", Err: err}
@@ -139,28 +111,20 @@ func (self *HttpNode) Authenticate(req *ReqDto) error {
 	} else {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters plan invalid"}
 	}
+	if self.RouterConfig.Login {
+		v, b := data[CLIENT_PUBKEY]
+		if !b {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key not found"}
+		}
+		s, b := v.(string)
+		if !b {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key not string type"}
+		}
+		delete(data, CLIENT_PUBKEY)
+		self.Context.ClientCert = &gorsa.RsaObj{PubkeyBase64: s}
+	}
 	req.Data = data
 	self.Context.Params = req
-	return self.AddClientCert(data)
-}
-
-func (self *HttpNode) AddClientCert(data map[string]interface{}) error {
-	if !self.RouterConfig.Login {
-		return nil
-	}
-	v, b := data[CLIENT_PUBKEY]
-	if !b {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key not found"}
-	}
-	s, b := v.(string)
-	if !b {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key not string type"}
-	}
-	cliRsa := &gorsa.RsaObj{}
-	if err := cliRsa.LoadRsaPemFileBase64(s); err != nil {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key loading failed", Err: err}
-	}
-	self.Context.ClientCert = cliRsa
 	return nil
 }
 
@@ -496,9 +460,14 @@ func (self *HttpNode) RenderTo() error {
 		var key string
 		if self.RouterConfig.Login {
 			key = self.Context.ClientCert.PubkeyBase64
-			data, err := self.Context.ClientCert.Encrypt(data)
+			//data, err := self.Context.ClientCert.Encrypt(data)
+			//if err != nil {
+			//	return ex.Throw{Code: http.StatusInternalServerError, Msg: "RSA encryption response data failed", Err: err}
+			//}
+			//resp.Data = data
+			data, err := util.AesEncrypt(data, key, key)
 			if err != nil {
-				return ex.Throw{Code: http.StatusInternalServerError, Msg: "RSA encryption response data failed", Err: err}
+				return ex.Throw{Code: http.StatusInternalServerError, Msg: "AES encryption response data failed", Err: err}
 			}
 			resp.Data = data
 			resp.Plan = 2
@@ -554,6 +523,7 @@ func (self *HttpNode) limiterTimeoutHandler() http.Handler {
 	limiter := rate.NewLocalLimiterByOption(new(cache.LocalMapManager).NewCache(20160, 20160), self.GatewayRate)
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if limiter.Validate(nil) {
+			fmt.Println("---------gateway")
 			w.WriteHeader(429)
 			return
 		}
@@ -581,8 +551,7 @@ func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, ro
 	}
 	if self.Context.ServerCert == nil {
 		cert := &gorsa.RsaObj{}
-		_, _, err := cert.CreateRsa2048()
-		if err != nil {
+		if err := cert.CreateRsa1024(); err != nil {
 			log.Error("RSA certificate generation failed", 0)
 			return
 		}

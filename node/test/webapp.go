@@ -146,10 +146,11 @@ func StartHttpNode() {
 	my.CacheAware = GetCacheAware
 	my.OverrideFunc = &node.OverrideFunc{
 		PreHandleFunc: func(ctx *node.Context) error {
-			if limiter.Validate(&rate.RateOpetion{Key: ctx.Method, Limit: 2, Bucket: 5, Expire: 30}) {
+			if limiter.Validate(&rate.RateOpetion{Key: ctx.Method, Limit: 1000, Bucket: 1000, Expire: 30}) {
+				fmt.Println("----------visitors")
 				return ex.Throw{Code: 429, Msg: "too many visitors, please try again later"}
 			}
-			if ctx.Authenticated() && limiter.Validate(&rate.RateOpetion{Key: util.AnyToStr(ctx.Subject.Sub), Limit: 2, Bucket: 5, Expire: 30}) {
+			if ctx.Authenticated() && limiter.Validate(&rate.RateOpetion{Key: util.AnyToStr(ctx.Subject.Sub), Limit: 1000, Bucket: 1000, Expire: 30}) {
 				return ex.Throw{Code: 429, Msg: "the access frequency is too fast, please try again later"}
 			}
 			return nil
@@ -160,7 +161,7 @@ func StartHttpNode() {
 				CreateAt: util.Time(),
 			}
 			// TODO send log to rabbitmq
-			fmt.Println("LogHandleFunc: ", res)
+			//fmt.Println("LogHandleFunc: ", res)
 			return res, nil
 		},
 		PostHandleFunc: func(resp *node.Response, err error) error {
@@ -170,7 +171,7 @@ func StartHttpNode() {
 			res.UpdateAt = util.Time()
 			res.CostMill = res.UpdateAt - res.CreateAt
 			// TODO send log to rabbitmq
-			fmt.Println("AfterCompletionFunc: ", res)
+			//fmt.Println("AfterCompletionFunc: ", res)
 			return err
 		},
 	}

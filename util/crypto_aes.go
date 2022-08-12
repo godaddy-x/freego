@@ -51,5 +51,5 @@ func GetAesKey(key string) []byte {
 }
 
 func GetAesIV(iv string) []byte {
-	return Str2Bytes(Substr(MD5(iv), 12, 28))
+	return Str2Bytes(Substr(MD5(iv), 0, 16))
 }
