@@ -23,22 +23,18 @@ func (self *HttpNode) GetHeader() error {
 	r := self.Context.Input
 	headers := map[string]string{}
 	if self.RouterConfig.Original {
-		if len(r.Header) > 0 {
-			i := 0
-			for k, v := range r.Header {
-				i++
-				if i > MAX_HEADER_SIZE {
-					return ex.Throw{Code: http.StatusLengthRequired, Msg: util.AddStr("too many header parameters: ", i)}
-				}
-				if len(k) > MAX_FIELD_LEN {
-					return ex.Throw{Code: http.StatusLengthRequired, Msg: util.AddStr("header name length is too long: ", len(k))}
-				}
-				v0 := v[0]
-				if len(v0) > MAX_VALUE_LEN {
-					return ex.Throw{Code: http.StatusLengthRequired, Msg: util.AddStr("header value length is too long: ", len(v0))}
-				}
-				headers[k] = v0
+		if len(r.Header) > MAX_HEADER_SIZE {
+			return ex.Throw{Code: http.StatusLengthRequired, Msg: util.AddStr("too many header parameters: ", len(r.Header))}
+		}
+		for k, v := range r.Header {
+			if len(k) > MAX_FIELD_LEN {
+				return ex.Throw{Code: http.StatusLengthRequired, Msg: util.AddStr("header name length is too long: ", len(k))}
 			}
+			v0 := v[0]
+			if len(v0) > MAX_VALUE_LEN {
+				return ex.Throw{Code: http.StatusLengthRequired, Msg: util.AddStr("header value length is too long: ", len(v0))}
+			}
+			headers[k] = v0
 		}
 	} else {
 		headers[USER_AGENT] = r.Header.Get(USER_AGENT)
@@ -171,10 +167,17 @@ func (self *HttpNode) GetParams() error {
 			return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "GET type is not supported"}
 		}
 		r.ParseForm()
+		if len(r.Form) > MAX_FIELD_LEN {
+			return ex.Throw{Code: http.StatusLengthRequired, Msg: util.AddStr("get url key name length is too long: ", len(r.Form))}
+		}
 		data := map[string]interface{}{}
 		for k, v := range r.Form {
 			if len(v) == 0 {
 				continue
+			}
+			v0 := v[0]
+			if len(v0) > MAX_VALUE_LEN {
+				return ex.Throw{Code: http.StatusLengthRequired, Msg: util.AddStr("get url value length is too long: ", len(v0))}
 			}
 			data[k] = v[0]
 		}
