@@ -259,7 +259,7 @@ func (self *ConsulManager) RemoveService(serviceIDs ...string) {
 
 // 根据服务名获取可用列表
 func (self *ConsulManager) GetAllService(service string) ([]*consulapi.AgentService, error) {
-	result := []*consulapi.AgentService{}
+	result := make([]*consulapi.AgentService, 0)
 	services, err := self.Consulx.Agent().Services()
 	if err != nil {
 		return result, err
@@ -337,16 +337,8 @@ func (self *ConsulManager) AddRPC(callInfo ...*CallInfo) {
 		if len(methods) == 0 {
 			panic(util.AddStr("service [", srvName, "] method is nil"))
 		}
-		exist := false
-		for _, v := range services {
-			if v.Service == srvName && v.Address == addr {
-				exist = true
-				log.Println(util.AddStr("rpc service [", v.Service, "][", v.Address, "] exist, skip..."))
-				rpc.Register(info.Iface)
-				break
-			}
-		}
-		if exist {
+		if checkServiceExists(services, srvName, addr) {
+			log.Println(util.AddStr("rpc service [", srvName, "][", addr, "] exist, skip..."))
 			continue
 		}
 		registration.ID = util.MD5(util.GetSnowFlakeStrID()+util.RandStr(6, true), true)
@@ -363,6 +355,15 @@ func (self *ConsulManager) AddRPC(callInfo ...*CallInfo) {
 		}
 		rpc.Register(info.Iface)
 	}
+}
+
+func checkServiceExists(services []*consulapi.AgentService, srvName, addr string) bool {
+	for _, v := range services {
+		if v.Service == srvName && v.Address == addr {
+			return true
+		}
+	}
+	return false
 }
 
 // 获取RPC服务,并执行访问 args参数不可变,reply参数可变
