@@ -25,19 +25,22 @@ var (
 	consulSlowlog  *zap.Logger
 )
 
+var serviceCounter = make(map[string]int64, 0)
+
 type ConsulManager struct {
 	mu      sync.Mutex
-	Counter int
 	Host    string
 	Consulx *consulapi.Client
 	Config  *ConsulConfig
 	// TODO 服务选取算法实现
 	Selection func([]*consulapi.ServiceEntry, *CallInfo) *consulapi.ServiceEntry
+	// TODO 限流算法实现
+	LockerFunc   func(callInfo *CallInfo) error
+	UnlockerFunc func(callInfo *CallInfo) error
 }
 
 // Consulx配置参数
 type ConsulConfig struct {
-	Counter      int
 	DsName       string // 数据源名
 	Node         string // 配置数据节点, /dc/consul
 	Host         string // consul host
@@ -81,6 +84,7 @@ type CallInfo struct {
 	Request       interface{} // 请求参数对象
 	Response      interface{} // 响应参数对象
 	Timeout       int64       // 连接请求超时,默认15秒
+	Counter       int64       // 最大访问数
 }
 
 func getConsulClient(conf ConsulConfig) *ConsulManager {
@@ -90,11 +94,7 @@ func getConsulClient(conf ConsulConfig) *ConsulManager {
 	if err != nil {
 		panic(util.AddStr("consul [", conf.Host, "] init failed: ", err))
 	}
-	counter := conf.Counter
-	if counter == 0 {
-		counter = 500
-	}
-	return &ConsulManager{Consulx: client, Host: conf.Host, Counter: counter}
+	return &ConsulManager{Consulx: client, Host: conf.Host}
 }
 
 func (self *ConsulManager) InitConfig(selection func([]*consulapi.ServiceEntry, *CallInfo) *consulapi.ServiceEntry, input ...ConsulConfig) (*ConsulManager, error) {
@@ -284,22 +284,35 @@ func (self *ConsulManager) GetAllService(service string) ([]*consulapi.AgentServ
 }
 
 // 控制访问计数器
-func (self *ConsulManager) LockCounter() error {
-	self.mu.Lock()
-	defer self.mu.Unlock()
-	if self.Counter <= 0 {
-		return util.Error("RPC service request is full, please try again later")
+func (self *ConsulManager) LockCounter(callInfo *CallInfo) error {
+	if self.LockerFunc == nil {
+		self.mu.Lock()
+		defer self.mu.Unlock()
+		c, b := serviceCounter[callInfo.Service]
+		if !b {
+			return util.Error("RPC service counter is nil")
+		}
+		if c <= 0 {
+			return util.Error("RPC service request is full, please try again later")
+		}
+		serviceCounter[callInfo.Service] = c - 1
 	}
-	self.Counter = self.Counter - 1
-	return nil
+	return self.LockerFunc(callInfo)
 }
 
 // 释放访问计数器
-func (self *ConsulManager) CloseCounter() error {
-	self.mu.Lock()
-	defer self.mu.Unlock()
-	self.Counter = self.Counter + 1
-	return nil
+func (self *ConsulManager) UnlockCounter(callInfo *CallInfo) error {
+	if self.UnlockerFunc == nil {
+		self.mu.Lock()
+		defer self.mu.Unlock()
+		c, b := serviceCounter[callInfo.Service]
+		if !b {
+			return util.Error("RPC service counter is nil")
+		}
+		serviceCounter[callInfo.Service] = c + 1
+		return nil
+	}
+	return self.UnlockerFunc(callInfo)
 }
 
 func (self *ConsulManager) GetHealthService(service, tag string) ([]*consulapi.ServiceEntry, error) {
@@ -312,6 +325,8 @@ func (self *ConsulManager) GetHealthService(service, tag string) ([]*consulapi.S
 
 // 中心注册接口服务
 func (self *ConsulManager) AddRPC(callInfo ...*CallInfo) {
+	self.mu.Lock()
+	defer self.mu.Unlock()
 	if len(callInfo) == 0 {
 		panic("callInfo is nil...")
 	}
@@ -323,18 +338,21 @@ func (self *ConsulManager) AddRPC(callInfo ...*CallInfo) {
 		tof := reflect.TypeOf(info.ClassInstance)
 		vof := reflect.ValueOf(info.ClassInstance)
 		registration := new(consulapi.AgentServiceRegistration)
-		addr := util.GetLocalIP()
-		if len(addr) == 0 {
+		address := util.GetLocalIP()
+		if len(address) == 0 {
 			panic("Intranet IP reading failed")
 		}
 		if len(info.Domain) > 0 {
-			addr = info.Domain
+			address = info.Domain
+		}
+		if info.Counter <= 0 {
+			info.Counter = 1000
 		}
 		srvName := reflect.Indirect(vof).Type().Name()
 		if len(info.Package) > 0 {
 			srvName = util.AddStr(info.Package, ".", srvName)
 		}
-		methods := []string{}
+		var methods []string
 		for m := 0; m < tof.NumMethod(); m++ {
 			method := tof.Method(m)
 			methods = append(methods, method.Name)
@@ -342,23 +360,25 @@ func (self *ConsulManager) AddRPC(callInfo ...*CallInfo) {
 		if len(methods) == 0 {
 			panic(util.AddStr("service [", srvName, "] method is nil"))
 		}
-		if checkServiceExists(services, srvName, addr) {
-			log.Println(util.AddStr("rpc service [", srvName, "][", addr, "] exist, skip..."))
+		if checkServiceExists(services, srvName, address) {
+			log.Println(util.AddStr("rpc service [", srvName, "][", address, "] exist, skip..."))
 			continue
 		}
 		registration.ID = util.MD5(util.GetSnowFlakeStrID()+util.RandStr(6, true), true)
 		registration.Name = srvName
 		registration.Tags = info.Tags
-		registration.Address = addr
+		registration.Address = address
 		registration.Port = self.Config.RpcPort
 		registration.Meta = make(map[string]string, 0)
 		registration.Check = &consulapi.AgentServiceCheck{HTTP: fmt.Sprintf("http://%s:%d%s", registration.Address, self.Config.CheckPort, self.Config.CheckPath), Timeout: self.Config.Timeout, Interval: self.Config.Interval, DeregisterCriticalServiceAfter: self.Config.DestroyAfter}
-		// 启动RPC服务
+		// 注册RPC服务
 		log.Println(util.AddStr("rpc service [", registration.Name, "][", registration.Address, "] added successful"))
 		if err := self.Consulx.Agent().ServiceRegister(registration); err != nil {
 			panic(util.AddStr("rpc service [", srvName, "] add failed: ", err.Error()))
 		}
 		rpc.Register(info.ClassInstance)
+		// 添加RPC计数器
+		serviceCounter[registration.Name] = info.Counter
 	}
 }
 
@@ -388,8 +408,8 @@ func (self *ConsulManager) CallRPC(callInfo *CallInfo) error {
 	if callInfo.Response == nil {
 		return errors.New("call response object is nil")
 	}
-	self.LockCounter()
-	defer self.CloseCounter()
+	self.LockCounter(callInfo)
+	defer self.UnlockCounter(callInfo)
 	if len(callInfo.Protocol) == 0 {
 		callInfo.Protocol = "tcp"
 	}
