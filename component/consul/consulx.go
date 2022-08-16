@@ -302,8 +302,8 @@ func (self *ConsulManager) CloseCounter() error {
 	return nil
 }
 
-func (self *ConsulManager) GetHealthService(service string) ([]*consulapi.ServiceEntry, error) {
-	serviceEntry, _, err := self.Consulx.Health().Service(service, "", false, &consulapi.QueryOptions{})
+func (self *ConsulManager) GetHealthService(service, tag string) ([]*consulapi.ServiceEntry, error) {
+	serviceEntry, _, err := self.Consulx.Health().Service(service, tag, false, &consulapi.QueryOptions{})
 	if err != nil {
 		return []*consulapi.ServiceEntry{}, err
 	}
@@ -400,7 +400,11 @@ func (self *ConsulManager) CallRPC(callInfo *CallInfo) error {
 	if len(callInfo.Package) > 0 {
 		serviceName = util.AddStr(callInfo.Package, ".", callInfo.Service)
 	}
-	services, err := self.GetHealthService(serviceName)
+	var tag string
+	if len(callInfo.Tags) > 0 {
+		tag = callInfo.Tags[0]
+	}
+	services, err := self.GetHealthService(serviceName, tag)
 	if err != nil {
 		return util.Error("read service [", serviceName, "] failed: ", err)
 	}
