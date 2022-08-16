@@ -32,11 +32,7 @@ type ConsulManager struct {
 	Host    string
 	Consulx *consulapi.Client
 	Config  *ConsulConfig
-	// TODO 服务选取算法实现
-	Selection func([]*consulapi.ServiceEntry, *CallInfo) *consulapi.ServiceEntry
-	// TODO 限流算法实现
-	LockerFunc   func(callInfo *CallInfo) error
-	UnlockerFunc func(callInfo *CallInfo) error
+	Option  *ConsulOption
 }
 
 // Consulx配置参数
@@ -97,7 +93,15 @@ func getConsulClient(conf ConsulConfig) *ConsulManager {
 	return &ConsulManager{Consulx: client, Host: conf.Host}
 }
 
-func (self *ConsulManager) InitConfig(selection func([]*consulapi.ServiceEntry, *CallInfo) *consulapi.ServiceEntry, input ...ConsulConfig) (*ConsulManager, error) {
+type ConsulOption struct {
+	// TODO 服务选取算法实现
+	Selection func([]*consulapi.ServiceEntry, *CallInfo) *consulapi.ServiceEntry
+	// TODO 限流算法实现
+	LockerFunc   func(callInfo *CallInfo) error
+	UnlockerFunc func(callInfo *CallInfo) error
+}
+
+func (self *ConsulManager) InitConfig(option *ConsulOption, input ...ConsulConfig) (*ConsulManager, error) {
 	for _, conf := range input {
 		if len(conf.Host) == 0 {
 			conf.Host = defaultHost
@@ -118,8 +122,10 @@ func (self *ConsulManager) InitConfig(selection func([]*consulapi.ServiceEntry, 
 		} else {
 			consulSessions[config.DsName] = onlinemgr
 		}
-		if selection != nil {
-			onlinemgr.Selection = selection
+		if option == nil {
+			onlinemgr.Option = &ConsulOption{}
+		} else {
+			onlinemgr.Option = option
 		}
 		onlinemgr.initSlowLog()
 		log.Printf("consul service %s【%s】has been started successfully", conf.Host, conf.Node)
@@ -285,7 +291,7 @@ func (self *ConsulManager) GetAllService(service string) ([]*consulapi.AgentServ
 
 // 控制访问计数器
 func (self *ConsulManager) LockCounter(callInfo *CallInfo) error {
-	if self.LockerFunc == nil {
+	if self.Option.LockerFunc == nil {
 		self.mu.Lock()
 		defer self.mu.Unlock()
 		c, b := serviceCounter[callInfo.Service]
@@ -297,12 +303,12 @@ func (self *ConsulManager) LockCounter(callInfo *CallInfo) error {
 		}
 		serviceCounter[callInfo.Service] = c - 1
 	}
-	return self.LockerFunc(callInfo)
+	return self.Option.LockerFunc(callInfo)
 }
 
 // 释放访问计数器
 func (self *ConsulManager) UnlockCounter(callInfo *CallInfo) error {
-	if self.UnlockerFunc == nil {
+	if self.Option.UnlockerFunc == nil {
 		self.mu.Lock()
 		defer self.mu.Unlock()
 		c, b := serviceCounter[callInfo.Service]
@@ -312,7 +318,7 @@ func (self *ConsulManager) UnlockCounter(callInfo *CallInfo) error {
 		serviceCounter[callInfo.Service] = c + 1
 		return nil
 	}
-	return self.UnlockerFunc(callInfo)
+	return self.Option.UnlockerFunc(callInfo)
 }
 
 func (self *ConsulManager) GetHealthService(service, tag string) ([]*consulapi.ServiceEntry, error) {
@@ -432,11 +438,11 @@ func (self *ConsulManager) CallRPC(callInfo *CallInfo) error {
 		return util.Error("no available services found: [", serviceName, "]")
 	}
 	var service *consulapi.AgentService
-	if self.Selection == nil { // 选取规则为空则默认随机
+	if self.Option.Selection == nil { // 选取规则为空则默认随机
 		r := rand.New(rand.NewSource(util.GetSnowFlakeIntID()))
 		service = services[r.Intn(len(services))].Service
 	} else {
-		service = self.Selection(services, callInfo).Service
+		service = self.Option.Selection(services, callInfo).Service
 	}
 	monitor := MonitorLog{
 		ConsulHost:  self.Config.Host,
