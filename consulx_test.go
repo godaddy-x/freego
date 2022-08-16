@@ -42,7 +42,7 @@ func (self *UserServiceImpl) FindUserList(req *ReqObj, obj *ResObj) error {
 }
 
 func TestConsulxAddRPC(t *testing.T) {
-	new(consul.ConsulManager).InitConfig(consul.ConsulConfig{})
+	new(consul.ConsulManager).InitConfig(nil, consul.ConsulConfig{})
 
 	mgr, err := new(consul.ConsulManager).Client()
 	if err != nil {
@@ -50,8 +50,8 @@ func TestConsulxAddRPC(t *testing.T) {
 	}
 
 	mgr.AddRPC(&consul.CallInfo{
-		Tags:  []string{"用户服务"},
-		Iface: &UserServiceImpl{},
+		Tags:          []string{"用户服务"},
+		ClassInstance: &UserServiceImpl{},
 	})
 
 	mgr.AddSnowflakeService()
@@ -60,7 +60,7 @@ func TestConsulxAddRPC(t *testing.T) {
 }
 
 func TestConsulxCallRPC_USER(t *testing.T) {
-	new(consul.ConsulManager).InitConfig(consul.ConsulConfig{})
+	new(consul.ConsulManager).InitConfig(nil, consul.ConsulConfig{})
 
 	mgr, err := new(consul.ConsulManager).Client()
 	if err != nil {
@@ -83,7 +83,7 @@ func TestConsulxCallRPC_USER(t *testing.T) {
 }
 
 func TestConsulxCallRPC_ID(t *testing.T) {
-	new(consul.ConsulManager).InitConfig(consul.ConsulConfig{})
+	new(consul.ConsulManager).InitConfig(nil, consul.ConsulConfig{})
 
 	mgr, err := new(consul.ConsulManager).Client()
 	if err != nil {

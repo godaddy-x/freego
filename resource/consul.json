@@ -2,7 +2,7 @@
   "Host": "consulx.com:8500",
   "CheckPort": 20999,
   "RpcPort": 20998,
-  "ListenProt": 20997,
+  "ListenPort": 20997,
   "Protocol": "tcp",
   "Debug": true,
   "Timeout": "3s",

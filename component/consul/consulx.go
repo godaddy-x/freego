@@ -19,19 +19,20 @@ import (
 )
 
 var (
-	defaultHost     = "consulx.com:8500"
-	defaultNode     = "dc/consul"
-	consul_sessions = make(map[string]*ConsulManager, 0)
-	consul_slowlog  *zap.Logger
+	defaultHost    = "consulx.com:8500"
+	defaultNode    = "dc/consul"
+	consulSessions = make(map[string]*ConsulManager, 0)
+	consulSlowlog  *zap.Logger
 )
 
 type ConsulManager struct {
-	mu        sync.Mutex
-	Counter   int
-	Host      string
-	Consulx   *consulapi.Client
-	Config    *ConsulConfig
-	Selection func([]*consulapi.ServiceEntry) *consulapi.ServiceEntry
+	mu      sync.Mutex
+	Counter int
+	Host    string
+	Consulx *consulapi.Client
+	Config  *ConsulConfig
+	// TODO 服务选取算法实现
+	Selection func([]*consulapi.ServiceEntry, *CallInfo) *consulapi.ServiceEntry
 }
 
 // Consulx配置参数
@@ -43,7 +44,7 @@ type ConsulConfig struct {
 	Domain       string // 自定义访问域名,为空时自动填充内网IP
 	CheckPort    int    // 健康监测端口
 	RpcPort      int    // RPC调用端口
-	ListenProt   int    // 客户端监听端口
+	ListenPort   int    // 客户端监听端口
 	Protocol     string // RPC协议, tcp
 	Timeout      string // 请求超时时间, 3s
 	Interval     string // 健康监测时间, 5s
@@ -69,16 +70,17 @@ type MonitorLog struct {
 
 // RPC参数对象
 type CallInfo struct {
-	Tags     []string    // 服务标签名称
-	Domain   string      // 自定义访问域名,为空时自动填充内网IP
-	Iface    interface{} // 接口实现类实例
-	Package  string      // RPC服务包名
-	Service  string      // RPC服务名称
-	Method   string      // RPC方法名称
-	Protocol string      // RPC访问协议,默认TCP
-	Request  interface{} // 请求参数对象
-	Response interface{} // 响应参数对象
-	Timeout  int64       // 连接请求超时,默认15秒
+	Sub           int64       // 用户主体ID
+	Tags          []string    // 服务标签名称
+	Domain        string      // 自定义访问域名,为空时自动填充内网IP
+	ClassInstance interface{} // 接口实现类实例
+	Package       string      // RPC服务包名
+	Service       string      // RPC服务名称
+	Method        string      // RPC方法名称
+	Protocol      string      // RPC访问协议,默认TCP
+	Request       interface{} // 请求参数对象
+	Response      interface{} // 响应参数对象
+	Timeout       int64       // 连接请求超时,默认15秒
 }
 
 func getConsulClient(conf ConsulConfig) *ConsulManager {
@@ -95,7 +97,7 @@ func getConsulClient(conf ConsulConfig) *ConsulManager {
 	return &ConsulManager{Consulx: client, Host: conf.Host, Counter: counter}
 }
 
-func (self *ConsulManager) InitConfig(input ...ConsulConfig) (*ConsulManager, error) {
+func (self *ConsulManager) InitConfig(selection func([]*consulapi.ServiceEntry, *CallInfo) *consulapi.ServiceEntry, input ...ConsulConfig) (*ConsulManager, error) {
 	for _, conf := range input {
 		if len(conf.Host) == 0 {
 			conf.Host = defaultHost
@@ -112,14 +114,17 @@ func (self *ConsulManager) InitConfig(input ...ConsulConfig) (*ConsulManager, er
 		onlinemgr := getConsulClient(config)
 		onlinemgr.Config = &config
 		if len(config.DsName) == 0 {
-			consul_sessions[conf.Node] = onlinemgr
+			consulSessions[conf.Node] = onlinemgr
 		} else {
-			consul_sessions[config.DsName] = onlinemgr
+			consulSessions[config.DsName] = onlinemgr
+		}
+		if selection != nil {
+			onlinemgr.Selection = selection
 		}
 		onlinemgr.initSlowLog()
 		log.Printf("consul service %s【%s】has been started successfully", conf.Host, conf.Node)
 	}
-	if len(consul_sessions) == 0 {
+	if len(consulSessions) == 0 {
 		log.Printf("consul init failed: sessions is nil")
 	}
 	return self, nil
@@ -129,8 +134,8 @@ func (self *ConsulManager) initSlowLog() {
 	if self.Config.SlowQuery == 0 || len(self.Config.SlowLogPath) == 0 {
 		return
 	}
-	if consul_slowlog == nil {
-		consul_slowlog = log.InitNewLog(&log.ZapConfig{
+	if consulSlowlog == nil {
+		consulSlowlog = log.InitNewLog(&log.ZapConfig{
 			Level:   "warn",
 			Console: false,
 			FileConfig: &log.FileConfig{
@@ -145,7 +150,7 @@ func (self *ConsulManager) initSlowLog() {
 }
 
 func (self *ConsulManager) getSlowLog() *zap.Logger {
-	return consul_slowlog
+	return consulSlowlog
 }
 
 func (self *ConsulManager) Client(dsname ...string) (*ConsulManager, error) {
@@ -155,7 +160,7 @@ func (self *ConsulManager) Client(dsname ...string) (*ConsulManager, error) {
 	} else {
 		ds = defaultNode
 	}
-	manager := consul_sessions[ds]
+	manager := consulSessions[ds]
 	if manager == nil {
 		return nil, util.Error("consul session [", ds, "] not found...")
 	}
@@ -200,7 +205,7 @@ func (self *ConsulManager) GetTextValue(key string) ([]byte, error) {
 
 // 开启并监听服务
 func (self *ConsulManager) StartListenAndServe() {
-	l, e := net.Listen(self.Config.Protocol, util.AddStr(":", util.AnyToStr(self.Config.ListenProt)))
+	l, e := net.Listen(self.Config.Protocol, util.AddStr(":", util.AnyToStr(self.Config.ListenPort)))
 	if e != nil {
 		panic("consul listening service exception: " + e.Error())
 	}
@@ -315,8 +320,8 @@ func (self *ConsulManager) AddRPC(callInfo ...*CallInfo) {
 		panic(err)
 	}
 	for _, info := range callInfo {
-		tof := reflect.TypeOf(info.Iface)
-		vof := reflect.ValueOf(info.Iface)
+		tof := reflect.TypeOf(info.ClassInstance)
+		vof := reflect.ValueOf(info.ClassInstance)
 		registration := new(consulapi.AgentServiceRegistration)
 		addr := util.GetLocalIP()
 		if len(addr) == 0 {
@@ -353,7 +358,7 @@ func (self *ConsulManager) AddRPC(callInfo ...*CallInfo) {
 		if err := self.Consulx.Agent().ServiceRegister(registration); err != nil {
 			panic(util.AddStr("rpc service [", srvName, "] add failed: ", err.Error()))
 		}
-		rpc.Register(info.Iface)
+		rpc.Register(info.ClassInstance)
 	}
 }
 
@@ -407,7 +412,7 @@ func (self *ConsulManager) CallRPC(callInfo *CallInfo) error {
 		r := rand.New(rand.NewSource(util.GetSnowFlakeIntID()))
 		service = services[r.Intn(len(services))].Service
 	} else {
-		service = self.Selection(services).Service
+		service = self.Selection(services, callInfo).Service
 	}
 	monitor := MonitorLog{
 		ConsulHost:  self.Config.Host,
@@ -420,7 +425,7 @@ func (self *ConsulManager) CallRPC(callInfo *CallInfo) error {
 	}
 	defer self.rpcMonitor(monitor, err, callInfo.Request, callInfo.Response)
 	var conn net.Conn
-	conn, err = net.DialTimeout(callInfo.Protocol, util.AddStr(service.Address, ":", self.Config.ListenProt), time.Second*time.Duration(callInfo.Timeout))
+	conn, err = net.DialTimeout(callInfo.Protocol, util.AddStr(service.Address, ":", self.Config.ListenPort), time.Second*time.Duration(callInfo.Timeout))
 	if err != nil {
 		log.Error("consul service connect failed", 0, log.String("ID", service.ID), log.String("host", service.Address), log.String("srv", service.Service), log.AddError(err))
 		return util.Error("consul service connect failed: ", err)

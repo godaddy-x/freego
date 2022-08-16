@@ -51,7 +51,7 @@ func initMongoDB() {
 }
 
 func initConsul() {
-	new(consul.ConsulManager).InitConfig(consul.ConsulConfig{})
+	new(consul.ConsulManager).InitConfig(nil, consul.ConsulConfig{})
 }
 
 func init() {
