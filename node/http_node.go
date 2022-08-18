@@ -511,15 +511,14 @@ func (self *HttpNode) limiterTimeoutHandler() http.Handler {
 	if self.GatewayRate == nil {
 		self.GatewayRate = &rate.RateOpetion{
 			Key:    "HttpThreshold",
-			Limit:  1000,
-			Bucket: 1000,
+			Limit:  2000,
+			Bucket: 2000,
 			Expire: 1209600,
 		}
 	}
 	limiter := rate.NewLocalLimiterByOption(new(cache.LocalMapManager).NewCache(20160, 20160), self.GatewayRate)
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if limiter.Validate(nil) {
-			fmt.Println("---------gateway")
 			w.WriteHeader(429)
 			return
 		}

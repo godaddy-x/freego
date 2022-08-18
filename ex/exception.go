@@ -22,7 +22,7 @@ const (
 	UNKNOWN = 999999 // 未知异常
 
 	MQ                 = 800000 // MQ服务异常
-	REDIS_LOCK_GET     = 800001 // redis锁获取失败
+	REDIS_LOCK_ACQUIRE = 800001 // redis锁获取失败
 	REDIS_LOCK_PENDING = 800002 // redis锁正在处理
 	REDIS_LOCK_TIMEOUT = 800003 // redis锁自旋超时
 )

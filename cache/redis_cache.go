@@ -22,15 +22,13 @@ type RedisConfig struct {
 	MaxActive   int
 	IdleTimeout int
 	Network     string
-	LockTimeout int
 }
 
 // redis缓存管理器
 type RedisManager struct {
 	CacheManager
-	DsName      string
-	LockTimeout int
-	Pool        *redis.Pool
+	DsName string
+	Pool   *redis.Pool
 }
 
 func (self *RedisManager) InitConfig(input ...RedisConfig) (*RedisManager, error) {
@@ -55,7 +53,7 @@ func (self *RedisManager) InitConfig(input ...RedisConfig) (*RedisManager, error
 			}
 			return c, err
 		}}
-		redisSessions[dsName] = &RedisManager{Pool: pool, DsName: dsName, LockTimeout: v.LockTimeout}
+		redisSessions[dsName] = &RedisManager{Pool: pool, DsName: dsName}
 		log.Printf("redis service【%s】has been started successfully", dsName)
 	}
 	if len(redisSessions) == 0 {

@@ -18,9 +18,13 @@ import (
 	"time"
 )
 
+const (
+	counterKey  = "rpc:counter:"
+	defaultHost = "consulx.com:8500"
+	defaultNode = "dc/consul"
+)
+
 var (
-	defaultHost    = "consulx.com:8500"
-	defaultNode    = "dc/consul"
 	consulSessions = make(map[string]*ConsulManager, 0)
 	consulSlowlog  *zap.Logger
 )
@@ -254,7 +258,7 @@ func (self *ConsulManager) RemoveService(serviceIDs ...string) {
 					if err := self.Consulx.Agent().ServiceDeregister(v.ID); err != nil {
 						log.Println(err)
 					}
-					log.Println("remove rpc serveice successful: ", v.Service, " - ", v.ID)
+					log.Println("remove rpc service successful: ", v.Service, " - ", v.ID)
 				}
 			}
 		}
@@ -264,7 +268,7 @@ func (self *ConsulManager) RemoveService(serviceIDs ...string) {
 		if err := self.Consulx.Agent().ServiceDeregister(v.ID); err != nil {
 			log.Println(err)
 		}
-		log.Println("remove rpc serveice successful: ", v.Service, " - ", v.ID)
+		log.Println("remove rpc service successful: ", v.Service, " - ", v.ID)
 	}
 }
 
@@ -302,6 +306,13 @@ func (self *ConsulManager) LockCounter(callInfo *CallInfo) error {
 			return util.Error("RPC service request is full, please try again later")
 		}
 		serviceCounter[callInfo.Service] = c - 1
+		// TODO redis spin lock counter
+		//if err := cache.SpinLocker(counterKey+callInfo.Service, "", 5, func() error {
+		//	serviceCounter[callInfo.Service] = c - 1
+		//	return nil
+		//}); err != nil {
+		//	return err
+		//}
 	}
 	return self.Option.LockerFunc(callInfo)
 }

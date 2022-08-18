@@ -147,7 +147,6 @@ func StartHttpNode() {
 	my.OverrideFunc = &node.OverrideFunc{
 		PreHandleFunc: func(ctx *node.Context) error {
 			if limiter.Validate(&rate.RateOpetion{Key: ctx.Method, Limit: 1000, Bucket: 1000, Expire: 30}) {
-				fmt.Println("----------visitors")
 				return ex.Throw{Code: 429, Msg: "too many visitors, please try again later"}
 			}
 			if ctx.Authenticated() && limiter.Validate(&rate.RateOpetion{Key: util.AnyToStr(ctx.Subject.Sub), Limit: 1000, Bucket: 1000, Expire: 30}) {
