@@ -1,6 +1,8 @@
 package cache
 
-import "github.com/godaddy-x/freego/util"
+import (
+	"github.com/godaddy-x/freego/util"
+)
 
 // 缓存管理器
 type CacheManager struct {
@@ -42,6 +44,10 @@ type ICache interface {
 	BrpopBool(key string, expire int64) (bool, error)
 	// 发送队列数据
 	Rpush(key string, val interface{}) error
+	// 发送订阅数据
+	Publish(key string, val interface{}) error
+	// 监听订阅数据
+	Subscribe(key string, timeout int, call func(msg string) (bool, error)) error
 	// 发送lua脚本
 	LuaScript(script string, key []string, val ... interface{}) (interface{}, error)
 	// 清空全部key-value
@@ -118,6 +124,15 @@ func (self *CacheManager) BrpopBool(key string, expire int64) (bool, error) {
 
 func (self *CacheManager) Rpush(key string, val interface{}) error {
 	return util.Error("No implementation method [Rpush] was found")
+}
+
+func (self *CacheManager) Publish(key string, val interface{}) error {
+	return util.Error("No implementation method [Publish] was found")
+}
+
+// exp second
+func (self *CacheManager) Subscribe(key string, timeout int, call func(msg string) (bool, error)) error {
+	return util.Error("No implementation method [Subscribe] was found")
 }
 
 func (self *CacheManager) LuaScript(script string, key []string, val ... interface{}) (interface{}, error) {

@@ -56,7 +56,7 @@ func (self *RedisManager) InitConfig(input ...RedisConfig) (*RedisManager, error
 			return c, err
 		}}
 		redisSessions[dsName] = &RedisManager{Pool: pool, DsName: dsName, LockTimeout: v.LockTimeout}
-		log.Printf("redis service【%s】has been started successfully", v.DsName)
+		log.Printf("redis service【%s】has been started successfully", dsName)
 	}
 	if len(redisSessions) == 0 {
 		return nil, util.Error("init redis pool failed: sessions is nil")
@@ -271,6 +271,47 @@ func (self *RedisManager) Rpush(key string, val interface{}) error {
 	_, err := client.Do("RPUSH", key, util.AnyToStr(val))
 	if err != nil {
 		return err
+	}
+	return nil
+}
+
+func (self *RedisManager) Publish(key string, val interface{}) error {
+	if val == nil || len(key) == 0 {
+		return nil
+	}
+	client := self.Pool.Get()
+	defer client.Close()
+	_, err := client.Do("PUBLISH", key, util.AnyToStr(val))
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// exp second
+func (self *RedisManager) Subscribe(key string, timeout int, call func(msg string) (bool, error)) error {
+	if call == nil || len(key) == 0 {
+		return nil
+	}
+	if timeout <= 0 {
+		timeout = 5
+	}
+	client := self.Pool.Get()
+	defer client.Close()
+	c := redis.PubSubConn{Conn: client}
+	c.Subscribe(key)
+	for {
+		switch v := c.ReceiveWithTimeout(time.Duration(timeout) * time.Second).(type) {
+		case redis.Message:
+			if v.Channel == key {
+				r, err := call(util.Bytes2Str(v.Data))
+				if err == nil && r {
+					return nil
+				}
+			}
+		case error:
+			return v
+		}
 	}
 	return nil
 }
