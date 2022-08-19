@@ -68,7 +68,7 @@ func TestRedisSpinLocker(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	if err := mgr.SpinLockWithTimeout("spinlock", 20, func() error {
+	if err := mgr.SpinLockWithTimeout("spinlock", 20, 20, func() error {
 		fmt.Println("test1 spin lock successful")
 		time.Sleep(15 * time.Second)
 		return nil
@@ -82,7 +82,7 @@ func TestRedisSpinLocker2(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	if err := mgr.SpinLockWithTimeout("spinlock", 20, func() error {
+	if err := mgr.SpinLockWithTimeout("spinlock", 20, 20, func() error {
 		fmt.Println("test2 spin lock successful")
 		return nil
 	}); err != nil {
@@ -95,7 +95,7 @@ func TestRedisSpinLocker3(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	if err := mgr.SpinLockWithTimeout("spinlock", 20, func() error {
+	if err := mgr.SpinLockWithTimeout("spinlock", 20, 20, func() error {
 		fmt.Println("test3 spin lock successful")
 		return nil
 	}); err != nil {

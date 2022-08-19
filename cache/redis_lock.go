@@ -72,7 +72,6 @@ func (lock *Lock) unlock() (err error) {
 	}
 	if lock != nil && lock.conn != nil {
 		lock.conn.Close()
-		lock = nil
 	}
 	return
 }
@@ -96,12 +95,15 @@ func (self *RedisManager) getLockWithTimeout(conn redis.Conn, resource string, e
 	return
 }
 
-func (self *RedisManager) checkParameters(resource string, expSecond int, call func() error) error {
+func (self *RedisManager) checkParameters(resource string, trySecond, expSecond int, call func() error) error {
 	if len(resource) == 0 || len(resource) > 100 {
 		return util.Error("redis lock key invalid: ", resource)
 	}
-	if expSecond < 5 || expSecond > 600 {
-		return util.Error("redis lock exp range [5-600s]: ", expSecond)
+	if expSecond < 3 || expSecond > 600 {
+		return util.Error("redis lock exp range [3-600s]: ", expSecond)
+	}
+	if trySecond < 3 || trySecond > 600 || trySecond > expSecond {
+		return util.Error("redis lock try range [3-600s]: ", trySecond)
 	}
 	if call == nil {
 		return util.Error("redis lock call function nil")
@@ -109,14 +111,14 @@ func (self *RedisManager) checkParameters(resource string, expSecond int, call f
 	return nil
 }
 
-func (self *RedisManager) SpinLockWithTimeout(resource string, expSecond int, call func() error) error {
-	if err := self.checkParameters(resource, expSecond, call); err != nil {
+func (self *RedisManager) SpinLockWithTimeout(resource string, trySecond, expSecond int, call func() error) error {
+	if err := self.checkParameters(resource, trySecond, expSecond, call); err != nil {
 		return err
 	}
 	client := self.Pool.Get()
 	lock, ok, err := self.getLockWithTimeout(client, resource, time.Duration(expSecond)*time.Second, true)
 	if err != nil || !ok {
-		if err := self.Subscribe(lock.subscribeKey(), expSecond, func(msg string) (bool, error) {
+		if err := self.Subscribe(lock.subscribeKey(), trySecond, func(msg string) (bool, error) {
 			if msg != lock.subscribeData() {
 				return false, nil
 			}
@@ -137,7 +139,7 @@ func (self *RedisManager) SpinLockWithTimeout(resource string, expSecond int, ca
 }
 
 func (self *RedisManager) TryLockWithTimeout(resource string, expSecond int, call func() error) error {
-	if err := self.checkParameters(resource, expSecond, call); err != nil {
+	if err := self.checkParameters(resource, expSecond, expSecond, call); err != nil {
 		return err
 	}
 	client := self.Pool.Get()
@@ -153,12 +155,12 @@ func (self *RedisManager) TryLockWithTimeout(resource string, expSecond int, cal
 	return err
 }
 
-func SpinLocker(lockObj, errorMsg string, expSecond int, callObj func() error) error {
+func SpinLocker(lockObj, errorMsg string, trySecond, expSecond int, callObj func() error) error {
 	redis, err := new(RedisManager).Client()
 	if err != nil {
 		return ex.Throw{Code: ex.CACHE, Msg: ex.CACHE_ERR, Err: err}
 	}
-	if err := redis.SpinLockWithTimeout(lockObj, expSecond, callObj); err != nil {
+	if err := redis.SpinLockWithTimeout(lockObj, trySecond, expSecond, callObj); err != nil {
 		if len(errorMsg) > 0 {
 			r := ex.Catch(err)
 			if r.Code == ex.REDIS_LOCK_ACQUIRE {
