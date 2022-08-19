@@ -496,7 +496,7 @@ func (self *HttpNode) StartServer() {
 			log.Printf("cache service has been started successfully")
 		}
 		if self.Context.ServerCert != nil {
-			log.Printf("server/client【rsa2048/sha256】certificate service has been started successfully")
+			log.Printf("RSA certificate service has been started successfully")
 		}
 		url := util.AddStr(self.Context.Host, ":", self.Context.Port)
 		log.Printf("http【%s】service has been started successfully", url)

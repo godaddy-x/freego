@@ -20,10 +20,10 @@ const token_secret = "gaJ7/YrJBaBG62oHy*kT^j#lKDgUKV7Yv+Rj++QH#lK!ZC@diQEifttsdN
 //const token_secret = ""
 
 var pubkey = util.MD5(util.RandStr(16), true)
-var srvPubkeyBase64 = initSrvPubkey()
+var srvPubkeyBase64 string
 
 func init() {
-	initSrvPubkey()
+	srvPubkeyBase64 = initSrvPubkey()
 }
 
 func initSrvPubkey() string {
@@ -135,7 +135,7 @@ func ToPostBy(path string, req *node.ReqDto) {
 
 func TestRsaLogin(t *testing.T) {
 	data, _ := util.JsonMarshal(map[string]string{"username": "1234567890123456", "password": "1234567890123456", "pubkey": pubkey})
-	path := "/login2"
+	path := "/login"
 	req := &node.ReqDto{
 		Data:  data,
 		Time:  util.TimeSecond(),
@@ -162,7 +162,7 @@ func BenchmarkLogin(b *testing.B) {
 	b.StartTimer()
 	for i := 0; i < b.N; i++ { //use b.N for looping
 		data, _ := util.JsonMarshal(map[string]string{"username": "1234567890123456", "password": "1234567890123456", "pubkey": pubkey})
-		path := "/login2"
+		path := "/login"
 		req := &node.ReqDto{
 			Data:  data,
 			Time:  util.TimeSecond(),

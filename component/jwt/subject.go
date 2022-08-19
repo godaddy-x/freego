@@ -11,13 +11,12 @@ import (
 )
 
 const (
-	JWT    = "JWT"
-	HS256  = "HS256"
-	SHA256 = "SHA256"
-	MD5    = "MD5"
-	AES    = "AES"
-	RSA    = "RSA"
-
+	JWT          = "JWT"
+	HS256        = "HS256"
+	SHA256       = "SHA256"
+	MD5          = "MD5"
+	AES          = "AES"
+	RSA          = "RSA"
 	FIVE_MINUTES = int64(300)
 	TWO_WEEK     = int64(1209600)
 )
@@ -58,7 +57,7 @@ func (self *Subject) Create(sub int64) *Subject {
 	self.Payload = &Payload{
 		Sub: sub,
 		Exp: util.TimeSecond() + TWO_WEEK,
-		Jti: util.SHA256(util.GetSnowFlakeStrID()+util.RandStr(6, true), true),
+		Jti: util.MD5(util.GetUUID(), true),
 		Ext: map[string]string{},
 	}
 	return self

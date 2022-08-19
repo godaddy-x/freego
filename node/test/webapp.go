@@ -102,7 +102,7 @@ func (self *MyWebNode) login(ctx *node.Context) error {
 	subject := &jwt.Subject{}
 	//self.LoginBySubject(subject, exp)
 	config := ctx.JwtConfig()
-	token := subject.Create(123456).Dev("APP").Generate(config)
+	token := subject.Create(util.GetSnowFlakeIntID()).Dev("APP").Generate(config)
 	secret := jwt.GetTokenSecret(token, config.TokenKey)
 	return self.Json(ctx, map[string]interface{}{"token": token, "secret": secret})
 	//return self.Html(ctx, "/web/index.html", map[string]interface{}{"tewt": 1})
@@ -177,7 +177,7 @@ func StartHttpNode() {
 	my.Router("/test1", my.test, nil)
 	my.Router("/test2", my.getUser, &node.RouterConfig{})
 	my.Router("/pubkey", my.pubkey, &node.RouterConfig{Original: true, Guest: true})
-	my.Router("/login2", my.login, &node.RouterConfig{Login: true})
+	my.Router("/login", my.login, &node.RouterConfig{Login: true})
 	my.Router("/callrpc", my.login, &node.RouterConfig{Guest: false, AesRequest: false, AesResponse: false})
 	my.StartServer()
 }
