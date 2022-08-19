@@ -34,7 +34,7 @@ type Lock struct {
 	token    string
 	conn     redis.Conn
 	exp      time.Duration // second
-	isspin   bool
+	spin     bool
 }
 
 func (lock *Lock) key() string {
@@ -63,7 +63,7 @@ func (lock *Lock) tryLock() (ok bool, err error) {
 
 func (lock *Lock) unlock() (err error) {
 	var argv3 string
-	if lock.isspin {
+	if lock.spin {
 		argv3 = subscribeKey
 	}
 	_, err = unlockScript.Do(lock.conn, lock.key(), lock.subscribeKey(), lock.token, lock.subscribeData(), argv3)
@@ -77,17 +77,17 @@ func (lock *Lock) unlock() (err error) {
 	return
 }
 
-func (self *RedisManager) getLockWithTimeout(conn redis.Conn, resource string, expSecond time.Duration, isspin bool) (lock *Lock, ok bool, err error) {
+func (self *RedisManager) getLockWithTimeout(conn redis.Conn, resource string, expSecond time.Duration, spin bool) (lock *Lock, ok bool, err error) {
 	lock = &Lock{
 		resource: resource,
 		token:    util.GetSnowFlakeStrID(),
 		conn:     conn,
-		exp:  expSecond,
-		isspin:   isspin,
+		exp:      expSecond,
+		spin:     spin,
 	}
 	ok, err = lock.tryLock()
 	if !ok || err != nil {
-		if lock.isspin {
+		if lock.spin {
 			return
 		}
 		conn.Close()
