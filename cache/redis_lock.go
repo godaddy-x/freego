@@ -13,10 +13,15 @@ const (
 	subscribeKey = "redis:subscribe:lock:"
 )
 
-var unlockScript = redis.NewScript(1, `
+var unlockScript = redis.NewScript(2, `
 	if redis.call("get", KEYS[1]) == ARGV[1]
 	then
-		return redis.call("del", KEYS[1])
+		local res = redis.call("del", KEYS[1])
+		if ARGV[3] == "redis:subscribe:lock:"
+		then
+			redis.call("PUBLISH", KEYS[2], ARGV[2])
+		end
+		return res
 	else
 		return 0
 	end
@@ -28,6 +33,7 @@ type Lock struct {
 	token    string
 	conn     redis.Conn
 	timeout  time.Duration // second
+	isspin   bool
 }
 
 func (lock *Lock) key() string {
@@ -54,24 +60,33 @@ func (lock *Lock) tryLock() (ok bool, err error) {
 	return status == "OK", nil
 }
 
-func (lock *Lock) unlock(spin ...bool) (err error) {
-	_, err = unlockScript.Do(lock.conn, lock.key(), lock.token)
+func (lock *Lock) unlock() (err error) {
+	var argv3 string
+	if lock.isspin {
+		argv3 = subscribeKey
+	}
+	_, err = unlockScript.Do(lock.conn, lock.key(), lock.subscribeKey(), lock.token, lock.subscribeData(), argv3)
+	if err != nil {
+		fmt.Println("unlockScript failed:", err)
+	}
 	if lock != nil && lock.conn != nil {
-		if len(spin) > 0 && spin[0] {
-			if _, err := lock.conn.Do("PUBLISH", lock.subscribeKey(), lock.subscribeData()); err != nil {
-				fmt.Println("unlock publish failed:", err)
-			}
-		}
 		lock.conn.Close()
+		lock = nil
 	}
 	return
 }
 
-func (self *RedisManager) getLockWithTimeout(conn redis.Conn, resource string, expSecond time.Duration, spin ...bool) (lock *Lock, ok bool, err error) {
-	lock = &Lock{resource, util.GetSnowFlakeStrID(), conn, expSecond}
+func (self *RedisManager) getLockWithTimeout(conn redis.Conn, resource string, expSecond time.Duration, isspin bool) (lock *Lock, ok bool, err error) {
+	lock = &Lock{
+		resource: resource,
+		token:    util.GetSnowFlakeStrID(),
+		conn:     conn,
+		timeout:  expSecond,
+		isspin:   isspin,
+	}
 	ok, err = lock.tryLock()
 	if !ok || err != nil {
-		if len(spin) > 0 && spin[0] {
+		if lock.isspin {
 			return
 		}
 		conn.Close()
@@ -100,7 +115,7 @@ func (self *RedisManager) SpinLockWithTimeout(resource string, expSecond int, ca
 		}
 	}
 	err = call()
-	lock.unlock(true)
+	lock.unlock()
 	return err
 }
 
@@ -109,7 +124,7 @@ func (self *RedisManager) TryLockWithTimeout(resource string, expSecond int, cal
 		expSecond = 60
 	}
 	client := self.Pool.Get()
-	lock, ok, err := self.getLockWithTimeout(client, resource, time.Duration(expSecond)*time.Second)
+	lock, ok, err := self.getLockWithTimeout(client, resource, time.Duration(expSecond)*time.Second, false)
 	if err != nil {
 		return ex.Throw{Code: ex.REDIS_LOCK_ACQUIRE, Msg: "locker acquire failed", Err: err}
 	}

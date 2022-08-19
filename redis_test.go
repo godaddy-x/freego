@@ -63,36 +63,69 @@ func TestRedisPublish(t *testing.T) {
 	}
 }
 
-func TestRedisLocker(t *testing.T) {
+func TestRedisSpinLocker(t *testing.T) {
 	mgr, err := new(cache.RedisManager).Client()
 	if err != nil {
 		panic(err)
 	}
-	mgr.LockWithTimeout("test", 30, func() error {
-		fmt.Println("test1 lock successful")
+	if err := mgr.SpinLockWithTimeout("test", 20, func() error {
+		fmt.Println("test1 spin lock successful")
 		time.Sleep(15 * time.Second)
 		return nil
-	})
+	}); err != nil {
+		fmt.Println(err)
+	}
 }
 
-func TestRedisLocker2(t *testing.T) {
+func TestRedisSpinLocker2(t *testing.T) {
 	mgr, err := new(cache.RedisManager).Client()
 	if err != nil {
 		panic(err)
 	}
-	mgr.LockWithTimeout("test", 30, func() error {
-		fmt.Println("test2 lock successful")
+	if err := mgr.SpinLockWithTimeout("test", 20, func() error {
+		fmt.Println("test2 spin lock successful")
 		return nil
-	})
+	}); err != nil {
+		fmt.Println(err)
+	}
 }
 
-func TestRedisLocker3(t *testing.T) {
+func TestRedisSpinLocker3(t *testing.T) {
 	mgr, err := new(cache.RedisManager).Client()
 	if err != nil {
 		panic(err)
 	}
-	mgr.LockWithTimeout("test", 30, func() error {
-		fmt.Println("test3 lock successful")
+	if err := mgr.SpinLockWithTimeout("test", 20, func() error {
+		fmt.Println("test3 spin lock successful")
 		return nil
-	})
+	}); err != nil {
+		fmt.Println(err)
+	}
+}
+
+func TestRedisTryLocker1(t *testing.T) {
+	mgr, err := new(cache.RedisManager).Client()
+	if err != nil {
+		panic(err)
+	}
+	if err := mgr.TryLockWithTimeout("trylock", 20, func() error {
+		fmt.Println("test1 try lock successful")
+		time.Sleep(15 * time.Second)
+		return nil
+	}); err != nil {
+		fmt.Println(err)
+	}
+}
+
+func TestRedisTryLocker2(t *testing.T) {
+	mgr, err := new(cache.RedisManager).Client()
+	if err != nil {
+		panic(err)
+	}
+	if err := mgr.TryLockWithTimeout("trylock", 20, func() error {
+		fmt.Println("test2 try lock successful")
+		return nil
+	}); err != nil {
+		fmt.Println(err)
+	}
 }
