@@ -381,7 +381,7 @@ func (self *ConsulManager) AddRPC(callInfo ...*CallInfo) {
 			log.Println(util.AddStr("rpc service [", srvName, "][", address, "] exist, skip..."))
 			continue
 		}
-		registration.ID = util.MD5(util.GetSnowFlakeStrID()+util.RandStr(6, true), true)
+		registration.ID = util.GetUUID()
 		registration.Name = srvName
 		registration.Tags = info.Tags
 		registration.Address = address

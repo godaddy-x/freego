@@ -6,9 +6,10 @@
   "Direct": false,
   "ConnectTimeout": 5,
   "SocketTimeout": 5,
-  "Database": "pgwj",
+  "Database": "test",
   "Username": "",
   "Password": "",
   "PoolLimit": 4096,
-  "Debug": true
+  "Debug": true,
+  "ConnectionURI": "mongodb://root:123456@127.0.0.1:27017/test"
 }

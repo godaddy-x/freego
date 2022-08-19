@@ -17,6 +17,7 @@ import (
 	"errors"
 	"github.com/godaddy-x/freego/component/decimal"
 	"github.com/godaddy-x/freego/component/snowflake"
+	"github.com/google/uuid"
 	"io/ioutil"
 	"log"
 	"math/rand"
@@ -410,6 +411,17 @@ func GetSnowFlakeIntID(sec ...int64) int64 {
 		mu.Unlock()
 	}
 	return node.Generate().Int64()
+}
+
+func GetUUID(replace ...bool) string {
+	uid, err := uuid.NewUUID()
+	if err != nil {
+		log.Println("uuid failed:", err)
+	}
+	if len(replace) > 0 {
+		return strings.ReplaceAll(uid.String(), "-", "")
+	}
+	return uid.String()
 }
 
 // 读取文件

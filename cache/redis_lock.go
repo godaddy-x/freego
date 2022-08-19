@@ -33,7 +33,7 @@ type Lock struct {
 	resource string
 	token    string
 	conn     redis.Conn
-	timeout  time.Duration // second
+	exp      time.Duration // second
 	isspin   bool
 }
 
@@ -50,7 +50,7 @@ func (lock *Lock) subscribeData() string {
 }
 
 func (lock *Lock) tryLock() (ok bool, err error) {
-	status, err := redis.String(lock.conn.Do("SET", lock.key(), lock.token, "EX", int64(lock.timeout/time.Second), "NX"))
+	status, err := redis.String(lock.conn.Do("SET", lock.key(), lock.token, "EX", int64(lock.exp/time.Second), "NX"))
 	if err == redis.ErrNil {
 		// The lock was not successful, it already exists.
 		return false, nil
@@ -82,7 +82,7 @@ func (self *RedisManager) getLockWithTimeout(conn redis.Conn, resource string, e
 		resource: resource,
 		token:    util.GetSnowFlakeStrID(),
 		conn:     conn,
-		timeout:  expSecond,
+		exp:  expSecond,
 		isspin:   isspin,
 	}
 	ok, err = lock.tryLock()
@@ -96,7 +96,23 @@ func (self *RedisManager) getLockWithTimeout(conn redis.Conn, resource string, e
 	return
 }
 
+func (self *RedisManager) checkParameters(resource string, expSecond int, call func() error) error {
+	if len(resource) == 0 || len(resource) > 100 {
+		return util.Error("redis lock key invalid: ", resource)
+	}
+	if expSecond < 5 || expSecond > 600 {
+		return util.Error("redis lock exp range [5-600s]: ", expSecond)
+	}
+	if call == nil {
+		return util.Error("redis lock call function nil")
+	}
+	return nil
+}
+
 func (self *RedisManager) SpinLockWithTimeout(resource string, expSecond int, call func() error) error {
+	if err := self.checkParameters(resource, expSecond, call); err != nil {
+		return err
+	}
 	client := self.Pool.Get()
 	lock, ok, err := self.getLockWithTimeout(client, resource, time.Duration(expSecond)*time.Second, true)
 	if err != nil || !ok {
@@ -121,8 +137,8 @@ func (self *RedisManager) SpinLockWithTimeout(resource string, expSecond int, ca
 }
 
 func (self *RedisManager) TryLockWithTimeout(resource string, expSecond int, call func() error) error {
-	if expSecond <= 0 {
-		expSecond = 60
+	if err := self.checkParameters(resource, expSecond, call); err != nil {
+		return err
 	}
 	client := self.Pool.Get()
 	lock, ok, err := self.getLockWithTimeout(client, resource, time.Duration(expSecond)*time.Second, false)

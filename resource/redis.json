@@ -1,7 +1,7 @@
 {
-  "Host": "192.168.27.160",
+  "Host": "127.0.0.1",
   "Port": 6379,
-  "Password": "wallet828",
+  "Password": "",
   "MaxIdle": 150,
   "MaxActive": 150,
   "IdleTimeout": 240,
