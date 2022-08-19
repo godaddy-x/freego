@@ -9,6 +9,7 @@ import (
 )
 
 const (
+	lockSuccess  = "OK"
 	lockKey      = "redis:lock:"
 	subscribeKey = "redis:subscribe:lock:"
 )
@@ -57,7 +58,7 @@ func (lock *Lock) tryLock() (ok bool, err error) {
 	if err != nil {
 		return false, err
 	}
-	return status == "OK", nil
+	return status == lockSuccess, nil
 }
 
 func (lock *Lock) unlock() (err error) {
