@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/godaddy-x/freego/component/consul"
+	rate "github.com/godaddy-x/freego/component/limiter"
 	"testing"
 )
 
@@ -50,8 +51,11 @@ func TestConsulxAddRPC(t *testing.T) {
 	}
 
 	mgr.AddRPC(&consul.CallInfo{
+		Package:       "mytest",
+		Domain:        "127.0.0.1",
 		Tags:          []string{"用户服务"},
 		ClassInstance: &UserServiceImpl{},
+		Option:        rate.Option{Limit: 2, Bucket: 10, Distributed: true},
 	})
 
 	mgr.AddSnowflakeService()
@@ -71,6 +75,7 @@ func TestConsulxCallRPC_USER(t *testing.T) {
 	res := &ResObj{}
 
 	if err := mgr.CallRPC(&consul.CallInfo{
+		Package:  "mytest",
 		Service:  "UserServiceImpl",
 		Method:   "FindUser",
 		Request:  req,

@@ -5,6 +5,7 @@ import (
 	"encoding/gob"
 	"errors"
 	"fmt"
+	"github.com/godaddy-x/freego/cache"
 	rate "github.com/godaddy-x/freego/component/limiter"
 	"github.com/godaddy-x/freego/component/log"
 	"github.com/godaddy-x/freego/util"
@@ -19,17 +20,16 @@ import (
 )
 
 const (
-	limiterKey  = "rpc:limiter:"
-	defaultHost = "consulx.com:8500"
-	defaultNode = "dc/consul"
+	limiterKey       = "rpc:limiter:"
+	limiterConfigKey = "rpc:limiter:config:"
+	defaultHost      = "consulx.com:8500"
+	defaultNode      = "dc/consul"
 )
 
 var (
 	consulSessions = make(map[string]*ConsulManager, 0)
 	consulSlowlog  *zap.Logger
 )
-
-var serviceLimiter = make(map[string]rate.RateLimiter, 0)
 
 type ConsulManager struct {
 	Host    string
@@ -309,6 +309,10 @@ func (self *ConsulManager) AddRPC(callInfo ...*CallInfo) {
 	if err != nil {
 		panic(err)
 	}
+	client, err := new(cache.RedisManager).Client()
+	if err != nil {
+		panic(err)
+	}
 	for _, info := range callInfo {
 		tof := reflect.TypeOf(info.ClassInstance)
 		vof := reflect.ValueOf(info.ClassInstance)
@@ -352,8 +356,10 @@ func (self *ConsulManager) AddRPC(callInfo ...*CallInfo) {
 			panic(util.AddStr("rpc service [", srvName, "] add failed: ", err.Error()))
 		}
 		rpc.Register(info.ClassInstance)
-		// 添加RPC限流器
-		serviceLimiter[registration.Name] = rate.NewRateLimiter(info.Option)
+		// 添加RPC限流器配置
+		if err := client.Put(limiterConfigKey+registration.Name, &info.Option); err != nil {
+			panic(err)
+		}
 	}
 }
 
@@ -383,11 +389,6 @@ func (self *ConsulManager) CallRPC(callInfo *CallInfo) error {
 	if callInfo.Response == nil {
 		return errors.New("call response object is nil")
 	}
-	if limiter, ok := serviceLimiter[callInfo.Service]; !ok {
-		return errors.New("rpc limiter is nil")
-	} else if b := limiter.Allow(limiterKey + callInfo.Service); !b {
-		return errors.New("rpc request is full")
-	}
 	if len(callInfo.Protocol) == 0 {
 		callInfo.Protocol = "tcp"
 	}
@@ -396,11 +397,25 @@ func (self *ConsulManager) CallRPC(callInfo *CallInfo) error {
 	}
 	serviceName := callInfo.Service
 	if len(callInfo.Package) > 0 {
-		serviceName = util.AddStr(callInfo.Package, ".", callInfo.Service)
+		serviceName = callInfo.Package + "." + callInfo.Service
 	}
 	var tag string
 	if len(callInfo.Tags) > 0 {
 		tag = callInfo.Tags[0]
+	}
+	client, err := new(cache.RedisManager).Client()
+	if err != nil {
+		return err
+	}
+	option := rate.Option{}
+	if _, b, err := client.Get(limiterConfigKey+serviceName, &option); err != nil {
+		return err
+	} else if !b {
+		return errors.New("call limiter option is nil")
+	}
+	limiter := rate.NewRateLimiter(option)
+	if b := limiter.Allow(limiterKey + callInfo.Package + callInfo.Service); !b {
+		return errors.New("rpc request is full")
 	}
 	services, err := self.GetHealthService(serviceName, tag)
 	if err != nil {

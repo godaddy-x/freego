@@ -7,6 +7,6 @@
   "Debug": true,
   "Timeout": "3s",
   "Interval": "5s",
-  "DestroyAfter": "600s",
+  "DestroyAfter": "60s",
   "CheckPath": "/consul/check"
 }

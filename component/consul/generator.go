@@ -1,6 +1,7 @@
 package consul
 
 import (
+	rate "github.com/godaddy-x/freego/component/limiter"
 	"github.com/godaddy-x/freego/util"
 )
 
@@ -30,8 +31,10 @@ func (self *SnowflakeWorkId) Generate(req *ReqObj, res *ResObj) error {
 
 func (self *ConsulManager) AddSnowflakeService() {
 	self.AddRPC(&CallInfo{
+		Domain:        "127.0.0.1",
 		Tags:          []string{"ID Generator"},
 		ClassInstance: &SnowflakeWorkId{},
+		Option:        rate.Option{Limit: 500, Bucket: 1000, Distributed: true},
 	})
 }
 

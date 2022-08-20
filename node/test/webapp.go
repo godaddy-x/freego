@@ -87,12 +87,8 @@ func (self *MyWebNode) login(ctx *node.Context) error {
 }
 
 func (self *MyWebNode) pubkey(ctx *node.Context) error {
-	return self.Text(ctx, ctx.ServerCert.PubkeyBase64)
-}
-
-func (self *MyWebNode) callrpc(ctx *node.Context) error {
 	//test_callrpc()
-	return self.Json(ctx, map[string]interface{}{"test": "无权限接口测试"})
+	return self.Text(ctx, ctx.ServerCert.PubkeyBase64)
 }
 
 var tokenKey = "123456" + util.CreateLocalSecretKey(12, 45, 23, 60, 58, 30)
@@ -161,6 +157,5 @@ func StartHttpNode() {
 	my.Router("/test2", my.getUser, &node.RouterConfig{})
 	my.Router("/pubkey", my.pubkey, &node.RouterConfig{Original: true, Guest: true})
 	my.Router("/login", my.login, &node.RouterConfig{Login: true})
-	my.Router("/callrpc", my.login, &node.RouterConfig{Guest: false, AesRequest: false, AesResponse: false})
 	my.StartServer()
 }
