@@ -3,6 +3,7 @@ package rate
 import (
 	"github.com/garyburd/redigo/redis"
 	"github.com/godaddy-x/freego/cache"
+	"github.com/godaddy-x/freego/component/log"
 	"time"
 )
 
@@ -52,19 +53,21 @@ func (self *RedisRateLimiter) key(resource string) string {
 	return limiterKey + resource
 }
 
-func (self *RedisRateLimiter) Validate(resource string) (bool, error) {
+func (self *RedisRateLimiter) Allow(resource string) bool {
 	client, err := new(cache.RedisManager).Client()
 	if err != nil {
-		return false, err
+		log.Error("redis rate limiter get client failed", 0, log.AddError(err))
+		return false
 	}
 	redis := client.Pool.Get()
 	defer redis.Close()
 	res, err := limiterScript.Do(redis, self.key(resource), self.option.Bucket, self.option.Limit, time.Now().UnixNano()/1e6)
 	if err != nil {
-		return false, err
+		log.Error("redis rate limiter client do lua script failed", 0, log.AddError(err))
+		return false
 	}
 	if v, b := res.(int64); b && v == 1 {
-		return true, nil
+		return true
 	}
-	return false, nil
+	return false
 }

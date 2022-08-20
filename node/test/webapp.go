@@ -127,11 +127,11 @@ func StartHttpNode() {
 	my.CacheAware = GetCacheAware
 	my.OverrideFunc = &node.OverrideFunc{
 		PreHandleFunc: func(ctx *node.Context) error {
-			if b, err := limiter.Validate(ctx.Method); !b || err != nil {
+			if b := limiter.Allow(ctx.Method); !b {
 				return ex.Throw{Code: 429, Msg: "the method request is full, please try again later"}
 			}
 			if ctx.Authenticated() {
-				if b, err := limiter.Validate(util.AnyToStr(ctx.Subject.Sub)); !b || err != nil {
+				if b := limiter.Allow(util.AnyToStr(ctx.Subject.Sub)); !b {
 					return ex.Throw{Code: 429, Msg: "the access frequency is too fast, please try again later"}
 				}
 			}

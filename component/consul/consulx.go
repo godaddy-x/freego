@@ -5,6 +5,7 @@ import (
 	"encoding/gob"
 	"errors"
 	"fmt"
+	rate "github.com/godaddy-x/freego/component/limiter"
 	"github.com/godaddy-x/freego/component/log"
 	"github.com/godaddy-x/freego/util"
 	consulapi "github.com/hashicorp/consul/api"
@@ -14,12 +15,11 @@ import (
 	"net/http"
 	"net/rpc"
 	"reflect"
-	"sync"
 	"time"
 )
 
 const (
-	counterKey  = "rpc:counter:"
+	limiterKey  = "rpc:limiter:"
 	defaultHost = "consulx.com:8500"
 	defaultNode = "dc/consul"
 )
@@ -29,10 +29,9 @@ var (
 	consulSlowlog  *zap.Logger
 )
 
-var serviceCounter = make(map[string]int64, 0)
+var serviceLimiter = make(map[string]rate.RateLimiter, 0)
 
 type ConsulManager struct {
-	mu      sync.Mutex
 	Host    string
 	Consulx *consulapi.Client
 	Config  *ConsulConfig
@@ -84,7 +83,7 @@ type CallInfo struct {
 	Request       interface{} // 请求参数对象
 	Response      interface{} // 响应参数对象
 	Timeout       int64       // 连接请求超时,默认15秒
-	Counter       int64       // 最大访问数
+	Option        rate.Option // 限流配置
 }
 
 func getConsulClient(conf ConsulConfig) *ConsulManager {
@@ -293,45 +292,6 @@ func (self *ConsulManager) GetAllService(service string) ([]*consulapi.AgentServ
 	return result, nil
 }
 
-// 控制访问计数器
-func (self *ConsulManager) LockCounter(callInfo *CallInfo) error {
-	if self.Option.LockerFunc == nil {
-		self.mu.Lock()
-		defer self.mu.Unlock()
-		c, b := serviceCounter[callInfo.Service]
-		if !b {
-			return util.Error("RPC service counter is nil")
-		}
-		if c <= 0 {
-			return util.Error("RPC service request is full, please try again later")
-		}
-		serviceCounter[callInfo.Service] = c - 1
-		// TODO redis spin lock counter
-		//if err := cache.SpinLocker(counterKey+callInfo.Service, "", 5, func() error {
-		//	serviceCounter[callInfo.Service] = c - 1
-		//	return nil
-		//}); err != nil {
-		//	return err
-		//}
-	}
-	return self.Option.LockerFunc(callInfo)
-}
-
-// 释放访问计数器
-func (self *ConsulManager) UnlockCounter(callInfo *CallInfo) error {
-	if self.Option.UnlockerFunc == nil {
-		self.mu.Lock()
-		defer self.mu.Unlock()
-		c, b := serviceCounter[callInfo.Service]
-		if !b {
-			return util.Error("RPC service counter is nil")
-		}
-		serviceCounter[callInfo.Service] = c + 1
-		return nil
-	}
-	return self.Option.UnlockerFunc(callInfo)
-}
-
 func (self *ConsulManager) GetHealthService(service, tag string) ([]*consulapi.ServiceEntry, error) {
 	serviceEntry, _, err := self.Consulx.Health().Service(service, tag, false, &consulapi.QueryOptions{})
 	if err != nil {
@@ -342,8 +302,6 @@ func (self *ConsulManager) GetHealthService(service, tag string) ([]*consulapi.S
 
 // 中心注册接口服务
 func (self *ConsulManager) AddRPC(callInfo ...*CallInfo) {
-	self.mu.Lock()
-	defer self.mu.Unlock()
 	if len(callInfo) == 0 {
 		panic("callInfo is nil...")
 	}
@@ -362,8 +320,8 @@ func (self *ConsulManager) AddRPC(callInfo ...*CallInfo) {
 		if len(info.Domain) > 0 {
 			address = info.Domain
 		}
-		if info.Counter <= 0 {
-			info.Counter = 1000
+		if info.Option.Limit == 0 || info.Option.Bucket == 0 {
+			panic("callInfo limiter option invalid")
 		}
 		srvName := reflect.Indirect(vof).Type().Name()
 		if len(info.Package) > 0 {
@@ -394,8 +352,8 @@ func (self *ConsulManager) AddRPC(callInfo ...*CallInfo) {
 			panic(util.AddStr("rpc service [", srvName, "] add failed: ", err.Error()))
 		}
 		rpc.Register(info.ClassInstance)
-		// 添加RPC计数器
-		serviceCounter[registration.Name] = info.Counter
+		// 添加RPC限流器
+		serviceLimiter[registration.Name] = rate.NewRateLimiter(info.Option)
 	}
 }
 
@@ -425,8 +383,11 @@ func (self *ConsulManager) CallRPC(callInfo *CallInfo) error {
 	if callInfo.Response == nil {
 		return errors.New("call response object is nil")
 	}
-	self.LockCounter(callInfo)
-	defer self.UnlockCounter(callInfo)
+	if limiter, ok := serviceLimiter[callInfo.Service]; !ok {
+		return errors.New("rpc limiter is nil")
+	} else if b := limiter.Allow(limiterKey + callInfo.Service); !b {
+		return errors.New("rpc request is full")
+	}
 	if len(callInfo.Protocol) == 0 {
 		callInfo.Protocol = "tcp"
 	}

@@ -510,7 +510,7 @@ func (self *HttpNode) limiterTimeoutHandler() http.Handler {
 		panic("gateway limiter is nil")
 	}
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if b, err := self.GatewayLimiter.Validate("HttpThreshold"); !b || err != nil {
+		if b := self.GatewayLimiter.Allow("HttpThreshold"); !b {
 			w.WriteHeader(429)
 			w.Write([]byte("the gateway request is full, please try again later"))
 			return
@@ -520,8 +520,8 @@ func (self *HttpNode) limiterTimeoutHandler() http.Handler {
 	if self.DisconnectTimeout <= 0 {
 		self.DisconnectTimeout = 180
 	}
-	errmsg := `{"c":408,"m":"server actively disconnects the client","d":null,"t":%d,"n":"%s","p":0,"s":""}`
-	return http.TimeoutHandler(handler, time.Duration(self.DisconnectTimeout)*time.Second, fmt.Sprintf(errmsg, util.Time(), util.GetSnowFlakeStrID()))
+	errorMsg := `{"c":408,"m":"server actively disconnects the client","d":null,"t":%d,"n":"%s","p":0,"s":""}`
+	return http.TimeoutHandler(handler, time.Duration(self.DisconnectTimeout)*time.Second, fmt.Sprintf(errorMsg, util.Time(), util.GetSnowFlakeStrID()))
 }
 
 var routerConfigs = make(map[string]*RouterConfig)

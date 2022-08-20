@@ -6,7 +6,7 @@ import (
 )
 
 type RateLimiter interface {
-	Validate(resource string) (bool, error) // true=接受请求 false=拒绝请求
+	Allow(resource string) bool // true=接受请求 false=拒绝请求
 }
 
 type LocalRateLimiter struct {
@@ -52,10 +52,10 @@ func (self *LocalRateLimiter) getLimiter(resource string) *Limiter {
 	return limiter
 }
 
-func (self *LocalRateLimiter) Validate(resource string) (bool, error) {
+func (self *LocalRateLimiter) Allow(resource string) bool {
 	limiter := self.getLimiter(resource)
 	if limiter == nil {
-		return false, nil
+		return false
 	}
-	return limiter.Allow(), nil
+	return limiter.Allow()
 }
