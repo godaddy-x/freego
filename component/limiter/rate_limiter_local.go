@@ -12,16 +12,21 @@ type RateLimiter interface {
 type LocalRateLimiter struct {
 	mu     sync.Mutex
 	cache  cache.ICache
-	limit  float64
-	bucket int
-	expire int
+	option Option
 }
 
-func NewRateLimiter(limit float64, bucket, expire int, distributed bool) RateLimiter {
-	if distributed {
-		return &RedisRateLimiter{limit: limit, bucket: bucket, expire: expire}
+type Option struct {
+	Limit       float64
+	Bucket      int
+	Expire      int
+	Distributed bool
+}
+
+func NewRateLimiter(option Option) RateLimiter {
+	if option.Distributed {
+		return &RedisRateLimiter{option: option}
 	}
-	return &LocalRateLimiter{cache: new(cache.LocalMapManager).NewCache(30, 3), limit: limit, bucket: bucket, expire: expire}
+	return &LocalRateLimiter{cache: new(cache.LocalMapManager).NewCache(30, 3), option: option}
 }
 
 // key=过滤关键词 limit=速率 bucket=容量 expire=过期时间/秒
@@ -39,8 +44,8 @@ func (self *LocalRateLimiter) getLimiter(resource string) *Limiter {
 			limiter = v.(*Limiter)
 		}
 		if limiter == nil {
-			limiter = NewLimiter(Limit(self.limit), self.bucket)
-			self.cache.Put(resource, limiter, self.expire)
+			limiter = NewLimiter(Limit(self.option.Limit), self.option.Bucket)
+			self.cache.Put(resource, limiter, self.option.Expire)
 		}
 		self.mu.Unlock()
 	}

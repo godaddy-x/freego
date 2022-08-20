@@ -106,7 +106,7 @@ func GetJwtConfig() jwt.JwtConfig {
 }
 
 var local = new(cache.LocalMapManager).NewCache(30, 10)
-var limiter = rate.NewRateLimiter(2, 10, 30, true)
+var limiter = rate.NewRateLimiter(rate.Option{Limit: 2, Bucket: 10, Expire: 30, Distributed: true})
 
 func GetCacheAware(ds ...string) (cache.ICache, error) {
 	return local, nil
@@ -123,7 +123,7 @@ func StartHttpNode() {
 		//},
 	}
 	//my.DisconnectTimeout = 10
-	my.GatewayLimiter = rate.NewRateLimiter(50, 50, 30, true)
+	my.GatewayLimiter = rate.NewRateLimiter(rate.Option{Limit: 50, Bucket: 50, Expire: 30, Distributed: true})
 	my.CacheAware = GetCacheAware
 	my.OverrideFunc = &node.OverrideFunc{
 		PreHandleFunc: func(ctx *node.Context) error {

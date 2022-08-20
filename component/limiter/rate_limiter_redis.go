@@ -45,9 +45,7 @@ var limiterScript = redis.NewScript(1, `
 `)
 
 type RedisRateLimiter struct {
-	limit  float64 // 每秒生成token数量
-	bucket int     // 最大token数量
-	expire int     // 忽略字段
+	option Option
 }
 
 func (self *RedisRateLimiter) key(resource string) string {
@@ -61,7 +59,7 @@ func (self *RedisRateLimiter) Validate(resource string) (bool, error) {
 	}
 	redis := client.Pool.Get()
 	defer redis.Close()
-	res, err := limiterScript.Do(redis, self.key(resource), self.bucket, self.limit, time.Now().UnixNano()/1e6)
+	res, err := limiterScript.Do(redis, self.key(resource), self.option.Bucket, self.option.Limit, time.Now().UnixNano()/1e6)
 	if err != nil {
 		return false, err
 	}
