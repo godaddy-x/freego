@@ -12,28 +12,6 @@ import (
 	"github.com/godaddy-x/freego/util"
 )
 
-var (
-	local_cache = new(cache.LocalMapManager).NewCache(30, 10)
-	limiter     = rate.NewLocalLimiter(local_cache)
-)
-
-func init() {
-	//redisConf := cache.RedisConfig{
-	//	Host:        "192.168.27.160",
-	//	Port:        6379,
-	//	Password:    "wallet828",
-	//	MaxIdle:     150,
-	//	MaxActive:   150,
-	//	IdleTimeout: 240,
-	//	Network:     "tcp",
-	//	LockTimeout: 15,
-	//}
-	//new(cache.RedisManager).InitConfig(redisConf)
-	//redis_cache, _ := new(cache.RedisManager).Client()
-	//limiter = rate.NewRedisLimiter(redis_cache)
-
-}
-
 type MyWebNode struct {
 	node.HttpNode
 }
@@ -127,8 +105,11 @@ func GetJwtConfig() jwt.JwtConfig {
 	}
 }
 
+var local = new(cache.LocalMapManager).NewCache(30, 10)
+var limiter = rate.NewRateLimiter(2, 10, 30, true)
+
 func GetCacheAware(ds ...string) (cache.ICache, error) {
-	return local_cache, nil
+	return local, nil
 }
 
 func StartHttpNode() {
@@ -137,20 +118,22 @@ func StartHttpNode() {
 		Host:      "0.0.0.0",
 		Port:      8090,
 		JwtConfig: GetJwtConfig,
+		//PermConfig: func(url string) (node.Permission, error) {
+		//	return node.Permission{}, nil
+		//},
 	}
 	//my.DisconnectTimeout = 10
-	//my.GatewayRate = &rate.RateOpetion{Limit: 2, Bucket: 5, Expire: 30}
-	//my.PermConfig = func(url string) (node.Permission, error) {
-	//	return node.Permission{}, nil
-	//}
+	my.GatewayLimiter = rate.NewRateLimiter(50, 50, 30, true)
 	my.CacheAware = GetCacheAware
 	my.OverrideFunc = &node.OverrideFunc{
 		PreHandleFunc: func(ctx *node.Context) error {
-			if limiter.Validate(&rate.RateOpetion{Key: ctx.Method, Limit: 1000, Bucket: 1000, Expire: 30}) {
-				return ex.Throw{Code: 429, Msg: "too many visitors, please try again later"}
+			if b, err := limiter.Validate(ctx.Method); !b || err != nil {
+				return ex.Throw{Code: 429, Msg: "the method request is full, please try again later"}
 			}
-			if ctx.Authenticated() && limiter.Validate(&rate.RateOpetion{Key: util.AnyToStr(ctx.Subject.Sub), Limit: 1000, Bucket: 1000, Expire: 30}) {
-				return ex.Throw{Code: 429, Msg: "the access frequency is too fast, please try again later"}
+			if ctx.Authenticated() {
+				if b, err := limiter.Validate(util.AnyToStr(ctx.Subject.Sub)); !b || err != nil {
+					return ex.Throw{Code: 429, Msg: "the access frequency is too fast, please try again later"}
+				}
 			}
 			return nil
 		},

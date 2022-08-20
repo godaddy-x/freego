@@ -2,10 +2,8 @@ package node
 
 import (
 	"fmt"
-	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/component/gorsa"
 	"github.com/godaddy-x/freego/component/jwt"
-	"github.com/godaddy-x/freego/component/limiter"
 	"github.com/godaddy-x/freego/component/log"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/util"
@@ -508,18 +506,13 @@ func (self *HttpNode) StartServer() {
 }
 
 func (self *HttpNode) limiterTimeoutHandler() http.Handler {
-	if self.GatewayRate == nil {
-		self.GatewayRate = &rate.RateOpetion{
-			Key:    "HttpThreshold",
-			Limit:  2000,
-			Bucket: 2000,
-			Expire: 1209600,
-		}
+	if self.GatewayLimiter == nil {
+		panic("gateway limiter is nil")
 	}
-	limiter := rate.NewLocalLimiterByOption(new(cache.LocalMapManager).NewCache(20160, 20160), self.GatewayRate)
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if limiter.Validate(nil) {
+		if b, err := self.GatewayLimiter.Validate("HttpThreshold"); !b || err != nil {
 			w.WriteHeader(429)
+			w.Write([]byte("the gateway request is full, please try again later"))
 			return
 		}
 		self.Handler.ServeHTTP(w, r)

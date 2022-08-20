@@ -48,7 +48,7 @@ type HookNode struct {
 	SessionAware      SessionAware
 	CacheAware        func(ds ...string) (cache.ICache, error)
 	OverrideFunc      *OverrideFunc
-	GatewayRate       *rate.RateOpetion
+	GatewayLimiter    rate.RateLimiter
 	Handler           *http.ServeMux
 	RouterConfig      *RouterConfig
 	DisconnectTimeout int64 // 超时主动断开客户端连接,秒
