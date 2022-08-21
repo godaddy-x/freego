@@ -5,7 +5,6 @@ import (
 	"github.com/godaddy-x/freego/component/consul"
 	"github.com/godaddy-x/freego/sqld"
 	"github.com/godaddy-x/freego/util"
-	"testing"
 )
 
 type OwWallet struct {
@@ -186,24 +185,24 @@ func init() {
 //	}
 //}
 
-func BenchmarkConsulxCallRPC(b *testing.B) {
-	mgr, err := new(consul.ConsulManager).Client()
-	if err != nil {
-		panic(err)
-	}
-
-	req := &ReqObj{123, "托尔斯泰"}
-	res := &ResObj{}
-
-	if err := mgr.CallRPC(&consul.CallInfo{
-		Package:  "mytest",
-		Service:  "UserServiceImpl",
-		Method:   "FindUser",
-		Request:  req,
-		Response: res,
-	}); err != nil {
-		fmt.Println(err)
-		return
-	}
-	//fmt.Println("rpc result: ", res)
-}
+//func BenchmarkConsulxCallRPC(b *testing.B) {
+//	mgr, err := new(consul.ConsulManager).Client()
+//	if err != nil {
+//		panic(err)
+//	}
+//
+//	req := &ReqObj{AesObj{"456789"}, 123, "托尔斯泰"}
+//	res := &ResObj{}
+//
+//	if err := mgr.CallRPC(&consul.CallInfo{
+//		Package:  "mytest",
+//		Service:  "UserServiceImpl",
+//		Method:   "FindUser",
+//		Request:  req,
+//		Response: res,
+//	}); err != nil {
+//		fmt.Println(err)
+//		return
+//	}
+//	//fmt.Println("grpc result: ", res)
+//}

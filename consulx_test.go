@@ -1,111 +1,54 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"github.com/godaddy-x/freego/component/consul"
-	rate "github.com/godaddy-x/freego/component/limiter"
+	"github.com/godaddy-x/freego/component/consul/grpc/pb"
+	"github.com/godaddy-x/freego/util"
+	"google.golang.org/grpc"
 	"testing"
 )
 
-type ReqObj struct {
-	Uid  int
-	Name string
+type IdWorker struct {
+	pb.UnimplementedIdWorkerServer
 }
 
-type ResObj struct {
-	Name   string
-	Title  string
-	Status int
+func (self *IdWorker) GenerateId(ctx context.Context, req *pb.GenerateIdReq) (*pb.GenerateIdRes, error) {
+	fmt.Println("GenerateId: ", req)
+	return &pb.GenerateIdRes{Value: util.GetSnowFlakeIntID(req.Node)}, nil
 }
 
-type UserService interface {
-	FindUser(req *ReqObj, obj *ResObj) error
-	FindUserList(req *ReqObj, obj *ResObj) error
-}
-
-type UserServiceImpl struct {
-}
-
-func (self *UserServiceImpl) FindUser(req *ReqObj, obj *ResObj) error {
-	fmt.Println("findUser: ", req)
-	obj.Name = "张三"
-	obj.Status = 5
-	obj.Title = "title message"
-	return nil
-}
-
-func (self *UserServiceImpl) FindUserList(req *ReqObj, obj *ResObj) error {
-	fmt.Println("findUserList: ", req)
-	obj.Name = "李四"
-	obj.Status = 1
-	obj.Title = "title message"
-	return nil
-}
-
-func TestConsulxAddRPC(t *testing.T) {
+func TestConsulxRunGRPC(t *testing.T) {
 	new(consul.ConsulManager).InitConfig(nil, consul.ConsulConfig{})
-
-	mgr, err := new(consul.ConsulManager).Client()
+	client, err := new(consul.ConsulManager).Client()
 	if err != nil {
 		panic(err)
 	}
-
-	mgr.AddRPC(&consul.CallInfo{
-		Package:       "mytest",
-		Domain:        "127.0.0.1",
-		Tags:          []string{"用户服务"},
-		ClassInstance: &UserServiceImpl{},
-		Option:        rate.Option{Limit: 2, Bucket: 10, Distributed: true},
-	})
-
-	mgr.AddSnowflakeService()
-	mgr.StartListenAndServe()
-
+	objects := []*consul.GRPC{
+		{
+			Address: "127.0.0.1",
+			Service: "IdWorker",
+			Tags:    []string{"ID Generator"},
+			AddRPC:  func(server *grpc.Server) { pb.RegisterIdWorkerServer(server, &IdWorker{}) },
+		},
+	}
+	client.RunGRPC(objects...)
 }
 
-func TestConsulxCallRPC_USER(t *testing.T) {
+func TestConsulxCallGRPC_ID(t *testing.T) {
 	new(consul.ConsulManager).InitConfig(nil, consul.ConsulConfig{})
-
-	mgr, err := new(consul.ConsulManager).Client()
+	client, err := new(consul.ConsulManager).Client()
 	if err != nil {
 		panic(err)
 	}
-
-	req := &ReqObj{123, "托尔斯泰"}
-	res := &ResObj{}
-
-	if err := mgr.CallRPC(&consul.CallInfo{
-		Package:  "mytest",
-		Service:  "UserServiceImpl",
-		Method:   "FindUser",
-		Request:  req,
-		Response: res,
-	}); err != nil {
-		fmt.Println(err)
-		return
-	}
-	fmt.Println("rpc result: ", res)
-}
-
-func TestConsulxCallRPC_ID(t *testing.T) {
-	new(consul.ConsulManager).InitConfig(nil, consul.ConsulConfig{})
-
-	mgr, err := new(consul.ConsulManager).Client()
+	res, err := client.CallGRPC(&consul.GRPC{Service: "IdWorker", CallRPC: func(conn *grpc.ClientConn, ctx context.Context) (interface{}, error) {
+		rpc := pb.NewIdWorkerClient(conn)
+		return rpc.GenerateId(ctx, &pb.GenerateIdReq{})
+	}})
 	if err != nil {
 		panic(err)
 	}
-
-	req := &consul.ReqObj{}
-	res := &consul.ResObj{}
-
-	if err := mgr.CallRPC(&consul.CallInfo{
-		Service:  "SnowflakeWorkId",
-		Method:   "Generate",
-		Request:  req,
-		Response: res,
-	}); err != nil {
-		fmt.Println(err)
-		return
-	}
-	fmt.Println("rpc result: ", res)
+	object, _ := res.(*pb.GenerateIdRes)
+	fmt.Println("call rpc:", object)
 }

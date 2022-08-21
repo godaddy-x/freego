@@ -23,7 +23,7 @@ var pubkey = util.MD5(util.RandStr(16), true)
 var srvPubkeyBase64 string
 
 func init() {
-	srvPubkeyBase64 = initSrvPubkey()
+	//srvPubkeyBase64 = initSrvPubkey()
 }
 
 func initSrvPubkey() string {

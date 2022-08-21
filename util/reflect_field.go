@@ -11,8 +11,7 @@ type emptyInter struct {
 
 // 通过指针获取对象字段位置
 func GetPtr(v interface{}, offset uintptr) uintptr {
-	structInter := (interface{})(v)
-	structPtr := (*emptyInter)(unsafe.Pointer(&structInter)).w
+	structPtr := (*emptyInter)(unsafe.Pointer(&v)).w
 	return uintptr(structPtr) + offset
 }
 

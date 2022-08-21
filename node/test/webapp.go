@@ -1,9 +1,7 @@
 package http_web
 
 import (
-	"fmt"
 	"github.com/godaddy-x/freego/cache"
-	"github.com/godaddy-x/freego/component/consul"
 	"github.com/godaddy-x/freego/component/jwt"
 	"github.com/godaddy-x/freego/component/limiter"
 	"github.com/godaddy-x/freego/ex"
@@ -55,26 +53,26 @@ func (self *MyWebNode) getUser(ctx *node.Context) error {
 	return self.Json(ctx, map[string]interface{}{"test": "我爱中国+-/+_=/1df"})
 }
 
-func test_callrpc() {
-	mgr, err := new(consul.ConsulManager).Client()
-	if err != nil {
-		panic(err)
-	}
-
-	req := &ReqObj{123, "托尔斯泰"}
-	res := &ResObj{}
-
-	if err := mgr.CallRPC(&consul.CallInfo{
-		Package:  "mytest",
-		Service:  "UserServiceImpl",
-		Method:   "FindUser",
-		Request:  req,
-		Response: res,
-	}); err != nil {
-		fmt.Println(err)
-	}
-	fmt.Println("rpc result: ", res)
-}
+//func test_callrpc() {
+//	mgr, err := new(consul.ConsulManager).Client()
+//	if err != nil {
+//		panic(err)
+//	}
+//
+//	req := &ReqObj{123, "托尔斯泰"}
+//	res := &ResObj{}
+//
+//	if err := mgr.CallRPC(&consul.CallInfo{
+//		Package:  "mytest",
+//		Service:  "UserServiceImpl",
+//		Method:   "FindUser",
+//		Request:  req,
+//		Response: res,
+//	}); err != nil {
+//		fmt.Println(err)
+//	}
+//	fmt.Println("grpc result: ", res)
+//}
 
 func (self *MyWebNode) login(ctx *node.Context) error {
 	subject := &jwt.Subject{}
@@ -102,7 +100,7 @@ func GetJwtConfig() jwt.JwtConfig {
 }
 
 var local = new(cache.LocalMapManager).NewCache(30, 10)
-var limiter = rate.NewRateLimiter(rate.Option{Limit: 2, Bucket: 10, Expire: 30, Distributed: true})
+var limiter = rate.NewRateLimiter(rate.Option{Limit: 100, Bucket: 200, Expire: 30, Distributed: true})
 
 func GetCacheAware(ds ...string) (cache.ICache, error) {
 	return local, nil

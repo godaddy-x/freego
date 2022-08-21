@@ -1,27 +1,24 @@
 package consul
 
 import (
-	"bufio"
-	"encoding/gob"
-	"errors"
+	"context"
 	"fmt"
-	"github.com/godaddy-x/freego/cache"
 	rate "github.com/godaddy-x/freego/component/limiter"
 	"github.com/godaddy-x/freego/component/log"
 	"github.com/godaddy-x/freego/util"
 	consulapi "github.com/hashicorp/consul/api"
 	"go.uber.org/zap"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"math/rand"
 	"net"
 	"net/http"
-	"net/rpc"
-	"reflect"
 	"time"
 )
 
 const (
-	limiterKey       = "rpc:limiter:"
-	limiterConfigKey = "rpc:limiter:config:"
+	limiterKey       = "grpc:limiter:"
+	limiterConfigKey = "grpc:limiter:config:"
 	defaultHost      = "consulx.com:8500"
 	defaultNode      = "dc/consul"
 )
@@ -86,6 +83,15 @@ type CallInfo struct {
 	Option        rate.Option // 限流配置
 }
 
+type GRPC struct {
+	Tags    []string                                                              // 服务标签名称
+	Address string                                                                // 服务地址,为空时自动填充内网IP
+	Service string                                                                // 服务名称
+	Timeout int                                                                   // 请求超时/毫秒
+	AddRPC  func(server *grpc.Server)                                             // grpc注册proto服务
+	CallRPC func(conn *grpc.ClientConn, ctx context.Context) (interface{}, error) // grpc回调proto服务
+}
+
 func getConsulClient(conf ConsulConfig) *ConsulManager {
 	config := consulapi.DefaultConfig()
 	config.Address = conf.Host
@@ -98,7 +104,7 @@ func getConsulClient(conf ConsulConfig) *ConsulManager {
 
 type ConsulOption struct {
 	// TODO 服务选取算法实现
-	Selection func([]*consulapi.ServiceEntry, *CallInfo) *consulapi.ServiceEntry
+	Selection func([]*consulapi.ServiceEntry, *GRPC) *consulapi.ServiceEntry
 	// TODO 限流算法实现
 	LockerFunc   func(callInfo *CallInfo) error
 	UnlockerFunc func(callInfo *CallInfo) error
@@ -212,39 +218,6 @@ func (self *ConsulManager) GetTextValue(key string) ([]byte, error) {
 	return k.Value, nil
 }
 
-// 开启并监听服务
-func (self *ConsulManager) StartListenAndServe() {
-	l, e := net.Listen(self.Config.Protocol, util.AddStr(":", util.AnyToStr(self.Config.ListenPort)))
-	if e != nil {
-		panic("consul listening service exception: " + e.Error())
-	}
-	go func() {
-		for {
-			conn, err := l.Accept()
-			if err != nil {
-				log.Print("rpc accept connection failed: ", err)
-				continue
-			}
-			go func(conn net.Conn) {
-				buf := bufio.NewWriter(conn)
-				srv := &gobServerCodec{
-					rwc:     conn,
-					dec:     gob.NewDecoder(conn),
-					enc:     gob.NewEncoder(buf),
-					encBuf:  buf,
-					timeout: 15,
-				}
-				if err := rpc.ServeRequest(srv); err != nil {
-					log.Print("rpc request failed: ", err)
-				}
-				srv.Close()
-			}(conn)
-		}
-	}()
-	http.HandleFunc(self.Config.CheckPath, self.healthCheck)
-	http.ListenAndServe(fmt.Sprintf(":%d", self.Config.CheckPort), nil)
-}
-
 func (self *ConsulManager) RemoveService(serviceIDs ...string) {
 	services, err := self.Consulx.Agent().Services()
 	if err != nil {
@@ -257,7 +230,7 @@ func (self *ConsulManager) RemoveService(serviceIDs ...string) {
 					if err := self.Consulx.Agent().ServiceDeregister(v.ID); err != nil {
 						log.Println(err)
 					}
-					log.Println("remove rpc service successful: ", v.Service, " - ", v.ID)
+					log.Println("remove grpc service successful: ", v.Service, " - ", v.ID)
 				}
 			}
 		}
@@ -267,7 +240,7 @@ func (self *ConsulManager) RemoveService(serviceIDs ...string) {
 		if err := self.Consulx.Agent().ServiceDeregister(v.ID); err != nil {
 			log.Println(err)
 		}
-		log.Println("remove rpc service successful: ", v.Service, " - ", v.ID)
+		log.Println("remove grpc service successful: ", v.Service, " - ", v.ID)
 	}
 }
 
@@ -300,69 +273,6 @@ func (self *ConsulManager) GetHealthService(service, tag string) ([]*consulapi.S
 	return serviceEntry, nil
 }
 
-// 中心注册接口服务
-func (self *ConsulManager) AddRPC(callInfo ...*CallInfo) {
-	if len(callInfo) == 0 {
-		panic("callInfo is nil...")
-	}
-	services, err := self.GetAllService("")
-	if err != nil {
-		panic(err)
-	}
-	client, err := new(cache.RedisManager).Client()
-	if err != nil {
-		panic(err)
-	}
-	for _, info := range callInfo {
-		tof := reflect.TypeOf(info.ClassInstance)
-		vof := reflect.ValueOf(info.ClassInstance)
-		registration := new(consulapi.AgentServiceRegistration)
-		address := util.GetLocalIP()
-		if len(address) == 0 {
-			panic("Intranet IP reading failed")
-		}
-		if len(info.Domain) > 0 {
-			address = info.Domain
-		}
-		if info.Option.Limit == 0 || info.Option.Bucket == 0 {
-			panic("callInfo limiter option invalid")
-		}
-		srvName := reflect.Indirect(vof).Type().Name()
-		if len(info.Package) > 0 {
-			srvName = util.AddStr(info.Package, ".", srvName)
-		}
-		var methods []string
-		for m := 0; m < tof.NumMethod(); m++ {
-			method := tof.Method(m)
-			methods = append(methods, method.Name)
-		}
-		if len(methods) == 0 {
-			panic(util.AddStr("service [", srvName, "] method is nil"))
-		}
-		if checkServiceExists(services, srvName, address) {
-			log.Println(util.AddStr("rpc service [", srvName, "][", address, "] exist, skip..."))
-			continue
-		}
-		registration.ID = util.GetUUID()
-		registration.Name = srvName
-		registration.Tags = info.Tags
-		registration.Address = address
-		registration.Port = self.Config.RpcPort
-		registration.Meta = make(map[string]string, 0)
-		registration.Check = &consulapi.AgentServiceCheck{HTTP: fmt.Sprintf("http://%s:%d%s", registration.Address, self.Config.CheckPort, self.Config.CheckPath), Timeout: self.Config.Timeout, Interval: self.Config.Interval, DeregisterCriticalServiceAfter: self.Config.DestroyAfter}
-		// 注册RPC服务
-		log.Println(util.AddStr("rpc service [", registration.Name, "][", registration.Address, "] added successful"))
-		if err := self.Consulx.Agent().ServiceRegister(registration); err != nil {
-			panic(util.AddStr("rpc service [", srvName, "] add failed: ", err.Error()))
-		}
-		rpc.Register(info.ClassInstance)
-		// 添加RPC限流器配置
-		if err := client.Put(limiterConfigKey+registration.Name, &info.Option); err != nil {
-			panic(err)
-		}
-	}
-}
-
 func checkServiceExists(services []*consulapi.AgentService, srvName, addr string) bool {
 	for _, v := range services {
 		if v.Service == srvName && v.Address == addr {
@@ -372,96 +282,97 @@ func checkServiceExists(services []*consulapi.AgentService, srvName, addr string
 	return false
 }
 
+// 中心注册接口服务
+func (self *ConsulManager) RunGRPC(objects ...*GRPC) {
+	if len(objects) == 0 {
+		panic("rpc objects is nil...")
+	}
+	services, err := self.GetAllService("")
+	if err != nil {
+		panic(err)
+	}
+	if err != nil {
+		panic(err)
+	}
+	grpcServer := grpc.NewServer()
+	for _, object := range objects {
+		address := util.GetLocalIP()
+		port := self.Config.RpcPort
+		if len(address) == 0 {
+			panic("local address reading failed")
+		}
+		if len(object.Address) > 0 {
+			address = object.Address
+		}
+		if len(object.Service) == 0 || len(object.Service) > 100 {
+			panic("rpc service invalid")
+		}
+		if checkServiceExists(services, object.Service, address) {
+			log.Println(util.AddStr("service [", object.Service, "][", address, "] exist, skip..."))
+			object.AddRPC(grpcServer)
+			continue
+		}
+		registration := new(consulapi.AgentServiceRegistration)
+		registration.ID = util.GetUUID()
+		registration.Tags = object.Tags
+		registration.Name = object.Service
+		registration.Address = address
+		registration.Port = port
+		registration.Meta = make(map[string]string, 0)
+		registration.Check = &consulapi.AgentServiceCheck{HTTP: fmt.Sprintf("http://%s:%d%s", registration.Address, self.Config.CheckPort, self.Config.CheckPath), Timeout: self.Config.Timeout, Interval: self.Config.Interval, DeregisterCriticalServiceAfter: self.Config.DestroyAfter}
+		log.Println(util.AddStr("service [", registration.Name, "][", registration.Address, "] added successful"))
+		if err := self.Consulx.Agent().ServiceRegister(registration); err != nil {
+			panic(util.AddStr("service [", object.Service, "] add failed: ", err.Error()))
+		}
+		object.AddRPC(grpcServer)
+	}
+	go func() {
+		http.HandleFunc(self.Config.CheckPath, self.healthCheck)
+		http.ListenAndServe(fmt.Sprintf(":%d", self.Config.CheckPort), nil)
+	}()
+	l, err := net.Listen(self.Config.Protocol, util.AddStr(":", util.AnyToStr(self.Config.RpcPort)))
+	if err != nil {
+		panic(err)
+	}
+	if err := grpcServer.Serve(l); err != nil {
+		panic(err)
+	}
+}
+
 // 获取RPC服务,并执行访问 args参数不可变,reply参数可变
-func (self *ConsulManager) CallRPC(callInfo *CallInfo) error {
-	if callInfo == nil {
-		return errors.New("callInfo is nil")
+func (self *ConsulManager) CallGRPC(object *GRPC) (interface{}, error) {
+	if len(object.Service) == 0 || len(object.Service) > 100 {
+		return nil, util.Error("call service invalid")
 	}
-	if len(callInfo.Service) == 0 {
-		return errors.New("call service is nil")
-	}
-	if len(callInfo.Method) == 0 {
-		return errors.New("call method is nil")
-	}
-	if callInfo.Request == nil {
-		return errors.New("call request object is nil")
-	}
-	if callInfo.Response == nil {
-		return errors.New("call response object is nil")
-	}
-	if len(callInfo.Protocol) == 0 {
-		callInfo.Protocol = "tcp"
-	}
-	if callInfo.Timeout <= 0 {
-		callInfo.Timeout = 15
-	}
-	serviceName := callInfo.Service
-	if len(callInfo.Package) > 0 {
-		serviceName = callInfo.Package + "." + callInfo.Service
+	if object.Timeout <= 0 {
+		object.Timeout = 15000
 	}
 	var tag string
-	if len(callInfo.Tags) > 0 {
-		tag = callInfo.Tags[0]
+	if len(object.Tags) > 0 {
+		tag = object.Tags[0]
 	}
-	client, err := new(cache.RedisManager).Client()
+	services, err := self.GetHealthService(object.Service, tag)
 	if err != nil {
-		return err
-	}
-	option := rate.Option{}
-	if _, b, err := client.Get(limiterConfigKey+serviceName, &option); err != nil {
-		return err
-	} else if !b {
-		return errors.New("call limiter option is nil")
-	}
-	limiter := rate.NewRateLimiter(option)
-	if b := limiter.Allow(limiterKey + callInfo.Package + callInfo.Service); !b {
-		return errors.New("rpc request is full")
-	}
-	services, err := self.GetHealthService(serviceName, tag)
-	if err != nil {
-		return util.Error("read service [", serviceName, "] failed: ", err)
+		return nil, util.Error("query service [", object.Service, "] failed: ", err)
 	}
 	if len(services) == 0 {
-		return util.Error("no available services found: [", serviceName, "]")
+		return nil, util.Error("no available services found: [", object.Service, "]")
 	}
 	var service *consulapi.AgentService
 	if self.Option.Selection == nil { // 选取规则为空则默认随机
 		r := rand.New(rand.NewSource(util.GetSnowFlakeIntID()))
 		service = services[r.Intn(len(services))].Service
 	} else {
-		service = self.Option.Selection(services, callInfo).Service
+		service = self.Option.Selection(services, object).Service
 	}
-	monitor := MonitorLog{
-		ConsulHost:  self.Config.Host,
-		ServiceName: serviceName,
-		MethodName:  callInfo.Method,
-		RpcPort:     service.Port,
-		RpcHost:     service.Address,
-		AgentID:     service.ID,
-		BeginTime:   util.Time(),
-	}
-	defer self.rpcMonitor(monitor, err, callInfo.Request, callInfo.Response)
-	var conn net.Conn
-	conn, err = net.DialTimeout(callInfo.Protocol, util.AddStr(service.Address, ":", self.Config.ListenPort), time.Second*time.Duration(callInfo.Timeout))
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(object.Timeout)*time.Millisecond)
+	defer cancel()
+	conn, err := grpc.DialContext(ctx, util.AddStr(service.Address, ":", service.Port), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		log.Error("consul service connect failed", 0, log.String("ID", service.ID), log.String("host", service.Address), log.String("srv", service.Service), log.AddError(err))
-		return util.Error("consul service connect failed: ", err)
+		return nil, err
 	}
 	defer conn.Close()
-	conn.SetReadDeadline(time.Now().Add(time.Second * time.Duration(callInfo.Timeout)))
-	encBuf := bufio.NewWriter(conn)
-	codec := &gobClientCodec{conn, gob.NewDecoder(conn), gob.NewEncoder(encBuf), encBuf, callInfo.Timeout - 5}
-	cli := rpc.NewClientWithCodec(codec)
-	defer func() {
-		if err := cli.Close(); err != nil {
-			log.Error("consul service client close failed", 0, log.String("ID", service.ID), log.String("host", service.Address), log.String("srv", service.Service), log.AddError(err))
-		}
-	}()
-	if err := cli.Call(util.AddStr(callInfo.Service, ".", callInfo.Method), callInfo.Request, callInfo.Response); err != nil {
-		log.Error("consul service call failed", 0, log.String("ID", service.ID), log.String("host", service.Address), log.String("srv", service.Service), log.AddError(err))
-		return util.Error("consul service call failed: ", err)
-	}
-	return nil
+	return object.CallRPC(conn, ctx)
 }
 
 // 输出RPC监控日志
