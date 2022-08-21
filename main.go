@@ -3,6 +3,7 @@ package main
 import (
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/component/consul"
+	"github.com/godaddy-x/freego/component/limiter"
 	"github.com/godaddy-x/freego/node/test"
 	"github.com/godaddy-x/freego/util"
 )
@@ -12,7 +13,11 @@ func http_test() {
 }
 
 func init() {
-	new(consul.ConsulManager).InitConfig(nil, consul.ConsulConfig{
+	new(consul.ConsulManager).InitConfig(&consul.ConsulOption{
+		RateOption: func(method string) (rate.Option, error) {
+			return rate.Option{}, nil
+		},
+	}, consul.ConsulConfig{
 		Host: "consulx.com:8500",
 		Node: "dc/consul",
 	})

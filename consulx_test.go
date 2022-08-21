@@ -15,7 +15,6 @@ type IdWorker struct {
 }
 
 func (self *IdWorker) GenerateId(ctx context.Context, req *pb.GenerateIdReq) (*pb.GenerateIdRes, error) {
-	fmt.Println("GenerateId: ", req)
 	return &pb.GenerateIdRes{Value: util.GetSnowFlakeIntID(req.Node)}, nil
 }
 

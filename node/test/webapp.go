@@ -1,13 +1,18 @@
 package http_web
 
 import (
+	"context"
+	"fmt"
 	"github.com/godaddy-x/freego/cache"
+	"github.com/godaddy-x/freego/component/consul"
+	"github.com/godaddy-x/freego/component/consul/grpc/pb"
 	"github.com/godaddy-x/freego/component/jwt"
 	"github.com/godaddy-x/freego/component/limiter"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/node"
 	"github.com/godaddy-x/freego/node/common"
 	"github.com/godaddy-x/freego/util"
+	"google.golang.org/grpc"
 )
 
 type MyWebNode struct {
@@ -53,26 +58,21 @@ func (self *MyWebNode) getUser(ctx *node.Context) error {
 	return self.Json(ctx, map[string]interface{}{"test": "我爱中国+-/+_=/1df"})
 }
 
-//func test_callrpc() {
-//	mgr, err := new(consul.ConsulManager).Client()
-//	if err != nil {
-//		panic(err)
-//	}
-//
-//	req := &ReqObj{123, "托尔斯泰"}
-//	res := &ResObj{}
-//
-//	if err := mgr.CallRPC(&consul.CallInfo{
-//		Package:  "mytest",
-//		Service:  "UserServiceImpl",
-//		Method:   "FindUser",
-//		Request:  req,
-//		Response: res,
-//	}); err != nil {
-//		fmt.Println(err)
-//	}
-//	fmt.Println("grpc result: ", res)
-//}
+func testCallRPC() {
+	client, err := new(consul.ConsulManager).Client()
+	if err != nil {
+		panic(err)
+	}
+	res, err := client.CallGRPC(&consul.GRPC{Service: "IdWorker", CallRPC: func(conn *grpc.ClientConn, ctx context.Context) (interface{}, error) {
+		rpc := pb.NewIdWorkerClient(conn)
+		return rpc.GenerateId(ctx, &pb.GenerateIdReq{})
+	}})
+	if err != nil {
+		fmt.Println(err)
+	} else {
+		fmt.Println("grpc:", res)
+	}
+}
 
 func (self *MyWebNode) login(ctx *node.Context) error {
 	subject := &jwt.Subject{}
@@ -85,7 +85,7 @@ func (self *MyWebNode) login(ctx *node.Context) error {
 }
 
 func (self *MyWebNode) pubkey(ctx *node.Context) error {
-	//test_callrpc()
+	testCallRPC()
 	return self.Text(ctx, ctx.ServerCert.PubkeyBase64)
 }
 

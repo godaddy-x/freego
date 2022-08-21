@@ -67,20 +67,15 @@ type MonitorLog struct {
 	Error       error
 }
 
-// RPC参数对象
-type CallInfo struct {
-	Sub           int64       // 用户主体ID
-	Tags          []string    // 服务标签名称
-	Domain        string      // 自定义访问域名,为空时自动填充内网IP
-	ClassInstance interface{} // 接口实现类实例
-	Package       string      // RPC服务包名
-	Service       string      // RPC服务名称
-	Method        string      // RPC方法名称
-	Protocol      string      // RPC访问协议,默认TCP
-	Request       interface{} // 请求参数对象
-	Response      interface{} // 响应参数对象
-	Timeout       int64       // 连接请求超时,默认15秒
-	Option        rate.Option // 限流配置
+type TokenConfig struct {
+	TokenId      string
+	TokenKey     string
+	Authenticate bool
+}
+
+type MethodConfig struct {
+	TokenConfig TokenConfig
+	RateOption  rate.Option
 }
 
 type GRPC struct {
@@ -105,9 +100,8 @@ func getConsulClient(conf ConsulConfig) *ConsulManager {
 type ConsulOption struct {
 	// TODO 服务选取算法实现
 	Selection func([]*consulapi.ServiceEntry, *GRPC) *consulapi.ServiceEntry
-	// TODO 限流算法实现
-	LockerFunc   func(callInfo *CallInfo) error
-	UnlockerFunc func(callInfo *CallInfo) error
+	// TODO 加载RPC方法限流配置
+	RateOption func(method string) (rate.Option, error)
 }
 
 func (self *ConsulManager) InitConfig(option *ConsulOption, input ...ConsulConfig) (*ConsulManager, error) {
@@ -282,6 +276,13 @@ func checkServiceExists(services []*consulapi.AgentService, srvName, addr string
 	return false
 }
 
+func (self *ConsulManager) CreateServer() *grpc.Server {
+	opts := []grpc.ServerOption{
+		grpc.UnaryInterceptor(self.ServerInterceptor),
+	}
+	return grpc.NewServer(opts...)
+}
+
 // 中心注册接口服务
 func (self *ConsulManager) RunGRPC(objects ...*GRPC) {
 	if len(objects) == 0 {
@@ -294,7 +295,7 @@ func (self *ConsulManager) RunGRPC(objects ...*GRPC) {
 	if err != nil {
 		panic(err)
 	}
-	grpcServer := grpc.NewServer()
+	grpcServer := self.CreateServer()
 	for _, object := range objects {
 		address := util.GetLocalIP()
 		port := self.Config.RpcPort
@@ -339,13 +340,20 @@ func (self *ConsulManager) RunGRPC(objects ...*GRPC) {
 	}
 }
 
-// 获取RPC服务,并执行访问 args参数不可变,reply参数可变
+func (self *ConsulManager) CreateClient(ctx context.Context, address string) (*grpc.ClientConn, error) {
+	opts := []grpc.DialOption{
+		grpc.WithUnaryInterceptor(self.ClientInterceptor),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	}
+	return grpc.DialContext(ctx, address, opts...)
+}
+
 func (self *ConsulManager) CallGRPC(object *GRPC) (interface{}, error) {
 	if len(object.Service) == 0 || len(object.Service) > 100 {
 		return nil, util.Error("call service invalid")
 	}
 	if object.Timeout <= 0 {
-		object.Timeout = 15000
+		object.Timeout = 60000
 	}
 	var tag string
 	if len(object.Tags) > 0 {
@@ -367,7 +375,7 @@ func (self *ConsulManager) CallGRPC(object *GRPC) (interface{}, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(object.Timeout)*time.Millisecond)
 	defer cancel()
-	conn, err := grpc.DialContext(ctx, util.AddStr(service.Address, ":", service.Port), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := self.CreateClient(ctx, util.AddStr(service.Address, ":", service.Port))
 	if err != nil {
 		return nil, err
 	}
