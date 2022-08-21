@@ -26,7 +26,7 @@ func TestConsulxRunGRPC(t *testing.T) {
 	}
 	objects := []*consul.GRPC{
 		{
-			Address: "127.0.0.1",
+			Address: "localhost",
 			Service: "IdWorker",
 			Tags:    []string{"ID Generator"},
 			AddRPC:  func(server *grpc.Server) { pb.RegisterIdWorkerServer(server, &IdWorker{}) },

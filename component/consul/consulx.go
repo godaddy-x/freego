@@ -10,7 +10,7 @@ import (
 	consulapi "github.com/hashicorp/consul/api"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/credentials"
 	"math/rand"
 	"net"
 	"net/http"
@@ -68,6 +68,11 @@ type MonitorLog struct {
 	Error       error
 }
 
+type TlsConfig struct {
+	KeyFile  string
+	CertFile string
+}
+
 type GRPC struct {
 	Tags    []string                                                              // 服务标签名称
 	Address string                                                                // 服务地址,为空时自动填充内网IP
@@ -88,6 +93,8 @@ func getConsulClient(conf ConsulConfig) *ConsulManager {
 }
 
 type ConsulOption struct {
+	// TODO TLS/SSL配置文件
+	TlsConfig TlsConfig
 	// TODO 加载jwt认证配置
 	JwtConfig func() jwt.JwtConfig
 	// TODO 加载无需权限校验Url
@@ -270,6 +277,14 @@ func (self *ConsulManager) CreateServer() *grpc.Server {
 	opts := []grpc.ServerOption{
 		grpc.UnaryInterceptor(self.ServerInterceptor),
 	}
+	tlsConfig := self.Option.TlsConfig
+	if len(tlsConfig.KeyFile) > 0 && len(tlsConfig.CertFile) > 0 {
+		tls, err := credentials.NewServerTLSFromFile(tlsConfig.CertFile, tlsConfig.KeyFile)
+		if err != nil {
+			panic(err)
+		}
+		opts = append(opts, grpc.Creds(tls))
+	}
 	return grpc.NewServer(opts...)
 }
 
@@ -333,7 +348,14 @@ func (self *ConsulManager) RunGRPC(objects ...*GRPC) {
 func (self *ConsulManager) CreateClient(ctx context.Context, address string) (*grpc.ClientConn, error) {
 	opts := []grpc.DialOption{
 		grpc.WithUnaryInterceptor(self.ClientInterceptor),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	}
+	tlsConfig := self.Option.TlsConfig
+	if len(tlsConfig.CertFile) > 0 {
+		tls, err := credentials.NewClientTLSFromFile(tlsConfig.CertFile, "")
+		if err != nil {
+			panic(err)
+		}
+		opts = append(opts, grpc.WithTransportCredentials(tls))
 	}
 	return grpc.DialContext(ctx, address, opts...)
 }

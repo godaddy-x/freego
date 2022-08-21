@@ -15,6 +15,10 @@ func http_test() {
 
 func initConsul() {
 	new(consul.ConsulManager).InitConfig(consul.ConsulOption{
+		TlsConfig: consul.TlsConfig{
+			KeyFile:  "./server.key",
+			CertFile: "./server.crt",
+		},
 		JwtConfig: func() jwt.JwtConfig {
 			return jwt.JwtConfig{
 				TokenTyp: jwt.JWT,
