@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"github.com/godaddy-x/freego/component/consul"
 	"github.com/godaddy-x/freego/sqld"
 	"github.com/godaddy-x/freego/util"
 )
@@ -47,10 +46,6 @@ func initMongoDB() {
 	}
 	new(sqld.MGOManager).InitConfigAndCache(nil, conf)
 	fmt.Println("init mongo success")
-}
-
-func initConsul() {
-	new(consul.ConsulManager).InitConfig(nil, consul.ConsulConfig{})
 }
 
 func init() {

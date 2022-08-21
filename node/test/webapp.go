@@ -23,17 +23,6 @@ type MyWsNode struct {
 	node.WebsocketNode
 }
 
-type ReqObj struct {
-	Uid  int
-	Name string
-}
-
-type ResObj struct {
-	Name   string
-	Title  string
-	Status int
-}
-
 type GetUserReq struct {
 	common.BaseReq
 	Uid  int    `json:"uid"`
@@ -63,7 +52,7 @@ func testCallRPC() {
 	if err != nil {
 		panic(err)
 	}
-	res, err := client.CallGRPC(&consul.GRPC{Service: "IdWorker", CallRPC: func(conn *grpc.ClientConn, ctx context.Context) (interface{}, error) {
+	res, err := client.Authorize("test").CallGRPC(&consul.GRPC{Service: "IdWorker", CallRPC: func(conn *grpc.ClientConn, ctx context.Context) (interface{}, error) {
 		rpc := pb.NewIdWorkerClient(conn)
 		return rpc.GenerateId(ctx, &pb.GenerateIdReq{})
 	}})

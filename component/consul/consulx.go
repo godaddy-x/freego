@@ -3,6 +3,7 @@ package consul
 import (
 	"context"
 	"fmt"
+	"github.com/godaddy-x/freego/component/jwt"
 	rate "github.com/godaddy-x/freego/component/limiter"
 	"github.com/godaddy-x/freego/component/log"
 	"github.com/godaddy-x/freego/util"
@@ -17,10 +18,9 @@ import (
 )
 
 const (
-	limiterKey       = "grpc:limiter:"
-	limiterConfigKey = "grpc:limiter:config:"
-	defaultHost      = "consulx.com:8500"
-	defaultNode      = "dc/consul"
+	limiterKey  = "grpc:limiter:"
+	defaultHost = "consulx.com:8500"
+	defaultNode = "dc/consul"
 )
 
 var (
@@ -30,9 +30,10 @@ var (
 
 type ConsulManager struct {
 	Host    string
+	Token   string
 	Consulx *consulapi.Client
 	Config  *ConsulConfig
-	Option  *ConsulOption
+	Option  ConsulOption
 }
 
 // Consulx配置参数
@@ -67,17 +68,6 @@ type MonitorLog struct {
 	Error       error
 }
 
-type TokenConfig struct {
-	TokenId      string
-	TokenKey     string
-	Authenticate bool
-}
-
-type MethodConfig struct {
-	TokenConfig TokenConfig
-	RateOption  rate.Option
-}
-
 type GRPC struct {
 	Tags    []string                                                              // 服务标签名称
 	Address string                                                                // 服务地址,为空时自动填充内网IP
@@ -98,13 +88,17 @@ func getConsulClient(conf ConsulConfig) *ConsulManager {
 }
 
 type ConsulOption struct {
+	// TODO 加载jwt认证配置
+	JwtConfig func() jwt.JwtConfig
+	// TODO 加载无需权限校验Url
+	UnauthorizedUrl []string
 	// TODO 服务选取算法实现
 	Selection func([]*consulapi.ServiceEntry, *GRPC) *consulapi.ServiceEntry
 	// TODO 加载RPC方法限流配置
 	RateOption func(method string) (rate.Option, error)
 }
 
-func (self *ConsulManager) InitConfig(option *ConsulOption, input ...ConsulConfig) (*ConsulManager, error) {
+func (self *ConsulManager) InitConfig(option ConsulOption, input ...ConsulConfig) (*ConsulManager, error) {
 	for _, conf := range input {
 		if len(conf.Host) == 0 {
 			conf.Host = defaultHost
@@ -125,11 +119,7 @@ func (self *ConsulManager) InitConfig(option *ConsulOption, input ...ConsulConfi
 		} else {
 			consulSessions[config.DsName] = onlinemgr
 		}
-		if option == nil {
-			onlinemgr.Option = &ConsulOption{}
-		} else {
-			onlinemgr.Option = option
-		}
+		onlinemgr.Option = option
 		onlinemgr.initSlowLog()
 		log.Printf("consul service %s【%s】has been started successfully", conf.Host, conf.Node)
 	}
@@ -346,6 +336,11 @@ func (self *ConsulManager) CreateClient(ctx context.Context, address string) (*g
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	}
 	return grpc.DialContext(ctx, address, opts...)
+}
+
+func (self *ConsulManager) Authorize(token string) *ConsulManager {
+	self.Token = token
+	return self
 }
 
 func (self *ConsulManager) CallGRPC(object *GRPC) (interface{}, error) {

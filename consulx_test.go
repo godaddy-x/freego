@@ -19,7 +19,7 @@ func (self *IdWorker) GenerateId(ctx context.Context, req *pb.GenerateIdReq) (*p
 }
 
 func TestConsulxRunGRPC(t *testing.T) {
-	new(consul.ConsulManager).InitConfig(nil, consul.ConsulConfig{})
+	initConsul()
 	client, err := new(consul.ConsulManager).Client()
 	if err != nil {
 		panic(err)
@@ -36,7 +36,7 @@ func TestConsulxRunGRPC(t *testing.T) {
 }
 
 func TestConsulxCallGRPC_ID(t *testing.T) {
-	new(consul.ConsulManager).InitConfig(nil, consul.ConsulConfig{})
+	new(consul.ConsulManager).InitConfig(consul.ConsulOption{}, consul.ConsulConfig{})
 	client, err := new(consul.ConsulManager).Client()
 	if err != nil {
 		panic(err)

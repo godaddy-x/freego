@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/godaddy-x/freego/component/jwt"
 	rate "github.com/godaddy-x/freego/component/limiter"
+	"github.com/godaddy-x/freego/util"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 )
@@ -16,14 +18,10 @@ var defaultLimiter = rate.NewRateLimiter(rate.Option{
 })
 
 func (self *ConsulManager) getRateOption(method string) (rate.Option, error) {
-	if self.Option == nil || self.Option.RateOption == nil {
+	if self.Option.RateOption == nil {
 		return rate.Option{}, errors.New("consul manager option function is nil")
 	}
-	config, err := self.Option.RateOption(method)
-	if err != nil {
-		return rate.Option{}, err
-	}
-	return config, nil
+	return self.Option.RateOption(method)
 }
 
 func (self *ConsulManager) rateLimit(method string) error {
@@ -37,37 +35,48 @@ func (self *ConsulManager) rateLimit(method string) error {
 	} else {
 		limiter = rate.NewRateLimiter(option)
 	}
-	if b := limiter.Allow(method); !b {
+	if b := limiter.Allow(limiterKey + method); !b {
 		return errors.New(fmt.Sprintf("the method [%s] request is full", method))
 	}
 	return nil
 }
 
-//func (self *ConsulManager) checkToken(method string, ctx context.Context) error {
-//	config, err := self.getMethodConfig(method)
-//	if err != nil {
-//		return err
-//	}
-//	tokenConfig := config.TokenConfig
-//	if !tokenConfig.Authenticate {
-//		return nil
-//	}
-//	if len(tokenConfig.TokenId) == 0 || len(tokenConfig.TokenKey) == 0 {
-//		return errors.New("rpc token config is nil")
-//	}
-//	md, ok := metadata.FromIncomingContext(ctx)
-//	if !ok {
-//		return errors.New("rpc context key/value is nil")
-//	}
-//	token, b := md["token"]
-//	if !b || len(token) == 0 {
-//		return errors.New("rpc context token is nil")
-//	}
-//	return nil
-//}
+func (self *ConsulManager) checkToken(ctx context.Context, method string) error {
+	if util.CheckStr(method, self.Option.UnauthorizedUrl...) {
+		return nil
+	}
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return errors.New("rpc context key/value is nil")
+	}
+	token, b := md["authorization"]
+	if !b || len(token) == 0 {
+		return errors.New("rpc context token is nil")
+	}
+	subject := &jwt.Subject{}
+	if err := subject.Verify(token[0], self.Option.JwtConfig().TokenKey); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (self *ConsulManager) createToken(ctx context.Context, method string) (context.Context, error) {
+	if util.CheckStr(method, self.Option.UnauthorizedUrl...) {
+		return ctx, nil
+	}
+	if len(self.Token) == 0 {
+		return nil, errors.New("access token is nil")
+	}
+	md := metadata.New(map[string]string{"authorization": self.Token})
+	ctx = metadata.NewOutgoingContext(ctx, md)
+	return ctx, nil
+}
 
 func (self *ConsulManager) ServerInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp interface{}, err error) {
 	if err := self.rateLimit(info.FullMethod); err != nil {
+		return nil, err
+	}
+	if err := self.checkToken(ctx, info.FullMethod); err != nil {
 		return nil, err
 	}
 	fmt.Println("接收到了一个新的请求")
@@ -78,10 +87,14 @@ func (self *ConsulManager) ServerInterceptor(ctx context.Context, req interface{
 	return res, err
 }
 
-func (self *ConsulManager) ClientInterceptor(ctx context.Context, method string, req, reply interface{}, conn *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+func (self *ConsulManager) ClientInterceptor(ctx context.Context, method string, req, reply interface{}, conn *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) (err error) {
 	if err := self.rateLimit(method); err != nil {
 		return err
 	}
-	err := invoker(ctx, method, req, reply, conn, opts...)
+	ctx, err = self.createToken(ctx, method)
+	if err != nil {
+		return err
+	}
+	err = invoker(ctx, method, req, reply, conn, opts...)
 	return err
 }
