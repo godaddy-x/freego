@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/godaddy-x/freego/component/jwt"
 	rate "github.com/godaddy-x/freego/component/limiter"
+	"github.com/godaddy-x/freego/component/log"
 	"github.com/godaddy-x/freego/util"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
@@ -102,6 +103,17 @@ func (self *ConsulManager) ClientInterceptor(ctx context.Context, method string,
 	if err != nil {
 		return err
 	}
-	err = invoker(ctx, method, req, reply, conn, opts...)
-	return err
+	start := util.Time()
+	if err := invoker(ctx, method, req, reply, conn, opts...); err != nil {
+		log.Error("grpc call failed", start, log.String("service", method), log.Any("request", req), log.AddError(err))
+		return err
+	}
+	cost := util.Time() - start
+	if self.Config.SlowQuery > 0 && cost > self.Config.SlowQuery {
+		l := self.getSlowLog()
+		if l != nil {
+			l.Warn("grpc call slow query", log.Int64("cost", cost), log.Any("service", method), log.Any("request", req), log.Any("response", reply))
+		}
+	}
+	return nil
 }

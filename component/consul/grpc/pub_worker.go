@@ -26,7 +26,11 @@ func (self *PubWorker) RPCLogin(ctx context.Context, req *pb.RPCLoginReq) (*pb.R
 	if util.MathAbs(util.TimeSecond()-req.Time) > jwt.FIVE_MINUTES { // 判断绝对时间差超过5分钟
 		return nil, util.Error("time invalid")
 	}
-	if len(req.Signature) != 44 || util.HMAC_SHA256(util.AddStr(req.Appid, req.Nonce, req.Time), "123456", true) != req.Signature {
+	appConfig, err := consul.GetGRPCAppConfig(req.Appid)
+	if err != nil {
+		return nil, err
+	}
+	if len(req.Signature) != 44 || util.HMAC_SHA256(util.AddStr(req.Appid, req.Nonce, req.Time), appConfig.Appkey, true) != req.Signature {
 		return nil, util.Error("signature invalid")
 	}
 	jwtConfig, err := consul.GetGRPCJwtConfig()

@@ -33,8 +33,9 @@ var (
 	clientDialTLS   grpc.DialOption
 	jwtConfig       jwt.JwtConfig
 	unauthorizedUrl []string
-	rateLimiterCall func(method string) (rate.Option, error)
+	rateLimiterCall func(string) (rate.Option, error)
 	selectionCall   func([]*consulapi.ServiceEntry, *GRPC) *consulapi.ServiceEntry
+	appConfigCall   func(string) (AppConfig, error)
 )
 
 type ConsulManager struct {
@@ -85,6 +86,13 @@ type TlsConfig struct {
 	HostName  string
 }
 
+type AppConfig struct {
+	Appid    string
+	Appkey   string
+	Status   int64
+	LastTime int64
+}
+
 type GRPC struct {
 	Tags    []string                                                              // 服务标签名称
 	Address string                                                                // 服务地址,为空时自动填充内网IP
@@ -109,6 +117,13 @@ func GetGRPCJwtConfig() (jwt.JwtConfig, error) {
 		return jwt.JwtConfig{}, util.Error("grpc jwt key is nil")
 	}
 	return jwt.JwtConfig{TokenTyp: jwtConfig.TokenTyp, TokenAlg: jwtConfig.TokenAlg, TokenKey: jwtConfig.TokenKey}, nil
+}
+
+func GetGRPCAppConfig(appid string) (AppConfig, error) {
+	if appConfigCall == nil {
+		return AppConfig{}, util.Error("grpc app config call is nil")
+	}
+	return appConfigCall(appid)
 }
 
 func (self *ConsulManager) InitConfig(input ...ConsulConfig) (*ConsulManager, error) {
@@ -401,6 +416,13 @@ func (self *ConsulManager) CreateJwtConfig(tokenKey string) {
 	}
 }
 
+func (self *ConsulManager) CreateAppConfigCall(fun func(appid string) (AppConfig, error)) {
+	if appConfigCall != nil {
+		return
+	}
+	appConfigCall = fun
+}
+
 func (self *ConsulManager) CreateRateLimiterCall(fun func(method string) (rate.Option, error)) {
 	if rateLimiterCall != nil {
 		return
@@ -501,18 +523,7 @@ func (self *ConsulManager) Authorize(token string) *ConsulManager {
 
 // 输出RPC监控日志
 func (self *ConsulManager) rpcMonitor(monitor MonitorLog, err error, args interface{}, reply interface{}) error {
-	monitor.CostTime = util.Time() - monitor.BeginTime
-	if err != nil {
-		monitor.Error = err
-		log.Println(util.JsonMarshal(monitor))
-		return nil
-	}
-	if self.Config.SlowQuery > 0 && monitor.CostTime > self.Config.SlowQuery {
-		l := self.getSlowLog()
-		if l != nil {
-			l.Warn("consul monitor", log.Int64("cost", monitor.CostTime), log.Any("service", monitor), log.Any("request", args), log.Any("response", reply))
-		}
-	}
+
 	return err
 }
 

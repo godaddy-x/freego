@@ -19,6 +19,9 @@ func initConsul() {
 	})
 	client.CreateJwtConfig("123456")
 	client.CreateUnauthorizedUrl("/pub_worker.PubWorker/RPCLogin")
+	client.CreateAppConfigCall(func(appid string) (consul.AppConfig, error) {
+		return consul.AppConfig{Appid: "123456", Appkey: "123456"}, nil
+	})
 	client.CreateRateLimiterCall(func(method string) (rate.Option, error) {
 		return rate.Option{}, nil
 	})
