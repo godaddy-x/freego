@@ -13,8 +13,8 @@ import (
 
 const domain = "http://localhost:8090"
 
-const access_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOjEyMzQ1NiwiYXVkIjoiIiwiaXNzIjoiIiwiaWF0IjowLCJleHAiOjE2NjEzMjc2OTcsImRldiI6IkFQUCIsImp0aSI6InRKT1pEWG5PNzV6THc3MTl6RU0vejhHeXY5aXJpTEpKN1UwOXRtc3psNGs9IiwiZXh0Ijp7fX0=.d2hVmPghML9NOtuDCc1DEjD5zcZlIpuWimRE3MEsOzw="
-const token_secret = "gaJ7/YrJBaBG62oHy*kT^j#lKDgUKV7Yv+Rj++QH#lK!ZC@diQEifttsdNRYrgg="
+const access_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxNTYxNjI1ODU1MjcxMTA4NjA5IiwiYXVkIjoiIiwiaXNzIjoiIiwiaWF0IjowLCJleHAiOjE2NjIzNjUxOTIsImRldiI6IkFQUCIsImp0aSI6Imt6cm5pdUZkclQxSG9LZDhVa1F0clE9PSIsImV4dCI6e319.k+Hw+abG1wyFksVrvNXkrIomRAbnrKmEkQuEzIHjFl4="
+const token_secret = "Vd9oHk9/u54WCXJHy*kT^j#lKMoWoQRMQs9Oqtoc#lK!ZC@diQivDB5Vf5+c4q4="
 
 //const access_token = ""
 //const token_secret = ""
@@ -47,6 +47,9 @@ func initSrvPubkey() string {
 
 // 测试使用的http post示例方法
 func ToPostBy(path string, req *node.ReqDto) {
+	if len(srvPubkeyBase64) == 0 {
+		panic("srvPubkeyBase64 is nil")
+	}
 	if req.Plan == 0 {
 		d := util.Base64URLEncode(req.Data.([]byte))
 		req.Data = d
