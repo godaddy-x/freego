@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 	"github.com/godaddy-x/freego/component/consul"
-	grpc2 "github.com/godaddy-x/freego/component/consul/grpc"
-	"github.com/godaddy-x/freego/component/consul/grpc/pb"
+	"github.com/godaddy-x/freego/component/consul/grpcx"
+	"github.com/godaddy-x/freego/component/consul/grpcx/pb"
 	"github.com/godaddy-x/freego/util"
 	"google.golang.org/grpc"
 	"testing"
@@ -15,28 +15,28 @@ const rpc_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJlMTBhZGMzOTQ5
 
 func TestConsulxRunGRPC(t *testing.T) {
 	initConsul()
-	client, err := new(consul.ConsulManager).Client()
+	c, err := new(consul.ConsulManager).Client()
 	if err != nil {
 		panic(err)
 	}
-	objects := []*consul.GRPC{
+	objects := []*grpcx.GRPC{
 		{
 			Address: "localhost",
 			Service: "PubWorker",
 			Tags:    []string{"ID Generator"},
-			AddRPC:  func(server *grpc.Server) { pb.RegisterPubWorkerServer(server, &grpc2.PubWorker{}) },
+			AddRPC:  func(server *grpc.Server) { pb.RegisterPubWorkerServer(server, &grpcx.PubWorker{}) },
 		},
 	}
-	client.RunGRPCServe(objects...)
+	grpcx.NewGRPC(c).RunServer(objects...)
 }
 
 func TestConsulxCallGRPC_GenID(t *testing.T) {
 	initConsul()
-	client, err := new(consul.ConsulManager).Client()
+	c, err := new(consul.ConsulManager).Client()
 	if err != nil {
 		panic(err)
 	}
-	res, err := client.Authorize(rpc_token).CallGRPC(&consul.GRPC{Service: "PubWorker", CallRPC: func(conn *grpc.ClientConn, ctx context.Context) (interface{}, error) {
+	res, err := grpcx.NewGRPC(c, rpc_token).CallRPC(&grpcx.GRPC{Service: "PubWorker", CallRPC: func(conn *grpc.ClientConn, ctx context.Context) (interface{}, error) {
 		rpc := pb.NewPubWorkerClient(conn)
 		return rpc.GenerateId(ctx, &pb.GenerateIdReq{})
 	}})
@@ -49,7 +49,7 @@ func TestConsulxCallGRPC_GenID(t *testing.T) {
 
 func TestConsulxCallGRPC_Login(t *testing.T) {
 	initConsul()
-	client, err := new(consul.ConsulManager).Client()
+	c, err := new(consul.ConsulManager).Client()
 	if err != nil {
 		panic(err)
 	}
@@ -60,7 +60,7 @@ func TestConsulxCallGRPC_Login(t *testing.T) {
 	}
 	appkey := "123456"
 	req.Signature = util.HMAC_SHA256(util.AddStr(req.Appid, req.Nonce, req.Time), appkey, true)
-	res, err := client.CallGRPC(&consul.GRPC{Service: "PubWorker", CallRPC: func(conn *grpc.ClientConn, ctx context.Context) (interface{}, error) {
+	res, err := grpcx.NewGRPC(c).CallRPC(&grpcx.GRPC{Service: "PubWorker", CallRPC: func(conn *grpc.ClientConn, ctx context.Context) (interface{}, error) {
 		rpc := pb.NewPubWorkerClient(conn)
 		return rpc.RPCLogin(ctx, req)
 	}})

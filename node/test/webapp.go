@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/component/consul"
-	"github.com/godaddy-x/freego/component/consul/grpc/pb"
+	"github.com/godaddy-x/freego/component/consul/grpcx"
+	pb2 "github.com/godaddy-x/freego/component/consul/grpcx/pb"
 	"github.com/godaddy-x/freego/component/jwt"
 	"github.com/godaddy-x/freego/component/limiter"
 	"github.com/godaddy-x/freego/ex"
@@ -48,13 +49,13 @@ func (self *MyWebNode) getUser(ctx *node.Context) error {
 }
 
 func testCallRPC() {
-	client, err := new(consul.ConsulManager).Client()
+	c, err := new(consul.ConsulManager).Client()
 	if err != nil {
 		panic(err)
 	}
-	res, err := client.Authorize("test").CallGRPC(&consul.GRPC{Service: "IdWorker", CallRPC: func(conn *grpc.ClientConn, ctx context.Context) (interface{}, error) {
-		rpc := pb.NewPubWorkerClient(conn)
-		return rpc.GenerateId(ctx, &pb.GenerateIdReq{})
+	res, err := grpcx.NewGRPC(c, "test").CallRPC(&grpcx.GRPC{Service: "IdWorker", CallRPC: func(conn *grpc.ClientConn, ctx context.Context) (interface{}, error) {
+		rpc := pb2.NewPubWorkerClient(conn)
+		return rpc.GenerateId(ctx, &pb2.GenerateIdReq{})
 	}})
 	if err != nil {
 		fmt.Println(err)

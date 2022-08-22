@@ -3,6 +3,7 @@ package main
 import (
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/component/consul"
+	"github.com/godaddy-x/freego/component/consul/grpcx"
 	"github.com/godaddy-x/freego/component/limiter"
 	"github.com/godaddy-x/freego/node/test"
 	"github.com/godaddy-x/freego/util"
@@ -13,29 +14,30 @@ func http_test() {
 }
 
 func initConsul() {
-	client, _ := new(consul.ConsulManager).InitConfig(consul.ConsulConfig{
+	c, _ := new(consul.ConsulManager).InitConfig(consul.ConsulConfig{
 		Host: "consulx.com:8500",
 		Node: "dc/consul",
 	})
+	client := grpcx.NewGRPC(c)
 	client.CreateJwtConfig("123456")
 	client.CreateUnauthorizedUrl("/pub_worker.PubWorker/RPCLogin")
-	client.CreateAppConfigCall(func(appid string) (consul.AppConfig, error) {
-		return consul.AppConfig{Appid: "123456", Appkey: "123456"}, nil
+	client.CreateAppConfigCall(func(appid string) (grpcx.AppConfig, error) {
+		return grpcx.AppConfig{Appid: "123456", Appkey: "123456"}, nil
 	})
 	client.CreateRateLimiterCall(func(method string) (rate.Option, error) {
 		return rate.Option{}, nil
 	})
-	client.CreateServerTLS(consul.TlsConfig{
+	client.CreateServerTLS(grpcx.TlsConfig{
 		UseTLS:    true,
-		CACrtFile: "./component/consul/grpc/cert/ca.crt",
-		KeyFile:   "./component/consul/grpc/cert/server.key",
-		CrtFile:   "./component/consul/grpc/cert/server.crt",
+		CACrtFile: "./component/consul/grpcx/cert/ca.crt",
+		KeyFile:   "./component/consul/grpcx/cert/server.key",
+		CrtFile:   "./component/consul/grpcx/cert/server.crt",
 	})
-	client.CreateClientTLS(consul.TlsConfig{
+	client.CreateClientTLS(grpcx.TlsConfig{
 		UseTLS:    true,
-		CACrtFile: "./component/consul/grpc/cert/ca.crt",
-		KeyFile:   "./component/consul/grpc/cert/client.key",
-		CrtFile:   "./component/consul/grpc/cert/client.crt",
+		CACrtFile: "./component/consul/grpcx/cert/ca.crt",
+		KeyFile:   "./component/consul/grpcx/cert/client.key",
+		CrtFile:   "./component/consul/grpcx/cert/client.crt",
 		HostName:  "localhost",
 	})
 }

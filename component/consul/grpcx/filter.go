@@ -1,4 +1,4 @@
-package consul
+package grpcx
 
 import (
 	"context"
@@ -22,14 +22,14 @@ var defaultLimiter = rate.NewRateLimiter(rate.Option{
 	Distributed: true,
 })
 
-func (self *ConsulManager) getRateOption(method string) (rate.Option, error) {
+func (self *GRPCManager) getRateOption(method string) (rate.Option, error) {
 	if rateLimiterCall == nil {
 		return rate.Option{}, errors.New("rateLimiterCall function is nil")
 	}
 	return rateLimiterCall(method)
 }
 
-func (self *ConsulManager) rateLimit(method string) error {
+func (self *GRPCManager) rateLimit(method string) error {
 	option, err := self.getRateOption(method)
 	if err != nil {
 		return err
@@ -46,7 +46,7 @@ func (self *ConsulManager) rateLimit(method string) error {
 	return nil
 }
 
-func (self *ConsulManager) checkToken(ctx context.Context, method string) error {
+func (self *GRPCManager) checkToken(ctx context.Context, method string) error {
 	if util.CheckStr(method, unauthorizedUrl...) {
 		return nil
 	}
@@ -68,19 +68,19 @@ func (self *ConsulManager) checkToken(ctx context.Context, method string) error 
 	return nil
 }
 
-func (self *ConsulManager) createToken(ctx context.Context, method string) (context.Context, error) {
+func (self *GRPCManager) createToken(ctx context.Context, method string) (context.Context, error) {
 	if util.CheckStr(method, unauthorizedUrl...) {
 		return ctx, nil
 	}
-	if len(self.Token) == 0 {
+	if len(self.authorization) == 0 {
 		return nil, errors.New("authorization token is nil: " + method)
 	}
-	md := metadata.New(map[string]string{authorization: self.Token})
+	md := metadata.New(map[string]string{authorization: self.authorization})
 	ctx = metadata.NewOutgoingContext(ctx, md)
 	return ctx, nil
 }
 
-func (self *ConsulManager) ServerInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp interface{}, err error) {
+func (self *GRPCManager) ServerInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp interface{}, err error) {
 	if err := self.rateLimit(info.FullMethod); err != nil {
 		return nil, err
 	}
@@ -95,7 +95,7 @@ func (self *ConsulManager) ServerInterceptor(ctx context.Context, req interface{
 	return res, err
 }
 
-func (self *ConsulManager) ClientInterceptor(ctx context.Context, method string, req, reply interface{}, conn *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) (err error) {
+func (self *GRPCManager) ClientInterceptor(ctx context.Context, method string, req, reply interface{}, conn *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) (err error) {
 	if err := self.rateLimit(method); err != nil {
 		return err
 	}
@@ -109,8 +109,8 @@ func (self *ConsulManager) ClientInterceptor(ctx context.Context, method string,
 		return err
 	}
 	cost := util.Time() - start
-	if self.Config.SlowQuery > 0 && cost > self.Config.SlowQuery {
-		l := self.getSlowLog()
+	if self.consul.Config.SlowQuery > 0 && cost > self.consul.Config.SlowQuery {
+		l := self.consul.GetSlowLog()
 		if l != nil {
 			l.Warn("grpc call slow query", log.Int64("cost", cost), log.Any("service", method), log.Any("request", req), log.Any("response", reply))
 		}

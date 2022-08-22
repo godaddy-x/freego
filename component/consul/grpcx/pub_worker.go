@@ -1,22 +1,21 @@
-package grpc
+package grpcx
 
 import (
 	"context"
-	"github.com/godaddy-x/freego/component/consul"
-	"github.com/godaddy-x/freego/component/consul/grpc/pb"
+	pb2 "github.com/godaddy-x/freego/component/consul/grpcx/pb"
 	"github.com/godaddy-x/freego/component/jwt"
 	"github.com/godaddy-x/freego/util"
 )
 
 type PubWorker struct {
-	pb.UnimplementedPubWorkerServer
+	pb2.UnimplementedPubWorkerServer
 }
 
-func (self *PubWorker) GenerateId(ctx context.Context, req *pb.GenerateIdReq) (*pb.GenerateIdRes, error) {
-	return &pb.GenerateIdRes{Value: util.GetSnowFlakeIntID(req.Node)}, nil
+func (self *PubWorker) GenerateId(ctx context.Context, req *pb2.GenerateIdReq) (*pb2.GenerateIdRes, error) {
+	return &pb2.GenerateIdRes{Value: util.GetSnowFlakeIntID(req.Node)}, nil
 }
 
-func (self *PubWorker) RPCLogin(ctx context.Context, req *pb.RPCLoginReq) (*pb.RPCLoginRes, error) {
+func (self *PubWorker) RPCLogin(ctx context.Context, req *pb2.RPCLoginReq) (*pb2.RPCLoginRes, error) {
 	if len(req.Appid) != 32 {
 		return nil, util.Error("appid invalid")
 	}
@@ -26,18 +25,18 @@ func (self *PubWorker) RPCLogin(ctx context.Context, req *pb.RPCLoginReq) (*pb.R
 	if util.MathAbs(util.TimeSecond()-req.Time) > jwt.FIVE_MINUTES { // 判断绝对时间差超过5分钟
 		return nil, util.Error("time invalid")
 	}
-	appConfig, err := consul.GetGRPCAppConfig(req.Appid)
+	appConfig, err := GetGRPCAppConfig(req.Appid)
 	if err != nil {
 		return nil, err
 	}
 	if len(req.Signature) != 44 || util.HMAC_SHA256(util.AddStr(req.Appid, req.Nonce, req.Time), appConfig.Appkey, true) != req.Signature {
 		return nil, util.Error("signature invalid")
 	}
-	jwtConfig, err := consul.GetGRPCJwtConfig()
+	jwtConfig, err := GetGRPCJwtConfig()
 	if err != nil {
 		return nil, err
 	}
 	subject := &jwt.Subject{}
 	token := subject.Create(req.Appid).Expired(8640000).Generate(jwtConfig)
-	return &pb.RPCLoginRes{Token: token, Expired: subject.Payload.Exp}, nil
+	return &pb2.RPCLoginRes{Token: token, Expired: subject.Payload.Exp}, nil
 }
