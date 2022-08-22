@@ -14,11 +14,11 @@ func http_test() {
 }
 
 func initConsul() {
-	c, _ := new(consul.ConsulManager).InitConfig(consul.ConsulConfig{
+	new(consul.ConsulManager).InitConfig(consul.ConsulConfig{
 		Host: "consulx.com:8500",
 		Node: "dc/consul",
 	})
-	client := grpcx.NewGRPC(c)
+	client := grpcx.NewClient()
 	client.CreateJwtConfig("123456")
 	client.CreateUnauthorizedUrl("/pub_worker.PubWorker/RPCLogin")
 	client.CreateAppConfigCall(func(appid string) (grpcx.AppConfig, error) {

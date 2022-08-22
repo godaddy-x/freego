@@ -60,17 +60,39 @@ type GRPC struct {
 }
 
 type GRPCManager struct {
-	consul        *consul.ConsulManager
-	authorization string
+	consul       *consul.ConsulManager
+	token        string
+	consulDs     string
+	requireToken bool // default true
 }
 
-func NewGRPC(c *consul.ConsulManager, token ...string) *GRPCManager {
-	var authorization string
+func NewTokenClient(token ...string) *GRPCManager {
+	client := &GRPCManager{requireToken: true}
 	if len(token) > 0 {
-		authorization = token[0]
+		client.token = token[0]
 	}
-	return &GRPCManager{consul: c, authorization: authorization}
+	return client
 }
+
+func NewClient() *GRPCManager {
+	client := NewTokenClient()
+	client.requireToken = false
+	return client
+}
+
+func (self *GRPCManager) ConsulDs(ds string) *GRPCManager {
+	self.consulDs = ds
+	return self
+}
+
+//func (self *GRPCManager) AddConsul() (*GRPCManager, error) {
+//	consul, err := new(consul.ConsulManager).Client(self.consulDs)
+//	if err != nil {
+//		return nil, err
+//	}
+//	self.consul = consul
+//	return self, nil
+//}
 
 func GetGRPCJwtConfig() (jwt.JwtConfig, error) {
 	if len(jwtConfig.TokenKey) == 0 {
@@ -204,14 +226,16 @@ func (self *GRPCManager) CreateClientTLS(tlsConfig TlsConfig) {
 	}
 }
 
-func (self *GRPCManager) Authorize(token string) *GRPCManager {
-	self.authorization = token
-	return self
-}
-
 func (self *GRPCManager) RunServer(objects ...*GRPC) {
 	if len(objects) == 0 {
 		panic("rpc objects is nil...")
+	}
+	if self.consul == nil {
+		consul, err := new(consul.ConsulManager).Client(self.consulDs)
+		if err != nil {
+			panic(err)
+		}
+		self.consul = consul
 	}
 	services, err := self.consul.GetAllService("")
 	if err != nil {
@@ -287,6 +311,13 @@ func (self *GRPCManager) CallRPC(object *GRPC) (interface{}, error) {
 	var tag string
 	if len(object.Tags) > 0 {
 		tag = object.Tags[0]
+	}
+	if self.consul == nil {
+		consul, err := new(consul.ConsulManager).Client(self.consulDs)
+		if err != nil {
+			return nil, err
+		}
+		self.consul = consul
 	}
 	services, err := self.consul.GetHealthService(object.Service, tag)
 	if err != nil {

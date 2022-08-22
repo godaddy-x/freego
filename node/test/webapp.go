@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/godaddy-x/freego/cache"
-	"github.com/godaddy-x/freego/component/consul"
 	"github.com/godaddy-x/freego/component/consul/grpcx"
 	pb2 "github.com/godaddy-x/freego/component/consul/grpcx/pb"
 	"github.com/godaddy-x/freego/component/jwt"
@@ -49,11 +48,7 @@ func (self *MyWebNode) getUser(ctx *node.Context) error {
 }
 
 func testCallRPC() {
-	c, err := new(consul.ConsulManager).Client()
-	if err != nil {
-		panic(err)
-	}
-	res, err := grpcx.NewGRPC(c, "test").CallRPC(&grpcx.GRPC{Service: "IdWorker", CallRPC: func(conn *grpc.ClientConn, ctx context.Context) (interface{}, error) {
+	res, err := grpcx.NewTokenClient("123456").CallRPC(&grpcx.GRPC{Service: "IdWorker", CallRPC: func(conn *grpc.ClientConn, ctx context.Context) (interface{}, error) {
 		rpc := pb2.NewPubWorkerClient(conn)
 		return rpc.GenerateId(ctx, &pb2.GenerateIdReq{})
 	}})
