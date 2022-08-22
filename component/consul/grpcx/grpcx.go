@@ -24,6 +24,13 @@ const (
 	limiterKey = "grpc:limiter:"
 )
 
+type GRPCManager struct {
+	consul       *consul.ConsulManager
+	token        string
+	consulDs     string
+	requireToken bool // default true
+}
+
 var (
 	serverDialTLS   grpc.ServerOption
 	clientDialTLS   grpc.DialOption
@@ -59,13 +66,6 @@ type GRPC struct {
 	CallRPC func(conn *grpc.ClientConn, ctx context.Context) (interface{}, error) // grpc回调proto服务
 }
 
-type GRPCManager struct {
-	consul       *consul.ConsulManager
-	token        string
-	consulDs     string
-	requireToken bool // default true
-}
-
 func NewTokenClient(token ...string) *GRPCManager {
 	client := &GRPCManager{requireToken: true}
 	if len(token) > 0 {
@@ -84,15 +84,6 @@ func (self *GRPCManager) ConsulDs(ds string) *GRPCManager {
 	self.consulDs = ds
 	return self
 }
-
-//func (self *GRPCManager) AddConsul() (*GRPCManager, error) {
-//	consul, err := new(consul.ConsulManager).Client(self.consulDs)
-//	if err != nil {
-//		return nil, err
-//	}
-//	self.consul = consul
-//	return self, nil
-//}
 
 func GetGRPCJwtConfig() (jwt.JwtConfig, error) {
 	if len(jwtConfig.TokenKey) == 0 {
@@ -295,7 +286,7 @@ func (self *GRPCManager) RunServer(objects ...*GRPC) {
 	if err != nil {
 		panic(err)
 	}
-	log.Println(util.AddStr("grpc server 【", util.AddStr(":", util.AnyToStr(self.consul.Config.RpcPort)), "】has been started successfully"))
+	log.Println(util.AddStr("grpc server【", util.AddStr(":", util.AnyToStr(self.consul.Config.RpcPort)), "】has been started successfully"))
 	if err := grpcServer.Serve(l); err != nil {
 		panic(err)
 	}

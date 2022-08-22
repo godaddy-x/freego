@@ -31,10 +31,8 @@ type ConsulConfig struct {
 	DsName       string // 数据源名
 	Node         string // 配置数据节点, /dc/consul
 	Host         string // consul host
-	Domain       string // 自定义访问域名,为空时自动填充内网IP
 	CheckPort    int    // 健康监测端口
 	RpcPort      int    // RPC调用端口
-	ListenPort   int    // 客户端监听端口
 	Protocol     string // RPC协议, tcp
 	Timeout      string // 请求超时时间, 3s
 	Interval     string // 健康监测时间, 5s
