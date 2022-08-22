@@ -36,7 +36,7 @@ func TestConsulxRunGRPC(t *testing.T) {
 }
 
 func TestConsulxCallGRPC_ID(t *testing.T) {
-	new(consul.ConsulManager).InitConfig(consul.ConsulOption{}, consul.ConsulConfig{})
+	new(consul.ConsulManager).InitConfig(consul.ConsulConfig{})
 	client, err := new(consul.ConsulManager).Client()
 	if err != nil {
 		panic(err)

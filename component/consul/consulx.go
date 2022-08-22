@@ -27,10 +27,14 @@ const (
 )
 
 var (
-	consulSessions = make(map[string]*ConsulManager, 0)
-	consulSlowlog  *zap.Logger
-	serverDialTLS  grpc.ServerOption
-	clientDialTLS  grpc.DialOption
+	consulSessions  = make(map[string]*ConsulManager, 0)
+	consulSlowlog   *zap.Logger
+	serverDialTLS   grpc.ServerOption
+	clientDialTLS   grpc.DialOption
+	jwtConfig       *jwt.JwtConfig
+	unauthorizedUrl []string
+	rateLimiterCall func(method string) (rate.Option, error)
+	selectionCall   func([]*consulapi.ServiceEntry, *GRPC) *consulapi.ServiceEntry
 )
 
 type ConsulManager struct {
@@ -38,7 +42,6 @@ type ConsulManager struct {
 	Token   string
 	Consulx *consulapi.Client
 	Config  *ConsulConfig
-	Option  ConsulOption
 }
 
 // Consulx配置参数
@@ -101,18 +104,7 @@ func getConsulClient(conf ConsulConfig) *ConsulManager {
 	return &ConsulManager{Consulx: client, Host: conf.Host}
 }
 
-type ConsulOption struct {
-	// TODO 加载jwt认证配置
-	JwtConfig func() jwt.JwtConfig
-	// TODO 加载无需权限校验Url
-	UnauthorizedUrl []string
-	// TODO 服务选取算法实现
-	Selection func([]*consulapi.ServiceEntry, *GRPC) *consulapi.ServiceEntry
-	// TODO 加载RPC方法限流配置
-	RateOption func(method string) (rate.Option, error)
-}
-
-func (self *ConsulManager) InitConfig(option ConsulOption, input ...ConsulConfig) (*ConsulManager, error) {
+func (self *ConsulManager) InitConfig(input ...ConsulConfig) (*ConsulManager, error) {
 	for _, conf := range input {
 		if len(conf.Host) == 0 {
 			conf.Host = defaultHost
@@ -128,7 +120,6 @@ func (self *ConsulManager) InitConfig(option ConsulOption, input ...ConsulConfig
 		config.Node = conf.Node
 		onlinemgr := getConsulClient(config)
 		onlinemgr.Config = &config
-		onlinemgr.Option = option
 		if len(config.DsName) == 0 {
 			consulSessions[conf.Node] = onlinemgr
 		} else {
@@ -362,11 +353,11 @@ func (self *ConsulManager) CallGRPC(object *GRPC) (interface{}, error) {
 		return nil, util.Error("no available services found: [", object.Service, "]")
 	}
 	var service *consulapi.AgentService
-	if self.Option.Selection == nil { // 选取规则为空则默认随机
+	if selectionCall == nil { // 选取规则为空则默认随机
 		r := rand.New(rand.NewSource(util.GetSnowFlakeIntID()))
 		service = services[r.Intn(len(services))].Service
 	} else {
-		service = self.Option.Selection(services, object).Service
+		service = selectionCall(services, object).Service
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(object.Timeout)*time.Millisecond)
 	defer cancel()
@@ -382,6 +373,38 @@ func (self *ConsulManager) CallGRPC(object *GRPC) (interface{}, error) {
 	}
 	defer conn.Close()
 	return object.CallRPC(conn, ctx)
+}
+
+func (self *ConsulManager) CreateUnauthorizedUrl(url ...string) {
+	if len(unauthorizedUrl) > 0 {
+		return
+	}
+	unauthorizedUrl = url
+}
+
+func (self *ConsulManager) CreateJwtConfig(tokenKey string) {
+	if jwtConfig != nil {
+		return
+	}
+	jwtConfig = &jwt.JwtConfig{
+		TokenTyp: jwt.JWT,
+		TokenAlg: jwt.HS256,
+		TokenKey: tokenKey,
+	}
+}
+
+func (self *ConsulManager) CreateRateLimiterCall(fun func(method string) (rate.Option, error)) {
+	if rateLimiterCall != nil {
+		return
+	}
+	rateLimiterCall = fun
+}
+
+func (self *ConsulManager) CreateSelectionCall(fun func([]*consulapi.ServiceEntry, *GRPC) *consulapi.ServiceEntry) {
+	if selectionCall != nil {
+		return
+	}
+	selectionCall = fun
 }
 
 func (self *ConsulManager) CreateServerTLS(tlsConfig TlsConfig) {

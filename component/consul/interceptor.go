@@ -18,10 +18,10 @@ var defaultLimiter = rate.NewRateLimiter(rate.Option{
 })
 
 func (self *ConsulManager) getRateOption(method string) (rate.Option, error) {
-	if self.Option.RateOption == nil {
-		return rate.Option{}, errors.New("consul manager option function is nil")
+	if rateLimiterCall == nil {
+		return rate.Option{}, errors.New("rateLimiterCall function is nil")
 	}
-	return self.Option.RateOption(method)
+	return rateLimiterCall(method)
 }
 
 func (self *ConsulManager) rateLimit(method string) error {
@@ -42,7 +42,7 @@ func (self *ConsulManager) rateLimit(method string) error {
 }
 
 func (self *ConsulManager) checkToken(ctx context.Context, method string) error {
-	if util.CheckStr(method, self.Option.UnauthorizedUrl...) {
+	if util.CheckStr(method, unauthorizedUrl...) {
 		return nil
 	}
 	md, ok := metadata.FromIncomingContext(ctx)
@@ -53,15 +53,18 @@ func (self *ConsulManager) checkToken(ctx context.Context, method string) error 
 	if !b || len(token) == 0 {
 		return errors.New("rpc context token is nil")
 	}
+	if jwtConfig == nil {
+		return errors.New("rpc context jwt is nil")
+	}
 	subject := &jwt.Subject{}
-	if err := subject.Verify(token[0], self.Option.JwtConfig().TokenKey); err != nil {
+	if err := subject.Verify(token[0], jwtConfig.TokenKey); err != nil {
 		return err
 	}
 	return nil
 }
 
 func (self *ConsulManager) createToken(ctx context.Context, method string) (context.Context, error) {
-	if util.CheckStr(method, self.Option.UnauthorizedUrl...) {
+	if util.CheckStr(method, unauthorizedUrl...) {
 		return ctx, nil
 	}
 	if len(self.Token) == 0 {
