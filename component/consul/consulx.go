@@ -31,7 +31,7 @@ var (
 	consulSlowlog   *zap.Logger
 	serverDialTLS   grpc.ServerOption
 	clientDialTLS   grpc.DialOption
-	jwtConfig       *jwt.JwtConfig
+	jwtConfig       jwt.JwtConfig
 	unauthorizedUrl []string
 	rateLimiterCall func(method string) (rate.Option, error)
 	selectionCall   func([]*consulapi.ServiceEntry, *GRPC) *consulapi.ServiceEntry
@@ -102,6 +102,13 @@ func getConsulClient(conf ConsulConfig) *ConsulManager {
 		panic(util.AddStr("consul [", conf.Host, "] init failed: ", err))
 	}
 	return &ConsulManager{Consulx: client, Host: conf.Host}
+}
+
+func GetGRPCJwtConfig() (jwt.JwtConfig, error) {
+	if len(jwtConfig.TokenKey) == 0 {
+		return jwt.JwtConfig{}, util.Error("grpc jwt key is nil")
+	}
+	return jwt.JwtConfig{TokenTyp: jwtConfig.TokenTyp, TokenAlg: jwtConfig.TokenAlg, TokenKey: jwtConfig.TokenKey}, nil
 }
 
 func (self *ConsulManager) InitConfig(input ...ConsulConfig) (*ConsulManager, error) {
@@ -272,7 +279,7 @@ func checkServiceExists(services []*consulapi.AgentService, srvName, addr string
 }
 
 // 中心注册接口服务
-func (self *ConsulManager) RunGRPC(objects ...*GRPC) {
+func (self *ConsulManager) RunGRPCServe(objects ...*GRPC) {
 	if len(objects) == 0 {
 		panic("rpc objects is nil...")
 	}
@@ -303,7 +310,7 @@ func (self *ConsulManager) RunGRPC(objects ...*GRPC) {
 			panic("rpc service invalid")
 		}
 		if checkServiceExists(services, object.Service, address) {
-			log.Println(util.AddStr("service [", object.Service, "][", address, "] exist, skip..."))
+			log.Println(util.AddStr("grpc service [", object.Service, "][", address, "] exist, skip..."))
 			object.AddRPC(grpcServer)
 			continue
 		}
@@ -315,9 +322,9 @@ func (self *ConsulManager) RunGRPC(objects ...*GRPC) {
 		registration.Port = port
 		registration.Meta = make(map[string]string, 0)
 		registration.Check = &consulapi.AgentServiceCheck{HTTP: fmt.Sprintf("http://%s:%d%s", registration.Address, self.Config.CheckPort, self.Config.CheckPath), Timeout: self.Config.Timeout, Interval: self.Config.Interval, DeregisterCriticalServiceAfter: self.Config.DestroyAfter}
-		log.Println(util.AddStr("service [", registration.Name, "][", registration.Address, "] added successful"))
+		log.Println(util.AddStr("grpc service [", registration.Name, "][", registration.Address, "] added successful"))
 		if err := self.Consulx.Agent().ServiceRegister(registration); err != nil {
-			panic(util.AddStr("service [", object.Service, "] add failed: ", err.Error()))
+			panic(util.AddStr("grpc service [", object.Service, "] add failed: ", err.Error()))
 		}
 		object.AddRPC(grpcServer)
 	}
@@ -329,6 +336,7 @@ func (self *ConsulManager) RunGRPC(objects ...*GRPC) {
 	if err != nil {
 		panic(err)
 	}
+	log.Println(util.AddStr("grpc server 【", util.AddStr(":", util.AnyToStr(self.Config.RpcPort)), "】has been started successfully"))
 	if err := grpcServer.Serve(l); err != nil {
 		panic(err)
 	}
@@ -383,10 +391,10 @@ func (self *ConsulManager) CreateUnauthorizedUrl(url ...string) {
 }
 
 func (self *ConsulManager) CreateJwtConfig(tokenKey string) {
-	if jwtConfig != nil {
+	if len(jwtConfig.TokenKey) > 0 {
 		return
 	}
-	jwtConfig = &jwt.JwtConfig{
+	jwtConfig = jwt.JwtConfig{
 		TokenTyp: jwt.JWT,
 		TokenAlg: jwt.HS256,
 		TokenKey: tokenKey,

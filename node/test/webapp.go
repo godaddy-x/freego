@@ -53,7 +53,7 @@ func testCallRPC() {
 		panic(err)
 	}
 	res, err := client.Authorize("test").CallGRPC(&consul.GRPC{Service: "IdWorker", CallRPC: func(conn *grpc.ClientConn, ctx context.Context) (interface{}, error) {
-		rpc := pb.NewIdWorkerClient(conn)
+		rpc := pb.NewPubWorkerClient(conn)
 		return rpc.GenerateId(ctx, &pb.GenerateIdReq{})
 	}})
 	if err != nil {
@@ -67,7 +67,7 @@ func (self *MyWebNode) login(ctx *node.Context) error {
 	subject := &jwt.Subject{}
 	//self.LoginBySubject(subject, exp)
 	config := ctx.JwtConfig()
-	token := subject.Create(util.GetSnowFlakeIntID()).Dev("APP").Generate(config)
+	token := subject.Create(util.GetSnowFlakeStrID()).Dev("APP").Generate(config)
 	secret := jwt.GetTokenSecret(token, config.TokenKey)
 	return self.Json(ctx, map[string]interface{}{"token": token, "secret": secret})
 	//return self.Html(ctx, "/web/index.html", map[string]interface{}{"tewt": 1})

@@ -7,8 +7,8 @@ go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
 go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 
 ## 3.
-protoc --go_out=. ./component/consul/grpc/idworker.proto
-protoc --go-grpc_out=. ./component/consul/grpc/idworker.proto
+protoc --go_out=. ./component/consul/grpc/pub_worker.proto
+protoc --go-grpc_out=. ./component/consul/grpc/pub_worker.proto
 
 ## 4. 生成TLS证书
 

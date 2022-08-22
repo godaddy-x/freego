@@ -11,6 +11,10 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
+const (
+	authorization = "authorization"
+)
+
 var defaultLimiter = rate.NewRateLimiter(rate.Option{
 	Limit:       2,
 	Bucket:      10,
@@ -49,11 +53,11 @@ func (self *ConsulManager) checkToken(ctx context.Context, method string) error 
 	if !ok {
 		return errors.New("rpc context key/value is nil")
 	}
-	token, b := md["authorization"]
+	token, b := md[authorization]
 	if !b || len(token) == 0 {
 		return errors.New("rpc context token is nil")
 	}
-	if jwtConfig == nil {
+	if len(jwtConfig.TokenKey) == 0 {
 		return errors.New("rpc context jwt is nil")
 	}
 	subject := &jwt.Subject{}
@@ -68,9 +72,9 @@ func (self *ConsulManager) createToken(ctx context.Context, method string) (cont
 		return ctx, nil
 	}
 	if len(self.Token) == 0 {
-		return nil, errors.New("access token is nil")
+		return nil, errors.New("authorization token is nil: " + method)
 	}
-	md := metadata.New(map[string]string{"authorization": self.Token})
+	md := metadata.New(map[string]string{authorization: self.Token})
 	ctx = metadata.NewOutgoingContext(ctx, md)
 	return ctx, nil
 }

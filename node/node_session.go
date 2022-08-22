@@ -117,7 +117,7 @@ func (self *JWTSession) Validate(accessToken, secretKey string) (int64, error) {
 	//if err := subject.Valid(accessToken, secretKey); err != nil {
 	//	return "", err
 	//}
-	return subject.Payload.Sub, nil
+	return util.StrToInt64(subject.Payload.Sub)
 }
 
 func (self *JWTSession) Invalid() bool {

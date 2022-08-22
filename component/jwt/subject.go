@@ -38,7 +38,7 @@ type Header struct {
 }
 
 type Payload struct {
-	Sub int64             `json:"sub"` // 用户主体
+	Sub string            `json:"sub"` // 用户主体
 	Aud string            `json:"aud"` // 接收token主体
 	Iss string            `json:"iss"` // 签发token主体
 	Iat int64             `json:"iat"` // 授权token时间1
@@ -53,7 +53,7 @@ func (self *Subject) AddHeader(config JwtConfig) *Subject {
 	return self
 }
 
-func (self *Subject) Create(sub int64) *Subject {
+func (self *Subject) Create(sub string) *Subject {
 	self.Payload = &Payload{
 		Sub: sub,
 		Exp: util.TimeSecond() + TWO_WEEK,

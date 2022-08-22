@@ -208,7 +208,7 @@ func (self *Context) GetStorageStringValue(k string) string {
 }
 
 func (self *Context) Authenticated() bool {
-	if self.Subject == nil || self.Subject.Sub == 0 {
+	if self.Subject == nil || len(self.Subject.Sub) == 0 {
 		return false
 	}
 	return true
@@ -223,7 +223,11 @@ func (self *Context) Parser(v interface{}) error {
 	// TODO 备注: 已有会话状态时,指针填充context值,不能随意修改指针偏移值
 	userId := int64(0)
 	if self.Authenticated() {
-		userId = self.Subject.Sub
+		v, err := util.StrToInt64(self.Subject.Sub)
+		if err != nil {
+			return ex.Throw{Msg: "userId invalid"}
+		}
+		userId = v
 	}
 	context := common.Context{
 		UserId: userId,

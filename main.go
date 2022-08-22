@@ -18,7 +18,7 @@ func initConsul() {
 		Node: "dc/consul",
 	})
 	client.CreateJwtConfig("123456")
-	client.CreateUnauthorizedUrl("/idworker.IdWorker/GenerateId")
+	client.CreateUnauthorizedUrl("/pub_worker.PubWorker/RPCLogin")
 	client.CreateRateLimiterCall(func(method string) (rate.Option, error) {
 		return rate.Option{}, nil
 	})
