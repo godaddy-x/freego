@@ -27,7 +27,7 @@ func TestConsulxRunGRPCServer(t *testing.T) {
 
 func TestConsulxCallGRPC_GenID(t *testing.T) {
 	initConsul()
-	res, err := grpcx.NewClient().CallRPC(&grpcx.GRPC{Service: "PubWorker", CallRPC: func(conn *grpc.ClientConn, ctx context.Context) (interface{}, error) {
+	res, err := grpcx.NewTokenClient(rpcToken).CallRPC(&grpcx.GRPC{Service: "PubWorker", CallRPC: func(conn *grpc.ClientConn, ctx context.Context) (interface{}, error) {
 		rpc := pb.NewPubWorkerClient(conn)
 		return rpc.GenerateId(ctx, &pb.GenerateIdReq{})
 	}})
