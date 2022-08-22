@@ -2,6 +2,8 @@ package consul
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"github.com/godaddy-x/freego/component/jwt"
 	rate "github.com/godaddy-x/freego/component/limiter"
@@ -11,6 +13,7 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"io/ioutil"
 	"math/rand"
 	"net"
 	"net/http"
@@ -26,6 +29,8 @@ const (
 var (
 	consulSessions = make(map[string]*ConsulManager, 0)
 	consulSlowlog  *zap.Logger
+	serverDialTLS  grpc.ServerOption
+	clientDialTLS  grpc.DialOption
 )
 
 type ConsulManager struct {
@@ -69,8 +74,12 @@ type MonitorLog struct {
 }
 
 type TlsConfig struct {
-	KeyFile  string
-	CertFile string
+	UseTLS    bool
+	CACrtFile string
+	CAKeyFile string
+	KeyFile   string
+	CrtFile   string
+	HostName  string
 }
 
 type GRPC struct {
@@ -93,8 +102,6 @@ func getConsulClient(conf ConsulConfig) *ConsulManager {
 }
 
 type ConsulOption struct {
-	// TODO TLS/SSL配置文件
-	TlsConfig TlsConfig
 	// TODO 加载jwt认证配置
 	JwtConfig func() jwt.JwtConfig
 	// TODO 加载无需权限校验Url
@@ -121,12 +128,12 @@ func (self *ConsulManager) InitConfig(option ConsulOption, input ...ConsulConfig
 		config.Node = conf.Node
 		onlinemgr := getConsulClient(config)
 		onlinemgr.Config = &config
+		onlinemgr.Option = option
 		if len(config.DsName) == 0 {
 			consulSessions[conf.Node] = onlinemgr
 		} else {
 			consulSessions[config.DsName] = onlinemgr
 		}
-		onlinemgr.Option = option
 		onlinemgr.initSlowLog()
 		log.Printf("consul service %s【%s】has been started successfully", conf.Host, conf.Node)
 	}
@@ -273,21 +280,6 @@ func checkServiceExists(services []*consulapi.AgentService, srvName, addr string
 	return false
 }
 
-func (self *ConsulManager) CreateServer() *grpc.Server {
-	opts := []grpc.ServerOption{
-		grpc.UnaryInterceptor(self.ServerInterceptor),
-	}
-	tlsConfig := self.Option.TlsConfig
-	if len(tlsConfig.KeyFile) > 0 && len(tlsConfig.CertFile) > 0 {
-		tls, err := credentials.NewServerTLSFromFile(tlsConfig.CertFile, tlsConfig.KeyFile)
-		if err != nil {
-			panic(err)
-		}
-		opts = append(opts, grpc.Creds(tls))
-	}
-	return grpc.NewServer(opts...)
-}
-
 // 中心注册接口服务
 func (self *ConsulManager) RunGRPC(objects ...*GRPC) {
 	if len(objects) == 0 {
@@ -300,7 +292,13 @@ func (self *ConsulManager) RunGRPC(objects ...*GRPC) {
 	if err != nil {
 		panic(err)
 	}
-	grpcServer := self.CreateServer()
+	opts := []grpc.ServerOption{
+		grpc.UnaryInterceptor(self.ServerInterceptor),
+	}
+	if serverDialTLS != nil {
+		opts = append(opts, serverDialTLS)
+	}
+	grpcServer := grpc.NewServer(opts...)
 	for _, object := range objects {
 		address := util.GetLocalIP()
 		port := self.Config.RpcPort
@@ -345,26 +343,6 @@ func (self *ConsulManager) RunGRPC(objects ...*GRPC) {
 	}
 }
 
-func (self *ConsulManager) CreateClient(ctx context.Context, address string) (*grpc.ClientConn, error) {
-	opts := []grpc.DialOption{
-		grpc.WithUnaryInterceptor(self.ClientInterceptor),
-	}
-	tlsConfig := self.Option.TlsConfig
-	if len(tlsConfig.CertFile) > 0 {
-		tls, err := credentials.NewClientTLSFromFile(tlsConfig.CertFile, "")
-		if err != nil {
-			panic(err)
-		}
-		opts = append(opts, grpc.WithTransportCredentials(tls))
-	}
-	return grpc.DialContext(ctx, address, opts...)
-}
-
-func (self *ConsulManager) Authorize(token string) *ConsulManager {
-	self.Token = token
-	return self
-}
-
 func (self *ConsulManager) CallGRPC(object *GRPC) (interface{}, error) {
 	if len(object.Service) == 0 || len(object.Service) > 100 {
 		return nil, util.Error("call service invalid")
@@ -392,12 +370,102 @@ func (self *ConsulManager) CallGRPC(object *GRPC) (interface{}, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(object.Timeout)*time.Millisecond)
 	defer cancel()
-	conn, err := self.CreateClient(ctx, util.AddStr(service.Address, ":", service.Port))
+	opts := []grpc.DialOption{
+		grpc.WithUnaryInterceptor(self.ClientInterceptor),
+	}
+	if clientDialTLS != nil {
+		opts = append(opts, clientDialTLS)
+	}
+	conn, err := grpc.DialContext(ctx, util.AddStr(service.Address, ":", service.Port), opts...)
 	if err != nil {
 		return nil, err
 	}
 	defer conn.Close()
 	return object.CallRPC(conn, ctx)
+}
+
+func (self *ConsulManager) CreateServerTLS(tlsConfig TlsConfig) {
+	if serverDialTLS != nil {
+		return
+	}
+	if tlsConfig.UseTLS {
+		if len(tlsConfig.CACrtFile) == 0 {
+			panic("ca.crt file is nil")
+		}
+		if len(tlsConfig.CrtFile) == 0 {
+			panic("server.crt file is nil")
+		}
+		if len(tlsConfig.KeyFile) == 0 {
+			panic("server.key file is nil")
+		}
+		certPool := x509.NewCertPool()
+		ca, err := ioutil.ReadFile(tlsConfig.CACrtFile)
+		if err != nil {
+			panic(err)
+		}
+		if ok := certPool.AppendCertsFromPEM(ca); !ok {
+			panic("failed to append certs")
+		}
+		cert, err := tls.LoadX509KeyPair(tlsConfig.CrtFile, tlsConfig.KeyFile)
+		if err != nil {
+			panic(err)
+		}
+		// 构建基于 TLS 的 TransportCredentials
+		creds := credentials.NewTLS(&tls.Config{
+			// 设置证书链，允许包含一个或多个
+			Certificates: []tls.Certificate{cert},
+			// 要求必须校验客户端的证书 可以根据实际情况选用其他参数
+			ClientAuth: tls.RequireAndVerifyClientCert, // NOTE: this is optional!
+			// 设置根证书的集合，校验方式使用 ClientAuth 中设定的模式
+			ClientCAs: certPool,
+		})
+		serverDialTLS = grpc.Creds(creds)
+	}
+}
+
+func (self *ConsulManager) CreateClientTLS(tlsConfig TlsConfig) {
+	if clientDialTLS != nil {
+		return
+	}
+	if tlsConfig.UseTLS {
+		if len(tlsConfig.CACrtFile) == 0 {
+			panic("ca.crt file is nil")
+		}
+		if len(tlsConfig.CrtFile) == 0 {
+			panic("client.crt file is nil")
+		}
+		if len(tlsConfig.KeyFile) == 0 {
+			panic("client.key file is nil")
+		}
+		if len(tlsConfig.HostName) == 0 {
+			panic("client host name is nil")
+		}
+		// 加载客户端证书
+		cert, err := tls.LoadX509KeyPair(tlsConfig.CrtFile, tlsConfig.KeyFile)
+		if err != nil {
+			panic(err)
+		}
+		// 构建CertPool以校验服务端证书有效性
+		certPool := x509.NewCertPool()
+		ca, err := ioutil.ReadFile(tlsConfig.CACrtFile)
+		if err != nil {
+			panic(err)
+		}
+		if ok := certPool.AppendCertsFromPEM(ca); !ok {
+			panic("failed to append ca certs")
+		}
+		creds := credentials.NewTLS(&tls.Config{
+			Certificates: []tls.Certificate{cert},
+			ServerName:   tlsConfig.HostName, // NOTE: this is required!
+			RootCAs:      certPool,
+		})
+		clientDialTLS = grpc.WithTransportCredentials(creds)
+	}
+}
+
+func (self *ConsulManager) Authorize(token string) *ConsulManager {
+	self.Token = token
+	return self
 }
 
 // 输出RPC监控日志

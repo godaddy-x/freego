@@ -14,11 +14,7 @@ func http_test() {
 }
 
 func initConsul() {
-	new(consul.ConsulManager).InitConfig(consul.ConsulOption{
-		TlsConfig: consul.TlsConfig{
-			KeyFile:  "./server.key",
-			CertFile: "./server.crt",
-		},
+	client, _ := new(consul.ConsulManager).InitConfig(consul.ConsulOption{
 		JwtConfig: func() jwt.JwtConfig {
 			return jwt.JwtConfig{
 				TokenTyp: jwt.JWT,
@@ -33,6 +29,19 @@ func initConsul() {
 	}, consul.ConsulConfig{
 		Host: "consulx.com:8500",
 		Node: "dc/consul",
+	})
+	client.CreateServerTLS(consul.TlsConfig{
+		UseTLS:    true,
+		CACrtFile: "./component/consul/grpc/cert/ca.crt",
+		KeyFile:   "./component/consul/grpc/cert/server.key",
+		CrtFile:   "./component/consul/grpc/cert/server.crt",
+	})
+	client.CreateClientTLS(consul.TlsConfig{
+		UseTLS:    true,
+		CACrtFile: "./component/consul/grpc/cert/ca.crt",
+		KeyFile:   "./component/consul/grpc/cert/client.key",
+		CrtFile:   "./component/consul/grpc/cert/client.crt",
+		HostName:  "localhost",
 	})
 }
 
