@@ -43,6 +43,7 @@ var (
 
 type TlsConfig struct {
 	UseTLS    bool
+	UseMTLS   bool
 	CACrtFile string
 	CAKeyFile string
 	KeyFile   string
@@ -142,15 +143,25 @@ func (self *GRPCManager) CreateServerTLS(tlsConfig TlsConfig) {
 	if serverDialTLS != nil {
 		return
 	}
+	if tlsConfig.UseTLS && tlsConfig.UseMTLS {
+		panic("only UseTLS/UseMTLS can be used")
+	}
+	if len(tlsConfig.CrtFile) == 0 {
+		panic("server.crt file is nil")
+	}
+	if len(tlsConfig.KeyFile) == 0 {
+		panic("server.key file is nil")
+	}
 	if tlsConfig.UseTLS {
+		creds, err := credentials.NewServerTLSFromFile(tlsConfig.CrtFile, tlsConfig.KeyFile)
+		if err != nil {
+			panic(err)
+		}
+		serverDialTLS = grpc.Creds(creds)
+	}
+	if tlsConfig.UseMTLS {
 		if len(tlsConfig.CACrtFile) == 0 {
 			panic("ca.crt file is nil")
-		}
-		if len(tlsConfig.CrtFile) == 0 {
-			panic("server.crt file is nil")
-		}
-		if len(tlsConfig.KeyFile) == 0 {
-			panic("server.key file is nil")
 		}
 		certPool := x509.NewCertPool()
 		ca, err := ioutil.ReadFile(tlsConfig.CACrtFile)
@@ -181,7 +192,26 @@ func (self *GRPCManager) CreateClientTLS(tlsConfig TlsConfig) {
 	if clientDialTLS != nil {
 		return
 	}
+	if tlsConfig.UseTLS && tlsConfig.UseMTLS {
+		panic("only one tls mode can be used")
+	}
+	if len(tlsConfig.CrtFile) == 0 {
+		panic("server.crt file is nil")
+	}
 	if tlsConfig.UseTLS {
+		if len(tlsConfig.CrtFile) == 0 {
+			panic("server.crt file is nil")
+		}
+		if len(tlsConfig.HostName) == 0 {
+			panic("server host name is nil")
+		}
+		creds, err := credentials.NewClientTLSFromFile(tlsConfig.CrtFile, tlsConfig.HostName)
+		if err != nil {
+			panic(err)
+		}
+		clientDialTLS = grpc.WithTransportCredentials(creds)
+	}
+	if tlsConfig.UseMTLS {
 		if len(tlsConfig.CACrtFile) == 0 {
 			panic("ca.crt file is nil")
 		}
@@ -192,7 +222,7 @@ func (self *GRPCManager) CreateClientTLS(tlsConfig TlsConfig) {
 			panic("client.key file is nil")
 		}
 		if len(tlsConfig.HostName) == 0 {
-			panic("client host name is nil")
+			panic("server host name is nil")
 		}
 		// 加载客户端证书
 		cert, err := tls.LoadX509KeyPair(tlsConfig.CrtFile, tlsConfig.KeyFile)
