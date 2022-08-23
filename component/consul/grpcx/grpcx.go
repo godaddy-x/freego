@@ -144,7 +144,7 @@ func (self *GRPCManager) CreateServerTLS(tlsConfig TlsConfig) {
 		return
 	}
 	if tlsConfig.UseTLS && tlsConfig.UseMTLS {
-		panic("only UseTLS/UseMTLS can be used")
+		panic("only one UseTLS/UseMTLS can be used")
 	}
 	if len(tlsConfig.CrtFile) == 0 {
 		panic("server.crt file is nil")

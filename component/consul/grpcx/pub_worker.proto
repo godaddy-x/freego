@@ -1,6 +1,6 @@
 syntax = "proto3";
 package pub_worker;
-option go_package = "/component/consul/grpc/pb";
+option go_package = "/component/consul/grpcx/pb";
 
 message GenerateIdReq {
   int64 Node = 1;

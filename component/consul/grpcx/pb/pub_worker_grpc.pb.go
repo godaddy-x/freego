@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.2.0
 // - protoc             v3.21.5
-// source: component/consul/grpc/pub_worker.proto
+// source: component/consul/grpcx/pub_worker.proto
 
 package pb
 
@@ -137,5 +137,5 @@ var PubWorker_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "component/consul/grpc/pub_worker.proto",
+	Metadata: "component/consul/grpcx/pub_worker.proto",
 }

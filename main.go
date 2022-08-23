@@ -28,13 +28,13 @@ func initConsul() {
 		return rate.Option{}, nil
 	})
 	client.CreateServerTLS(grpcx.TlsConfig{
-		UseTLS:    true,
+		UseMTLS:   true,
 		CACrtFile: "./component/consul/grpcx/cert/ca.crt",
 		KeyFile:   "./component/consul/grpcx/cert/server.key",
 		CrtFile:   "./component/consul/grpcx/cert/server.crt",
 	})
 	client.CreateClientTLS(grpcx.TlsConfig{
-		UseTLS:    true,
+		UseMTLS:   true,
 		CACrtFile: "./component/consul/grpcx/cert/ca.crt",
 		KeyFile:   "./component/consul/grpcx/cert/client.key",
 		CrtFile:   "./component/consul/grpcx/cert/client.crt",
