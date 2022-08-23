@@ -37,6 +37,6 @@ func (self *PubWorker) RPCLogin(ctx context.Context, req *pb2.RPCLoginReq) (*pb2
 		return nil, err
 	}
 	subject := &jwt.Subject{}
-	token := subject.Create(req.Appid).Expired(8640000).Generate(jwtConfig)
+	token := subject.Create(req.Appid).Expired(jwtConfig.TokenExp).Generate(jwtConfig)
 	return &pb2.RPCLoginRes{Token: token, Expired: subject.Payload.Exp}, nil
 }

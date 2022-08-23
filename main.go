@@ -4,7 +4,7 @@ import (
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/component/consul"
 	"github.com/godaddy-x/freego/component/consul/grpcx"
-	"github.com/godaddy-x/freego/component/limiter"
+	rate "github.com/godaddy-x/freego/component/limiter"
 	"github.com/godaddy-x/freego/node/test"
 	"github.com/godaddy-x/freego/util"
 )
@@ -18,8 +18,19 @@ func initConsul() {
 		Host: "consulx.com:8500",
 		Node: "dc/consul",
 	})
-	client := grpcx.NewClient()
-	client.CreateJwtConfig("123456")
+}
+
+func initRedis() {
+	conf := cache.RedisConfig{}
+	if err := util.ReadLocalJsonConfig("resource/redis.json", &conf); err != nil {
+		panic(util.AddStr("读取redis配置失败: ", err.Error()))
+	}
+	new(cache.RedisManager).InitConfig(conf)
+}
+
+func initGRPC() {
+	client := &grpcx.GRPCManager{}
+	client.CreateJwtConfig("123456", 8600000)
 	client.CreateUnauthorizedUrl("/pub_worker.PubWorker/RPCLogin")
 	client.CreateAppConfigCall(func(appid string) (grpcx.AppConfig, error) {
 		return grpcx.AppConfig{Appid: "123456", Appkey: "123456"}, nil
@@ -44,11 +55,8 @@ func initConsul() {
 
 func init() {
 	initConsul()
-	conf := cache.RedisConfig{}
-	if err := util.ReadLocalJsonConfig("resource/redis.json", &conf); err != nil {
-		panic(util.AddStr("读取redis配置失败: ", err.Error()))
-	}
-	new(cache.RedisManager).InitConfig(conf)
+	initRedis()
+	initGRPC()
 }
 
 func main() {

@@ -22,15 +22,18 @@ func TestConsulxRunGRPCServer(t *testing.T) {
 			AddRPC:  func(server *grpc.Server) { pb.RegisterPubWorkerServer(server, &grpcx.PubWorker{}) },
 		},
 	}
-	grpcx.NewTokenClient().RunServer(objects...)
+	client := &grpcx.GRPCManager{Authentic: true, ConsulDs: ""}
+	client.RunServer(objects...)
 }
 
 func TestConsulxCallGRPC_GenID(t *testing.T) {
 	initConsul()
-	res, err := grpcx.NewTokenClient(rpcToken).CallRPC(&grpcx.GRPC{Service: "PubWorker", CallRPC: func(conn *grpc.ClientConn, ctx context.Context) (interface{}, error) {
-		rpc := pb.NewPubWorkerClient(conn)
-		return rpc.GenerateId(ctx, &pb.GenerateIdReq{})
-	}})
+	res, err := grpcx.CallRPC(&grpcx.GRPC{
+		Token:   rpcToken,
+		Service: "PubWorker",
+		CallRPC: func(conn *grpc.ClientConn, ctx context.Context) (interface{}, error) {
+			return pb.NewPubWorkerClient(conn).GenerateId(ctx, &pb.GenerateIdReq{})
+		}})
 	if err != nil {
 		panic(err)
 	}
@@ -39,7 +42,6 @@ func TestConsulxCallGRPC_GenID(t *testing.T) {
 }
 
 func TestConsulxCallGRPC_Login(t *testing.T) {
-	initConsul()
 	req := &pb.RPCLoginReq{
 		Appid: util.MD5("123456"),
 		Nonce: util.RandStr(16),
@@ -47,10 +49,11 @@ func TestConsulxCallGRPC_Login(t *testing.T) {
 	}
 	appkey := "123456"
 	req.Signature = util.HMAC_SHA256(util.AddStr(req.Appid, req.Nonce, req.Time), appkey, true)
-	res, err := grpcx.NewClient().CallRPC(&grpcx.GRPC{Service: "PubWorker", CallRPC: func(conn *grpc.ClientConn, ctx context.Context) (interface{}, error) {
-		rpc := pb.NewPubWorkerClient(conn)
-		return rpc.RPCLogin(ctx, req)
-	}})
+	res, err := grpcx.CallRPC(&grpcx.GRPC{
+		Service: "PubWorker",
+		CallRPC: func(conn *grpc.ClientConn, ctx context.Context) (interface{}, error) {
+			return pb.NewPubWorkerClient(conn).RPCLogin(ctx, req)
+		}})
 	if err != nil {
 		panic(err)
 	}

@@ -24,13 +24,6 @@ const (
 	limiterKey = "grpc:limiter:"
 )
 
-type GRPCManager struct {
-	consul       *consul.ConsulManager
-	token        string
-	consulDs     string
-	requireToken bool // default true
-}
-
 var (
 	serverDialTLS   grpc.ServerOption
 	clientDialTLS   grpc.DialOption
@@ -40,6 +33,13 @@ var (
 	selectionCall   func([]*consulapi.ServiceEntry, *GRPC) *consulapi.ServiceEntry
 	appConfigCall   func(string) (AppConfig, error)
 )
+
+type GRPCManager struct {
+	consul    *consul.ConsulManager
+	token     string
+	ConsulDs  string
+	Authentic bool
+}
 
 type TlsConfig struct {
 	UseTLS    bool
@@ -59,6 +59,8 @@ type AppConfig struct {
 }
 
 type GRPC struct {
+	Ds      string                                                                // consul数据源ds
+	Token   string                                                                // 授权token
 	Tags    []string                                                              // 服务标签名称
 	Address string                                                                // 服务地址,为空时自动填充内网IP
 	Service string                                                                // 服务名称
@@ -67,30 +69,16 @@ type GRPC struct {
 	CallRPC func(conn *grpc.ClientConn, ctx context.Context) (interface{}, error) // grpc回调proto服务
 }
 
-func NewTokenClient(token ...string) *GRPCManager {
-	client := &GRPCManager{requireToken: true}
-	if len(token) > 0 {
-		client.token = token[0]
-	}
-	return client
-}
-
-func NewClient() *GRPCManager {
-	client := NewTokenClient()
-	client.requireToken = false
-	return client
-}
-
-func (self *GRPCManager) ConsulDs(ds string) *GRPCManager {
-	self.consulDs = ds
-	return self
-}
-
 func GetGRPCJwtConfig() (jwt.JwtConfig, error) {
 	if len(jwtConfig.TokenKey) == 0 {
 		return jwt.JwtConfig{}, util.Error("grpc jwt key is nil")
 	}
-	return jwt.JwtConfig{TokenTyp: jwtConfig.TokenTyp, TokenAlg: jwtConfig.TokenAlg, TokenKey: jwtConfig.TokenKey}, nil
+	return jwt.JwtConfig{
+		TokenTyp: jwtConfig.TokenTyp,
+		TokenAlg: jwtConfig.TokenAlg,
+		TokenKey: jwtConfig.TokenKey,
+		TokenExp: jwtConfig.TokenExp,
+	}, nil
 }
 
 func GetGRPCAppConfig(appid string) (AppConfig, error) {
@@ -107,7 +95,7 @@ func (self *GRPCManager) CreateUnauthorizedUrl(url ...string) {
 	unauthorizedUrl = url
 }
 
-func (self *GRPCManager) CreateJwtConfig(tokenKey string) {
+func (self *GRPCManager) CreateJwtConfig(tokenKey string, tokenExp int64) {
 	if len(jwtConfig.TokenKey) > 0 {
 		return
 	}
@@ -115,6 +103,7 @@ func (self *GRPCManager) CreateJwtConfig(tokenKey string) {
 		TokenTyp: jwt.JWT,
 		TokenAlg: jwt.HS256,
 		TokenKey: tokenKey,
+		TokenExp: tokenExp,
 	}
 }
 
@@ -252,7 +241,7 @@ func (self *GRPCManager) RunServer(objects ...*GRPC) {
 		panic("rpc objects is nil...")
 	}
 	if self.consul == nil {
-		consul, err := new(consul.ConsulManager).Client(self.consulDs)
+		consul, err := new(consul.ConsulManager).Client(self.ConsulDs)
 		if err != nil {
 			panic(err)
 		}
@@ -322,7 +311,7 @@ func (self *GRPCManager) RunServer(objects ...*GRPC) {
 	}
 }
 
-func (self *GRPCManager) CallRPC(object *GRPC) (interface{}, error) {
+func CallRPC(object *GRPC) (interface{}, error) {
 	if len(object.Service) == 0 || len(object.Service) > 100 {
 		return nil, util.Error("call service invalid")
 	}
@@ -333,14 +322,11 @@ func (self *GRPCManager) CallRPC(object *GRPC) (interface{}, error) {
 	if len(object.Tags) > 0 {
 		tag = object.Tags[0]
 	}
-	if self.consul == nil {
-		consul, err := new(consul.ConsulManager).Client(self.consulDs)
-		if err != nil {
-			return nil, err
-		}
-		self.consul = consul
+	consul, err := new(consul.ConsulManager).Client(object.Ds)
+	if err != nil {
+		return nil, err
 	}
-	services, err := self.consul.GetHealthService(object.Service, tag)
+	services, err := consul.GetHealthService(object.Service, tag)
 	if err != nil {
 		return nil, util.Error("query service [", object.Service, "] failed: ", err)
 	}
@@ -354,14 +340,15 @@ func (self *GRPCManager) CallRPC(object *GRPC) (interface{}, error) {
 	} else {
 		service = selectionCall(services, object).Service
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(object.Timeout)*time.Millisecond)
-	defer cancel()
+	client := &GRPCManager{consul: consul, token: object.Token, ConsulDs: object.Ds}
 	opts := []grpc.DialOption{
-		grpc.WithUnaryInterceptor(self.ClientInterceptor),
+		grpc.WithUnaryInterceptor(client.ClientInterceptor),
 	}
 	if clientDialTLS != nil {
 		opts = append(opts, clientDialTLS)
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(object.Timeout)*time.Millisecond)
+	defer cancel()
 	conn, err := grpc.DialContext(ctx, util.AddStr(service.Address, ":", service.Port), opts...)
 	if err != nil {
 		return nil, err

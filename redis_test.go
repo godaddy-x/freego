@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"github.com/garyburd/redigo/redis"
 	"github.com/godaddy-x/freego/cache"
-	"github.com/godaddy-x/freego/util"
 	"reflect"
 	"testing"
 	"time"
@@ -14,14 +13,6 @@ var subkey = "test.subkey"
 
 func init() {
 	initRedis()
-}
-
-func initRedis() {
-	conf := cache.RedisConfig{}
-	if err := util.ReadLocalJsonConfig("resource/redis.json", &conf); err != nil {
-		panic(util.AddStr("读取redis配置失败: ", err.Error()))
-	}
-	new(cache.RedisManager).InitConfig(conf)
 }
 
 func expectPushed(t *testing.T, c redis.PubSubConn, message string, expected interface{}) {

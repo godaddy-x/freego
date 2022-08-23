@@ -47,7 +47,7 @@ func (self *GRPCManager) rateLimit(method string) error {
 }
 
 func (self *GRPCManager) checkToken(ctx context.Context, method string) error {
-	if !self.requireToken {
+	if !self.Authentic {
 		return nil
 	}
 	if util.CheckStr(method, unauthorizedUrl...) {
@@ -72,14 +72,11 @@ func (self *GRPCManager) checkToken(ctx context.Context, method string) error {
 }
 
 func (self *GRPCManager) createToken(ctx context.Context, method string) (context.Context, error) {
-	if !self.requireToken {
+	if len(self.token) == 0 {
 		return ctx, nil
 	}
 	if util.CheckStr(method, unauthorizedUrl...) {
 		return ctx, nil
-	}
-	if len(self.token) == 0 {
-		return nil, errors.New("token is nil: " + method)
 	}
 	md := metadata.New(map[string]string{token: self.token})
 	ctx = metadata.NewOutgoingContext(ctx, md)

@@ -30,6 +30,7 @@ type JwtConfig struct {
 	TokenKey string
 	TokenAlg string
 	TokenTyp string
+	TokenExp int64
 }
 
 type Header struct {
