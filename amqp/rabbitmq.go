@@ -9,14 +9,10 @@ import (
 )
 
 const (
-	MASTER     = "MASTER"
-	DIRECT     = "direct"
-	TOPIC      = "topic"
-	FANOUT     = "fanout"
-	MD5        = 1
-	SHA256     = 2
-	MD5_AES    = 11
-	SHA256_AES = 21
+	MASTER = "MASTER"
+	DIRECT = "direct"
+	TOPIC  = "topic"
+	FANOUT = "fanout"
 )
 
 // Amqp配置参数
@@ -34,7 +30,7 @@ type Option struct {
 	Queue    string `json:"qe"`
 	Kind     string `json:"kd"`
 	Router   string `json:"ru"`
-	SigTyp   int    `json:"st"` // 验签类型 1.MD5 2.SHA256 11.MD5+AES 21.SHA256+AES
+	SigTyp   int    `json:"st"` // 是否加密 0.明文签名 1.AES加密签名
 	SigKey   string `json:"-"`  // 验签密钥
 }
 

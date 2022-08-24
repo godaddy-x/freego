@@ -114,17 +114,11 @@ func (self *PullManager) listen(receiver *PullReceiver) {
 	router := receiver.Config.Option.Router
 	prefetchCount := receiver.Config.PrefetchCount
 	prefetchSize := receiver.Config.PrefetchSize
-	sigTyp := receiver.Config.Option.SigTyp
-	sigKey := receiver.Config.Option.SigKey
-	if !util.CheckInt(receiver.Config.Option.SigTyp, MD5, SHA256, MD5_AES, SHA256_AES) {
+	if !util.CheckInt(receiver.Config.Option.SigTyp, 0, 1) {
 		receiver.Config.Option.SigTyp = 1
 	}
 	if len(receiver.Config.Option.SigKey) < 32 {
 		receiver.Config.Option.SigKey = util.GetLocalSecretKey() + self.conf.SecretKey
-	}
-	if sigTyp == 2 && len(sigKey) != 16 {
-		zlog.Println(fmt.Sprintf("rabbitmq pull init queue failed: invalid signature key, expected 16 characters"))
-		return
 	}
 	if len(kind) == 0 {
 		kind = DIRECT
@@ -232,18 +226,17 @@ func (self *PullReceiver) OnReceive(b []byte) bool {
 		zlog.Error("rabbitmq consumption data is nil", 0, zlog.Any("option", self.Config.Option), zlog.Any("message", msg))
 		return true
 	}
-	if sigTyp == MD5 {
-		if msg.Signature != util.HMAC_MD5(v+msg.Nonce, sigKey, true) {
-			zlog.Error("rabbitmq consumption data MD5 signature invalid", 0, zlog.Any("option", self.Config.Option), zlog.Any("message", msg))
+	if msg.Signature != util.HMAC_SHA256(v+msg.Nonce, sigKey, true) {
+		zlog.Error("rabbitmq consumption data signature invalid", 0, zlog.Any("option", self.Config.Option), zlog.Any("message", msg))
+		return true
+	}
+	if sigTyp == 1 {
+		aesContent, err := util.AesDecrypt(v, sigKey, sigKey)
+		if err != nil {
+			zlog.Error("rabbitmq consumption data aes decrypt failed", 0, zlog.Any("option", self.Config.Option), zlog.Any("message", msg))
 			return true
 		}
-	} else if sigTyp == SHA256 {
-		if msg.Signature != util.HMAC_SHA256(v+msg.Nonce, sigKey, true) {
-			zlog.Error("rabbitmq consumption data SHA256 signature invalid", 0, zlog.Any("option", self.Config.Option), zlog.Any("message", msg))
-			return true
-		}
-	} else if sigTyp == MD5_AES {
-	} else if sigTyp == SHA256_AES {
+		v = aesContent
 	} else {
 		zlog.Error("rabbitmq pull signature type invalid", 0, zlog.Any("option", self.Config.Option), zlog.Any("message", msg))
 		return true

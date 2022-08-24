@@ -123,7 +123,7 @@ func (self *PublishManager) initQueue(data *MsgData) (*PublishMQ, error) {
 	if len(data.Option.Router) == 0 {
 		data.Option.Router = data.Option.Queue
 	}
-	if !util.CheckInt(data.Option.SigTyp, MD5, SHA256, MD5_AES, SHA256_AES) {
+	if !util.CheckInt(data.Option.SigTyp, 0, 1) {
 		data.Option.SigTyp = 1
 	}
 	if len(data.Option.SigKey) < 32 {
@@ -226,17 +226,17 @@ func (self *PublishManager) PublishMsgData(data *MsgData) error {
 	if len(content) == 0 {
 		return util.Error("rabbitmq publish content is nil")
 	}
-	if sigTyp == MD5 { // MD5模式
-		data.Content = content
-		data.Signature = util.HMAC_MD5(content+data.Nonce, sigKey, true)
-	} else if sigTyp == SHA256 { // SHA256模式
-		data.Content = content
-		data.Signature = util.HMAC_SHA256(content+data.Nonce, sigKey, true)
-	} else if sigTyp == MD5_AES { // AES+MD5模式
-	} else if sigTyp == SHA256_AES { // AES+MD5模式
+	if sigTyp == 1 {
+		aesContent, err := util.AesEncrypt(util.Str2Bytes(content), sigKey, sigKey)
+		if err != nil {
+			return util.Error("rabbitmq publish content aes encrypt failed: ", err)
+		}
+		content = aesContent
 	} else {
 		return util.Error("rabbitmq publish signature type invalid")
 	}
+	data.Content = content
+	data.Signature = util.HMAC_SHA256(content+data.Nonce, sigKey, true)
 	data.Option.SigKey = ""
 	if _, err := pub.sendMessage(data); err != nil {
 		return err
