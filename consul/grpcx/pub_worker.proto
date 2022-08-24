@@ -3,22 +3,22 @@ package pub_worker;
 option go_package = "/consul/grpcx/pb";
 
 message GenerateIdReq {
-  int64 Node = 1;
-  string Kind = 2;
+  int64 node = 1;
+  string kind = 2;
 }
 message GenerateIdRes {
-  int64 Value = 1;
+  int64 value = 1;
 }
 
 message RPCLoginReq {
-  string Appid = 1;
-  string Nonce = 2;
-  int64 Time = 3;
-  string Signature = 4;
+  string appid = 1;
+  string nonce = 2;
+  int64 time = 3;
+  string signature = 4;
 }
 message RPCLoginRes {
-  string Token = 1;
-  int64 Expired = 2;
+  string token = 1;
+  int64 expired = 2;
 }
 
 service PubWorker{

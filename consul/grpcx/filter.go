@@ -16,6 +16,10 @@ const (
 	token = "token"
 )
 
+var (
+	unauthorizedUrl = []string{"/pub_worker.PubWorker/RPCLogin"}
+)
+
 var defaultLimiter = rate.NewRateLimiter(rate.Option{
 	Limit:       10,
 	Bucket:      100,

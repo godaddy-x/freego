@@ -30,10 +30,10 @@ var (
 	serverDialTLS   grpc.ServerOption
 	clientDialTLS   grpc.DialOption
 	jwtConfig       *jwt.JwtConfig
-	unauthorizedUrl []string
 	rateLimiterCall func(string) (rate.Option, error)
 	selectionCall   func([]*consulapi.ServiceEntry, *GRPC) *consulapi.ServiceEntry
 	appConfigCall   func(string) (AppConfig, error)
+	accessToken     = ""
 )
 
 type GRPCManager struct {
@@ -62,7 +62,6 @@ type AppConfig struct {
 
 type GRPC struct {
 	Ds      string                                                                // consul数据源ds
-	Token   string                                                                // 授权token
 	Tags    []string                                                              // 服务标签名称
 	Address string                                                                // 服务地址,为空时自动填充内网IP
 	Service string                                                                // 服务名称
@@ -83,13 +82,6 @@ func GetGRPCAppConfig(appid string) (AppConfig, error) {
 		return AppConfig{}, util.Error("grpc app config call is nil")
 	}
 	return appConfigCall(appid)
-}
-
-func (self *GRPCManager) CreateUnauthorizedUrl(url ...string) {
-	if len(unauthorizedUrl) > 0 {
-		return
-	}
-	unauthorizedUrl = url
 }
 
 func (self *GRPCManager) CreateJwtConfig(tokenKey string, tokenExp ...int64) {
@@ -313,49 +305,50 @@ func RunServer(consulDs string, authenticate bool, objects ...*GRPC) {
 	}
 }
 
-// CreateTokenAuth important: ensure that the service starts only once
+// RunTokenServer important: ensure that the service starts only once
 // JWT Token expires in 1 hour
 // The remaining 1200s will be automatically renewed and detected every 15s
-func (self *GRPCManager) CreateTokenAuth(appid string, callback func(res *pb.RPCLoginRes) error) (string, error) {
-	appConfig, err := GetGRPCAppConfig(appid)
-	if err != nil {
-		return "", err
+func RunTokenServer(appid string) {
+	var loginRes *pb.RPCLoginRes
+	for {
+		res, err := CallRPC(&GRPC{
+			Service: "PubWorker",
+			CallRPC: func(conn *grpc.ClientConn, ctx context.Context) (interface{}, error) {
+				appConfig, err := GetGRPCAppConfig(appid)
+				if err != nil {
+					return nil, err
+				}
+				if len(appConfig.Appkey) == 0 {
+					return nil, util.Error("rpc appConfig key is nil")
+				}
+				req := &pb.RPCLoginReq{
+					Appid: appid,
+					Nonce: util.RandStr(32),
+					Time:  util.TimeSecond(),
+				}
+				req.Signature = util.HMAC_SHA256(util.AddStr(req.Appid, req.Nonce, req.Time), appConfig.Appkey, true)
+				return pb.NewPubWorkerClient(conn).RPCLogin(ctx, req)
+			}})
+		if err != nil {
+			zlog.Error("rpc login failed", 0, zlog.AddError(err))
+			time.Sleep(5 * time.Second)
+			continue
+		}
+		loginRes, _ = res.(*pb.RPCLoginRes)
+		break
 	}
-	if len(appConfig.Appkey) == 0 {
-		return "", util.Error("rpc appConfig key is nil")
-	}
-	req := &pb.RPCLoginReq{
-		Appid: appid,
-		Nonce: util.RandStr(32),
-		Time:  util.TimeSecond(),
-	}
-	req.Signature = util.HMAC_SHA256(util.AddStr(req.Appid, req.Nonce, req.Time), appConfig.Appkey, true)
-	res, err := CallRPC(&GRPC{
-		Service: "PubWorker",
-		CallRPC: func(conn *grpc.ClientConn, ctx context.Context) (interface{}, error) {
-			return pb.NewPubWorkerClient(conn).RPCLogin(ctx, req)
-		}})
-	if err != nil {
-		return "", err
-	}
-	object, _ := res.(*pb.RPCLoginRes)
-	if err := callback(object); err != nil {
-		return "", err
-	}
-	go self.renewGRPCToken(appid, callback, object.Expired)
-	return object.Token, nil
+	accessToken = loginRes.Token
+	go renewGRPCToken(appid, loginRes.Expired)
 }
 
-func (self *GRPCManager) renewGRPCToken(appid string, callback func(res *pb.RPCLoginRes) error, expired int64) error {
+func renewGRPCToken(appid string, expired int64) error {
 	for {
 		zlog.Warn("detecting rpc token expiration", 0, zlog.Int64("countDown", expired-util.TimeSecond()-timeDifference))
 		if expired-util.TimeSecond() > timeDifference { // TODO token过期时间大于2400s则忽略,每15s检测一次
 			time.Sleep(15 * time.Second)
 			continue
 		}
-		if _, err := self.CreateTokenAuth(appid, callback); err != nil {
-			zlog.Error("init rpc token failed", 0, zlog.AddError(err))
-		}
+		RunTokenServer(appid)
 		zlog.Info("rpc token renewal succeeded", 0)
 		return nil
 	}
@@ -391,7 +384,7 @@ func CallRPC(object *GRPC) (interface{}, error) {
 	} else {
 		service = selectionCall(services, object).Service
 	}
-	client := &GRPCManager{consul: consul, token: object.Token, consulDs: object.Ds}
+	client := &GRPCManager{consul: consul, consulDs: object.Ds, token: accessToken}
 	opts := []grpc.DialOption{
 		grpc.WithUnaryInterceptor(client.ClientInterceptor),
 	}
