@@ -6,7 +6,7 @@ package jwt
  */
 
 import (
-	"github.com/godaddy-x/freego/util"
+	"github.com/godaddy-x/freego/utils"
 	"strings"
 )
 
@@ -57,8 +57,8 @@ func (self *Subject) AddHeader(config JwtConfig) *Subject {
 func (self *Subject) Create(sub string) *Subject {
 	self.Payload = &Payload{
 		Sub: sub,
-		Exp: util.TimeSecond() + TWO_WEEK,
-		Jti: util.MD5(util.GetUUID(), true),
+		Exp: utils.TimeSecond() + TWO_WEEK,
+		Jti: utils.MD5(utils.GetUUID(), true),
 		Ext: map[string]string{},
 	}
 	return self
@@ -70,7 +70,7 @@ func (self *Subject) Expired(exp int64) *Subject {
 		if self.Payload.Iat > 0 {
 			self.Payload.Exp = self.Payload.Iat + exp
 		} else {
-			self.Payload.Exp = util.TimeSecond() + exp
+			self.Payload.Exp = utils.TimeSecond() + exp
 		}
 	}
 	return self
@@ -106,11 +106,11 @@ func (self *Subject) Extinfo(key, value string) *Subject {
 
 func (self *Subject) Generate(config JwtConfig) string {
 	self.AddHeader(config)
-	header, err := util.ToJsonBase64(self.Header)
+	header, err := utils.ToJsonBase64(self.Header)
 	if err != nil {
 		return ""
 	}
-	payload, err := util.ToJsonBase64(self.Payload)
+	payload, err := utils.ToJsonBase64(self.Payload)
 	if err != nil {
 		return ""
 	}
@@ -119,35 +119,35 @@ func (self *Subject) Generate(config JwtConfig) string {
 }
 
 func (self *Subject) Signature(text, key string) string {
-	return util.HMAC_SHA256(text, util.GetLocalSecretKey()+key, true)
+	return utils.HMAC_SHA256(text, utils.GetLocalSecretKey()+key, true)
 }
 
 func (self *Subject) GetTokenSecret(token, secret string) string {
-	key := util.GetLocalTokenSecretKey()
-	key2 := util.HMAC_SHA256(util.SHA256(token, true)+util.MD5(util.GetLocalSecretKey(), true), secret, true)
+	key := utils.GetLocalTokenSecretKey()
+	key2 := utils.HMAC_SHA256(utils.SHA256(token, true)+utils.MD5(utils.GetLocalSecretKey(), true), secret, true)
 	return key2[0:15] + key[3:13] + key2[15:30] + key[10:20] + key2[30:]
 }
 
 func (self *Subject) Verify(token, key string) error {
 	if len(token) == 0 {
-		return util.Error("token is nil")
+		return utils.Error("token is nil")
 	}
 	part := strings.Split(token, ".")
 	if part == nil || len(part) != 3 {
-		return util.Error("token part length invalid")
+		return utils.Error("token part length invalid")
 	}
 	part0 := part[0]
 	part1 := part[1]
 	part2 := part[2]
 	if self.Signature(part0+"."+part1, key) != part2 {
-		return util.Error("token signature invalid")
+		return utils.Error("token signature invalid")
 	}
 	payload := &Payload{}
-	if err := util.ParseJsonBase64(part1, payload); err != nil {
+	if err := utils.ParseJsonBase64(part1, payload); err != nil {
 		return err
 	}
-	if payload.Exp <= util.TimeSecond() {
-		return util.Error("token expired or invalid")
+	if payload.Exp <= utils.TimeSecond() {
+		return utils.Error("token expired or invalid")
 	}
 	self.Payload = payload
 	return nil
@@ -166,7 +166,7 @@ func (self *Subject) GetTokenRole() []int64 {
 	role := make([]int64, 0, len(spl))
 	for _, v := range spl {
 		if len(v) > 0 {
-			x, err := util.StrToInt64(v)
+			x, err := utils.StrToInt64(v)
 			if err != nil {
 				continue
 			}

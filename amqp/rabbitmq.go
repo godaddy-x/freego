@@ -2,7 +2,7 @@ package rabbitmq
 
 import (
 	"fmt"
-	"github.com/godaddy-x/freego/util"
+	"github.com/godaddy-x/freego/utils"
 	"github.com/streadway/amqp"
 	"net"
 	"time"
@@ -71,7 +71,7 @@ func ConnectRabbitMQ(conf AmqpConfig) (*amqp.Connection, error) {
 		},
 	})
 	if err != nil {
-		return nil, util.Error("rabbitmq init failed: ", err)
+		return nil, utils.Error("rabbitmq init failed: ", err)
 	}
 	return c, nil
 }

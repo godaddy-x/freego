@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/godaddy-x/freego/ormx/sqld"
-	"github.com/godaddy-x/freego/util"
+	"github.com/godaddy-x/freego/utils"
 )
 
 type OwWallet struct {
@@ -32,8 +32,8 @@ type OwWallet struct {
 
 func initMysqlDB() {
 	conf := sqld.MysqlConfig{}
-	if err := util.ReadLocalJsonConfig("resource/mysql.json", &conf); err != nil {
-		panic(util.AddStr("读取mysql配置失败: ", err.Error()))
+	if err := utils.ReadLocalJsonConfig("resource/mysql.json", &conf); err != nil {
+		panic(utils.AddStr("读取mysql配置失败: ", err.Error()))
 	}
 	new(sqld.MysqlManager).InitConfigAndCache(nil, conf)
 	fmt.Println("init mysql success")
@@ -41,8 +41,8 @@ func initMysqlDB() {
 
 func initMongoDB() {
 	conf := sqld.MGOConfig{}
-	if err := util.ReadLocalJsonConfig("resource/mongo.json", &conf); err != nil {
-		panic(util.AddStr("读取mongo配置失败: ", err.Error()))
+	if err := utils.ReadLocalJsonConfig("resource/mongo.json", &conf); err != nil {
+		panic(utils.AddStr("读取mongo配置失败: ", err.Error()))
 	}
 	new(sqld.MGOManager).InitConfigAndCache(nil, conf)
 	fmt.Println("init mongo success")
@@ -66,8 +66,8 @@ func init() {
 	//	},
 	//)
 	//redis := cache.RedisConfig{}
-	//if err := util.ReadLocalJsonConfig("resource/redis.json", &redis); err != nil {
-	//	panic(util.AddStr("读取redis配置失败: ", err.Error()))
+	//if err := utils.ReadLocalJsonConfig("resource/redis.json", &redis); err != nil {
+	//	panic(utils.AddStr("读取redis配置失败: ", err.Error()))
 	//}
 	//manager, err := new(cache.RedisManager).InitConfig(redis)
 	//if err != nil {
@@ -78,8 +78,8 @@ func init() {
 	//	panic(err.Error())
 	//}
 	//mongo1 := sqld.MGOConfig{}
-	//if err := util.ReadLocalJsonConfig("resource/mongo.json", &mongo1); err != nil {
-	//	panic(util.AddStr("读取mongo配置失败: ", err.Error()))
+	//if err := utils.ReadLocalJsonConfig("resource/mongo.json", &mongo1); err != nil {
+	//	panic(utils.AddStr("读取mongo配置失败: ", err.Error()))
 	//}
 	//new(sqld.MGOManager).InitConfigAndCache(nil, mongo1)
 	//opts := &options.ClientOptions{Hosts: []string{"192.168.27.124:27017"}}
@@ -101,10 +101,10 @@ func init() {
 //			panic(err)
 //		}
 //		defer db.Close()
-//		//l := util.Time()
+//		//l := utils.Time()
 //		o := OwWallet{
-//			AppID:    util.GetSnowFlakeStrID(),
-//			WalletID: util.GetSnowFlakeStrID(),
+//			AppID:    utils.GetSnowFlakeStrID(),
+//			WalletID: utils.GetSnowFlakeStrID(),
 //		}
 //		if err := db.Save(&o); err != nil {
 //			fmt.Println(err)
@@ -139,7 +139,7 @@ func init() {
 //			panic(err)
 //		}
 //		defer db.Close()
-//		if err := db.UpdateByCnd(sqlc.M(&OwWallet{}).Eq("id", 1110012978914131972).UpdateKeyValue([]string{"appID", "ctime"}, util.GetSnowFlakeStrID(), 1)); err != nil {
+//		if err := db.UpdateByCnd(sqlc.M(&OwWallet{}).Eq("id", 1110012978914131972).UpdateKeyValue([]string{"appID", "ctime"}, utils.GetSnowFlakeStrID(), 1)); err != nil {
 //			fmt.Println(err)
 //		}
 //		//fmt.Println(wallet.Id)
@@ -155,12 +155,12 @@ func init() {
 //			panic(err)
 //		}
 //		defer db.Close()
-//		//l := util.Time()
+//		//l := utils.Time()
 //		wallet := OwWallet{}
 //		if err := db.FindOne(sqlc.M().Eq("id", 1109819683034365953), &wallet); err != nil {
 //			fmt.Println(err)
 //		}
-//		//fmt.Println("cost: ", util.Time()-l)
+//		//fmt.Println("cost: ", utils.Time()-l)
 //	}
 //}
 //

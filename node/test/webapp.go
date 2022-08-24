@@ -10,8 +10,8 @@ import (
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/node"
 	"github.com/godaddy-x/freego/node/common"
-	"github.com/godaddy-x/freego/util"
-	"github.com/godaddy-x/freego/util/jwt"
+	"github.com/godaddy-x/freego/utils"
+	"github.com/godaddy-x/freego/utils/jwt"
 	"google.golang.org/grpc"
 )
 
@@ -64,7 +64,7 @@ func (self *MyWebNode) login(ctx *node.Context) error {
 	subject := &jwt.Subject{}
 	//self.LoginBySubject(subject, exp)
 	config := ctx.JwtConfig()
-	token := subject.Create(util.GetSnowFlakeStrID()).Dev("APP").Generate(config)
+	token := subject.Create(utils.GetSnowFlakeStrID()).Dev("APP").Generate(config)
 	secret := jwt.GetTokenSecret(token, config.TokenKey)
 	return self.Json(ctx, map[string]interface{}{"token": token, "secret": secret})
 	//return self.Html(ctx, "/web/index.html", map[string]interface{}{"tewt": 1})
@@ -75,7 +75,7 @@ func (self *MyWebNode) pubkey(ctx *node.Context) error {
 	return self.Text(ctx, ctx.ServerCert.PubkeyBase64)
 }
 
-var tokenKey = "123456" + util.CreateLocalSecretKey(12, 45, 23, 60, 58, 30)
+var tokenKey = "123456" + utils.CreateLocalSecretKey(12, 45, 23, 60, 58, 30)
 
 func GetJwtConfig() jwt.JwtConfig {
 	return jwt.JwtConfig{
@@ -111,7 +111,7 @@ func StartHttpNode() {
 				return ex.Throw{Code: 429, Msg: "the method request is full, please try again later"}
 			}
 			if ctx.Authenticated() {
-				if b := limiter.Allow(util.AnyToStr(ctx.Subject.Sub)); !b {
+				if b := limiter.Allow(utils.AnyToStr(ctx.Subject.Sub)); !b {
 					return ex.Throw{Code: 429, Msg: "the access frequency is too fast, please try again later"}
 				}
 			}
@@ -119,8 +119,8 @@ func StartHttpNode() {
 		},
 		LogHandleFunc: func(ctx *node.Context) (node.LogHandleRes, error) {
 			res := node.LogHandleRes{
-				LogNo:    util.GetSnowFlakeStrID(),
-				CreateAt: util.Time(),
+				LogNo:    utils.GetSnowFlakeStrID(),
+				CreateAt: utils.Time(),
 			}
 			// TODO send zlog to rabbitmq
 			//fmt.Println("LogHandleFunc: ", res)
@@ -130,7 +130,7 @@ func StartHttpNode() {
 			return err
 		},
 		AfterCompletionFunc: func(ctx *node.Context, res node.LogHandleRes, err error) error {
-			res.UpdateAt = util.Time()
+			res.UpdateAt = utils.Time()
 			res.CostMill = res.UpdateAt - res.CreateAt
 			// TODO send zlog to rabbitmq
 			//fmt.Println("AfterCompletionFunc: ", res)

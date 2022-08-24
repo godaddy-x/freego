@@ -7,7 +7,7 @@ import (
 	"encoding/base32"
 	"encoding/base64"
 	"fmt"
-	"github.com/godaddy-x/freego/util"
+	"github.com/godaddy-x/freego/utils"
 	"time"
 )
 
@@ -73,7 +73,7 @@ func GenerateSecretKey(seed string) (string, error) {
 	maxLen := base32.StdEncoding.EncodedLen(len(key))
 	ret := make([]byte, maxLen)
 	base32.StdEncoding.Encode(ret, key)
-	return util.Bytes2Str(ret), nil
+	return utils.Bytes2Str(ret), nil
 }
 
 /*
@@ -147,7 +147,7 @@ func ValidCode(secretKey string, code uint32, size ...int) bool {
  * @生成密钥种子
  */
 func GenerateSeed() string {
-	hash := SHA512(toBytes(util.GetSnowFlakeIntID()))
+	hash := SHA512(toBytes(utils.GetSnowFlakeIntID()))
 	coder := base64.NewEncoding(base64Table)
 	ret := coder.EncodeToString(hash)
 	return ret

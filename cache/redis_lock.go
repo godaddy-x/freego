@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"github.com/garyburd/redigo/redis"
 	"github.com/godaddy-x/freego/ex"
-	"github.com/godaddy-x/freego/util"
+	"github.com/godaddy-x/freego/utils"
 	"time"
 )
 
@@ -79,7 +79,7 @@ func (lock *Lock) unlock() (err error) {
 func (self *RedisManager) getLockWithTimeout(conn redis.Conn, resource string, expSecond time.Duration, spin bool) (lock *Lock, ok bool, err error) {
 	lock = &Lock{
 		resource: resource,
-		token:    util.GetSnowFlakeStrID(),
+		token:    utils.GetSnowFlakeStrID(),
 		conn:     conn,
 		exp:      expSecond,
 		spin:     spin,
@@ -97,16 +97,16 @@ func (self *RedisManager) getLockWithTimeout(conn redis.Conn, resource string, e
 
 func (self *RedisManager) checkParameters(resource string, trySecond, expSecond int, call func() error) error {
 	if len(resource) == 0 || len(resource) > 100 {
-		return util.Error("redis lock key invalid: ", resource)
+		return utils.Error("redis lock key invalid: ", resource)
 	}
 	if expSecond < 3 || expSecond > 600 {
-		return util.Error("redis lock exp range [3-600s]: ", expSecond)
+		return utils.Error("redis lock exp range [3-600s]: ", expSecond)
 	}
 	if trySecond < 3 || trySecond > 600 || trySecond > expSecond {
-		return util.Error("redis lock try range [3-600s]: ", trySecond)
+		return utils.Error("redis lock try range [3-600s]: ", trySecond)
 	}
 	if call == nil {
-		return util.Error("redis lock call function nil")
+		return utils.Error("redis lock call function nil")
 	}
 	return nil
 }

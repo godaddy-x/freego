@@ -1,7 +1,7 @@
 package cache
 
 import (
-	"github.com/godaddy-x/freego/util"
+	"github.com/godaddy-x/freego/utils"
 	"time"
 )
 
@@ -25,7 +25,7 @@ func (self *LocalMapManager) Get(key string, input interface{}) (interface{}, bo
 	if input == nil {
 		return v, b, nil
 	}
-	return v, b, util.JsonToAny(v, input)
+	return v, b, utils.JsonToAny(v, input)
 }
 
 func (self *LocalMapManager) GetInt64(key string) (int64, error) {
@@ -33,7 +33,7 @@ func (self *LocalMapManager) GetInt64(key string) (int64, error) {
 	if !b || v == nil {
 		return 0, nil
 	}
-	if ret, err := util.StrToInt64(util.AnyToStr(v)); err != nil {
+	if ret, err := utils.StrToInt64(utils.AnyToStr(v)); err != nil {
 		return 0, err
 	} else {
 		return ret, nil
@@ -45,7 +45,7 @@ func (self *LocalMapManager) GetFloat64(key string) (float64, error) {
 	if !b || v == nil {
 		return 0, nil
 	}
-	if ret, err := util.StrToFloat(util.AnyToStr(v)); err != nil {
+	if ret, err := utils.StrToFloat(utils.AnyToStr(v)); err != nil {
 		return 0, err
 	} else {
 		return ret, nil
@@ -57,7 +57,7 @@ func (self *LocalMapManager) GetString(key string) (string, error) {
 	if !b || v == nil {
 		return "", nil
 	}
-	return util.AnyToStr(v), nil
+	return utils.AnyToStr(v), nil
 }
 
 func (self *LocalMapManager) GetBool(key string) (bool, error) {
@@ -65,7 +65,7 @@ func (self *LocalMapManager) GetBool(key string) (bool, error) {
 	if !b || v == nil {
 		return false, nil
 	}
-	return util.StrToBool(util.AnyToStr(v))
+	return utils.StrToBool(utils.AnyToStr(v))
 }
 
 func (self *LocalMapManager) Put(key string, input interface{}, expire ...int) error {

@@ -6,7 +6,7 @@ import (
 	"github.com/godaddy-x/freego/cache"
 	DIC "github.com/godaddy-x/freego/common"
 	"github.com/godaddy-x/freego/ormx/sqlc"
-	"github.com/godaddy-x/freego/util"
+	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/zlog"
 	"go.uber.org/zap"
 	"reflect"
@@ -131,7 +131,7 @@ func (self *MGOManager) buildByConfig(manager cache.ICache, input ...MGOConfig) 
 			dsName = v.DsName
 		}
 		if _, b := mgoSessions[dsName]; b {
-			return util.Error("mongo init failed: [", v.DsName, "] exist")
+			return utils.Error("mongo init failed: [", v.DsName, "] exist")
 		}
 		if len(v.ConnectionURI) > 0 {
 			dialInfo, err := mgo.ParseURL(v.ConnectionURI)
@@ -160,7 +160,7 @@ func (self *MGOManager) buildByConfig(manager cache.ICache, input ...MGOConfig) 
 			}
 			session, err = mgo.DialWithInfo(dialInfo)
 			if err != nil {
-				return util.Error("mongo init failed: ", err)
+				return utils.Error("mongo init failed: ", err)
 			}
 		}
 
@@ -185,7 +185,7 @@ func (self *MGOManager) buildByConfig(manager cache.ICache, input ...MGOConfig) 
 		zlog.Printf("mongodb service【%s】has been started successfully", v.DsName)
 	}
 	if len(mgoSessions) == 0 {
-		return util.Error("mongo init failed: sessions is nil")
+		return utils.Error("mongo init failed: sessions is nil")
 	}
 	return nil
 }
@@ -237,23 +237,23 @@ func (self *MGOManager) Save(data ...interface{}) error {
 		return self.Error(err)
 	}
 	if zlog.IsDebug() {
-		defer zlog.Debug("[Mongo.Save]", util.Time(), zlog.Any("data", data))
+		defer zlog.Debug("[Mongo.Save]", utils.Time(), zlog.Any("data", data))
 	}
 	for _, v := range data {
 		if obv.PkKind == reflect.Int64 {
-			lastInsertId := util.GetInt64(util.GetPtr(v, obv.PkOffset))
+			lastInsertId := utils.GetInt64(utils.GetPtr(v, obv.PkOffset))
 			if lastInsertId == 0 {
-				lastInsertId = util.GetSnowFlakeIntID(self.Node)
-				util.SetInt64(util.GetPtr(v, obv.PkOffset), lastInsertId)
+				lastInsertId = utils.GetSnowFlakeIntID(self.Node)
+				utils.SetInt64(utils.GetPtr(v, obv.PkOffset), lastInsertId)
 			}
 		} else if obv.PkKind == reflect.String {
-			lastInsertId := util.GetString(util.GetPtr(v, obv.PkOffset))
+			lastInsertId := utils.GetString(utils.GetPtr(v, obv.PkOffset))
 			if len(lastInsertId) == 0 {
-				lastInsertId = util.GetSnowFlakeStrID(self.Node)
-				util.SetString(util.GetPtr(v, obv.PkOffset), lastInsertId)
+				lastInsertId = utils.GetSnowFlakeStrID(self.Node)
+				utils.SetString(utils.GetPtr(v, obv.PkOffset), lastInsertId)
 			}
 		} else {
-			return util.Error("only Int64 and string type IDs are supported")
+			return utils.Error("only Int64 and string type IDs are supported")
 		}
 	}
 	if err := db.Insert(data...); err != nil {
@@ -286,11 +286,11 @@ func (self *MGOManager) Update(data ...interface{}) error {
 		return self.Error(err)
 	}
 	if zlog.IsDebug() {
-		defer zlog.Debug("[Mongo.Update]", util.Time(), zlog.Any("data", data))
+		defer zlog.Debug("[Mongo.Update]", utils.Time(), zlog.Any("data", data))
 	}
 	for _, v := range data {
 		if obv.PkKind == reflect.Int64 {
-			lastInsertId := util.GetInt64(util.GetPtr(v, obv.PkOffset))
+			lastInsertId := utils.GetInt64(utils.GetPtr(v, obv.PkOffset))
 			if lastInsertId == 0 {
 				return self.Error("[Mongo.Update] data object id is nil")
 			}
@@ -301,7 +301,7 @@ func (self *MGOManager) Update(data ...interface{}) error {
 				return self.Error("[Mongo.Update] update failed: ", err)
 			}
 		} else if obv.PkKind == reflect.String {
-			lastInsertId := util.GetString(util.GetPtr(v, obv.PkOffset))
+			lastInsertId := utils.GetString(utils.GetPtr(v, obv.PkOffset))
 			if len(lastInsertId) == 0 {
 				return self.Error("[Mongo.Update] data object id is nil")
 			}
@@ -312,7 +312,7 @@ func (self *MGOManager) Update(data ...interface{}) error {
 				return self.Error("[Mongo.Update] update failed: ", err)
 			}
 		} else {
-			return util.Error("only Int64 and string type IDs are supported")
+			return utils.Error("only Int64 and string type IDs are supported")
 		}
 	}
 	return nil
@@ -341,24 +341,24 @@ func (self *MGOManager) Delete(data ...interface{}) error {
 		return self.Error(err)
 	}
 	if zlog.IsDebug() {
-		defer zlog.Debug("[Mongo.Delete]", util.Time(), zlog.Any("data", data))
+		defer zlog.Debug("[Mongo.Delete]", utils.Time(), zlog.Any("data", data))
 	}
 	delIds := make([]interface{}, 0, len(data))
 	for _, v := range data {
 		if obv.PkKind == reflect.Int64 {
-			lastInsertId := util.GetInt64(util.GetPtr(v, obv.PkOffset))
+			lastInsertId := utils.GetInt64(utils.GetPtr(v, obv.PkOffset))
 			if lastInsertId == 0 {
 				return self.Error("[Mongo.Delete] data object id is nil")
 			}
 			delIds = append(delIds, lastInsertId)
 		} else if obv.PkKind == reflect.String {
-			lastInsertId := util.GetString(util.GetPtr(v, obv.PkOffset))
+			lastInsertId := utils.GetString(utils.GetPtr(v, obv.PkOffset))
 			if len(lastInsertId) == 0 {
 				return self.Error("[Mongo.Delete] data object id is nil")
 			}
 			delIds = append(delIds, lastInsertId)
 		} else {
-			return util.Error("only Int64 and string type IDs are supported")
+			return utils.Error("only Int64 and string type IDs are supported")
 		}
 	}
 	if len(delIds) > 0 {
@@ -377,7 +377,7 @@ func (self *MGOManager) Count(cnd *sqlc.Cnd) (int64, error) {
 	obk := reflect.TypeOf(cnd.Model).String()
 	obv, ok := modelDrivers[obk]
 	if !ok {
-		return 0, self.Error(util.AddStr("[Mongo.Count] registration object type not found [", obk, "]"))
+		return 0, self.Error(utils.AddStr("[Mongo.Count] registration object type not found [", obk, "]"))
 	}
 	copySession := self.Session.Copy()
 	defer copySession.Close()
@@ -387,15 +387,15 @@ func (self *MGOManager) Count(cnd *sqlc.Cnd) (int64, error) {
 	}
 	pipe, err := self.buildPipeCondition(cnd, true)
 	if err != nil {
-		return 0, util.Error("[Mongo.Count] build pipe failed: ", err)
+		return 0, utils.Error("[Mongo.Count] build pipe failed: ", err)
 	}
-	defer self.writeLog("[Mongo.Count]", util.Time(), pipe)
+	defer self.writeLog("[Mongo.Count]", utils.Time(), pipe)
 	result := CountResult{}
 	if err := db.Pipe(pipe).One(&result); err != nil {
 		if err == mgo.ErrNotFound {
 			return 0, nil
 		}
-		return 0, util.Error("[Mongo.Count] query failed: ", err)
+		return 0, utils.Error("[Mongo.Count] query failed: ", err)
 	}
 	pageTotal := result.Total
 	if pageTotal > 0 && cnd.Pagination.PageSize > 0 {
@@ -431,14 +431,14 @@ func (self *MGOManager) FindOne(cnd *sqlc.Cnd, data interface{}) error {
 	}
 	pipe, err := self.buildPipeCondition(cnd.ResultSize(1), false)
 	if err != nil {
-		return util.Error("[Mongo.FindOne]build pipe failed: ", err)
+		return utils.Error("[Mongo.FindOne]build pipe failed: ", err)
 	}
-	defer self.writeLog("[Mongo.FindOne]", util.Time(), pipe)
+	defer self.writeLog("[Mongo.FindOne]", utils.Time(), pipe)
 	if err := db.Pipe(pipe).One(data); err != nil {
 		if err == mgo.ErrNotFound {
 			return nil
 		}
-		return util.Error("[Mongo.FindOne] query failed: ", err)
+		return utils.Error("[Mongo.FindOne] query failed: ", err)
 	}
 	return nil
 }
@@ -452,7 +452,7 @@ func (self *MGOManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	if !strings.HasPrefix(obk, "*[]") {
 		return self.Error("[Mongo.FindList] the return parameter must be an array pointer type")
 	} else {
-		obk = util.Substr(obk, 3, len(obk))
+		obk = utils.Substr(obk, 3, len(obk))
 	}
 	obv, ok := modelDrivers[obk]
 	if !ok {
@@ -466,14 +466,14 @@ func (self *MGOManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	}
 	pipe, err := self.buildPipeCondition(cnd, false)
 	if err != nil {
-		return util.Error("[Mongo.FindList] build pipe failed: ", err)
+		return utils.Error("[Mongo.FindList] build pipe failed: ", err)
 	}
-	defer self.writeLog("[Mongo.FindList]", util.Time(), pipe)
+	defer self.writeLog("[Mongo.FindList]", utils.Time(), pipe)
 	if err := db.Pipe(pipe).All(data); err != nil {
 		if err == mgo.ErrNotFound {
 			return nil
 		}
-		return util.Error("[Mongo.FindList] query failed: ", err)
+		return utils.Error("[Mongo.FindList] query failed: ", err)
 	}
 	return nil
 }
@@ -486,7 +486,7 @@ func (self *MGOManager) UpdateByCnd(cnd *sqlc.Cnd) error {
 	obk := reflect.TypeOf(cnd.Model).String()
 	obv, ok := modelDrivers[obk]
 	if !ok {
-		return self.Error(util.AddStr("[Mongo.UpdateByCnd] registration object type not found [", obk, "]"))
+		return self.Error(utils.AddStr("[Mongo.UpdateByCnd] registration object type not found [", obk, "]"))
 	}
 	copySession := self.Session.Copy()
 	defer copySession.Close()
@@ -497,14 +497,14 @@ func (self *MGOManager) UpdateByCnd(cnd *sqlc.Cnd) error {
 	match := buildMongoMatch(cnd)
 	upset := buildMongoUpset(cnd)
 	if match == nil || len(match) == 0 {
-		return util.Error("pipe math is nil")
+		return utils.Error("pipe math is nil")
 	}
 	if upset == nil || len(upset) == 0 {
-		return util.Error("pipe upset is nil")
+		return utils.Error("pipe upset is nil")
 	}
-	defer self.writeLog("[Mongo.UpdateByCnd]", util.Time(), map[string]interface{}{"match": match, "upset": upset})
+	defer self.writeLog("[Mongo.UpdateByCnd]", utils.Time(), map[string]interface{}{"match": match, "upset": upset})
 	if _, err := db.UpdateAll(match, upset); err != nil {
-		return util.Error("[Mongo.UpdateByCnd] update failed: ", err)
+		return utils.Error("[Mongo.UpdateByCnd] update failed: ", err)
 	}
 	return nil
 }
@@ -696,14 +696,14 @@ func buildMongoAggregate(cnd *sqlc.Cnd) []map[string]interface{} {
 	if len(cnd.Groupbys) > 0 {
 		for _, v := range cnd.Groupbys {
 			if v == JID {
-				_idMap[JID] = util.AddStr("$_id")
-				_idMap2[JID] = util.AddStr("$_id.id")
-				project[BID] = util.AddStr("$_id.id")
-				project[BID] = util.AddStr("$_id.id")
+				_idMap[JID] = utils.AddStr("$_id")
+				_idMap2[JID] = utils.AddStr("$_id.id")
+				project[BID] = utils.AddStr("$_id.id")
+				project[BID] = utils.AddStr("$_id.id")
 			} else {
-				_idMap[v] = util.AddStr("$", v)
-				_idMap2[v] = util.AddStr("$_id.", v)
-				project[v] = util.AddStr("$_id.", v)
+				_idMap[v] = utils.AddStr("$", v)
+				_idMap2[v] = utils.AddStr("$_id.", v)
+				project[v] = utils.AddStr("$_id.", v)
 			}
 		}
 		group[BID] = _idMap
@@ -724,16 +724,16 @@ func buildMongoAggregate(cnd *sqlc.Cnd) []map[string]interface{} {
 				} else if v.Logic == sqlc.AVG_ {
 					group[k] = map[string]string{"$avg": "$_id"}
 				}
-				project[BID] = util.AddStr("$", k)
+				project[BID] = utils.AddStr("$", k)
 			} else {
 				if v.Logic == sqlc.SUM_ {
-					group[k] = map[string]string{"$sum": util.AddStr("$", k)}
+					group[k] = map[string]string{"$sum": utils.AddStr("$", k)}
 				} else if v.Logic == sqlc.MAX_ {
-					group[k] = map[string]string{"$max": util.AddStr("$", k)}
+					group[k] = map[string]string{"$max": utils.AddStr("$", k)}
 				} else if v.Logic == sqlc.MIN_ {
-					group[k] = map[string]string{"$min": util.AddStr("$", k)}
+					group[k] = map[string]string{"$min": utils.AddStr("$", k)}
 				} else if v.Logic == sqlc.AVG_ {
-					group[k] = map[string]string{"$avg": util.AddStr("$", k)}
+					group[k] = map[string]string{"$avg": utils.AddStr("$", k)}
 				} else if v.Logic == sqlc.CNT_ {
 					if _, b := _idMap2[k]; b {
 						delete(_idMap2, k)
@@ -742,7 +742,7 @@ func buildMongoAggregate(cnd *sqlc.Cnd) []map[string]interface{} {
 					project[v.Alias] = 1
 					continue
 				}
-				project[v.Alias] = util.AddStr("$", k)
+				project[v.Alias] = utils.AddStr("$", k)
 			}
 		}
 	}
@@ -830,7 +830,7 @@ func buildMongoLimit(cnd *sqlc.Cnd) []int64 {
 }
 
 func (self *MGOManager) writeLog(title string, start int64, pipe interface{}) {
-	cost := util.Time() - start
+	cost := utils.Time() - start
 	if self.SlowQuery > 0 && cost > self.SlowQuery {
 		l := self.getSlowLog()
 		if l != nil {
@@ -838,7 +838,7 @@ func (self *MGOManager) writeLog(title string, start int64, pipe interface{}) {
 		}
 	}
 	if zlog.IsDebug() {
-		pipeStr, _ := util.JsonMarshal(pipe)
-		defer zlog.Debug(title, start, zlog.String("pipe", util.Bytes2Str(pipeStr)))
+		pipeStr, _ := utils.JsonMarshal(pipe)
+		defer zlog.Debug(title, start, zlog.String("pipe", utils.Bytes2Str(pipeStr)))
 	}
 }

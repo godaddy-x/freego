@@ -6,7 +6,7 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/godaddy-x/freego/cache"
 	DIC "github.com/godaddy-x/freego/common"
-	"github.com/godaddy-x/freego/util"
+	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/zlog"
 	"time"
 )
@@ -47,12 +47,12 @@ func (self *MysqlManager) buildByConfig(manager cache.ICache, input ...MysqlConf
 			dsName = v.DsName
 		}
 		if _, b := rdbs[dsName]; b {
-			return util.Error("mysql init failed: [", v.DsName, "] exist")
+			return utils.Error("mysql init failed: [", v.DsName, "] exist")
 		}
 		link := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8", v.Username, v.Password, v.Host, v.Port, v.Database)
 		db, err := sql.Open("mysql", link)
 		if err != nil {
-			return util.Error("mysql init failed: ", err)
+			return utils.Error("mysql init failed: ", err)
 		}
 		db.SetMaxIdleConns(v.MaxIdleConns)
 		db.SetMaxOpenConns(v.MaxOpenConns)
@@ -79,7 +79,7 @@ func (self *MysqlManager) buildByConfig(manager cache.ICache, input ...MysqlConf
 		zlog.Printf("mysql service【%s】has been started successfully", v.DsName)
 	}
 	if len(rdbs) == 0 {
-		return util.Error("mysql init failed: sessions is nil")
+		return utils.Error("mysql init failed: sessions is nil")
 	}
 	return nil
 }

@@ -2,8 +2,8 @@ package node
 
 import (
 	"github.com/godaddy-x/freego/ex"
-	"github.com/godaddy-x/freego/util"
-	"github.com/godaddy-x/freego/util/jwt"
+	"github.com/godaddy-x/freego/utils"
+	"github.com/godaddy-x/freego/utils/jwt"
 	"github.com/godaddy-x/freego/zlog"
 	"github.com/gorilla/websocket"
 	"net/http"
@@ -37,12 +37,12 @@ func (self *WebsocketNode) InitContext(ptr *NodePtr) error {
 	if self.WSManager == nil {
 		return ex.Throw{Code: http.StatusInternalServerError, Msg: "WS管理器尚未初始化"}
 	}
-	node.CreateAt = util.Time()
+	node.CreateAt = utils.Time()
 	node.SessionAware = self.SessionAware
 	node.CacheAware = self.CacheAware
 	node.WSManager = self.WSManager
 	node.Context = &Context{
-		Host:     util.ClientIP(input),
+		Host:     utils.ClientIP(input),
 		Port:     self.Context.Port,
 		Style:    WEBSOCKET,
 		Method:   ptr.Pattern,
@@ -56,7 +56,7 @@ func (self *WebsocketNode) InitContext(ptr *NodePtr) error {
 }
 
 func (self *WebsocketNode) InitWebsocket(ptr *NodePtr) error {
-	if ws, err := self.newWSClient(self.Context.Output, self.Context.Input, util.GetSnowFlakeStrID(), self.wsReadHandle, ptr.Handle); err != nil {
+	if ws, err := self.newWSClient(self.Context.Output, self.Context.Input, utils.GetSnowFlakeStrID(), self.wsReadHandle, ptr.Handle); err != nil {
 		return ex.Throw{Code: http.StatusInternalServerError, Msg: "建立websocket连接失败", Err: err}
 	} else {
 		self.WSClient = ws
@@ -77,7 +77,7 @@ func (self *WebsocketNode) newWSClient(w http.ResponseWriter, r *http.Request, u
 		id:          uid,
 		socket:      conn,
 		send:        make(chan WSMessage),
-		access:      util.Time(),
+		access:      utils.Time(),
 		biz_handle:  biz_handle,
 		rcvd_handle: rcvd_handle,
 	}
@@ -91,7 +91,7 @@ func (self *WebsocketNode) wsReadHandle(c *WSClient, rcvd []byte) error {
 	}
 	// 1.获取请求数据
 	req := &ReqDto{}
-	if err := util.JsonUnmarshal(rcvd, req); err != nil {
+	if err := utils.JsonUnmarshal(rcvd, req); err != nil {
 		return self.RenderError(ex.Throw{Code: http.StatusBadRequest, Msg: "参数解析失败", Err: err})
 	}
 	//if err := self.Context.SecurityCheck(req, self.Option.Textplain); err != nil {
@@ -142,7 +142,7 @@ func (self *WebsocketNode) ValidSession() error {
 	//}
 	//// 获取缓存的sub->signature key
 	//sub := checker.Subject.Payload.Sub
-	//sub_key := util.AddStr(JWT_SUB_, sub)
+	//sub_key := utils.AddStr(JWT_SUB_, sub)
 	//if self.CacheSubjectKey != nil {
 	//	sub_key = self.CacheSubjectKey(checker.Subject)
 	//}
@@ -179,7 +179,7 @@ func (self *WebsocketNode) ValidReplayAttack() error {
 	if param == nil || len(param.Sign) == 0 {
 		return nil
 	}
-	key := util.AddStr(param.Sign)
+	key := utils.AddStr(param.Sign)
 	if c, err := self.CacheAware(); err != nil {
 		return err
 	} else if b, err := c.GetInt64(key); err != nil {
@@ -275,7 +275,7 @@ func (self *WebsocketNode) AfterCompletion(res LogHandleRes, err error) error {
 }
 
 func (self *WebsocketNode) RenderError(err error) error {
-	self.WSClient.send <- WSMessage{MessageType: websocket.CloseMessage, Content: util.Str2Bytes(ex.Catch(err).Error())}
+	self.WSClient.send <- WSMessage{MessageType: websocket.CloseMessage, Content: utils.Str2Bytes(ex.Catch(err).Error())}
 	return nil
 }
 
@@ -285,7 +285,7 @@ func (self *WebsocketNode) RenderTo() error {
 	case APPLICATION_JSON:
 		if data := self.Context.Response.ContentEntity; data == nil {
 			data = make(map[string]interface{})
-		} else if result, err := util.JsonMarshal(data); err != nil {
+		} else if result, err := utils.JsonMarshal(data); err != nil {
 			self.sendJsonConvertError(err)
 		} else {
 			self.WSClient.send <- WSMessage{MessageType: websocket.TextMessage, Content: result}
@@ -297,7 +297,7 @@ func (self *WebsocketNode) RenderTo() error {
 }
 
 func (self *WebsocketNode) sendJsonConvertError(err error) error {
-	out := ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "系统发生未知错误", Err: util.Error("JSON对象转换失败: ", err)}
+	out := ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "系统发生未知错误", Err: utils.Error("JSON对象转换失败: ", err)}
 	return self.RenderError(out)
 }
 
@@ -309,7 +309,7 @@ func (self *WebsocketNode) StartServer() {
 	}
 	go self.WSManager.start()
 	go func() {
-		if err := http.ListenAndServe(util.AddStr(self.Context.Host, ":", self.Context.Port), nil); err != nil {
+		if err := http.ListenAndServe(utils.AddStr(self.Context.Host, ":", self.Context.Port), nil); err != nil {
 			zlog.Error("初始化websocket失败", 0, zlog.AddError(err))
 		}
 	}()
@@ -317,10 +317,10 @@ func (self *WebsocketNode) StartServer() {
 
 func (self *WebsocketNode) Router(pattern string, handle func(ctx *Context) error, config *RouterConfig) {
 	if !strings.HasPrefix(pattern, "/") {
-		pattern = util.AddStr("/", pattern)
+		pattern = utils.AddStr("/", pattern)
 	}
 	if len(self.Context.Version) > 0 {
-		pattern = util.AddStr("/", self.Context.Version, pattern)
+		pattern = utils.AddStr("/", self.Context.Version, pattern)
 	}
 	if self.CacheAware == nil {
 		zlog.Error("缓存服务尚未初始化", 0)

@@ -1,7 +1,7 @@
 package ex
 
 import (
-	"github.com/godaddy-x/freego/util"
+	"github.com/godaddy-x/freego/utils"
 	"strings"
 )
 
@@ -56,7 +56,7 @@ func (self Throw) Error() string {
 	if self.Code == 0 {
 		self.Code = BIZ
 	}
-	return util.AddStr(self.Code, SEP, self.Msg, SEP, self.Url)
+	return utils.AddStr(self.Code, SEP, self.Msg, SEP, self.Url)
 }
 
 func Catch(err error) Throw {
@@ -64,13 +64,13 @@ func Catch(err error) Throw {
 	if len(spl) == 1 {
 		return Throw{Code: UNKNOWN, Msg: spl[0]}
 	} else if len(spl) == 2 {
-		if c, err := util.StrToInt(spl[0]); err != nil {
+		if c, err := utils.StrToInt(spl[0]); err != nil {
 			return Throw{Code: SYSTEM, Msg: err.Error()}
 		} else {
 			return Throw{Code: c, Msg: spl[1]}
 		}
 	} else if len(spl) == 3 {
-		if c, err := util.StrToInt(spl[0]); err != nil {
+		if c, err := utils.StrToInt(spl[0]); err != nil {
 			return Throw{Code: SYSTEM, Msg: err.Error()}
 		} else {
 			return Throw{Code: c, Msg: spl[1], Url: spl[2]}

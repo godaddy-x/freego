@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"github.com/godaddy-x/freego/cache/limiter"
-	"github.com/godaddy-x/freego/util"
-	"github.com/godaddy-x/freego/util/jwt"
+	"github.com/godaddy-x/freego/utils"
+	"github.com/godaddy-x/freego/utils/jwt"
 	"github.com/godaddy-x/freego/zlog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
@@ -56,7 +56,7 @@ func (self *GRPCManager) checkToken(ctx context.Context, method string) error {
 	if !self.authenticate {
 		return nil
 	}
-	if util.CheckStr(method, unauthorizedUrl...) {
+	if utils.CheckStr(method, unauthorizedUrl...) {
 		return nil
 	}
 	md, ok := metadata.FromIncomingContext(ctx)
@@ -81,7 +81,7 @@ func (self *GRPCManager) createToken(ctx context.Context, method string) (contex
 	if len(self.token) == 0 {
 		return ctx, nil
 	}
-	if util.CheckStr(method, unauthorizedUrl...) {
+	if utils.CheckStr(method, unauthorizedUrl...) {
 		return ctx, nil
 	}
 	md := metadata.New(map[string]string{token: self.token})
@@ -107,12 +107,12 @@ func (self *GRPCManager) ClientInterceptor(ctx context.Context, method string, r
 	if err != nil {
 		return err
 	}
-	start := util.Time()
+	start := utils.Time()
 	if err := invoker(ctx, method, req, reply, conn, opts...); err != nil {
 		zlog.Error("grpc call failed", start, zlog.String("service", method), zlog.AddError(err))
 		return err
 	}
-	cost := util.Time() - start
+	cost := utils.Time() - start
 	if self.consul.Config.SlowQuery > 0 && cost > self.consul.Config.SlowQuery {
 		l := self.consul.GetSlowLog()
 		if l != nil {

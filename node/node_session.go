@@ -2,8 +2,8 @@ package node
 
 import (
 	"github.com/godaddy-x/freego/cache"
-	"github.com/godaddy-x/freego/util"
-	"github.com/godaddy-x/freego/util/jwt"
+	"github.com/godaddy-x/freego/utils"
+	"github.com/godaddy-x/freego/utils/jwt"
 )
 
 type Session interface {
@@ -93,21 +93,21 @@ func (self *JWTSession) GetHost() string {
 }
 
 func (self *JWTSession) Touch() error {
-	self.LastAccessTime = util.Time()
+	self.LastAccessTime = utils.Time()
 	return nil
 }
 
 func (self *JWTSession) Stop() error {
-	self.StopTime = util.Time()
+	self.StopTime = utils.Time()
 	self.Expire = true
 	return nil
 }
 
 func (self *JWTSession) Validate(accessToken, secretKey string) (int64, error) {
 	if self.Expire {
-		return 0, util.Error("session[", self.Id, "] expired")
+		return 0, utils.Error("session[", self.Id, "] expired")
 	} else if self.IsTimeout() {
-		return 0, util.Error("session[", self.Id, "] timeout invalid")
+		return 0, utils.Error("session[", self.Id, "] timeout invalid")
 	}
 	// JWT二次校验
 	subject := &jwt.Subject{}
@@ -117,7 +117,7 @@ func (self *JWTSession) Validate(accessToken, secretKey string) (int64, error) {
 	//if err := subject.Valid(accessToken, secretKey); err != nil {
 	//	return "", err
 	//}
-	return util.StrToInt64(subject.Payload.Sub)
+	return utils.StrToInt64(subject.Payload.Sub)
 }
 
 func (self *JWTSession) Invalid() bool {
@@ -128,7 +128,7 @@ func (self *JWTSession) Invalid() bool {
 }
 
 func (self *JWTSession) IsTimeout() bool {
-	if util.Time() > (self.LastAccessTime + self.Timeout) {
+	if utils.Time() > (self.LastAccessTime + self.Timeout) {
 		self.Stop()
 		return true
 	}
@@ -182,7 +182,7 @@ type DefaultCacheSessionAware struct {
 
 func (self *DefaultCacheSessionAware) CreateSession(s Session) error {
 	if s.Invalid() {
-		return util.Error("session[", s.GetId(), "] create invalid")
+		return utils.Error("session[", s.GetId(), "] create invalid")
 	}
 	if err := s.Touch(); err != nil {
 		return err
@@ -201,11 +201,11 @@ func (self *DefaultCacheSessionAware) CreateSession(s Session) error {
 func (self *DefaultCacheSessionAware) ReadSession(s string) (Session, error) {
 	var session Session
 	if v, b, err := self.c.Get(s, session); err != nil {
-		return nil, util.Error("session[", s, "] read err: ", err)
+		return nil, utils.Error("session[", s, "] read err: ", err)
 	} else if b && v != nil {
 		if r, ok := v.(Session); ok {
 			if r.Invalid() {
-				return nil, util.Error("session[", s, "] read invalid")
+				return nil, utils.Error("session[", s, "] read invalid")
 			}
 			return r, nil
 		}

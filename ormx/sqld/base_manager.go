@@ -8,7 +8,7 @@ import (
 	DIC "github.com/godaddy-x/freego/common"
 	"github.com/godaddy-x/freego/ormx/sqlc"
 	"github.com/godaddy-x/freego/ormx/sqld/dialect"
-	"github.com/godaddy-x/freego/util"
+	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/zlog"
 	"reflect"
 	"strconv"
@@ -112,55 +112,55 @@ type IDBase interface {
 }
 
 func (self *DBManager) InitConfig(input interface{}) error {
-	return util.Error("No implementation method [InitConfig] was found")
+	return utils.Error("No implementation method [InitConfig] was found")
 }
 
 func (self *DBManager) GetDB(option ...Option) error {
-	return util.Error("No implementation method [GetDB] was found")
+	return utils.Error("No implementation method [GetDB] was found")
 }
 
 func (self *DBManager) Save(datas ...interface{}) error {
-	return util.Error("No implementation method [Save] was found")
+	return utils.Error("No implementation method [Save] was found")
 }
 
 func (self *DBManager) Update(datas ...interface{}) error {
-	return util.Error("No implementation method [Update] was found")
+	return utils.Error("No implementation method [Update] was found")
 }
 
 func (self *DBManager) UpdateByCnd(cnd *sqlc.Cnd) error {
-	return util.Error("No implementation method [UpdateByCnd] was found")
+	return utils.Error("No implementation method [UpdateByCnd] was found")
 }
 
 func (self *DBManager) Delete(datas ...interface{}) error {
-	return util.Error("No implementation method [Delete] was found")
+	return utils.Error("No implementation method [Delete] was found")
 }
 
 func (self *DBManager) Count(cnd *sqlc.Cnd) (int64, error) {
-	return 0, util.Error("No implementation method [Count] was found")
+	return 0, utils.Error("No implementation method [Count] was found")
 }
 
 func (self *DBManager) FindById(data interface{}) error {
-	return util.Error("No implementation method [FindById] was found")
+	return utils.Error("No implementation method [FindById] was found")
 }
 
 func (self *DBManager) FindOne(cnd *sqlc.Cnd, data interface{}) error {
-	return util.Error("No implementation method [FindOne] was found")
+	return utils.Error("No implementation method [FindOne] was found")
 }
 
 func (self *DBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
-	return util.Error("No implementation method [FindList] was found")
+	return utils.Error("No implementation method [FindList] was found")
 }
 
 func (self *DBManager) FindOneComplex(cnd *sqlc.Cnd, data interface{}) error {
-	return util.Error("No implementation method [FindOneComplexOne] was found")
+	return utils.Error("No implementation method [FindOneComplexOne] was found")
 }
 
 func (self *DBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
-	return util.Error("No implementation method [FindListComplex] was found")
+	return utils.Error("No implementation method [FindListComplex] was found")
 }
 
 func (self *DBManager) Close() error {
-	return util.Error("No implementation method [Close] was found")
+	return utils.Error("No implementation method [Close] was found")
 }
 
 func (self *DBManager) BuildCondKey(cnd *sqlc.Cnd, key string) []byte {
@@ -184,14 +184,14 @@ func (self *DBManager) BuilSortBy(cnd *sqlc.Cnd) string {
 }
 
 func (self *DBManager) BuildPagination(cnd *sqlc.Cnd, sql string, values []interface{}) (string, error) {
-	return "", util.Error("No implementation method [BuildPagination] was found")
+	return "", utils.Error("No implementation method [BuildPagination] was found")
 }
 
 func (self *DBManager) Error(data ...interface{}) error {
 	if data == nil || len(data) == 0 {
 		return nil
 	}
-	err := util.Error(data...)
+	err := utils.Error(data...)
 	self.Errors = append(self.Errors, err)
 	return err
 }
@@ -283,21 +283,21 @@ func (self *RDBManager) Save(data ...interface{}) error {
 			}
 			if vv.Primary {
 				if vv.FieldKind == reflect.Int64 {
-					lastInsertId := util.GetInt64(util.GetPtr(v, obv.PkOffset))
+					lastInsertId := utils.GetInt64(utils.GetPtr(v, obv.PkOffset))
 					if lastInsertId == 0 {
-						lastInsertId = util.GetSnowFlakeIntID(self.Node)
-						util.SetInt64(util.GetPtr(v, vv.FieldOffset), lastInsertId)
+						lastInsertId = utils.GetSnowFlakeIntID(self.Node)
+						utils.SetInt64(utils.GetPtr(v, vv.FieldOffset), lastInsertId)
 					}
 					parameter = append(parameter, lastInsertId)
 				} else if vv.FieldKind == reflect.String {
-					lastInsertId := util.GetString(util.GetPtr(v, obv.PkOffset))
+					lastInsertId := utils.GetString(utils.GetPtr(v, obv.PkOffset))
 					if len(lastInsertId) == 0 {
-						lastInsertId := util.GetSnowFlakeStrID(self.Node)
-						util.SetString(util.GetPtr(v, vv.FieldOffset), lastInsertId)
+						lastInsertId := utils.GetSnowFlakeStrID(self.Node)
+						utils.SetString(utils.GetPtr(v, vv.FieldOffset), lastInsertId)
 					}
 					parameter = append(parameter, lastInsertId)
 				} else {
-					return util.Error("only Int64 and string type IDs are supported")
+					return utils.Error("only Int64 and string type IDs are supported")
 				}
 			} else {
 				fval, err := GetValue(v, vv)
@@ -316,24 +316,24 @@ func (self *RDBManager) Save(data ...interface{}) error {
 		if !fready {
 			fready = true
 		}
-		vstr := util.Bytes2Str(vpart_.Bytes())
-		vpart.WriteString(util.Substr(vstr, 0, len(vstr)-1))
+		vstr := utils.Bytes2Str(vpart_.Bytes())
+		vpart.WriteString(utils.Substr(vstr, 0, len(vstr)-1))
 		vpart.WriteString("),")
 	}
-	str1 := util.Bytes2Str(fpart.Bytes())
-	str2 := util.Bytes2Str(vpart.Bytes())
+	str1 := utils.Bytes2Str(fpart.Bytes())
+	str2 := utils.Bytes2Str(vpart.Bytes())
 	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str1)+len(str2)+64))
 	sqlbuf.WriteString("insert into ")
 	sqlbuf.WriteString(obv.TabelName)
 	sqlbuf.WriteString(" (")
-	sqlbuf.WriteString(util.Substr(str1, 0, len(str1)-1))
+	sqlbuf.WriteString(utils.Substr(str1, 0, len(str1)-1))
 	sqlbuf.WriteString(")")
 	sqlbuf.WriteString(" values ")
-	sqlbuf.WriteString(util.Substr(str2, 0, len(str2)-1))
+	sqlbuf.WriteString(utils.Substr(str2, 0, len(str2)-1))
 
-	prepare := util.Bytes2Str(sqlbuf.Bytes())
+	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
-		defer zlog.Debug("[Mysql.Save] sql zlog", util.Time(), zlog.String("sql", prepare), zlog.Any("values", parameter))
+		defer zlog.Debug("[Mysql.Save] sql zlog", utils.Time(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
 	defer cancel()
@@ -388,13 +388,13 @@ func (self *RDBManager) Update(data ...interface{}) error {
 		for _, v := range data {
 			if vv.Primary {
 				if vv.FieldKind == reflect.Int64 {
-					lastInsertId := util.GetInt64(util.GetPtr(v, obv.PkOffset))
+					lastInsertId := utils.GetInt64(utils.GetPtr(v, obv.PkOffset))
 					if lastInsertId == 0 {
 						return self.Error("[Mysql.Update] data object id is nil")
 					}
 					vpart.WriteString(strconv.FormatInt(lastInsertId, 10))
 				} else if vv.FieldKind == reflect.String {
-					lastInsertId := util.GetString(util.GetPtr(v, obv.PkOffset))
+					lastInsertId := utils.GetString(utils.GetPtr(v, obv.PkOffset))
 					if len(lastInsertId) == 0 {
 						return self.Error("[Mysql.Update] data object id is nil")
 					}
@@ -402,7 +402,7 @@ func (self *RDBManager) Update(data ...interface{}) error {
 					vpart.WriteString(lastInsertId)
 					vpart.WriteString("'")
 				} else {
-					return util.Error("only Int64 and string type IDs are supported")
+					return utils.Error("only Int64 and string type IDs are supported")
 				}
 				vpart.WriteString(",")
 			}
@@ -414,12 +414,12 @@ func (self *RDBManager) Update(data ...interface{}) error {
 			}
 			fpart.WriteString(" when ")
 			if obv.PkKind == reflect.Int64 {
-				fpart.WriteString(util.AnyToStr(util.GetInt64(util.GetPtr(v, obv.PkOffset))))
+				fpart.WriteString(utils.AnyToStr(utils.GetInt64(utils.GetPtr(v, obv.PkOffset))))
 			} else {
 				fpart.WriteString("'")
-				idstr := util.GetString(util.GetPtr(v, obv.PkOffset))
-				if !util.IsInt(idstr) {
-					return util.Error("id value invalid: ", idstr)
+				idstr := utils.GetString(utils.GetPtr(v, obv.PkOffset))
+				if !utils.IsInt(idstr) {
+					return utils.Error("id value invalid: ", idstr)
 				}
 				fpart.WriteString(idstr)
 				fpart.WriteString("'")
@@ -428,22 +428,22 @@ func (self *RDBManager) Update(data ...interface{}) error {
 		}
 		fpart.WriteString("end,")
 	}
-	str1 := util.Bytes2Str(fpart.Bytes())
-	str2 := util.Bytes2Str(vpart.Bytes())
+	str1 := utils.Bytes2Str(fpart.Bytes())
+	str2 := utils.Bytes2Str(vpart.Bytes())
 	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str1)+len(str2)+64))
 	sqlbuf.WriteString("update ")
 	sqlbuf.WriteString(obv.TabelName)
 	sqlbuf.WriteString(" set ")
-	sqlbuf.WriteString(util.Substr(str1, 0, len(str1)-1))
+	sqlbuf.WriteString(utils.Substr(str1, 0, len(str1)-1))
 	sqlbuf.WriteString(" where ")
 	sqlbuf.WriteString(obv.PkName)
 	sqlbuf.WriteString(" in (")
-	sqlbuf.WriteString(util.Substr(str2, 0, len(str2)-1))
+	sqlbuf.WriteString(utils.Substr(str2, 0, len(str2)-1))
 	sqlbuf.WriteString(")")
 
-	prepare := util.Bytes2Str(sqlbuf.Bytes())
+	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
-		defer zlog.Debug("[Mysql.Update] sql zlog", util.Time(), zlog.String("sql", prepare), zlog.Any("values", parameter))
+		defer zlog.Debug("[Mysql.Update] sql zlog", utils.Time(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	var err error
 	var stmt *sql.Stmt
@@ -463,7 +463,7 @@ func (self *RDBManager) Update(data ...interface{}) error {
 	} else if rowsAffected, err := ret.RowsAffected(); err != nil {
 		return self.Error("[Mysql.Update] affected rows failed: ", err)
 	} else if rowsAffected <= 0 {
-		zlog.Warn(util.AddStr("[Mysql.Update] affected rows <= 0: ", rowsAffected), 0, zlog.String("sql", prepare))
+		zlog.Warn(utils.AddStr("[Mysql.Update] affected rows <= 0: ", rowsAffected), 0, zlog.String("sql", prepare))
 		return nil
 	}
 	if self.MongoSync && obv.ToMongo {
@@ -503,20 +503,20 @@ func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) error {
 	vpart := bytes.NewBuffer(make([]byte, 0, case_part.Len()+16))
 	vpart.WriteString("where")
 	str := case_part.String()
-	vpart.WriteString(util.Substr(str, 0, len(str)-3))
-	str1 := util.Bytes2Str(fpart.Bytes())
-	str2 := util.Bytes2Str(vpart.Bytes())
+	vpart.WriteString(utils.Substr(str, 0, len(str)-3))
+	str1 := utils.Bytes2Str(fpart.Bytes())
+	str2 := utils.Bytes2Str(vpart.Bytes())
 	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str1)+len(str2)+64))
 	sqlbuf.WriteString("update ")
 	sqlbuf.WriteString(obv.TabelName)
 	sqlbuf.WriteString(" set ")
-	sqlbuf.WriteString(util.Substr(str1, 0, len(str1)-1))
+	sqlbuf.WriteString(utils.Substr(str1, 0, len(str1)-1))
 	sqlbuf.WriteString(" ")
-	sqlbuf.WriteString(util.Substr(str2, 0, len(str2)-1))
+	sqlbuf.WriteString(utils.Substr(str2, 0, len(str2)-1))
 
-	prepare := util.Bytes2Str(sqlbuf.Bytes())
+	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
-		defer zlog.Debug("[Mysql.UpdateByCnd] sql zlog", util.Time(), zlog.String("sql", prepare), zlog.Any("values", parameter))
+		defer zlog.Debug("[Mysql.UpdateByCnd] sql zlog", utils.Time(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
 	defer cancel()
@@ -536,7 +536,7 @@ func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) error {
 	} else if rowsAffected, err := ret.RowsAffected(); err != nil {
 		return self.Error("[Mysql.UpdateByCnd] affected rows failed: ", err)
 	} else if rowsAffected <= 0 {
-		zlog.Warn(util.AddStr("[Mysql.UpdateByCnd] affected rows <= 0 -> ", rowsAffected), 0, zlog.String("sql", prepare))
+		zlog.Warn(utils.AddStr("[Mysql.UpdateByCnd] affected rows <= 0 -> ", rowsAffected), 0, zlog.String("sql", prepare))
 		return nil
 	}
 	if self.MongoSync && obv.ToMongo {
@@ -569,13 +569,13 @@ func (self *RDBManager) Delete(data ...interface{}) error {
 			return self.Error("[Mysql.Delete] registration object type not found [", obk, "]")
 		}
 		if obv.PkKind == reflect.Int64 {
-			lastInsertId := util.GetInt64(util.GetPtr(v, obv.PkOffset))
+			lastInsertId := utils.GetInt64(utils.GetPtr(v, obv.PkOffset))
 			if lastInsertId == 0 {
 				return self.Error("[Mysql.Delete] data object id is nil")
 			}
 			parameter = append(parameter, lastInsertId)
 		} else if obv.PkKind == reflect.String {
-			lastInsertId := util.GetString(util.GetPtr(v, obv.PkOffset))
+			lastInsertId := utils.GetString(utils.GetPtr(v, obv.PkOffset))
 			if len(lastInsertId) == 0 {
 				return self.Error("[Mysql.Delete] data object id is nil")
 			}
@@ -583,19 +583,19 @@ func (self *RDBManager) Delete(data ...interface{}) error {
 		}
 		vpart.WriteString("?,")
 	}
-	str2 := util.Bytes2Str(vpart.Bytes())
+	str2 := utils.Bytes2Str(vpart.Bytes())
 	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str2)+64))
 	sqlbuf.WriteString("delete from ")
 	sqlbuf.WriteString(obv.TabelName)
 	sqlbuf.WriteString(" where ")
 	sqlbuf.WriteString(obv.PkName)
 	sqlbuf.WriteString(" in (")
-	sqlbuf.WriteString(util.Substr(str2, 0, len(str2)-1))
+	sqlbuf.WriteString(utils.Substr(str2, 0, len(str2)-1))
 	sqlbuf.WriteString(")")
 
-	prepare := util.Bytes2Str(sqlbuf.Bytes())
+	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
-		defer zlog.Debug("[Mysql.Delete] sql zlog", util.Time(), zlog.String("sql", prepare), zlog.Any("values", parameter))
+		defer zlog.Debug("[Mysql.Delete] sql zlog", utils.Time(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
 	defer cancel()
@@ -615,7 +615,7 @@ func (self *RDBManager) Delete(data ...interface{}) error {
 	} else if rowsAffected, err := ret.RowsAffected(); err != nil {
 		return self.Error("[Mysql.Delete] affected rows failed: ", err)
 	} else if rowsAffected <= 0 {
-		zlog.Warn(util.AddStr("[Mysql.Delete] affected rows <= 0 -> ", rowsAffected), 0, zlog.String("sql", prepare))
+		zlog.Warn(utils.AddStr("[Mysql.Delete] affected rows <= 0 -> ", rowsAffected), 0, zlog.String("sql", prepare))
 		return nil
 	}
 	if self.MongoSync && obv.ToMongo {
@@ -637,13 +637,13 @@ func (self *RDBManager) FindById(data interface{}) error {
 	}
 	var parameter []interface{}
 	if obv.PkKind == reflect.Int64 {
-		lastInsertId := util.GetInt64(util.GetPtr(data, obv.PkOffset))
+		lastInsertId := utils.GetInt64(utils.GetPtr(data, obv.PkOffset))
 		if lastInsertId == 0 {
 			return self.Error("[Mysql.FindById] data object id is nil")
 		}
 		parameter = append(parameter, lastInsertId)
 	} else if obv.PkKind == reflect.String {
-		lastInsertId := util.GetString(util.GetPtr(data, obv.PkOffset))
+		lastInsertId := utils.GetString(utils.GetPtr(data, obv.PkOffset))
 		if len(lastInsertId) == 0 {
 			return self.Error("[Mysql.FindById] data object id is nil")
 		}
@@ -657,19 +657,19 @@ func (self *RDBManager) FindById(data interface{}) error {
 		fpart.WriteString(vv.FieldJsonName)
 		fpart.WriteString(",")
 	}
-	str1 := util.Bytes2Str(fpart.Bytes())
+	str1 := utils.Bytes2Str(fpart.Bytes())
 	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str1)+64))
 	sqlbuf.WriteString("select ")
-	sqlbuf.WriteString(util.Substr(str1, 0, len(str1)-1))
+	sqlbuf.WriteString(utils.Substr(str1, 0, len(str1)-1))
 	sqlbuf.WriteString(" from ")
 	sqlbuf.WriteString(obv.TabelName)
 	sqlbuf.WriteString(" where ")
 	sqlbuf.WriteString(obv.PkName)
 	sqlbuf.WriteString(" = ?")
 	sqlbuf.WriteString(" limit 1")
-	prepare := util.Bytes2Str(sqlbuf.Bytes())
+	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
-		defer zlog.Debug("[Mysql.FindById] sql zlog", util.Time(), zlog.String("sql", prepare), zlog.Any("values", parameter))
+		defer zlog.Debug("[Mysql.FindById] sql zlog", utils.Time(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
 	defer cancel()
@@ -741,32 +741,32 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data interface{}) error {
 		vpart = bytes.NewBuffer(make([]byte, 0, case_part.Len()+16))
 		vpart.WriteString("where")
 		str := case_part.String()
-		vpart.WriteString(util.Substr(str, 0, len(str)-3))
+		vpart.WriteString(utils.Substr(str, 0, len(str)-3))
 	} else {
 		vpart = bytes.NewBuffer(make([]byte, 0, 0))
 	}
-	str1 := util.Bytes2Str(fpart.Bytes())
-	str2 := util.Bytes2Str(vpart.Bytes())
+	str1 := utils.Bytes2Str(fpart.Bytes())
+	str2 := utils.Bytes2Str(vpart.Bytes())
 	sortby := self.BuilSortBy(cnd)
 	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str1)+len(str2)+len(sortby)+32))
 	sqlbuf.WriteString("select ")
-	sqlbuf.WriteString(util.Substr(str1, 0, len(str1)-1))
+	sqlbuf.WriteString(utils.Substr(str1, 0, len(str1)-1))
 	sqlbuf.WriteString(" from ")
 	sqlbuf.WriteString(obv.TabelName)
 	sqlbuf.WriteString(" ")
-	sqlbuf.WriteString(util.Substr(str2, 0, len(str2)-1))
+	sqlbuf.WriteString(utils.Substr(str2, 0, len(str2)-1))
 	if len(sortby) > 0 {
 		sqlbuf.WriteString(sortby)
 	}
 	sqlbuf.WriteString(" limit 1")
 	// cnd.Pagination = dialect.Dialect{PageNo: 1, PageSize: 1}
-	// prepare, err := self.BuildPagination(cnd, util.Bytes2Str(sqlbuf.Bytes()), parameter)
+	// prepare, err := self.BuildPagination(cnd, utils.Bytes2Str(sqlbuf.Bytes()), parameter)
 	// if err != nil {
 	//	 return self.Error(err)
 	// }
-	prepare := util.Bytes2Str(sqlbuf.Bytes())
+	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
-		defer zlog.Debug("[Mysql.FindOne] sql zlog", util.Time(), zlog.String("sql", prepare), zlog.Any("values", parameter))
+		defer zlog.Debug("[Mysql.FindOne] sql zlog", utils.Time(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
 	defer cancel()
@@ -819,7 +819,7 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	if !strings.HasPrefix(obk, "*[]") {
 		return self.Error("[Mysql.FindList] the return parameter must be an array pointer type")
 	} else {
-		obk = util.Substr(obk, 3, len(obk))
+		obk = utils.Substr(obk, 3, len(obk))
 	}
 	obv, ok := modelDrivers[obk]
 	if !ok {
@@ -843,33 +843,33 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 		vpart = bytes.NewBuffer(make([]byte, 0, case_part.Len()+16))
 		vpart.WriteString("where")
 		str := case_part.String()
-		vpart.WriteString(util.Substr(str, 0, len(str)-3))
+		vpart.WriteString(utils.Substr(str, 0, len(str)-3))
 	} else {
 		vpart = bytes.NewBuffer(make([]byte, 0, 0))
 	}
-	str1 := util.Bytes2Str(fpart.Bytes())
-	str2 := util.Bytes2Str(vpart.Bytes())
+	str1 := utils.Bytes2Str(fpart.Bytes())
+	str2 := utils.Bytes2Str(vpart.Bytes())
 	groupby := self.BuilGroupBy(cnd)
 	sortby := self.BuilSortBy(cnd)
 	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str1)+len(str2)+len(groupby)+len(sortby)+32))
 	sqlbuf.WriteString("select ")
-	sqlbuf.WriteString(util.Substr(str1, 0, len(str1)-1))
+	sqlbuf.WriteString(utils.Substr(str1, 0, len(str1)-1))
 	sqlbuf.WriteString(" from ")
 	sqlbuf.WriteString(obv.TabelName)
 	sqlbuf.WriteString(" ")
-	sqlbuf.WriteString(util.Substr(str2, 0, len(str2)-1))
+	sqlbuf.WriteString(utils.Substr(str2, 0, len(str2)-1))
 	if len(groupby) > 0 {
 		sqlbuf.WriteString(groupby)
 	}
 	if len(sortby) > 0 {
 		sqlbuf.WriteString(sortby)
 	}
-	prepare, err := self.BuildPagination(cnd, util.Bytes2Str(sqlbuf.Bytes()), parameter)
+	prepare, err := self.BuildPagination(cnd, utils.Bytes2Str(sqlbuf.Bytes()), parameter)
 	if err != nil {
 		return self.Error(err)
 	}
 	if zlog.IsDebug() {
-		defer zlog.Debug("[Mysql.FindList] sql zlog", util.Time(), zlog.String("sql", prepare), zlog.Any("values", parameter))
+		defer zlog.Debug("[Mysql.FindList] sql zlog", utils.Time(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
 	defer cancel()
@@ -942,23 +942,23 @@ func (self *RDBManager) Count(cnd *sqlc.Cnd) (int64, error) {
 		vpart = bytes.NewBuffer(make([]byte, 0, case_part.Len()+16))
 		vpart.WriteString("where")
 		str := case_part.String()
-		vpart.WriteString(util.Substr(str, 0, len(str)-3))
+		vpart.WriteString(utils.Substr(str, 0, len(str)-3))
 	} else {
 		vpart = bytes.NewBuffer(make([]byte, 0, 0))
 	}
-	str1 := util.Bytes2Str(fpart.Bytes())
-	str2 := util.Bytes2Str(vpart.Bytes())
+	str1 := utils.Bytes2Str(fpart.Bytes())
+	str2 := utils.Bytes2Str(vpart.Bytes())
 	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str1)+len(str2)+32))
 	sqlbuf.WriteString("select ")
 	sqlbuf.WriteString(str1)
 	sqlbuf.WriteString(" from ")
 	sqlbuf.WriteString(obv.TabelName)
 	sqlbuf.WriteString(" ")
-	sqlbuf.WriteString(util.Substr(str2, 0, len(str2)-1))
+	sqlbuf.WriteString(utils.Substr(str2, 0, len(str2)-1))
 
-	prepare := util.Bytes2Str(sqlbuf.Bytes())
+	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
-		defer zlog.Debug("[Mysql.Count] sql zlog", util.Time(), zlog.String("sql", prepare), zlog.Any("values", parameter))
+		defer zlog.Debug("[Mysql.Count] sql zlog", utils.Time(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
 	defer cancel()
@@ -976,7 +976,7 @@ func (self *RDBManager) Count(cnd *sqlc.Cnd) (int64, error) {
 	defer stmt.Close()
 	rows, err = stmt.QueryContext(ctx, parameter...)
 	if err != nil {
-		return 0, util.Error("[Mysql.Count] query failed: ", err)
+		return 0, utils.Error("[Mysql.Count] query failed: ", err)
 	}
 	defer rows.Close()
 	var pageTotal int64
@@ -1017,7 +1017,7 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 	if !strings.HasPrefix(obk, "*[]") {
 		return self.Error("[Mysql.FindListComplex] the return parameter must be an array pointer type")
 	} else {
-		obk = util.Substr(obk, 3, len(obk))
+		obk = utils.Substr(obk, 3, len(obk))
 	}
 	obv, ok := modelDrivers[obk]
 	if !ok {
@@ -1038,17 +1038,17 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 		vpart = bytes.NewBuffer(make([]byte, 0, case_part.Len()+16))
 		vpart.WriteString("where")
 		str := case_part.String()
-		vpart.WriteString(util.Substr(str, 0, len(str)-3))
+		vpart.WriteString(utils.Substr(str, 0, len(str)-3))
 	} else {
 		vpart = bytes.NewBuffer(make([]byte, 0, 0))
 	}
-	str1 := util.Bytes2Str(fpart.Bytes())
-	str2 := util.Bytes2Str(vpart.Bytes())
+	str1 := utils.Bytes2Str(fpart.Bytes())
+	str2 := utils.Bytes2Str(vpart.Bytes())
 	groupby := self.BuilGroupBy(cnd)
 	sortby := self.BuilSortBy(cnd)
 	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str1)+len(str2)+len(groupby)+len(sortby)+32))
 	sqlbuf.WriteString("select ")
-	sqlbuf.WriteString(util.Substr(str1, 0, len(str1)-1))
+	sqlbuf.WriteString(utils.Substr(str1, 0, len(str1)-1))
 	sqlbuf.WriteString(" from ")
 	sqlbuf.WriteString(cnd.FromCond.Table)
 	sqlbuf.WriteString(" ")
@@ -1074,7 +1074,7 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 			sqlbuf.WriteString(" ")
 		}
 	}
-	sqlbuf.WriteString(util.Substr(str2, 0, len(str2)-1))
+	sqlbuf.WriteString(utils.Substr(str2, 0, len(str2)-1))
 	if len(groupby) > 0 {
 		sqlbuf.WriteString(groupby)
 	}
@@ -1082,12 +1082,12 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 		sqlbuf.WriteString(sortby)
 	}
 
-	prepare, err := self.BuildPagination(cnd, util.Bytes2Str(sqlbuf.Bytes()), parameter)
+	prepare, err := self.BuildPagination(cnd, utils.Bytes2Str(sqlbuf.Bytes()), parameter)
 	if err != nil {
 		return self.Error(err)
 	}
 	if zlog.IsDebug() {
-		defer zlog.Debug("[Mysql.FindListComplex] sql zlog", util.Time(), zlog.String("sql", prepare), zlog.Any("values", parameter))
+		defer zlog.Debug("[Mysql.FindListComplex] sql zlog", utils.Time(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
 	defer cancel()
@@ -1172,17 +1172,17 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data interface{}) error {
 		vpart = bytes.NewBuffer(make([]byte, 0, case_part.Len()+16))
 		vpart.WriteString("where")
 		str := case_part.String()
-		vpart.WriteString(util.Substr(str, 0, len(str)-3))
+		vpart.WriteString(utils.Substr(str, 0, len(str)-3))
 	} else {
 		vpart = bytes.NewBuffer(make([]byte, 0, 0))
 	}
-	str1 := util.Bytes2Str(fpart.Bytes())
-	str2 := util.Bytes2Str(vpart.Bytes())
+	str1 := utils.Bytes2Str(fpart.Bytes())
+	str2 := utils.Bytes2Str(vpart.Bytes())
 	groupby := self.BuilGroupBy(cnd)
 	sortby := self.BuilSortBy(cnd)
 	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str1)+len(str2)+len(groupby)+len(sortby)+32))
 	sqlbuf.WriteString("select ")
-	sqlbuf.WriteString(util.Substr(str1, 0, len(str1)-1))
+	sqlbuf.WriteString(utils.Substr(str1, 0, len(str1)-1))
 	sqlbuf.WriteString(" from ")
 	sqlbuf.WriteString(cnd.FromCond.Table)
 	sqlbuf.WriteString(" ")
@@ -1208,7 +1208,7 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data interface{}) error {
 			sqlbuf.WriteString(" ")
 		}
 	}
-	sqlbuf.WriteString(util.Substr(str2, 0, len(str2)-1))
+	sqlbuf.WriteString(utils.Substr(str2, 0, len(str2)-1))
 	if len(groupby) > 0 {
 		sqlbuf.WriteString(groupby)
 	}
@@ -1216,13 +1216,13 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data interface{}) error {
 		sqlbuf.WriteString(sortby)
 	}
 	sqlbuf.WriteString(" limit 1")
-	// prepare, err := self.BuildPagination(cnd, util.Bytes2Str(sqlbuf.Bytes()), parameter)
+	// prepare, err := self.BuildPagination(cnd, utils.Bytes2Str(sqlbuf.Bytes()), parameter)
 	// if err != nil {
 	//	 return self.Error(err)
 	// }
-	prepare := util.Bytes2Str(sqlbuf.Bytes())
+	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
-		defer zlog.Debug("[Mysql.FindOneComplex] sql zlog", util.Time(), zlog.String("sql", prepare), zlog.Any("values", parameter))
+		defer zlog.Debug("[Mysql.FindOneComplex] sql zlog", utils.Time(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
 	defer cancel()
@@ -1301,7 +1301,7 @@ func (self *RDBManager) Close() error {
 func (self *RDBManager) mongoSyncData(option int, model interface{}, data ...interface{}) error {
 	mongo, err := new(MGOManager).Get(self.Option)
 	if err != nil {
-		return util.Error("failed to get Mongo connection: ", err)
+		return utils.Error("failed to get Mongo connection: ", err)
 	}
 	defer mongo.Close()
 	mongo.MGOSyncData = []*MGOSyncData{
@@ -1316,11 +1316,11 @@ func (self *RDBManager) mongoSyncData(option int, model interface{}, data ...int
 		return mongo.Delete(data...)
 	case UPDATE_BY_CND:
 		if data == nil || len(data) == 0 {
-			return util.Error("synchronization condition object is nil")
+			return utils.Error("synchronization condition object is nil")
 		}
 		cnd, ok := data[0].(*sqlc.Cnd)
 		if !ok {
-			return util.Error("invalid synchronization condition object")
+			return utils.Error("invalid synchronization condition object")
 		}
 		return mongo.UpdateByCnd(cnd)
 	}
@@ -1337,12 +1337,12 @@ func OutDest(rows *sql.Rows, flen int) ([][][]byte, error) {
 			dest[i] = &rets[i]
 		}
 		if err := rows.Scan(dest...); err != nil {
-			return nil, util.Error("rows scan failed: ", err)
+			return nil, utils.Error("rows scan failed: ", err)
 		}
 		out = append(out, rets)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, util.Error("rows.Err(): ", err)
+		return nil, utils.Error("rows.Err(): ", err)
 	}
 	return out, nil
 }
@@ -1416,7 +1416,7 @@ func (self *RDBManager) BuildWhereCase(cnd *sqlc.Cnd) (*bytes.Buffer, []interfac
 				case_arg = append(case_arg, v)
 			}
 			s := buf.String()
-			case_part.WriteString(util.Substr(s, 0, len(s)-1))
+			case_part.WriteString(utils.Substr(s, 0, len(s)-1))
 			case_part.WriteString(") and")
 		case sqlc.NOT_IN_:
 			case_part.Write(self.BuildCondKey(cnd, key))
@@ -1427,7 +1427,7 @@ func (self *RDBManager) BuildWhereCase(cnd *sqlc.Cnd) (*bytes.Buffer, []interfac
 				case_arg = append(case_arg, v)
 			}
 			s := buf.String()
-			case_part.WriteString(util.Substr(s, 0, len(s)-1))
+			case_part.WriteString(utils.Substr(s, 0, len(s)-1))
 			case_part.WriteString(") and")
 		case sqlc.LIKE_:
 			case_part.Write(self.BuildCondKey(cnd, key))
@@ -1447,7 +1447,7 @@ func (self *RDBManager) BuildWhereCase(cnd *sqlc.Cnd) (*bytes.Buffer, []interfac
 				}
 				buf, arg := self.BuildWhereCase(cnd)
 				s := buf.String()
-				s = util.Substr(s, 0, len(s)-3)
+				s = utils.Substr(s, 0, len(s)-3)
 				orpart.WriteString(s)
 				orpart.WriteString(" or")
 				for _, v := range arg {
@@ -1455,7 +1455,7 @@ func (self *RDBManager) BuildWhereCase(cnd *sqlc.Cnd) (*bytes.Buffer, []interfac
 				}
 			}
 			s := orpart.String()
-			s = util.Substr(s, 0, len(s)-3)
+			s = utils.Substr(s, 0, len(s)-3)
 			case_part.WriteString(" (")
 			case_part.WriteString(s)
 			case_part.WriteString(") and")
@@ -1482,8 +1482,8 @@ func (self *RDBManager) BuilGroupBy(cnd *sqlc.Cnd) string {
 		groupby.WriteString(v)
 		groupby.WriteString(",")
 	}
-	s := util.Bytes2Str(groupby.Bytes())
-	return util.Substr(s, 0, len(s)-1)
+	s := utils.Bytes2Str(groupby.Bytes())
+	return utils.Substr(s, 0, len(s)-1)
 }
 
 // 构建排序命令
@@ -1502,8 +1502,8 @@ func (self *RDBManager) BuilSortBy(cnd *sqlc.Cnd) string {
 			sortby.WriteString(" asc,")
 		}
 	}
-	s := util.Bytes2Str(sortby.Bytes())
-	return util.Substr(s, 0, len(s)-1)
+	s := utils.Bytes2Str(sortby.Bytes())
+	return utils.Substr(s, 0, len(s)-1)
 }
 
 // 构建分页命令

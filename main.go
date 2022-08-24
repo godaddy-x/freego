@@ -6,7 +6,7 @@ import (
 	"github.com/godaddy-x/freego/consul"
 	"github.com/godaddy-x/freego/consul/grpcx"
 	"github.com/godaddy-x/freego/node/test"
-	"github.com/godaddy-x/freego/util"
+	"github.com/godaddy-x/freego/utils"
 )
 
 func http_test() {
@@ -15,22 +15,22 @@ func http_test() {
 
 func initConsul() {
 	conf := consul.ConsulConfig{}
-	if err := util.ReadLocalJsonConfig("resource/consul.json", &conf); err != nil {
-		panic(util.AddStr("读取consul配置失败: ", err.Error()))
+	if err := utils.ReadLocalJsonConfig("resource/consul.json", &conf); err != nil {
+		panic(utils.AddStr("读取consul配置失败: ", err.Error()))
 	}
 	new(consul.ConsulManager).InitConfig(conf)
 }
 
 func initRedis() {
 	conf := cache.RedisConfig{}
-	if err := util.ReadLocalJsonConfig("resource/redis.json", &conf); err != nil {
-		panic(util.AddStr("读取redis配置失败: ", err.Error()))
+	if err := utils.ReadLocalJsonConfig("resource/redis.json", &conf); err != nil {
+		panic(utils.AddStr("读取redis配置失败: ", err.Error()))
 	}
 	new(cache.RedisManager).InitConfig(conf)
 }
 
-var APPID = util.MD5("123456")
-var APPKEY = util.MD5("123456")
+var APPID = utils.MD5("123456")
+var APPKEY = utils.MD5("123456")
 
 func initGRPC() {
 	client := &grpcx.GRPCManager{}
@@ -39,7 +39,7 @@ func initGRPC() {
 		if appid == APPKEY {
 			return grpcx.AppConfig{Appid: APPID, Appkey: APPKEY}, nil
 		}
-		return grpcx.AppConfig{}, util.Error("appid invalid")
+		return grpcx.AppConfig{}, utils.Error("appid invalid")
 	})
 	client.CreateRateLimiterCall(func(method string) (rate.Option, error) {
 		return rate.Option{}, nil

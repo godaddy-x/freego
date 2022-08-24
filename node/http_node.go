@@ -3,9 +3,9 @@ package node
 import (
 	"fmt"
 	"github.com/godaddy-x/freego/ex"
-	"github.com/godaddy-x/freego/util"
-	"github.com/godaddy-x/freego/util/gorsa"
-	"github.com/godaddy-x/freego/util/jwt"
+	"github.com/godaddy-x/freego/utils"
+	"github.com/godaddy-x/freego/utils/gorsa"
+	"github.com/godaddy-x/freego/utils/jwt"
 	"github.com/godaddy-x/freego/zlog"
 	"io/ioutil"
 	"net/http"
@@ -22,15 +22,15 @@ func (self *HttpNode) GetHeader() error {
 	headers := map[string]string{}
 	if self.RouterConfig.Original {
 		if len(r.Header) > MAX_HEADER_SIZE {
-			return ex.Throw{Code: http.StatusLengthRequired, Msg: util.AddStr("too many header parameters: ", len(r.Header))}
+			return ex.Throw{Code: http.StatusLengthRequired, Msg: utils.AddStr("too many header parameters: ", len(r.Header))}
 		}
 		for k, v := range r.Header {
 			if len(k) > MAX_FIELD_LEN {
-				return ex.Throw{Code: http.StatusLengthRequired, Msg: util.AddStr("header name length is too long: ", len(k))}
+				return ex.Throw{Code: http.StatusLengthRequired, Msg: utils.AddStr("header name length is too long: ", len(k))}
 			}
 			v0 := v[0]
 			if len(v0) > MAX_VALUE_LEN {
-				return ex.Throw{Code: http.StatusLengthRequired, Msg: util.AddStr("header value length is too long: ", len(v0))}
+				return ex.Throw{Code: http.StatusLengthRequired, Msg: utils.AddStr("header value length is too long: ", len(v0))}
 			}
 			headers[k] = v0
 		}
@@ -49,16 +49,16 @@ func (self *HttpNode) Authenticate(req *ReqDto) error {
 	if !b || len(d) == 0 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request data is nil"}
 	}
-	if !util.CheckInt64(req.Plan, 0, 1, 2) {
+	if !utils.CheckInt64(req.Plan, 0, 1, 2) {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request plan invalid"}
 	}
-	if !util.CheckLen(req.Nonce, 8, 32) {
+	if !utils.CheckLen(req.Nonce, 8, 32) {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request nonce invalid"}
 	}
 	if req.Time <= 0 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request time must be > 0"}
 	}
-	if util.MathAbs(util.TimeSecond()-req.Time) > jwt.FIVE_MINUTES { // 判断绝对时间差超过5分钟
+	if utils.MathAbs(utils.TimeSecond()-req.Time) > jwt.FIVE_MINUTES { // 判断绝对时间差超过5分钟
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request time invalid"}
 	}
 	if self.RouterConfig.AesRequest && req.Plan != 1 {
@@ -67,7 +67,7 @@ func (self *HttpNode) Authenticate(req *ReqDto) error {
 	if self.RouterConfig.Login && req.Plan != 2 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters must use RSA encryption"}
 	}
-	if !util.CheckStrLen(req.Sign, 32, 64) {
+	if !utils.CheckStrLen(req.Sign, 32, 64) {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature length invalid"}
 	}
 	var key string
@@ -79,11 +79,11 @@ func (self *HttpNode) Authenticate(req *ReqDto) error {
 	}
 	data := make(map[string]interface{}, 0)
 	if req.Plan == 1 && !self.RouterConfig.Login { // AES
-		dec, err := util.AesDecrypt(d, self.Context.GetTokenSecret(), util.AddStr(req.Nonce, req.Time))
+		dec, err := utils.AesDecrypt(d, self.Context.GetTokenSecret(), utils.AddStr(req.Nonce, req.Time))
 		if err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "AES failed to parse data", Err: err}
 		}
-		if err := util.JsonUnmarshal(util.Str2Bytes(dec), &data); err != nil {
+		if err := utils.JsonUnmarshal(utils.Str2Bytes(dec), &data); err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter JSON parsing failed"}
 		}
 	} else if req.Plan == 2 && self.RouterConfig.Login { // RSA
@@ -95,7 +95,7 @@ func (self *HttpNode) Authenticate(req *ReqDto) error {
 		if len(dec) == 0 {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "server private-key decrypt data is nil", Err: err}
 		}
-		if err := util.JsonUnmarshal(util.Str2Bytes(dec), &data); err != nil {
+		if err := utils.JsonUnmarshal(utils.Str2Bytes(dec), &data); err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter JSON parsing failed"}
 		}
 		pubkey, b := data[CLIENT_PUBKEY]
@@ -112,7 +112,7 @@ func (self *HttpNode) Authenticate(req *ReqDto) error {
 		delete(data, CLIENT_PUBKEY)
 		self.Context.ClientCert = &gorsa.RsaObj{PubkeyBase64: pubkey_v}
 	} else if req.Plan == 0 && !self.RouterConfig.Login && !self.RouterConfig.AesRequest {
-		if err := util.ParseJsonBase64(d, &data); err != nil {
+		if err := utils.ParseJsonBase64(d, &data); err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter JSON parsing failed"}
 		}
 	} else {
@@ -141,7 +141,7 @@ func (self *HttpNode) GetParams() error {
 			if len(body) > (MAX_VALUE_LEN * 5) {
 				return ex.Throw{Code: http.StatusLengthRequired, Msg: "body parameters length is too long"}
 			}
-			if err := util.JsonUnmarshal(body, &data); err != nil {
+			if err := utils.JsonUnmarshal(body, &data); err != nil {
 				return ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters JSON parsing failed", Err: err}
 			}
 			self.Context.Params = &ReqDto{Data: data}
@@ -154,7 +154,7 @@ func (self *HttpNode) GetParams() error {
 			return ex.Throw{Code: http.StatusLengthRequired, Msg: "body parameters length is too long"}
 		}
 		req := &ReqDto{}
-		if err := util.JsonUnmarshal(body, req); err != nil {
+		if err := utils.JsonUnmarshal(body, req); err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters JSON parsing failed", Err: err}
 		}
 		if err := self.Authenticate(req); err != nil { // TODO important
@@ -167,7 +167,7 @@ func (self *HttpNode) GetParams() error {
 		}
 		r.ParseForm()
 		if len(r.Form) > MAX_FIELD_LEN {
-			return ex.Throw{Code: http.StatusLengthRequired, Msg: util.AddStr("get url key name length is too long: ", len(r.Form))}
+			return ex.Throw{Code: http.StatusLengthRequired, Msg: utils.AddStr("get url key name length is too long: ", len(r.Form))}
 		}
 		data := map[string]interface{}{}
 		for k, v := range r.Form {
@@ -176,7 +176,7 @@ func (self *HttpNode) GetParams() error {
 			}
 			v0 := v[0]
 			if len(v0) > MAX_VALUE_LEN {
-				return ex.Throw{Code: http.StatusLengthRequired, Msg: util.AddStr("get url value length is too long: ", len(v0))}
+				return ex.Throw{Code: http.StatusLengthRequired, Msg: utils.AddStr("get url value length is too long: ", len(v0))}
 			}
 			data[k] = v[0]
 		}
@@ -198,12 +198,12 @@ func (self *HttpNode) InitContext(ptr *NodePtr) error {
 	input := ptr.Input
 	node := ptr.Node.(*HttpNode)
 	node.RouterConfig = ptr.RouterConfig
-	node.CreateAt = util.Time()
+	node.CreateAt = utils.Time()
 	node.OverrideFunc = self.OverrideFunc
 	node.SessionAware = self.SessionAware
 	node.CacheAware = self.CacheAware
 	node.Context = &Context{
-		Host:       util.ClientIP(input),
+		Host:       utils.ClientIP(input),
 		Port:       self.Context.Port,
 		Style:      HTTP,
 		Method:     ptr.Pattern,
@@ -230,9 +230,9 @@ func (self *HttpNode) InitContext(ptr *NodePtr) error {
 
 func (self *HttpNode) PaddDevice() error {
 	d := self.Context.GetHeader("User-Agent")
-	if util.HasStr(d, "Android") || util.HasStr(d, "Adr") {
+	if utils.HasStr(d, "Android") || utils.HasStr(d, "Adr") {
 		self.Context.Device = ANDROID
-	} else if util.HasStr(d, "iPad") || util.HasStr(d, "iPhone") || util.HasStr(d, "Mac") {
+	} else if utils.HasStr(d, "iPad") || utils.HasStr(d, "iPhone") || utils.HasStr(d, "Mac") {
 		self.Context.Device = IOS
 	} else {
 		self.Context.Device = WEB
@@ -261,7 +261,7 @@ func (self *HttpNode) ValidReplayAttack() error {
 	//if param == nil || len(param.Sign) == 0 {
 	//	return nil
 	//}
-	//key := util.AddStr(JWT_SIG_, param.Sign)
+	//key := utils.AddStr(JWT_SIG_, param.Sign)
 	//if c, err := self.CacheAware(); err != nil {
 	//	return err
 	//} else if b, err := c.GetInt64(key); err != nil {
@@ -391,10 +391,10 @@ func (self *HttpNode) RenderError(err error) error {
 	resp := &RespDto{
 		Code:    out.Code,
 		Message: out.Msg,
-		Time:    util.Time(),
+		Time:    utils.Time(),
 	}
 	if !self.Context.Authenticated() {
-		resp.Nonce = util.RandNonce()
+		resp.Nonce = utils.RandNonce()
 	} else {
 		resp.Nonce = self.Context.Params.Nonce
 	}
@@ -405,9 +405,9 @@ func (self *HttpNode) RenderError(err error) error {
 		} else {
 			self.Context.Output.WriteHeader(out.Code)
 		}
-		self.Context.Output.Write(util.Str2Bytes(resp.Message))
+		self.Context.Output.Write(utils.Str2Bytes(resp.Message))
 	} else {
-		if result, err := util.JsonMarshal(resp); err != nil {
+		if result, err := utils.JsonMarshal(resp); err != nil {
 			zlog.Error(resp.Message, 0, zlog.AddError(err))
 			return nil
 		} else {
@@ -425,14 +425,14 @@ func (self *HttpNode) RenderTo() error {
 		content := self.Context.Response.ContentEntity
 		if v, b := content.(string); b {
 			self.Context.Output.Header().Set("Content-Type", TEXT_PLAIN)
-			self.Context.Output.Write(util.Str2Bytes(v))
+			self.Context.Output.Write(utils.Str2Bytes(v))
 		} else {
 			self.Context.Output.Header().Set("Content-Type", TEXT_PLAIN)
-			self.Context.Output.Write(util.Str2Bytes(""))
+			self.Context.Output.Write(utils.Str2Bytes(""))
 		}
 	case APPLICATION_JSON:
 		if self.RouterConfig.Original {
-			if result, err := util.JsonMarshal(self.Context.Response.ContentEntity); err != nil {
+			if result, err := utils.JsonMarshal(self.Context.Response.ContentEntity); err != nil {
 				return ex.Throw{Code: http.StatusInternalServerError, Msg: "response JSON data failed", Err: err}
 			} else {
 				self.Context.Output.Header().Set("Content-Type", APPLICATION_JSON)
@@ -440,14 +440,14 @@ func (self *HttpNode) RenderTo() error {
 			}
 			break
 		}
-		data, err := util.JsonMarshal(self.Context.Response.ContentEntity)
+		data, err := utils.JsonMarshal(self.Context.Response.ContentEntity)
 		if err != nil {
 			return ex.Throw{Code: http.StatusInternalServerError, Msg: "response conversion JSON failed", Err: err}
 		}
 		resp := &RespDto{
 			Code: http.StatusOK,
 			//Message: "success",
-			Time: util.Time(),
+			Time: utils.Time(),
 			//Data:  data,
 			Nonce: self.Context.Params.Nonce,
 		}
@@ -459,24 +459,24 @@ func (self *HttpNode) RenderTo() error {
 			//	return ex.Throw{Code: http.StatusInternalServerError, Msg: "RSA encryption response data failed", Err: err}
 			//}
 			//resp.Data = data
-			data, err := util.AesEncrypt(data, key, key)
+			data, err := utils.AesEncrypt(data, key, key)
 			if err != nil {
 				return ex.Throw{Code: http.StatusInternalServerError, Msg: "AES encryption response data failed", Err: err}
 			}
 			resp.Data = data
 			resp.Plan = 2
 		} else if self.RouterConfig.AesResponse {
-			data, err := util.AesEncrypt(data, self.Context.GetTokenSecret(), util.AddStr(resp.Nonce, resp.Time))
+			data, err := utils.AesEncrypt(data, self.Context.GetTokenSecret(), utils.AddStr(resp.Nonce, resp.Time))
 			if err != nil {
 				return ex.Throw{Code: http.StatusInternalServerError, Msg: "AES encryption response data failed", Err: err}
 			}
 			resp.Data = data
 			resp.Plan = 1
 		} else {
-			resp.Data = util.Base64URLEncode(data)
+			resp.Data = utils.Base64URLEncode(data)
 		}
 		resp.Sign = self.Context.GetDataSign(resp.Data.(string), resp.Nonce, resp.Time, resp.Plan, key)
-		if result, err := util.JsonMarshal(resp); err != nil {
+		if result, err := utils.JsonMarshal(resp); err != nil {
 			return ex.Throw{Code: http.StatusInternalServerError, Msg: "response JSON data failed", Err: err}
 		} else {
 			self.Context.Output.Header().Set("Content-Type", APPLICATION_JSON)
@@ -496,7 +496,7 @@ func (self *HttpNode) StartServer() {
 		if self.Context.ServerCert != nil {
 			zlog.Printf("RSA certificate service has been started successfully")
 		}
-		url := util.AddStr(self.Context.Host, ":", self.Context.Port)
+		url := utils.AddStr(self.Context.Host, ":", self.Context.Port)
 		zlog.Printf("http【%s】service has been started successfully", url)
 		if err := http.ListenAndServe(url, self.limiterTimeoutHandler()); err != nil {
 			zlog.Error("http service init failed", 0, zlog.AddError(err))
@@ -521,17 +521,17 @@ func (self *HttpNode) limiterTimeoutHandler() http.Handler {
 		self.DisconnectTimeout = 180
 	}
 	errorMsg := `{"c":408,"m":"server actively disconnects the client","d":null,"t":%d,"n":"%s","p":0,"s":""}`
-	return http.TimeoutHandler(handler, time.Duration(self.DisconnectTimeout)*time.Second, fmt.Sprintf(errorMsg, util.Time(), util.GetSnowFlakeStrID()))
+	return http.TimeoutHandler(handler, time.Duration(self.DisconnectTimeout)*time.Second, fmt.Sprintf(errorMsg, utils.Time(), utils.GetSnowFlakeStrID()))
 }
 
 var routerConfigs = make(map[string]*RouterConfig)
 
 func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, routerConfig *RouterConfig) {
 	if !strings.HasPrefix(pattern, "/") {
-		pattern = util.AddStr("/", pattern)
+		pattern = utils.AddStr("/", pattern)
 	}
 	if len(self.Context.Version) > 0 {
-		pattern = util.AddStr("/", self.Context.Version, pattern)
+		pattern = utils.AddStr("/", self.Context.Version, pattern)
 	}
 	if self.CacheAware == nil {
 		zlog.Error("cache service hasn't been initialized", 0)

@@ -1,4 +1,4 @@
-package util
+package utils
 
 /**
  * @author shadow
@@ -15,8 +15,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"github.com/godaddy-x/freego/util/decimal"
-	"github.com/godaddy-x/freego/util/snowflake"
+	"github.com/godaddy-x/freego/utils/decimal"
+	"github.com/godaddy-x/freego/utils/snowflake"
 	"github.com/google/uuid"
 	"io/ioutil"
 	"log"

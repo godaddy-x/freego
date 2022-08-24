@@ -2,7 +2,7 @@ package goquery
 
 import (
 	"fmt"
-	"github.com/godaddy-x/freego/util"
+	"github.com/godaddy-x/freego/utils"
 	"strings"
 )
 
@@ -19,15 +19,15 @@ type HtmlValidResult struct {
 
 func ValidImgURL(content, prefix string) error {
 	if strings.HasPrefix(content, prefix) {
-		if util.ValidPattern(strings.ReplaceAll(content, prefix, ""), "\\d{19}/\\d{19}\\.jpg") {
+		if utils.ValidPattern(strings.ReplaceAll(content, prefix, ""), "\\d{19}/\\d{19}\\.jpg") {
 			return nil
 		}
 	}
-	return util.Error("图片URL无效")
+	return utils.Error("图片URL无效")
 }
 
-func ValidZxHtml(htmlstr string) (*HtmlValidResult) {
-	r := strings.NewReader(util.AddStr("<content>", htmlstr, "</content>"))
+func ValidZxHtml(htmlstr string) *HtmlValidResult {
+	r := strings.NewReader(utils.AddStr("<content>", htmlstr, "</content>"))
 	doc, err := NewDocumentFromReader(r)
 	if err != nil {
 		fmt.Println(err)
@@ -46,7 +46,7 @@ func ValidZxHtml(htmlstr string) (*HtmlValidResult) {
 		tag := ""
 		style := ""
 		for _, v := range v.Nodes {
-			if !util.CheckStr(v.Data, access_tag...) {
+			if !utils.CheckStr(v.Data, access_tag...) {
 				validResult.FailMsg = "Tag类型无效"
 				return
 			}
@@ -71,7 +71,7 @@ func ValidZxHtml(htmlstr string) (*HtmlValidResult) {
 				}
 				split2 := strings.Split(v, ":")
 				if len(split2) == 2 {
-					if !util.CheckStr(strings.TrimSpace(split2[0]), access_style...) {
+					if !utils.CheckStr(strings.TrimSpace(split2[0]), access_style...) {
 						validResult.FailMsg = "不支持的样式"
 						return
 					}
@@ -135,10 +135,10 @@ func ValidZxHtml(htmlstr string) (*HtmlValidResult) {
 			}
 		}
 		if len(style) > 0 {
-			style = util.AddStr(" style='", style, "'")
+			style = utils.AddStr(" style='", style, "'")
 		}
-		validResult.ContentLen = validResult.ContentLen + util.Len(strings.TrimSpace(v.Text()))
-		validResult.NewContent = util.AddStr(validResult.NewContent, "<", tag, style, ">", string(new_content), "</", tag, ">")
+		validResult.ContentLen = validResult.ContentLen + utils.Len(strings.TrimSpace(v.Text()))
+		validResult.NewContent = utils.AddStr(validResult.NewContent, "<", tag, style, ">", string(new_content), "</", tag, ">")
 	})
 	if len(validResult.FailMsg) > 0 {
 		validResult.ContentLen = 0

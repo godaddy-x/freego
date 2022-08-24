@@ -3,7 +3,7 @@ package rabbitmq
 import (
 	"fmt"
 	DIC "github.com/godaddy-x/freego/common"
-	"github.com/godaddy-x/freego/util"
+	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/zlog"
 	"github.com/streadway/amqp"
 	"sync"
@@ -39,7 +39,7 @@ type QueueData struct {
 func (self *PublishManager) InitConfig(input ...AmqpConfig) (*PublishManager, error) {
 	for _, v := range input {
 		if _, b := publishMgrs[v.DsName]; b {
-			return nil, util.Error("rabbitmq publish init failed: [", v.DsName, "] exist")
+			return nil, utils.Error("rabbitmq publish init failed: [", v.DsName, "] exist")
 		}
 		if len(v.DsName) == 0 {
 			v.DsName = DIC.MASTER
@@ -122,16 +122,16 @@ func (self *PublishManager) initQueue(data *MsgData) (*PublishMQ, error) {
 	if len(data.Option.Router) == 0 {
 		data.Option.Router = data.Option.Queue
 	}
-	if !util.CheckInt(data.Option.SigTyp, 0, 1) {
+	if !utils.CheckInt(data.Option.SigTyp, 0, 1) {
 		data.Option.SigTyp = 1
 	}
 	if len(data.Option.SigKey) < 32 {
-		data.Option.SigKey = util.GetLocalSecretKey() + self.conf.SecretKey
+		data.Option.SigKey = utils.GetLocalSecretKey() + self.conf.SecretKey
 	}
 	if len(data.Nonce) == 0 {
-		data.Nonce = util.RandStr(6)
+		data.Nonce = utils.RandStr(6)
 	}
-	chanKey := util.AddStr(data.Option.Exchange, data.Option.Router, data.Option.Queue)
+	chanKey := utils.AddStr(data.Option.Exchange, data.Option.Router, data.Option.Queue)
 	// 判断生成通道
 	pub, ok := self.channels[chanKey]
 	if ok {
@@ -206,7 +206,7 @@ func (self *PublishManager) Publish(exchange, queue string, content interface{})
 
 func (self *PublishManager) PublishMsgData(data *MsgData) error {
 	if data == nil {
-		return util.Error("publish data empty")
+		return utils.Error("publish data empty")
 	}
 	pub, err := self.initQueue(data)
 	if err != nil {
@@ -216,26 +216,26 @@ func (self *PublishManager) PublishMsgData(data *MsgData) error {
 	sigTyp := data.Option.SigTyp
 	sigKey := data.Option.SigKey
 	if len(sigKey) == 0 {
-		return util.Error("rabbitmq publish data key is nil")
+		return utils.Error("rabbitmq publish data key is nil")
 	}
-	content, err := util.ToJsonBase64(data.Content)
+	content, err := utils.ToJsonBase64(data.Content)
 	if err != nil {
 		return err
 	}
 	if len(content) == 0 {
-		return util.Error("rabbitmq publish content is nil")
+		return utils.Error("rabbitmq publish content is nil")
 	}
 	if sigTyp == 1 {
-		aesContent, err := util.AesEncrypt(util.Str2Bytes(content), sigKey, sigKey)
+		aesContent, err := utils.AesEncrypt(utils.Str2Bytes(content), sigKey, sigKey)
 		if err != nil {
-			return util.Error("rabbitmq publish content aes encrypt failed: ", err)
+			return utils.Error("rabbitmq publish content aes encrypt failed: ", err)
 		}
 		content = aesContent
 	} else {
-		return util.Error("rabbitmq publish signature type invalid")
+		return utils.Error("rabbitmq publish signature type invalid")
 	}
 	data.Content = content
-	data.Signature = util.HMAC_SHA256(content+data.Nonce, sigKey, true)
+	data.Signature = utils.HMAC_SHA256(content+data.Nonce, sigKey, true)
 	data.Option.SigKey = ""
 	if _, err := pub.sendMessage(data); err != nil {
 		return err
@@ -244,7 +244,7 @@ func (self *PublishManager) PublishMsgData(data *MsgData) error {
 }
 
 func (self *PublishMQ) sendMessage(msg *MsgData) (bool, error) {
-	body, err := util.JsonMarshal(msg)
+	body, err := utils.JsonMarshal(msg)
 	if err != nil {
 		return false, err
 	}

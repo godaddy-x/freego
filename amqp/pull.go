@@ -3,7 +3,7 @@ package rabbitmq
 import (
 	"fmt"
 	DIC "github.com/godaddy-x/freego/common"
-	"github.com/godaddy-x/freego/util"
+	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/zlog"
 	"github.com/streadway/amqp"
 	"sync"
@@ -24,7 +24,7 @@ type PullManager struct {
 func (self *PullManager) InitConfig(input ...AmqpConfig) (*PullManager, error) {
 	for _, v := range input {
 		if _, b := pullMgrs[v.DsName]; b {
-			return nil, util.Error("rabbitmq pull init failed: [", v.DsName, "] exist")
+			return nil, utils.Error("rabbitmq pull init failed: [", v.DsName, "] exist")
 		}
 		if len(v.DsName) == 0 {
 			v.DsName = DIC.MASTER
@@ -113,11 +113,11 @@ func (self *PullManager) listen(receiver *PullReceiver) {
 	router := receiver.Config.Option.Router
 	prefetchCount := receiver.Config.PrefetchCount
 	prefetchSize := receiver.Config.PrefetchSize
-	if !util.CheckInt(receiver.Config.Option.SigTyp, 0, 1) {
+	if !utils.CheckInt(receiver.Config.Option.SigTyp, 0, 1) {
 		receiver.Config.Option.SigTyp = 1
 	}
 	if len(receiver.Config.Option.SigKey) < 32 {
-		receiver.Config.Option.SigKey = util.GetLocalSecretKey() + self.conf.SecretKey
+		receiver.Config.Option.SigKey = utils.GetLocalSecretKey() + self.conf.SecretKey
 	}
 	if len(kind) == 0 {
 		kind = direct
@@ -200,10 +200,10 @@ func (self *PullReceiver) OnReceive(b []byte) bool {
 		return true
 	}
 	if zlog.IsDebug() {
-		defer zlog.Debug("rabbitmq pull consumption data monitoring", util.Time(), zlog.String("message", util.Bytes2Str(b)))
+		defer zlog.Debug("rabbitmq pull consumption data monitoring", utils.Time(), zlog.String("message", utils.Bytes2Str(b)))
 	}
 	msg := MsgData{}
-	if err := util.JsonUnmarshal(b, &msg); err != nil {
+	if err := utils.JsonUnmarshal(b, &msg); err != nil {
 		zlog.Error("rabbitmq pull consumption data parsing failed", 0, zlog.Any("option", self.Config.Option), zlog.Any("message", msg), zlog.AddError(err))
 	}
 	if msg.Content == nil {
@@ -225,12 +225,12 @@ func (self *PullReceiver) OnReceive(b []byte) bool {
 		zlog.Error("rabbitmq consumption data is nil", 0, zlog.Any("option", self.Config.Option), zlog.Any("message", msg))
 		return true
 	}
-	if msg.Signature != util.HMAC_SHA256(v+msg.Nonce, sigKey, true) {
+	if msg.Signature != utils.HMAC_SHA256(v+msg.Nonce, sigKey, true) {
 		zlog.Error("rabbitmq consumption data signature invalid", 0, zlog.Any("option", self.Config.Option), zlog.Any("message", msg))
 		return true
 	}
 	if sigTyp == 1 {
-		aesContent, err := util.AesDecrypt(v, sigKey, sigKey)
+		aesContent, err := utils.AesDecrypt(v, sigKey, sigKey)
 		if err != nil {
 			zlog.Error("rabbitmq consumption data aes decrypt failed", 0, zlog.Any("option", self.Config.Option), zlog.Any("message", msg))
 			return true
@@ -240,21 +240,21 @@ func (self *PullReceiver) OnReceive(b []byte) bool {
 		zlog.Error("rabbitmq pull signature type invalid", 0, zlog.Any("option", self.Config.Option), zlog.Any("message", msg))
 		return true
 	}
-	btv := util.Base64URLDecode(v)
+	btv := utils.Base64URLDecode(v)
 	if btv == nil || len(btv) == 0 {
 		zlog.Error("rabbitmq pull consumption data Base64 parsing failed", 0, zlog.Any("option", self.Config.Option), zlog.Any("message", msg))
 		return true
 	}
 	if self.ContentInter == nil {
 		content := map[string]interface{}{}
-		if err := util.JsonUnmarshal(btv, &content); err != nil {
+		if err := utils.JsonUnmarshal(btv, &content); err != nil {
 			zlog.Error("rabbitmq pull consumption data conversion type(Map) failed", 0, zlog.Any("option", self.Config.Option), zlog.Any("message", msg), zlog.AddError(err))
 			return true
 		}
 		msg.Content = content
 	} else {
 		content := self.ContentInter()
-		if err := util.JsonUnmarshal(btv, &content); err != nil {
+		if err := utils.JsonUnmarshal(btv, &content); err != nil {
 			zlog.Error("rabbitmq pull consumption data conversion type(ContentInter) failed", 0, zlog.Any("option", self.Config.Option), zlog.Any("message", msg), zlog.AddError(err))
 			return true
 		}

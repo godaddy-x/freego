@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/godaddy-x/freego/node"
-	"github.com/godaddy-x/freego/util"
-	"github.com/godaddy-x/freego/util/gorsa"
+	"github.com/godaddy-x/freego/utils"
+	"github.com/godaddy-x/freego/utils/gorsa"
 	"io/ioutil"
 	"net/http"
 	"testing"
@@ -19,7 +19,7 @@ const token_secret = "Vd9oHk9/u54WCXJHy*kT^j#lKMoWoQRMQs9Oqtoc#lK!ZC@diQivDB5Vf5
 //const access_token = ""
 //const token_secret = ""
 
-var pubkey = util.MD5(util.RandStr(16), true)
+var pubkey = utils.MD5(utils.RandStr(16), true)
 
 func initSrvPubkey() string {
 	resp, err := http.Get(domain + "/pubkey")
@@ -41,11 +41,11 @@ func ToPostBy(path string, req *node.ReqDto) {
 		panic("srvPubkeyBase64 is nil")
 	}
 	if req.Plan == 0 {
-		d := util.Base64URLEncode(req.Data.([]byte))
+		d := utils.Base64URLEncode(req.Data.([]byte))
 		req.Data = d
 		fmt.Println("Base64数据: ", req.Data)
 	} else if req.Plan == 1 {
-		d, err := util.AesEncrypt(req.Data.([]byte), token_secret, util.AddStr(req.Nonce, req.Time))
+		d, err := utils.AesEncrypt(req.Data.([]byte), token_secret, utils.AddStr(req.Nonce, req.Time))
 		if err != nil {
 			panic(err)
 		}
@@ -68,8 +68,8 @@ func ToPostBy(path string, req *node.ReqDto) {
 		secret = srvPubkeyBase64
 		fmt.Println("nonce secret:", pubkey)
 	}
-	req.Sign = util.HMAC_SHA256(util.AddStr(path, req.Data.(string), req.Nonce, req.Time, req.Plan), secret, true)
-	bytesData, err := util.JsonMarshal(req)
+	req.Sign = utils.HMAC_SHA256(utils.AddStr(path, req.Data.(string), req.Nonce, req.Time, req.Plan), secret, true)
+	bytesData, err := utils.JsonMarshal(req)
 	if err != nil {
 		panic(err)
 	}
@@ -92,9 +92,9 @@ func ToPostBy(path string, req *node.ReqDto) {
 		panic(err)
 	}
 	fmt.Println("响应示例: ")
-	fmt.Println(util.Bytes2Str(respBytes))
+	fmt.Println(utils.Bytes2Str(respBytes))
 	respData := &node.RespDto{}
-	if err := util.JsonUnmarshal(respBytes, &respData); err != nil {
+	if err := utils.JsonUnmarshal(respBytes, &respData); err != nil {
 		panic(err)
 	}
 	if respData.Code == 200 {
@@ -102,14 +102,14 @@ func ToPostBy(path string, req *node.ReqDto) {
 		if respData.Plan == 2 {
 			key = pubkey
 		}
-		s := util.HMAC_SHA256(util.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan), key, true)
+		s := utils.HMAC_SHA256(utils.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan), key, true)
 		fmt.Println("****************** Response Signature Verify:", s == respData.Sign, "******************")
 		if respData.Plan == 0 {
-			dec := util.Base64URLDecode(respData.Data)
+			dec := utils.Base64URLDecode(respData.Data)
 			fmt.Println("Base64数据明文: ", string(dec))
 		}
 		if respData.Plan == 1 {
-			dec, err := util.AesDecrypt(respData.Data.(string), key, util.AddStr(respData.Nonce, respData.Time))
+			dec, err := utils.AesDecrypt(respData.Data.(string), key, utils.AddStr(respData.Nonce, respData.Time))
 			if err != nil {
 				panic(err)
 			}
@@ -117,7 +117,7 @@ func ToPostBy(path string, req *node.ReqDto) {
 			fmt.Println("AES数据明文: ", respData.Data)
 		}
 		if respData.Plan == 2 {
-			dec, err := util.AesDecrypt(respData.Data.(string), pubkey, pubkey)
+			dec, err := utils.AesDecrypt(respData.Data.(string), pubkey, pubkey)
 			if err != nil {
 				panic(err)
 			}
@@ -127,24 +127,24 @@ func ToPostBy(path string, req *node.ReqDto) {
 }
 
 func TestRsaLogin(t *testing.T) {
-	data, _ := util.JsonMarshal(map[string]string{"username": "1234567890123456", "password": "1234567890123456", "pubkey": pubkey})
+	data, _ := utils.JsonMarshal(map[string]string{"username": "1234567890123456", "password": "1234567890123456", "pubkey": pubkey})
 	path := "/login"
 	req := &node.ReqDto{
 		Data:  data,
-		Time:  util.TimeSecond(),
-		Nonce: util.RandNonce(),
+		Time:  utils.TimeSecond(),
+		Nonce: utils.RandNonce(),
 		Plan:  int64(2),
 	}
 	ToPostBy(path, req)
 }
 
 func TestGetUser(t *testing.T) {
-	data, _ := util.JsonMarshal(map[string]interface{}{"uid": 123, "name": "我爱中国/+_=/1df", "limit": 20, "offset": 5})
+	data, _ := utils.JsonMarshal(map[string]interface{}{"uid": 123, "name": "我爱中国/+_=/1df", "limit": 20, "offset": 5})
 	path := "/test2"
 	req := &node.ReqDto{
 		Data:  data,
-		Time:  util.TimeSecond(),
-		Nonce: util.RandNonce(),
+		Time:  utils.TimeSecond(),
+		Nonce: utils.RandNonce(),
 		Plan:  int64(1),
 	}
 	ToPostBy(path, req)
@@ -154,12 +154,12 @@ func BenchmarkLogin(b *testing.B) {
 	b.StopTimer()
 	b.StartTimer()
 	for i := 0; i < b.N; i++ { //use b.N for looping
-		data, _ := util.JsonMarshal(map[string]string{"username": "1234567890123456", "password": "1234567890123456", "pubkey": pubkey})
+		data, _ := utils.JsonMarshal(map[string]string{"username": "1234567890123456", "password": "1234567890123456", "pubkey": pubkey})
 		path := "/login"
 		req := &node.ReqDto{
 			Data:  data,
-			Time:  util.TimeSecond(),
-			Nonce: util.RandNonce(),
+			Time:  utils.TimeSecond(),
+			Nonce: utils.RandNonce(),
 			Plan:  int64(2),
 		}
 		ToPostBy(path, req)
@@ -170,12 +170,12 @@ func BenchmarkGetUser(b *testing.B) {
 	b.StopTimer()
 	b.StartTimer()
 	for i := 0; i < b.N; i++ { //use b.N for looping
-		data, _ := util.JsonMarshal(map[string]string{"test": "1234566"})
+		data, _ := utils.JsonMarshal(map[string]string{"test": "1234566"})
 		path := "/test1"
 		req := &node.ReqDto{
 			Data:  data,
-			Time:  util.TimeSecond(),
-			Nonce: util.RandNonce(),
+			Time:  utils.TimeSecond(),
+			Nonce: utils.RandNonce(),
 			Plan:  int64(1),
 		}
 		ToPostBy(path, req)

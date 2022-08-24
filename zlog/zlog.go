@@ -1,7 +1,7 @@
 package zlog
 
 import (
-	"github.com/godaddy-x/freego/util"
+	"github.com/godaddy-x/freego/utils"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"gopkg.in/natefinch/lumberjack.v2"
@@ -151,7 +151,7 @@ func buildLog(config *ZapConfig) *zap.Logger {
 // debug
 func Debug(msg string, start int64, fields ...zap.Field) {
 	if start > 0 {
-		fields = append(fields, zap.Int64("cost", util.Time()-start))
+		fields = append(fields, zap.Int64("cost", utils.Time()-start))
 	}
 	zapLog.l.Debug(msg, fields...)
 }
@@ -159,7 +159,7 @@ func Debug(msg string, start int64, fields ...zap.Field) {
 // info
 func Info(msg string, start int64, fields ...zap.Field) {
 	if start > 0 {
-		fields = append(fields, zap.Int64("cost", util.Time()-start))
+		fields = append(fields, zap.Int64("cost", utils.Time()-start))
 	}
 	zapLog.l.Info(msg, fields...)
 }
@@ -167,7 +167,7 @@ func Info(msg string, start int64, fields ...zap.Field) {
 // warn
 func Warn(msg string, start int64, fields ...zap.Field) {
 	if start > 0 {
-		fields = append(fields, zap.Int64("cost", util.Time()-start))
+		fields = append(fields, zap.Int64("cost", utils.Time()-start))
 	}
 	zapLog.l.Warn(msg, fields...)
 }
@@ -175,7 +175,7 @@ func Warn(msg string, start int64, fields ...zap.Field) {
 // error
 func Error(msg string, start int64, fields ...zap.Field) {
 	if start > 0 {
-		fields = append(fields, zap.Int64("cost", util.Time()-start))
+		fields = append(fields, zap.Int64("cost", utils.Time()-start))
 	}
 	zapLog.l.Error(msg, fields...)
 }
@@ -183,7 +183,7 @@ func Error(msg string, start int64, fields ...zap.Field) {
 // dpanic
 func DPanic(msg string, start int64, fields ...zap.Field) {
 	if start > 0 {
-		fields = append(fields, zap.Int64("cost", util.Time()-start))
+		fields = append(fields, zap.Int64("cost", utils.Time()-start))
 	}
 	zapLog.l.DPanic(msg, fields...)
 }
@@ -191,7 +191,7 @@ func DPanic(msg string, start int64, fields ...zap.Field) {
 // panic
 func Panic(msg string, start int64, fields ...zap.Field) {
 	if start > 0 {
-		fields = append(fields, zap.Int64("cost", util.Time()-start))
+		fields = append(fields, zap.Int64("cost", utils.Time()-start))
 	}
 	zapLog.l.Panic(msg, fields...)
 }
@@ -199,7 +199,7 @@ func Panic(msg string, start int64, fields ...zap.Field) {
 // fatal
 func Fatal(msg string, start int64, fields ...zap.Field) {
 	if start > 0 {
-		fields = append(fields, zap.Int64("cost", util.Time()-start))
+		fields = append(fields, zap.Int64("cost", utils.Time()-start))
 	}
 	zapLog.l.Fatal(msg, fields...)
 }

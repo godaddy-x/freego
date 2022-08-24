@@ -6,9 +6,9 @@ import (
 	"github.com/godaddy-x/freego/goquery"
 	"github.com/godaddy-x/freego/ormx/sqlc"
 	"github.com/godaddy-x/freego/ormx/sqld"
-	"github.com/godaddy-x/freego/util"
-	"github.com/godaddy-x/freego/util/concurrent"
-	"github.com/godaddy-x/freego/util/gauth"
+	"github.com/godaddy-x/freego/utils"
+	"github.com/godaddy-x/freego/utils/concurrent"
+	"github.com/godaddy-x/freego/utils/gauth"
 	"github.com/gorilla/websocket"
 	"net/url"
 	"testing"
@@ -42,7 +42,7 @@ func TestMysqlSave(t *testing.T) {
 	for i := 0; i < 1; i++ {
 		wallet := OwWallet{
 			// AppID:        map[string]interface{}{"test": 1},
-			WalletID:     util.GetSnowFlakeStrID(),
+			WalletID:     utils.GetSnowFlakeStrID(),
 			PasswordType: 1,
 			Password:     "123456",
 			RootPath:     "m/44'/88'/0'",
@@ -52,11 +52,11 @@ func TestMysqlSave(t *testing.T) {
 		}
 		vs = append(vs, &wallet)
 	}
-	l := util.Time()
+	l := utils.Time()
 	if err := db.Save(vs...); err != nil {
 		fmt.Println(err)
 	}
-	fmt.Println("cost: ", util.Time()-l)
+	fmt.Println("cost: ", utils.Time()-l)
 }
 
 func TestMysqlUpdate(t *testing.T) {
@@ -68,9 +68,9 @@ func TestMysqlUpdate(t *testing.T) {
 	vs := []interface{}{}
 	for i := 0; i < 10; i++ {
 		wallet := OwWallet{
-			Id: util.GetSnowFlakeIntID(),
+			Id: utils.GetSnowFlakeIntID(),
 			// AppID:        "123456",
-			WalletID:     util.GetSnowFlakeStrID(),
+			WalletID:     utils.GetSnowFlakeStrID(),
 			PasswordType: 1,
 			Password:     "123456",
 			RootPath:     "m/44'/88'/0'",
@@ -80,11 +80,11 @@ func TestMysqlUpdate(t *testing.T) {
 		}
 		vs = append(vs, &wallet)
 	}
-	l := util.Time()
+	l := utils.Time()
 	if err := db.Update(vs...); err != nil {
 		fmt.Println(err)
 	}
-	fmt.Println("cost: ", util.Time()-l)
+	fmt.Println("cost: ", utils.Time()-l)
 }
 
 func TestMysqlUpdateByCnd(t *testing.T) {
@@ -93,11 +93,11 @@ func TestMysqlUpdateByCnd(t *testing.T) {
 		panic(err)
 	}
 	defer db.Close()
-	l := util.Time()
+	l := utils.Time()
 	if err := db.UpdateByCnd(sqlc.M(&OwWallet{}).Upset([]string{"password"}, "1111").Eq("id", 1110371778615574533)); err != nil {
 		fmt.Println(err)
 	}
-	fmt.Println("cost: ", util.Time()-l)
+	fmt.Println("cost: ", utils.Time()-l)
 }
 
 func TestMysqlDetele(t *testing.T) {
@@ -109,9 +109,9 @@ func TestMysqlDetele(t *testing.T) {
 	vs := []interface{}{}
 	for i := 0; i < 2000; i++ {
 		wallet := OwWallet{
-			Id: util.GetSnowFlakeIntID(),
+			Id: utils.GetSnowFlakeIntID(),
 			//AppID:        map[string]interface{}{"test": 1},
-			WalletID:     util.GetSnowFlakeStrID(),
+			WalletID:     utils.GetSnowFlakeStrID(),
 			PasswordType: 1,
 			Password:     "123456",
 			RootPath:     "m/44'/88'/0'",
@@ -121,11 +121,11 @@ func TestMysqlDetele(t *testing.T) {
 		}
 		vs = append(vs, &wallet)
 	}
-	l := util.Time()
+	l := utils.Time()
 	if err := db.Delete(vs...); err != nil {
 		fmt.Println(err)
 	}
-	fmt.Println("cost: ", util.Time()-l)
+	fmt.Println("cost: ", utils.Time()-l)
 }
 
 func TestMysqlFindById(t *testing.T) {
@@ -134,14 +134,14 @@ func TestMysqlFindById(t *testing.T) {
 		panic(err)
 	}
 	defer db.Close()
-	l := util.Time()
+	l := utils.Time()
 	wallet := OwWallet{
 		Id: 1109819683034365953,
 	}
 	if err := db.FindById(&wallet); err != nil {
 		fmt.Println(err)
 	}
-	fmt.Println("cost: ", util.Time()-l)
+	fmt.Println("cost: ", utils.Time()-l)
 }
 
 func TestMysqlFindOne(t *testing.T) {
@@ -150,7 +150,7 @@ func TestMysqlFindOne(t *testing.T) {
 		panic(err)
 	}
 	defer db.Close()
-	l := util.Time()
+	l := utils.Time()
 	for i := 0; i < 1; i++ {
 
 	}
@@ -158,7 +158,7 @@ func TestMysqlFindOne(t *testing.T) {
 	if err := db.FindOne(sqlc.M().Fields("rootPath").Eq("id", 1109819683034365953), &wallet); err != nil {
 		fmt.Println(err)
 	}
-	fmt.Println("cost: ", util.Time()-l)
+	fmt.Println("cost: ", utils.Time()-l)
 }
 
 func TestMysqlFindList(t *testing.T) {
@@ -167,12 +167,12 @@ func TestMysqlFindList(t *testing.T) {
 		panic(err)
 	}
 	defer db.Close()
-	l := util.Time()
+	l := utils.Time()
 	result := []*OwWallet{}
 	if err := db.FindList(sqlc.M().Eq("id", 1124853348080549889).Groupby("id").Orderby("id", sqlc.DESC_).Limit(1, 5), &result); err != nil {
 		fmt.Println(err)
 	}
-	fmt.Println("cost: ", util.Time()-l)
+	fmt.Println("cost: ", utils.Time()-l)
 }
 
 func TestMysqlFindListComplex(t *testing.T) {
@@ -181,12 +181,12 @@ func TestMysqlFindListComplex(t *testing.T) {
 		panic(err)
 	}
 	defer db.Close()
-	l := util.Time()
+	l := utils.Time()
 	result := []*OwWallet{}
 	if err := db.FindListComplex(sqlc.M(&OwWallet{}).Fields("count(a.id) as id").From("ow_wallet a").Orderby("a.id", sqlc.DESC_).Limit(1, 5), &result); err != nil {
 		fmt.Println(err)
 	}
-	fmt.Println("cost: ", util.Time()-l)
+	fmt.Println("cost: ", utils.Time()-l)
 }
 
 func TestMysqlFindOneComplex(t *testing.T) {
@@ -195,12 +195,12 @@ func TestMysqlFindOneComplex(t *testing.T) {
 		panic(err)
 	}
 	defer db.Close()
-	l := util.Time()
+	l := utils.Time()
 	result := OwWallet{}
 	if err := db.FindOneComplex(sqlc.M(&OwWallet{}).Fields("count(a.id) as id").From("ow_wallet a").Orderby("a.id", sqlc.DESC_).Limit(1, 5), &result); err != nil {
 		fmt.Println(err)
 	}
-	fmt.Println("cost: ", util.Time()-l)
+	fmt.Println("cost: ", utils.Time()-l)
 }
 
 func TestMysqlCount(t *testing.T) {
@@ -209,13 +209,13 @@ func TestMysqlCount(t *testing.T) {
 		panic(err)
 	}
 	defer db.Close()
-	l := util.Time()
+	l := utils.Time()
 	if c, err := db.Count(sqlc.M(&OwWallet{}).Orderby("id", sqlc.DESC_).Limit(1, 30)); err != nil {
 		fmt.Println(err)
 	} else {
 		fmt.Println(c)
 	}
-	fmt.Println("cost: ", util.Time()-l)
+	fmt.Println("cost: ", utils.Time()-l)
 }
 
 func TestMongoSave(t *testing.T) {
@@ -224,10 +224,10 @@ func TestMongoSave(t *testing.T) {
 		panic(err)
 	}
 	defer db.Close()
-	//l := util.Time()
+	//l := utils.Time()
 	o := OwWallet{
-		AppID:    util.GetSnowFlakeStrID(),
-		WalletID: util.GetSnowFlakeStrID(),
+		AppID:    utils.GetSnowFlakeStrID(),
+		WalletID: utils.GetSnowFlakeStrID(),
 	}
 	if err := db.Save(&o); err != nil {
 		fmt.Println(err)
@@ -251,12 +251,12 @@ func TestMongoUpdate(t *testing.T) {
 	//	IsTrust:      0,
 	//	AuthKey:      "",
 	//}
-	l := util.Time()
+	l := utils.Time()
 	if err := db.UpdateByCnd(sqlc.M(&OwWallet{}).Or(sqlc.M().Eq("id", 1110012978914131972), sqlc.M().Eq("id", 1110012978914131973)).Upset([]string{"appID", "ctime"}, "test1test1", 1)); err != nil {
 		fmt.Println(err)
 	}
 	//fmt.Println(wallet.Id)
-	fmt.Println("cost: ", util.Time()-l)
+	fmt.Println("cost: ", utils.Time()-l)
 }
 
 func TestMongoDelete(t *testing.T) {
@@ -270,7 +270,7 @@ func TestMongoDelete(t *testing.T) {
 		wallet := OwWallet{
 			Id: 1136806872108498948,
 			// AppID:        map[string]interface{}{"test": 1},
-			WalletID:     util.GetSnowFlakeStrID(),
+			WalletID:     utils.GetSnowFlakeStrID(),
 			PasswordType: 1,
 			Password:     "123456",
 			RootPath:     "m/44'/88'/0'",
@@ -280,11 +280,11 @@ func TestMongoDelete(t *testing.T) {
 		}
 		vs = append(vs, &wallet)
 	}
-	l := util.Time()
+	l := utils.Time()
 	if err := db.Delete(vs...); err != nil {
 		fmt.Println(err)
 	}
-	fmt.Println("cost: ", util.Time()-l)
+	fmt.Println("cost: ", utils.Time()-l)
 }
 
 func TestMongoAgg(t *testing.T) {
@@ -303,13 +303,13 @@ func TestMongoCount(t *testing.T) {
 		panic(err)
 	}
 	defer db.Close()
-	l := util.Time()
+	l := utils.Time()
 	if c, err := db.Count(sqlc.M(&OwWallet{}).Eq("_id", 1110012978914131972).Orderby("_id", sqlc.DESC_).Limit(1, 30)); err != nil {
 		fmt.Println(err)
 	} else {
 		fmt.Println(c)
 	}
-	fmt.Println("cost: ", util.Time()-l)
+	fmt.Println("cost: ", utils.Time()-l)
 }
 
 func TestMongoFindList(t *testing.T) {
@@ -318,12 +318,12 @@ func TestMongoFindList(t *testing.T) {
 		panic(err)
 	}
 	defer db.Close()
-	l := util.Time()
+	l := utils.Time()
 	o := []*OwWallet{}
 	if err := db.FindList(sqlc.M().Eq("id", 1194915104647282690).Groupby("appID"), &o); err != nil {
 		fmt.Println(err)
 	}
-	fmt.Println("cost: ", util.Time()-l)
+	fmt.Println("cost: ", utils.Time()-l)
 }
 
 func TestRedis(t *testing.T) {
@@ -346,9 +346,9 @@ func TestRedis(t *testing.T) {
 }
 
 func TestEX(t *testing.T) {
-	x := util.Time()
+	x := utils.Time()
 	fmt.Println(x)
-	fmt.Println(util.GetFmtDate(x))
+	fmt.Println(utils.GetFmtDate(x))
 }
 
 func TestGA(t *testing.T) {
@@ -430,7 +430,7 @@ func goTest(conn *websocket.Conn) {
 	for {
 		time.Sleep(time.Second * 1)
 		data := map[string]interface{}{"token": token}
-		send, _ := util.JsonMarshal(&data)
+		send, _ := utils.JsonMarshal(&data)
 		conn.WriteMessage(websocket.TextMessage, send)
 	}
 }
@@ -438,14 +438,14 @@ func goTest(conn *websocket.Conn) {
 func goLogin(conn *websocket.Conn) {
 	time.Sleep(time.Second * 1)
 	data := map[string]interface{}{"user": "zhangsan"}
-	send, _ := util.JsonMarshal(&data)
+	send, _ := utils.JsonMarshal(&data)
 	conn.WriteMessage(websocket.TextMessage, send)
 }
 
 func goLogout(conn *websocket.Conn) {
 	time.Sleep(time.Second * 1)
 	data := map[string]interface{}{"token": token}
-	send, _ := util.JsonMarshal(&data)
+	send, _ := utils.JsonMarshal(&data)
 	conn.WriteMessage(websocket.TextMessage, send)
 }
 
@@ -499,45 +499,45 @@ func TestSorter(t *testing.T) {
 }
 
 func TestB(t *testing.T) {
-	l := util.Time()
+	l := utils.Time()
 	s := "mydata4vipday.720.datx"
 	for i := 0; i < 1000000000; i++ {
-		a := util.Str2Bytes(s)
-		_ = util.Bytes2Str(a)
+		a := utils.Str2Bytes(s)
+		_ = utils.Bytes2Str(a)
 	}
-	fmt.Println(util.Time() - l)
+	fmt.Println(utils.Time() - l)
 }
 
 func TestRGX1(t *testing.T) {
 	//var aeskey = "x4kkptzFsUOVnuya"
 	//fmt.Println("密钥: ", aeskey)
 	//pass := "123456"
-	//xpass := util.AesEncrypt(pass, aeskey)
+	//xpass := utils.AesEncrypt(pass, aeskey)
 	//
 	//fmt.Printf("加密后:%v\n", xpass)
 	//
-	//tpass := util.AesDecrypt(xpass, string(aeskey))
+	//tpass := utils.AesDecrypt(xpass, string(aeskey))
 	//fmt.Printf("解密后:%s\n", tpass)
 
 	//s := "(?i)eval\\s*\\((.*?)\\)"
 	//c := "<eval  ()"
-	//fmt.Println(util.ValidPattern(c, s))
+	//fmt.Println(utils.ValidPattern(c, s))
 
 	//s := "(?i)expression\\s*\\((.*?)\\)"
 	//c := "<ExpressiOn  ()"
-	//fmt.Println(util.ValidPattern(c, s))
+	//fmt.Println(utils.ValidPattern(c, s))
 
 	//s := "(?i)scrip1t\\s*\\>(.*?)"
 	//c := "<scRip1t  >"
-	//fmt.Println(util.ValidPattern(c, s))
+	//fmt.Println(utils.ValidPattern(c, s))
 
 	//s := "javascript:(.*?)|vbscript\\s*\\:(.*?)|view-source\\s*\\:(.*?)"
 	//c := "vbscript:vbscript"
-	//fmt.Println(util.ValidPattern(c, s))
+	//fmt.Println(utils.ValidPattern(c, s))
 
 	//s := "\\{1}"
 	//c := `\`
-	//fmt.Println(util.ValidPattern(c, s))
+	//fmt.Println(utils.ValidPattern(c, s))
 	fmt.Println(fmt.Sprintf("%x", `%`))
 	fmt.Println(url.QueryEscape("%"))
 
@@ -562,17 +562,17 @@ func TestHtml(t *testing.T) {
 
 func TestRGX2(t *testing.T) {
 	m := map[string]int{"test": 1}
-	b, _ := util.JsonMarshal(m)
+	b, _ := utils.JsonMarshal(m)
 	r := map[string]interface{}{}
-	util.JsonUnmarshal(b, &r)
+	utils.JsonUnmarshal(b, &r)
 	fmt.Println(len("1566722843972"))
 	//x := "世界上最邪恶最专制的现代奴隶制国家--朝鲜"
-	//key :=util.Substr( util.MD5("hgfedcba87654321"), 0, 16)
-	//x1 := util.AesEncrypt(x, key)
+	//key :=utils.Substr( utils.MD5("hgfedcba87654321"), 0, 16)
+	//x1 := utils.AesEncrypt(x, key)
 	//fmt.Println(x1)
-	//x2 := util.AesDecrypt(x1, key)
+	//x2 := utils.AesDecrypt(x1, key)
 	//fmt.Print(string(x2))
-	//start := util.Time()
+	//start := utils.Time()
 	//for i := 0; i < 20000; i++ {
 	//	// MyClient.Connect(context.Background())
 	//	c := MyClient.Database("openwallet").Collection("ow_wallet")
@@ -592,7 +592,7 @@ func TestRGX2(t *testing.T) {
 	//	}
 	//	// MyClient.Disconnect(context.Background())
 	//}
-	//fmt.Println("cost: ", util.Time()-start)
+	//fmt.Println("cost: ", utils.Time()-start)
 }
 
 //func BenchmarkLoopsParallel(b *testing.B) {
@@ -604,7 +604,7 @@ func TestRGX2(t *testing.T) {
 //		for pb.Next() {
 //			s := 145647.454564
 //			s = s + i
-//			util.Shift(s, 10, true)
+//			utils.Shift(s, 10, true)
 //		}
 //	})
 //}

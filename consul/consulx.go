@@ -3,7 +3,7 @@ package consul
 import (
 	"fmt"
 	DIC "github.com/godaddy-x/freego/common"
-	"github.com/godaddy-x/freego/util"
+	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/zlog"
 	consulapi "github.com/hashicorp/consul/api"
 	"go.uber.org/zap"
@@ -42,7 +42,7 @@ func getConsulClient(conf ConsulConfig) *ConsulManager {
 	config.Address = conf.Host
 	client, err := consulapi.NewClient(config)
 	if err != nil {
-		panic(util.AddStr("consul [", conf.Host, "] init failed: ", err))
+		panic(utils.AddStr("consul [", conf.Host, "] init failed: ", err))
 	}
 	return &ConsulManager{Consulx: client, Host: conf.Host}
 }
@@ -97,7 +97,7 @@ func (self *ConsulManager) Client(dsname ...string) (*ConsulManager, error) {
 	}
 	manager := consulSessions[ds]
 	if manager == nil {
-		return nil, util.Error("consul session [", ds, "] not found...")
+		return nil, utils.Error("consul session [", ds, "] not found...")
 	}
 	return manager, nil
 }
@@ -107,17 +107,17 @@ func (self *ConsulManager) GetJsonValue(key string, result interface{}, isEncryp
 	client := self.Consulx
 	kv := client.KV()
 	if kv == nil {
-		return util.Error("consul node [", key, "] not found...")
+		return utils.Error("consul node [", key, "] not found...")
 	}
 	k, _, err := kv.Get(key, nil)
 	if err != nil {
-		return util.Error("consul node [", key, "] read failed...")
+		return utils.Error("consul node [", key, "] read failed...")
 	}
 	if k == nil || k.Value == nil || len(k.Value) == 0 {
-		return util.Error("consul node [", key, "] read is nil...")
+		return utils.Error("consul node [", key, "] read is nil...")
 	}
-	if err := util.JsonUnmarshal(k.Value, result); err != nil {
-		return util.Error("consul node [", key, "] parse failed...")
+	if err := utils.JsonUnmarshal(k.Value, result); err != nil {
+		return utils.Error("consul node [", key, "] parse failed...")
 	}
 	return nil
 }
@@ -126,14 +126,14 @@ func (self *ConsulManager) GetTextValue(key string) ([]byte, error) {
 	client := self.Consulx
 	kv := client.KV()
 	if kv == nil {
-		return nil, util.Error("consul node [", key, "] not found...")
+		return nil, utils.Error("consul node [", key, "] not found...")
 	}
 	k, _, err := kv.Get(key, nil)
 	if err != nil {
-		return nil, util.Error("consul node [", key, "] read failed...")
+		return nil, utils.Error("consul node [", key, "] read failed...")
 	}
 	if k == nil || k.Value == nil || len(k.Value) == 0 {
-		return nil, util.Error("consul node [", key, "] read is nil...")
+		return nil, utils.Error("consul node [", key, "] read is nil...")
 	}
 	return k.Value, nil
 }

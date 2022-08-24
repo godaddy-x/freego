@@ -5,9 +5,9 @@ import (
 	"github.com/godaddy-x/freego/cache/limiter"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/node/common"
-	"github.com/godaddy-x/freego/util"
-	"github.com/godaddy-x/freego/util/gorsa"
-	"github.com/godaddy-x/freego/util/jwt"
+	"github.com/godaddy-x/freego/utils"
+	"github.com/godaddy-x/freego/utils/gorsa"
+	"github.com/godaddy-x/freego/utils/jwt"
 	"github.com/godaddy-x/freego/zlog"
 	"net/http"
 	"unsafe"
@@ -196,7 +196,7 @@ func (self *Context) GetDataSign(d, n string, t, p int64, key ...string) string 
 	} else {
 		secret = self.GetTokenSecret()
 	}
-	return util.HMAC_SHA256(util.AddStr(self.Method, d, n, t, p), secret, true)
+	return utils.HMAC_SHA256(utils.AddStr(self.Method, d, n, t, p), secret, true)
 }
 
 func (self *Context) GetStorageStringValue(k string) string {
@@ -215,7 +215,7 @@ func (self *Context) Authenticated() bool {
 }
 
 func (self *Context) Parser(v interface{}) error {
-	if err := util.JsonToAny(self.Params.Data, v); err != nil {
+	if err := utils.JsonToAny(self.Params.Data, v); err != nil {
 		msg := "JSON parameter parsing failed"
 		zlog.Error(msg, 0, zlog.String("method", self.Method), zlog.String("host", self.Host), zlog.String("device", self.Device), zlog.Any("data", self.Params))
 		return ex.Throw{Msg: msg}
@@ -223,7 +223,7 @@ func (self *Context) Parser(v interface{}) error {
 	// TODO 备注: 已有会话状态时,指针填充context值,不能随意修改指针偏移值
 	userId := int64(0)
 	if self.Authenticated() {
-		v, err := util.StrToInt64(self.Subject.Sub)
+		v, err := utils.StrToInt64(self.Subject.Sub)
 		if err != nil {
 			return ex.Throw{Msg: "userId invalid"}
 		}
@@ -233,7 +233,7 @@ func (self *Context) Parser(v interface{}) error {
 		UserId: userId,
 		UserIP: self.Host,
 	}
-	src := util.GetPtr(v, 0)
+	src := utils.GetPtr(v, 0)
 	req := common.GetBaseReq(src)
 	dst := common.BaseReq{Context: context, Offset: req.Offset, Limit: req.Limit}
 	*((*common.BaseReq)(unsafe.Pointer(src))) = dst

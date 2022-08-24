@@ -3,7 +3,7 @@ package cache
 import (
 	"github.com/garyburd/redigo/redis"
 	DIC "github.com/godaddy-x/freego/common"
-	"github.com/godaddy-x/freego/util"
+	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/zlog"
 	"time"
 )
@@ -38,10 +38,10 @@ func (self *RedisManager) InitConfig(input ...RedisConfig) (*RedisManager, error
 			dsName = v.DsName
 		}
 		if _, b := redisSessions[dsName]; b {
-			return nil, util.Error("init redis pool failed: [", v.DsName, "] exist")
+			return nil, utils.Error("init redis pool failed: [", v.DsName, "] exist")
 		}
 		pool := &redis.Pool{MaxIdle: v.MaxIdle, MaxActive: v.MaxActive, IdleTimeout: time.Duration(v.IdleTimeout) * time.Second, Dial: func() (redis.Conn, error) {
-			c, err := redis.Dial(v.Network, util.AddStr(v.Host, ":", util.AnyToStr(v.Port)))
+			c, err := redis.Dial(v.Network, utils.AddStr(v.Host, ":", utils.AnyToStr(v.Port)))
 			if err != nil {
 				return nil, err
 			}
@@ -57,7 +57,7 @@ func (self *RedisManager) InitConfig(input ...RedisConfig) (*RedisManager, error
 		zlog.Printf("redis service【%s】has been started successfully", dsName)
 	}
 	if len(redisSessions) == 0 {
-		return nil, util.Error("init redis pool failed: sessions is nil")
+		return nil, utils.Error("init redis pool failed: sessions is nil")
 	}
 	return self, nil
 }
@@ -69,7 +69,7 @@ func (self *RedisManager) Client(dsName ...string) (*RedisManager, error) {
 	}
 	manager := redisSessions[ds]
 	if manager == nil {
-		return nil, util.Error("redis session [", ds, "] not found...")
+		return nil, utils.Error("redis session [", ds, "] not found...")
 	}
 	return manager, nil
 }
@@ -89,7 +89,7 @@ func (self *RedisManager) Get(key string, input interface{}) (interface{}, bool,
 	if input == nil {
 		return value, true, nil
 	}
-	return value, true, util.JsonUnmarshal(value, input)
+	return value, true, utils.JsonUnmarshal(value, input)
 }
 
 func (self *RedisManager) GetInt64(key string) (int64, error) {
@@ -102,7 +102,7 @@ func (self *RedisManager) GetInt64(key string) (int64, error) {
 	if value == nil || len(value) == 0 {
 		return 0, nil
 	}
-	if ret, err := util.StrToInt64(util.Bytes2Str(value)); err != nil {
+	if ret, err := utils.StrToInt64(utils.Bytes2Str(value)); err != nil {
 		return 0, err
 	} else {
 		return ret, nil
@@ -119,7 +119,7 @@ func (self *RedisManager) GetFloat64(key string) (float64, error) {
 	if value == nil || len(value) == 0 {
 		return 0, nil
 	}
-	if ret, err := util.StrToFloat(util.Bytes2Str(value)); err != nil {
+	if ret, err := utils.StrToFloat(utils.Bytes2Str(value)); err != nil {
 		return 0, err
 	} else {
 		return ret, nil
@@ -136,7 +136,7 @@ func (self *RedisManager) GetString(key string) (string, error) {
 	if value == nil || len(value) == 0 {
 		return "", nil
 	}
-	return util.Bytes2Str(value), nil
+	return utils.Bytes2Str(value), nil
 }
 
 func (self *RedisManager) GetBool(key string) (bool, error) {
@@ -149,14 +149,14 @@ func (self *RedisManager) GetBool(key string) (bool, error) {
 	if value == nil || len(value) == 0 {
 		return false, nil
 	}
-	return util.StrToBool(util.Bytes2Str(value))
+	return utils.StrToBool(utils.Bytes2Str(value))
 }
 
 func (self *RedisManager) Put(key string, input interface{}, expire ...int) error {
 	if len(key) == 0 || input == nil {
 		return nil
 	}
-	value := util.Str2Bytes(util.AnyToStr(input))
+	value := utils.Str2Bytes(utils.AnyToStr(input))
 	client := self.Pool.Get()
 	defer client.Close()
 	if len(expire) > 0 && expire[0] > 0 {
@@ -215,7 +215,7 @@ func (self *RedisManager) Brpop(key string, expire int64, result interface{}) er
 	if err != nil || len(ret) == 0 {
 		return err
 	}
-	if err := util.JsonUnmarshal(util.Str2Bytes(ret), &result); err != nil {
+	if err := utils.JsonUnmarshal(utils.Str2Bytes(ret), &result); err != nil {
 		return err
 	}
 	return nil
@@ -231,9 +231,9 @@ func (self *RedisManager) BrpopString(key string, expire int64) (string, error) 
 	if err != nil {
 		return "", err
 	} else if len(ret) != 2 {
-		return "", util.Error("data len error")
+		return "", utils.Error("data len error")
 	}
-	return util.Bytes2Str(ret[1]), nil
+	return utils.Bytes2Str(ret[1]), nil
 }
 
 func (self *RedisManager) BrpopInt64(key string, expire int64) (int64, error) {
@@ -241,7 +241,7 @@ func (self *RedisManager) BrpopInt64(key string, expire int64) (int64, error) {
 	if err != nil || len(ret) == 0 {
 		return 0, err
 	}
-	return util.StrToInt64(ret)
+	return utils.StrToInt64(ret)
 }
 
 func (self *RedisManager) BrpopFloat64(key string, expire int64) (float64, error) {
@@ -249,7 +249,7 @@ func (self *RedisManager) BrpopFloat64(key string, expire int64) (float64, error
 	if err != nil || len(ret) == 0 {
 		return 0, err
 	}
-	return util.StrToFloat(ret)
+	return utils.StrToFloat(ret)
 }
 
 func (self *RedisManager) BrpopBool(key string, expire int64) (bool, error) {
@@ -257,7 +257,7 @@ func (self *RedisManager) BrpopBool(key string, expire int64) (bool, error) {
 	if err != nil || len(ret) == 0 {
 		return false, err
 	}
-	return util.StrToBool(ret)
+	return utils.StrToBool(ret)
 }
 
 func (self *RedisManager) Rpush(key string, val interface{}) error {
@@ -266,7 +266,7 @@ func (self *RedisManager) Rpush(key string, val interface{}) error {
 	}
 	client := self.Pool.Get()
 	defer client.Close()
-	_, err := client.Do("RPUSH", key, util.AnyToStr(val))
+	_, err := client.Do("RPUSH", key, utils.AnyToStr(val))
 	if err != nil {
 		return err
 	}
@@ -279,7 +279,7 @@ func (self *RedisManager) Publish(key string, val interface{}) error {
 	}
 	client := self.Pool.Get()
 	defer client.Close()
-	_, err := client.Do("PUBLISH", key, util.AnyToStr(val))
+	_, err := client.Do("PUBLISH", key, utils.AnyToStr(val))
 	if err != nil {
 		return err
 	}
@@ -302,7 +302,7 @@ func (self *RedisManager) Subscribe(key string, timeout int, call func(msg strin
 		switch v := c.ReceiveWithTimeout(time.Duration(timeout) * time.Second).(type) {
 		case redis.Message:
 			if v.Channel == key {
-				r, err := call(util.Bytes2Str(v.Data))
+				r, err := call(utils.Bytes2Str(v.Data))
 				if err == nil && r {
 					return nil
 				}
@@ -324,7 +324,7 @@ func (self *RedisManager) LuaScript(cmd string, key []string, val ...interface{}
 	}
 	if val != nil && len(val) > 0 {
 		for _, v := range val {
-			args = append(args, util.AddStr(v))
+			args = append(args, utils.AddStr(v))
 		}
 	}
 	client := self.Pool.Get()
@@ -357,9 +357,9 @@ func (self *RedisManager) Size(pattern ...string) (int, error) {
 
 // 数据量大时请慎用
 func (self *RedisManager) Values(pattern ...string) ([]interface{}, error) {
-	return nil, util.Error("No implementation method [Values] was found")
+	return nil, utils.Error("No implementation method [Values] was found")
 }
 
 func (self *RedisManager) Flush() error {
-	return util.Error("No implementation method [Flush] was found")
+	return utils.Error("No implementation method [Flush] was found")
 }

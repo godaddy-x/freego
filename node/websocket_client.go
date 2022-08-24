@@ -2,7 +2,7 @@ package node
 
 import (
 	"github.com/godaddy-x/freego/ex"
-	"github.com/godaddy-x/freego/util"
+	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/zlog"
 	"github.com/gorilla/websocket"
 	"net/http"
@@ -70,7 +70,7 @@ func (self *WSManager) read(c *WSClient) {
 		if err != nil {
 			return
 		}
-		c.access = util.Time()
+		c.access = utils.Time()
 		if err := c.rcvd_handle(c, rcvd); err != nil {
 			return
 		}
@@ -103,15 +103,15 @@ func (self *WSManager) validator() {
 		zlog.Debug("/A websocket validator is running.", 0)
 		wss := []*WSClient{}
 		self.clients.Range(func(key, value interface{}) bool {
-			if v, b := value.(*WSClient); b && (util.Time()-v.access > self.timeout) {
+			if v, b := value.(*WSClient); b && (utils.Time()-v.access > self.timeout) {
 				wss = append(wss, v)
 			}
 			return true
 		})
 		for _, v := range wss {
-			if util.Time()-v.access > self.timeout {
+			if utils.Time()-v.access > self.timeout {
 				zlog.Debug("/A websocket validator disconnected.", 0, zlog.String("id", v.id))
-				v.send <- WSMessage{MessageType: websocket.CloseMessage, Content: util.Str2Bytes(ex.Throw{Code: http.StatusRequestTimeout, Msg: "连接超时已断开"}.Error())}
+				v.send <- WSMessage{MessageType: websocket.CloseMessage, Content: utils.Str2Bytes(ex.Throw{Code: http.StatusRequestTimeout, Msg: "连接超时已断开"}.Error())}
 			}
 		}
 		zlog.Debug("/A websocket validator finished processing.", 0)

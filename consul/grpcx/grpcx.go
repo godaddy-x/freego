@@ -8,8 +8,8 @@ import (
 	"github.com/godaddy-x/freego/cache/limiter"
 	"github.com/godaddy-x/freego/consul"
 	"github.com/godaddy-x/freego/consul/grpcx/pb"
-	"github.com/godaddy-x/freego/util"
-	"github.com/godaddy-x/freego/util/jwt"
+	"github.com/godaddy-x/freego/utils"
+	"github.com/godaddy-x/freego/utils/jwt"
 	"github.com/godaddy-x/freego/zlog"
 	consulapi "github.com/hashicorp/consul/api"
 	"google.golang.org/grpc"
@@ -67,14 +67,14 @@ type GRPC struct {
 
 func GetGRPCJwtConfig() (*jwt.JwtConfig, error) {
 	if len(jwtConfig.TokenKey) == 0 {
-		return nil, util.Error("grpc jwt key is nil")
+		return nil, utils.Error("grpc jwt key is nil")
 	}
 	return jwtConfig, nil
 }
 
 func GetGRPCAppConfig(appid string) (AppConfig, error) {
 	if appConfigCall == nil {
-		return AppConfig{}, util.Error("grpc app config call is nil")
+		return AppConfig{}, utils.Error("grpc app config call is nil")
 	}
 	return appConfigCall(appid)
 }
@@ -251,7 +251,7 @@ func RunServer(consulDs string, authenticate bool, objects ...*GRPC) {
 	}
 	grpcServer := grpc.NewServer(opts...)
 	for _, object := range objects {
-		address := util.GetLocalIP()
+		address := utils.GetLocalIP()
 		port := self.consul.Config.RpcPort
 		if len(address) == 0 {
 			panic("local address reading failed")
@@ -263,12 +263,12 @@ func RunServer(consulDs string, authenticate bool, objects ...*GRPC) {
 			panic("rpc service invalid")
 		}
 		if self.consul.CheckService(services, object.Service, address) {
-			zlog.Println(util.AddStr("grpc service [", object.Service, "][", address, "] exist, skip..."))
+			zlog.Println(utils.AddStr("grpc service [", object.Service, "][", address, "] exist, skip..."))
 			object.AddRPC(grpcServer)
 			continue
 		}
 		registration := new(consulapi.AgentServiceRegistration)
-		registration.ID = util.GetUUID()
+		registration.ID = utils.GetUUID()
 		registration.Tags = object.Tags
 		registration.Name = object.Service
 		registration.Address = address
@@ -280,9 +280,9 @@ func RunServer(consulDs string, authenticate bool, objects ...*GRPC) {
 			Interval:                       self.consul.Config.Interval,
 			DeregisterCriticalServiceAfter: self.consul.Config.DestroyAfter,
 		}
-		zlog.Println(util.AddStr("grpc service [", registration.Name, "][", registration.Address, "] added successful"))
+		zlog.Println(utils.AddStr("grpc service [", registration.Name, "][", registration.Address, "] added successful"))
 		if err := self.consul.Consulx.Agent().ServiceRegister(registration); err != nil {
-			panic(util.AddStr("grpc service [", object.Service, "] add failed: ", err.Error()))
+			panic(utils.AddStr("grpc service [", object.Service, "] add failed: ", err.Error()))
 		}
 		object.AddRPC(grpcServer)
 	}
@@ -290,11 +290,11 @@ func RunServer(consulDs string, authenticate bool, objects ...*GRPC) {
 		http.HandleFunc(self.consul.Config.CheckPath, self.consul.HealthCheck)
 		http.ListenAndServe(fmt.Sprintf(":%d", self.consul.Config.CheckPort), nil)
 	}()
-	l, err := net.Listen(self.consul.Config.Protocol, util.AddStr(":", util.AnyToStr(self.consul.Config.RpcPort)))
+	l, err := net.Listen(self.consul.Config.Protocol, utils.AddStr(":", utils.AnyToStr(self.consul.Config.RpcPort)))
 	if err != nil {
 		panic(err)
 	}
-	zlog.Println(util.AddStr("grpc server【", util.AddStr(":", util.AnyToStr(self.consul.Config.RpcPort)), "】has been started successfully"))
+	zlog.Println(utils.AddStr("grpc server【", utils.AddStr(":", utils.AnyToStr(self.consul.Config.RpcPort)), "】has been started successfully"))
 	if err := grpcServer.Serve(l); err != nil {
 		panic(err)
 	}
@@ -314,14 +314,14 @@ func RunClient(appid string) {
 					return nil, err
 				}
 				if len(appConfig.Appkey) == 0 {
-					return nil, util.Error("rpc appConfig key is nil")
+					return nil, utils.Error("rpc appConfig key is nil")
 				}
 				req := &pb.RPCLoginReq{
 					Appid: appid,
-					Nonce: util.RandStr(32),
-					Time:  util.TimeSecond(),
+					Nonce: utils.RandStr(32),
+					Time:  utils.TimeSecond(),
 				}
-				req.Signature = util.HMAC_SHA256(util.AddStr(req.Appid, req.Nonce, req.Time), appConfig.Appkey, true)
+				req.Signature = utils.HMAC_SHA256(utils.AddStr(req.Appid, req.Nonce, req.Time), appConfig.Appkey, true)
 				return pb.NewPubWorkerClient(conn).RPCLogin(ctx, req)
 			}})
 		if err != nil {
@@ -338,8 +338,8 @@ func RunClient(appid string) {
 
 func renewClientToken(appid string, expired int64) error {
 	for {
-		zlog.Warn("detecting rpc token expiration", 0, zlog.Int64("countDown", expired-util.TimeSecond()-timeDifference))
-		if expired-util.TimeSecond() > timeDifference { // TODO token过期时间大于2400s则忽略,每15s检测一次
+		zlog.Warn("detecting rpc token expiration", 0, zlog.Int64("countDown", expired-utils.TimeSecond()-timeDifference))
+		if expired-utils.TimeSecond() > timeDifference { // TODO token过期时间大于2400s则忽略,每15s检测一次
 			time.Sleep(15 * time.Second)
 			continue
 		}
@@ -352,7 +352,7 @@ func renewClientToken(appid string, expired int64) error {
 
 func CallRPC(object *GRPC) (interface{}, error) {
 	if len(object.Service) == 0 || len(object.Service) > 100 {
-		return nil, util.Error("call service invalid")
+		return nil, utils.Error("call service invalid")
 	}
 	if object.Timeout <= 0 {
 		object.Timeout = 60000
@@ -367,14 +367,14 @@ func CallRPC(object *GRPC) (interface{}, error) {
 	}
 	services, err := consul.GetHealthService(object.Service, tag)
 	if err != nil {
-		return nil, util.Error("query service [", object.Service, "] failed: ", err)
+		return nil, utils.Error("query service [", object.Service, "] failed: ", err)
 	}
 	if len(services) == 0 {
-		return nil, util.Error("no available services found: [", object.Service, "]")
+		return nil, utils.Error("no available services found: [", object.Service, "]")
 	}
 	var service *consulapi.AgentService
 	if selectionCall == nil { // 选取规则为空则默认随机
-		r := rand.New(rand.NewSource(util.GetSnowFlakeIntID()))
+		r := rand.New(rand.NewSource(utils.GetSnowFlakeIntID()))
 		service = services[r.Intn(len(services))].Service
 	} else {
 		service = selectionCall(services, object).Service
@@ -388,7 +388,7 @@ func CallRPC(object *GRPC) (interface{}, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(object.Timeout)*time.Millisecond)
 	defer cancel()
-	conn, err := grpc.DialContext(ctx, util.AddStr(service.Address, ":", service.Port), opts...)
+	conn, err := grpc.DialContext(ctx, utils.AddStr(service.Address, ":", service.Port), opts...)
 	if err != nil {
 		return nil, err
 	}
