@@ -64,6 +64,7 @@ func initGRPC() {
 func initClientTokenAuth() {
 	new(grpcx.GRPCManager).CreateTokenAuth(APPID, func(res *pb.RPCLoginRes) error {
 		fmt.Println("rpc token:  ", res.Token)
+		http_web.RPC_TOKEN = res.Token
 		return nil
 	})
 }

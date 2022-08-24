@@ -47,10 +47,12 @@ func (self *MyWebNode) getUser(ctx *node.Context) error {
 	return self.Json(ctx, map[string]interface{}{"test": "我爱中国+-/+_=/1df"})
 }
 
+var RPC_TOKEN = ""
+
 func testCallRPC() {
-	rpcToken := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJlMTBhZGMzOTQ5YmE1OWFiYmU1NmUwNTdmMjBmODgzZSIsImF1ZCI6IiIsImlzcyI6IiIsImlhdCI6MCwiZXhwIjoxNjYxMzExMzMyLCJkZXYiOiIiLCJqdGkiOiJjcWN3N1FmZ3QzK244Mi9FOUtpdGNRPT0iLCJleHQiOnt9fQ==.pCBCDoRRaVcmI9lsjVBCaXdvNuTu8LEnmwglsoppoDg="
+	fmt.Println("rpc_token: ", RPC_TOKEN)
 	res, err := grpcx.CallRPC(&grpcx.GRPC{
-		Token:   rpcToken,
+		Token:   RPC_TOKEN,
 		Service: "PubWorker",
 		CallRPC: func(conn *grpc.ClientConn, ctx context.Context) (interface{}, error) {
 			return pb.NewPubWorkerClient(conn).GenerateId(ctx, &pb.GenerateIdReq{})

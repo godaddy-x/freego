@@ -47,7 +47,7 @@ func (self *GRPCManager) rateLimit(method string) error {
 }
 
 func (self *GRPCManager) checkToken(ctx context.Context, method string) error {
-	if !self.Authentic {
+	if !self.authenticate {
 		return nil
 	}
 	if util.CheckStr(method, unauthorizedUrl...) {
@@ -90,12 +90,7 @@ func (self *GRPCManager) ServerInterceptor(ctx context.Context, req interface{},
 	if err := self.checkToken(ctx, info.FullMethod); err != nil {
 		return nil, err
 	}
-	fmt.Println("接收到了一个新的请求")
-	md, ok := metadata.FromIncomingContext(ctx)
-	fmt.Println(md, ok)
-	res, err := handler(ctx, req)
-	fmt.Println("请求已完成")
-	return res, err
+	return handler(ctx, req)
 }
 
 func (self *GRPCManager) ClientInterceptor(ctx context.Context, method string, req, reply interface{}, conn *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) (err error) {

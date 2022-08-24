@@ -36,10 +36,10 @@ var (
 )
 
 type GRPCManager struct {
-	consul    *consul.ConsulManager
-	token     string
-	ConsulDs  string
-	Authentic bool
+	consul       *consul.ConsulManager
+	consulDs     string
+	token        string
+	authenticate bool
 }
 
 type TlsConfig struct {
@@ -239,17 +239,15 @@ func (self *GRPCManager) CreateClientTLS(tlsConfig TlsConfig) {
 	}
 }
 
-func (self *GRPCManager) RunServer(objects ...*GRPC) {
+func RunServer(consulDs string, authenticate bool, objects ...*GRPC) {
 	if len(objects) == 0 {
 		panic("rpc objects is nil...")
 	}
-	if self.consul == nil {
-		consul, err := new(consul.ConsulManager).Client(self.ConsulDs)
-		if err != nil {
-			panic(err)
-		}
-		self.consul = consul
+	consul, err := new(consul.ConsulManager).Client(consulDs)
+	if err != nil {
+		panic(err)
 	}
+	self := &GRPCManager{consul: consul, consulDs: consulDs, authenticate: authenticate}
 	services, err := self.consul.GetAllService("")
 	if err != nil {
 		panic(err)
@@ -392,7 +390,7 @@ func CallRPC(object *GRPC) (interface{}, error) {
 	} else {
 		service = selectionCall(services, object).Service
 	}
-	client := &GRPCManager{consul: consul, token: object.Token, ConsulDs: object.Ds}
+	client := &GRPCManager{consul: consul, token: object.Token, consulDs: object.Ds}
 	opts := []grpc.DialOption{
 		grpc.WithUnaryInterceptor(client.ClientInterceptor),
 	}

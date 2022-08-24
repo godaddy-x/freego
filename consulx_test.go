@@ -20,8 +20,7 @@ func TestConsulxRunGRPCServer(t *testing.T) {
 			AddRPC:  func(server *grpc.Server) { pb.RegisterPubWorkerServer(server, &grpcx.PubWorker{}) },
 		},
 	}
-	client := &grpcx.GRPCManager{Authentic: true, ConsulDs: ""}
-	client.RunServer(objects...)
+	grpcx.RunServer("", true, objects...)
 }
 
 func TestConsulxCallGRPC_GenID(t *testing.T) {

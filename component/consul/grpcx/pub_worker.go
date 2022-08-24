@@ -2,20 +2,20 @@ package grpcx
 
 import (
 	"context"
-	pb2 "github.com/godaddy-x/freego/component/consul/grpcx/pb"
+	"github.com/godaddy-x/freego/component/consul/grpcx/pb"
 	"github.com/godaddy-x/freego/component/jwt"
 	"github.com/godaddy-x/freego/util"
 )
 
 type PubWorker struct {
-	pb2.UnimplementedPubWorkerServer
+	pb.UnimplementedPubWorkerServer
 }
 
-func (self *PubWorker) GenerateId(ctx context.Context, req *pb2.GenerateIdReq) (*pb2.GenerateIdRes, error) {
-	return &pb2.GenerateIdRes{Value: util.GetSnowFlakeIntID(req.Node)}, nil
+func (self *PubWorker) GenerateId(ctx context.Context, req *pb.GenerateIdReq) (*pb.GenerateIdRes, error) {
+	return &pb.GenerateIdRes{Value: util.GetSnowFlakeIntID(req.Node)}, nil
 }
 
-func (self *PubWorker) RPCLogin(ctx context.Context, req *pb2.RPCLoginReq) (*pb2.RPCLoginRes, error) {
+func (self *PubWorker) RPCLogin(ctx context.Context, req *pb.RPCLoginReq) (*pb.RPCLoginRes, error) {
 	if len(req.Appid) != 32 {
 		return nil, util.Error("appid invalid")
 	}
@@ -37,7 +37,7 @@ func (self *PubWorker) RPCLogin(ctx context.Context, req *pb2.RPCLoginReq) (*pb2
 		return nil, err
 	}
 	subject := &jwt.Subject{}
-	subject.Create(req.Appid).Expired(jwtConfig.TokenExp)
+	subject.Create(req.Appid).Dev("GRPC").Expired(jwtConfig.TokenExp)
 	token := subject.Generate(jwt.JwtConfig{TokenTyp: jwtConfig.TokenTyp, TokenAlg: jwtConfig.TokenAlg, TokenKey: jwtConfig.TokenKey})
-	return &pb2.RPCLoginRes{Token: token, Expired: subject.Payload.Exp}, nil
+	return &pb.RPCLoginRes{Token: token, Expired: subject.Payload.Exp}, nil
 }
