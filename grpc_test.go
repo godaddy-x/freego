@@ -23,7 +23,7 @@ func TestConsulxRunGRPCServer(t *testing.T) {
 }
 
 func TestConsulxCallGRPC_GenID(t *testing.T) {
-	grpcx.RunTokenServer(util.MD5("123456"))
+	grpcx.RunClient(util.MD5("123456"))
 	res, err := grpcx.CallRPC(&grpcx.GRPC{
 		Service: "PubWorker",
 		CallRPC: func(conn *grpc.ClientConn, ctx context.Context) (interface{}, error) {

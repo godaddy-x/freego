@@ -2,8 +2,8 @@ package main
 
 import (
 	"fmt"
-	"github.com/godaddy-x/freego/orm/sqlc"
-	"github.com/godaddy-x/freego/orm/sqld"
+	"github.com/godaddy-x/freego/ormx/sqlc"
+	"github.com/godaddy-x/freego/ormx/sqld"
 	"github.com/godaddy-x/freego/util"
 	"testing"
 )

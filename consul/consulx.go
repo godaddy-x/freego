@@ -2,16 +2,12 @@ package consul
 
 import (
 	"fmt"
+	DIC "github.com/godaddy-x/freego/common"
 	"github.com/godaddy-x/freego/util"
 	"github.com/godaddy-x/freego/zlog"
 	consulapi "github.com/hashicorp/consul/api"
 	"go.uber.org/zap"
 	"net/http"
-)
-
-const (
-	defaultHost = "consulx.com:8500"
-	defaultNode = "dc/consul"
 )
 
 var (
@@ -29,7 +25,6 @@ type ConsulManager struct {
 // Consulx配置参数
 type ConsulConfig struct {
 	DsName       string // 数据源名
-	Node         string // 配置数据节点, /dc/consul
 	Host         string // consul host
 	CheckPort    int    // 健康监测端口
 	RpcPort      int    // RPC调用端口
@@ -55,26 +50,16 @@ func getConsulClient(conf ConsulConfig) *ConsulManager {
 func (self *ConsulManager) InitConfig(input ...ConsulConfig) (*ConsulManager, error) {
 	for _, conf := range input {
 		if len(conf.Host) == 0 {
-			conf.Host = defaultHost
+			panic("consul host is nil")
 		}
-		if len(conf.Node) == 0 {
-			conf.Node = defaultNode
+		if len(conf.DsName) == 0 {
+			conf.DsName = DIC.MASTER
 		}
-		localmgr := getConsulClient(conf)
-		config := ConsulConfig{}
-		if err := localmgr.GetJsonValue(conf.Node, &config, false); err != nil {
-			panic(err)
-		}
-		config.Node = conf.Node
-		onlinemgr := getConsulClient(config)
-		onlinemgr.Config = &config
-		if len(config.DsName) == 0 {
-			consulSessions[conf.Node] = onlinemgr
-		} else {
-			consulSessions[config.DsName] = onlinemgr
-		}
-		onlinemgr.initSlowLog()
-		zlog.Printf("consul service %s【%s】has been started successfully", conf.Host, conf.Node)
+		manager := getConsulClient(conf)
+		manager.Config = &conf
+		consulSessions[manager.Config.DsName] = manager
+		manager.initSlowLog()
+		zlog.Printf("consul service %s【%s】has been started successfully", conf.Host, conf.DsName)
 	}
 	if len(consulSessions) == 0 {
 		zlog.Printf("consul init failed: sessions is nil")
@@ -106,11 +91,9 @@ func (self *ConsulManager) GetSlowLog() *zap.Logger {
 }
 
 func (self *ConsulManager) Client(dsname ...string) (*ConsulManager, error) {
-	var ds string
+	ds := DIC.MASTER
 	if len(dsname) > 0 && len(dsname[0]) > 0 {
 		ds = dsname[0]
-	} else {
-		ds = defaultNode
 	}
 	manager := consulSessions[ds]
 	if manager == nil {

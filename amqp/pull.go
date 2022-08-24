@@ -2,6 +2,7 @@ package rabbitmq
 
 import (
 	"fmt"
+	DIC "github.com/godaddy-x/freego/common"
 	"github.com/godaddy-x/freego/util"
 	"github.com/godaddy-x/freego/zlog"
 	"github.com/streadway/amqp"
@@ -26,7 +27,7 @@ func (self *PullManager) InitConfig(input ...AmqpConfig) (*PullManager, error) {
 			return nil, util.Error("rabbitmq pull init failed: [", v.DsName, "] exist")
 		}
 		if len(v.DsName) == 0 {
-			v.DsName = MASTER
+			v.DsName = DIC.MASTER
 		}
 		pullMgr := &PullManager{
 			conf:      v,
@@ -42,11 +43,9 @@ func (self *PullManager) InitConfig(input ...AmqpConfig) (*PullManager, error) {
 }
 
 func (self *PullManager) Client(dsname ...string) (*PullManager, error) {
-	var ds string
+	ds := DIC.MASTER
 	if len(dsname) > 0 && len(dsname[0]) > 0 {
 		ds = dsname[0]
-	} else {
-		ds = MASTER
 	}
 	return pullMgrs[ds], nil
 }
@@ -121,7 +120,7 @@ func (self *PullManager) listen(receiver *PullReceiver) {
 		receiver.Config.Option.SigKey = util.GetLocalSecretKey() + self.conf.SecretKey
 	}
 	if len(kind) == 0 {
-		kind = DIRECT
+		kind = direct
 	}
 	if len(router) == 0 {
 		router = queue

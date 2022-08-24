@@ -9,10 +9,9 @@ import (
 )
 
 const (
-	MASTER = "MASTER"
-	DIRECT = "direct"
-	TOPIC  = "topic"
-	FANOUT = "fanout"
+	direct = "direct"
+	topic  = "topic"
+	fanout = "fanout"
 )
 
 // Amqp配置参数

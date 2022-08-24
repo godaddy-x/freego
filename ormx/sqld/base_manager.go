@@ -5,8 +5,9 @@ import (
 	"context"
 	"database/sql"
 	"github.com/godaddy-x/freego/cache"
-	"github.com/godaddy-x/freego/orm/sqlc"
-	"github.com/godaddy-x/freego/orm/sqld/dialect"
+	DIC "github.com/godaddy-x/freego/common"
+	"github.com/godaddy-x/freego/ormx/sqlc"
+	"github.com/godaddy-x/freego/ormx/sqld/dialect"
 	"github.com/godaddy-x/freego/util"
 	"github.com/godaddy-x/freego/zlog"
 	"reflect"
@@ -16,11 +17,10 @@ import (
 )
 
 var (
-	MASTER = "MASTER"
-	ZERO   = int64(0)
-	TRUE   = true
-	FALSE  = false
-	rdbs   = map[string]*RDBManager{}
+	ZERO  = int64(0)
+	TRUE  = true
+	FALSE = false
+	rdbs  = map[string]*RDBManager{}
 )
 
 const (
@@ -206,7 +206,7 @@ type RDBManager struct {
 }
 
 func (self *RDBManager) GetDB(options ...Option) error {
-	dsName := MASTER
+	dsName := DIC.MASTER
 	var option Option
 	if len(options) > 0 {
 		option = options[0]

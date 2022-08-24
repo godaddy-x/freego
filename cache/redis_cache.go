@@ -2,13 +2,13 @@ package cache
 
 import (
 	"github.com/garyburd/redigo/redis"
+	DIC "github.com/godaddy-x/freego/common"
 	"github.com/godaddy-x/freego/util"
 	"github.com/godaddy-x/freego/zlog"
 	"time"
 )
 
 var (
-	MASTER        = "MASTER"
 	redisSessions = make(map[string]*RedisManager, 0)
 )
 
@@ -33,7 +33,7 @@ type RedisManager struct {
 
 func (self *RedisManager) InitConfig(input ...RedisConfig) (*RedisManager, error) {
 	for _, v := range input {
-		dsName := MASTER
+		dsName := DIC.MASTER
 		if len(v.DsName) > 0 {
 			dsName = v.DsName
 		}
@@ -63,7 +63,7 @@ func (self *RedisManager) InitConfig(input ...RedisConfig) (*RedisManager, error
 }
 
 func (self *RedisManager) Client(dsName ...string) (*RedisManager, error) {
-	ds := MASTER
+	ds := DIC.MASTER
 	if len(dsName) > 0 && len(dsName[0]) > 0 {
 		ds = dsName[0]
 	}

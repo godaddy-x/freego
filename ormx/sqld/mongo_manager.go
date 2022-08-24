@@ -4,7 +4,8 @@ import (
 	"github.com/globalsign/mgo"
 	"github.com/globalsign/mgo/bson"
 	"github.com/godaddy-x/freego/cache"
-	"github.com/godaddy-x/freego/orm/sqlc"
+	DIC "github.com/godaddy-x/freego/common"
+	"github.com/godaddy-x/freego/ormx/sqlc"
 	"github.com/godaddy-x/freego/util"
 	"github.com/godaddy-x/freego/zlog"
 	"go.uber.org/zap"
@@ -71,7 +72,7 @@ func (self *MGOManager) GetDatabase(copySession *mgo.Session, tb string) (*mgo.C
 }
 
 func (self *MGOManager) GetDB(options ...Option) error {
-	dsName := MASTER
+	dsName := DIC.MASTER
 	var option Option
 	if len(options) > 0 {
 		option = options[0]
@@ -125,7 +126,7 @@ func (self *MGOManager) buildByConfig(manager cache.ICache, input ...MGOConfig) 
 	for _, v := range input {
 		var session *mgo.Session
 		var err error
-		dsName := MASTER
+		dsName := DIC.MASTER
 		if len(v.DsName) > 0 {
 			dsName = v.DsName
 		}

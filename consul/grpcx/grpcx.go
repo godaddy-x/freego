@@ -21,11 +21,6 @@ import (
 	"time"
 )
 
-const (
-	limiterKey     = "grpc:limiter:"
-	timeDifference = 2400
-)
-
 var (
 	serverDialTLS   grpc.ServerOption
 	clientDialTLS   grpc.DialOption
@@ -305,10 +300,10 @@ func RunServer(consulDs string, authenticate bool, objects ...*GRPC) {
 	}
 }
 
-// RunTokenServer important: ensure that the service starts only once
+// RunClient important: ensure that the service starts only once
 // JWT Token expires in 1 hour
 // The remaining 1200s will be automatically renewed and detected every 15s
-func RunTokenServer(appid string) {
+func RunClient(appid string) {
 	var loginRes *pb.RPCLoginRes
 	for {
 		res, err := CallRPC(&GRPC{
@@ -338,17 +333,17 @@ func RunTokenServer(appid string) {
 		break
 	}
 	accessToken = loginRes.Token
-	go renewGRPCToken(appid, loginRes.Expired)
+	go renewClientToken(appid, loginRes.Expired)
 }
 
-func renewGRPCToken(appid string, expired int64) error {
+func renewClientToken(appid string, expired int64) error {
 	for {
 		zlog.Warn("detecting rpc token expiration", 0, zlog.Int64("countDown", expired-util.TimeSecond()-timeDifference))
 		if expired-util.TimeSecond() > timeDifference { // TODO token过期时间大于2400s则忽略,每15s检测一次
 			time.Sleep(15 * time.Second)
 			continue
 		}
-		RunTokenServer(appid)
+		RunClient(appid)
 		zlog.Info("rpc token renewal succeeded", 0)
 		return nil
 	}

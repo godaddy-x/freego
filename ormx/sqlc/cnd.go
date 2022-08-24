@@ -2,7 +2,7 @@ package sqlc
 
 import (
 	"fmt"
-	"github.com/godaddy-x/freego/orm/sqld/dialect"
+	"github.com/godaddy-x/freego/ormx/sqld/dialect"
 )
 
 /**

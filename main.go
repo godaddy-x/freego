@@ -14,10 +14,11 @@ func http_test() {
 }
 
 func initConsul() {
-	new(consul.ConsulManager).InitConfig(consul.ConsulConfig{
-		Host: "consulx.com:8500",
-		Node: "dc/consul",
-	})
+	conf := consul.ConsulConfig{}
+	if err := util.ReadLocalJsonConfig("resource/consul.json", &conf); err != nil {
+		panic(util.AddStr("读取consul配置失败: ", err.Error()))
+	}
+	new(consul.ConsulManager).InitConfig(conf)
 }
 
 func initRedis() {
@@ -65,6 +66,6 @@ func init() {
 }
 
 func main() {
-	grpcx.RunTokenServer(APPID)
+	grpcx.RunClient(APPID)
 	http_test()
 }

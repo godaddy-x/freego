@@ -13,7 +13,9 @@ import (
 )
 
 const (
-	token = "token"
+	token          = "token"
+	limiterKey     = "grpc:limiter:"
+	timeDifference = 2400
 )
 
 var (

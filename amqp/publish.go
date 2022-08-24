@@ -2,6 +2,7 @@ package rabbitmq
 
 import (
 	"fmt"
+	DIC "github.com/godaddy-x/freego/common"
 	"github.com/godaddy-x/freego/util"
 	"github.com/godaddy-x/freego/zlog"
 	"github.com/streadway/amqp"
@@ -41,7 +42,7 @@ func (self *PublishManager) InitConfig(input ...AmqpConfig) (*PublishManager, er
 			return nil, util.Error("rabbitmq publish init failed: [", v.DsName, "] exist")
 		}
 		if len(v.DsName) == 0 {
-			v.DsName = MASTER
+			v.DsName = DIC.MASTER
 		}
 		publishMgr := &PublishManager{
 			conf:     v,
@@ -57,11 +58,9 @@ func (self *PublishManager) InitConfig(input ...AmqpConfig) (*PublishManager, er
 }
 
 func (self *PublishManager) Client(dsname ...string) (*PublishManager, error) {
-	var ds string
+	ds := DIC.MASTER
 	if len(dsname) > 0 && len(dsname[0]) > 0 {
 		ds = dsname[0]
-	} else {
-		ds = MASTER
 	}
 	return publishMgrs[ds], nil
 }
@@ -143,7 +142,7 @@ func (self *PublishManager) initQueue(data *MsgData) (*PublishMQ, error) {
 	pub, ok = self.channels[chanKey]
 	if !ok {
 		if len(data.Option.Kind) == 0 {
-			data.Option.Kind = DIRECT
+			data.Option.Kind = direct
 		}
 		if len(data.Option.Router) == 0 {
 			data.Option.Router = data.Option.Queue

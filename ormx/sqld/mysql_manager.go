@@ -5,6 +5,7 @@ import (
 	"fmt"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/godaddy-x/freego/cache"
+	DIC "github.com/godaddy-x/freego/common"
 	"github.com/godaddy-x/freego/util"
 	"github.com/godaddy-x/freego/zlog"
 	"time"
@@ -41,7 +42,7 @@ func (self *MysqlManager) InitConfigAndCache(manager cache.ICache, input ...Mysq
 
 func (self *MysqlManager) buildByConfig(manager cache.ICache, input ...MysqlConfig) error {
 	for _, v := range input {
-		dsName := MASTER
+		dsName := DIC.MASTER
 		if len(v.DsName) > 0 {
 			dsName = v.DsName
 		}

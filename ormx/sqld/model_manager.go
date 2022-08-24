@@ -1,7 +1,7 @@
 package sqld
 
 import (
-	"github.com/godaddy-x/freego/orm/sqlc"
+	"github.com/godaddy-x/freego/ormx/sqlc"
 	"github.com/godaddy-x/freego/util"
 	"reflect"
 )
