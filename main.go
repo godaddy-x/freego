@@ -3,10 +3,10 @@ package main
 import (
 	"fmt"
 	"github.com/godaddy-x/freego/cache"
-	"github.com/godaddy-x/freego/component/consul"
-	"github.com/godaddy-x/freego/component/consul/grpcx"
-	"github.com/godaddy-x/freego/component/consul/grpcx/pb"
-	rate "github.com/godaddy-x/freego/component/limiter"
+	"github.com/godaddy-x/freego/cache/limiter"
+	"github.com/godaddy-x/freego/consul"
+	"github.com/godaddy-x/freego/consul/grpcx"
+	"github.com/godaddy-x/freego/consul/grpcx/pb"
 	"github.com/godaddy-x/freego/node/test"
 	"github.com/godaddy-x/freego/util"
 )
@@ -48,25 +48,27 @@ func initGRPC() {
 	})
 	client.CreateServerTLS(grpcx.TlsConfig{
 		UseMTLS:   true,
-		CACrtFile: "./component/consul/grpcx/cert/ca.crt",
-		KeyFile:   "./component/consul/grpcx/cert/server.key",
-		CrtFile:   "./component/consul/grpcx/cert/server.crt",
+		CACrtFile: "./consul/grpcx/cert/ca.crt",
+		KeyFile:   "./consul/grpcx/cert/server.key",
+		CrtFile:   "./consul/grpcx/cert/server.crt",
 	})
 	client.CreateClientTLS(grpcx.TlsConfig{
 		UseMTLS:   true,
-		CACrtFile: "./component/consul/grpcx/cert/ca.crt",
-		KeyFile:   "./component/consul/grpcx/cert/client.key",
-		CrtFile:   "./component/consul/grpcx/cert/client.crt",
+		CACrtFile: "./consul/grpcx/cert/ca.crt",
+		KeyFile:   "./consul/grpcx/cert/client.key",
+		CrtFile:   "./consul/grpcx/cert/client.crt",
 		HostName:  "localhost",
 	})
 }
 
 func initClientTokenAuth() {
-	new(grpcx.GRPCManager).CreateTokenAuth(APPID, func(res *pb.RPCLoginRes) error {
+	if _, err := new(grpcx.GRPCManager).CreateTokenAuth(APPID, func(res *pb.RPCLoginRes) error {
 		fmt.Println("rpc token:  ", res.Token)
 		http_web.RPC_TOKEN = res.Token
 		return nil
-	})
+	}); err != nil {
+		fmt.Println(err)
+	}
 }
 
 func init() {

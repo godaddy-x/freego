@@ -2,11 +2,11 @@ package node
 
 import (
 	"fmt"
-	"github.com/godaddy-x/freego/component/gorsa"
-	"github.com/godaddy-x/freego/component/jwt"
-	"github.com/godaddy-x/freego/component/log"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/util"
+	"github.com/godaddy-x/freego/util/gorsa"
+	"github.com/godaddy-x/freego/util/jwt"
+	"github.com/godaddy-x/freego/zlog"
 	"io/ioutil"
 	"net/http"
 	"strings"
@@ -408,7 +408,7 @@ func (self *HttpNode) RenderError(err error) error {
 		self.Context.Output.Write(util.Str2Bytes(resp.Message))
 	} else {
 		if result, err := util.JsonMarshal(resp); err != nil {
-			log.Error(resp.Message, 0, log.AddError(err))
+			zlog.Error(resp.Message, 0, zlog.AddError(err))
 			return nil
 		} else {
 			self.Context.Output.Header().Set("Content-Type", APPLICATION_JSON)
@@ -491,15 +491,15 @@ func (self *HttpNode) RenderTo() error {
 func (self *HttpNode) StartServer() {
 	go func() {
 		if self.CacheAware != nil {
-			log.Printf("cache service has been started successfully")
+			zlog.Printf("cache service has been started successfully")
 		}
 		if self.Context.ServerCert != nil {
-			log.Printf("RSA certificate service has been started successfully")
+			zlog.Printf("RSA certificate service has been started successfully")
 		}
 		url := util.AddStr(self.Context.Host, ":", self.Context.Port)
-		log.Printf("http【%s】service has been started successfully", url)
+		zlog.Printf("http【%s】service has been started successfully", url)
 		if err := http.ListenAndServe(url, self.limiterTimeoutHandler()); err != nil {
-			log.Error("http service init failed", 0, log.AddError(err))
+			zlog.Error("http service init failed", 0, zlog.AddError(err))
 		}
 	}()
 	select {}
@@ -534,13 +534,13 @@ func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, ro
 		pattern = util.AddStr("/", self.Context.Version, pattern)
 	}
 	if self.CacheAware == nil {
-		log.Error("cache service hasn't been initialized", 0)
+		zlog.Error("cache service hasn't been initialized", 0)
 		return
 	}
 	if self.Context.ServerCert == nil {
 		cert := &gorsa.RsaObj{}
 		if err := cert.CreateRsa1024(); err != nil {
-			log.Error("RSA certificate generation failed", 0)
+			zlog.Error("RSA certificate generation failed", 0)
 			return
 		}
 		self.Context.ServerCert = cert

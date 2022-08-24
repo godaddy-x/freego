@@ -3,8 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/godaddy-x/freego/component/consul/grpcx"
-	"github.com/godaddy-x/freego/component/consul/grpcx/pb"
+	"github.com/godaddy-x/freego/consul/grpcx"
+	"github.com/godaddy-x/freego/consul/grpcx/pb"
 	"github.com/godaddy-x/freego/util"
 	"google.golang.org/grpc"
 	"testing"

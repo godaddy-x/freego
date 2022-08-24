@@ -1,9 +1,9 @@
 package node
 
 import (
-	"github.com/godaddy-x/freego/component/log"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/util"
+	"github.com/godaddy-x/freego/zlog"
 	"github.com/gorilla/websocket"
 	"net/http"
 	"sync"
@@ -37,7 +37,7 @@ type WSMessage struct {
 }
 
 func (self *WSManager) start() {
-	log.Info("/A websocket manager has been initialized.", 0)
+	zlog.Info("/A websocket manager has been initialized.", 0)
 	if self.timeout <= 0 {
 		self.timeout = 60000
 	}
@@ -48,12 +48,12 @@ func (self *WSManager) start() {
 	for {
 		select {
 		case conn := <-self.register:
-			log.Debug("/A new socket has connected.", 0, log.String("id", conn.id))
+			zlog.Debug("/A new socket has connected.", 0, zlog.String("id", conn.id))
 			self.clients.Store(conn.id, conn)
 			go self.read(conn)
 			go self.write(conn)
 		case conn := <-self.unregister:
-			log.Debug("/A socket has disconnected.", 0, log.String("id", conn.id))
+			zlog.Debug("/A socket has disconnected.", 0, zlog.String("id", conn.id))
 			close(conn.send)
 			self.clients.Delete(conn.id)
 		}
@@ -98,9 +98,9 @@ func (self *WSManager) write(c *WSClient) {
 }
 
 func (self *WSManager) validator() {
-	log.Info("/A websocket validator has been initialized.", 0)
+	zlog.Info("/A websocket validator has been initialized.", 0)
 	for {
-		log.Debug("/A websocket validator is running.", 0)
+		zlog.Debug("/A websocket validator is running.", 0)
 		wss := []*WSClient{}
 		self.clients.Range(func(key, value interface{}) bool {
 			if v, b := value.(*WSClient); b && (util.Time()-v.access > self.timeout) {
@@ -110,11 +110,11 @@ func (self *WSManager) validator() {
 		})
 		for _, v := range wss {
 			if util.Time()-v.access > self.timeout {
-				log.Debug("/A websocket validator disconnected.", 0, log.String("id", v.id))
+				zlog.Debug("/A websocket validator disconnected.", 0, zlog.String("id", v.id))
 				v.send <- WSMessage{MessageType: websocket.CloseMessage, Content: util.Str2Bytes(ex.Throw{Code: http.StatusRequestTimeout, Msg: "连接超时已断开"}.Error())}
 			}
 		}
-		log.Debug("/A websocket validator finished processing.", 0)
+		zlog.Debug("/A websocket validator finished processing.", 0)
 		time.Sleep(time.Duration(self.looptime) * time.Millisecond)
 	}
 }

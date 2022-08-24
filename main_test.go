@@ -3,12 +3,12 @@ package main
 import (
 	"fmt"
 	"github.com/godaddy-x/freego/cache"
-	"github.com/godaddy-x/freego/component/auth"
-	"github.com/godaddy-x/freego/component/goquery"
-	"github.com/godaddy-x/freego/concurrent"
-	"github.com/godaddy-x/freego/sqlc"
-	"github.com/godaddy-x/freego/sqld"
+	"github.com/godaddy-x/freego/goquery"
+	"github.com/godaddy-x/freego/orm/sqlc"
+	"github.com/godaddy-x/freego/orm/sqld"
 	"github.com/godaddy-x/freego/util"
+	"github.com/godaddy-x/freego/util/concurrent"
+	"github.com/godaddy-x/freego/util/gauth"
 	"github.com/gorilla/websocket"
 	"net/url"
 	"testing"
@@ -353,18 +353,18 @@ func TestEX(t *testing.T) {
 
 func TestGA(t *testing.T) {
 	// 生成种子
-	seed := auth.GenerateSeed()
+	seed := gauth.GenerateSeed()
 	fmt.Println("种子: ", seed)
 	// 通过种子生成密钥
-	key, _ := auth.GenerateSecretKey(seed)
+	key, _ := gauth.GenerateSecretKey(seed)
 	fmt.Println("密钥: ", key)
 	// 通过密钥+时间生成验证码
-	rs := auth.GetNewCode(key, time.Now().Unix())
+	rs := gauth.GetNewCode(key, time.Now().Unix())
 	fmt.Println("验证码: ", rs)
 	fmt.Println("开始睡眠延迟中,请耐心等待...")
 	time.Sleep(5 * time.Second)
 	// 校验已有验证码
-	fmt.Println("校验结果: ", auth.ValidCode(key, rs))
+	fmt.Println("校验结果: ", gauth.ValidCode(key, rs))
 }
 
 func TestWebsocket_client_login(t *testing.T) {

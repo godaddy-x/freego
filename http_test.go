@@ -3,9 +3,9 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"github.com/godaddy-x/freego/component/gorsa"
 	"github.com/godaddy-x/freego/node"
 	"github.com/godaddy-x/freego/util"
+	"github.com/godaddy-x/freego/util/gorsa"
 	"io/ioutil"
 	"net/http"
 	"testing"
@@ -20,11 +20,6 @@ const token_secret = "Vd9oHk9/u54WCXJHy*kT^j#lKMoWoQRMQs9Oqtoc#lK!ZC@diQivDB5Vf5
 //const token_secret = ""
 
 var pubkey = util.MD5(util.RandStr(16), true)
-var srvPubkeyBase64 string
-
-func init() {
-	//srvPubkeyBase64 = initSrvPubkey()
-}
 
 func initSrvPubkey() string {
 	resp, err := http.Get(domain + "/pubkey")
@@ -37,16 +32,11 @@ func initSrvPubkey() string {
 	}
 	//fmt.Println(string(respBytes))
 	return string(respBytes)
-	//if err := srvRsa.LoadRsaPemFileBase64(string(respBytes)); err != nil {
-	//	panic(err)
-	//}
-	//if err != nil {
-	//	panic(err)
-	//}
 }
 
 // 测试使用的http post示例方法
 func ToPostBy(path string, req *node.ReqDto) {
+	srvPubkeyBase64 := initSrvPubkey()
 	if len(srvPubkeyBase64) == 0 {
 		panic("srvPubkeyBase64 is nil")
 	}

@@ -1,10 +1,10 @@
 package node
 
 import (
-	"github.com/godaddy-x/freego/component/jwt"
-	"github.com/godaddy-x/freego/component/log"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/util"
+	"github.com/godaddy-x/freego/util/jwt"
+	"github.com/godaddy-x/freego/zlog"
 	"github.com/gorilla/websocket"
 	"net/http"
 	"strings"
@@ -228,11 +228,11 @@ func (self *WebsocketNode) Proxy(ptr *NodePtr) {
 	ob := &WebsocketNode{}
 	ptr.Node = ob
 	if err := self.InitContext(ptr); err != nil {
-		log.Error(err.Error(), 0)
+		zlog.Error(err.Error(), 0)
 		return
 	}
 	if err := ob.InitWebsocket(ptr); err != nil {
-		log.Error(err.Error(), 0)
+		zlog.Error(err.Error(), 0)
 		return
 	}
 }
@@ -310,7 +310,7 @@ func (self *WebsocketNode) StartServer() {
 	go self.WSManager.start()
 	go func() {
 		if err := http.ListenAndServe(util.AddStr(self.Context.Host, ":", self.Context.Port), nil); err != nil {
-			log.Error("初始化websocket失败", 0, log.AddError(err))
+			zlog.Error("初始化websocket失败", 0, zlog.AddError(err))
 		}
 	}()
 }
@@ -323,7 +323,7 @@ func (self *WebsocketNode) Router(pattern string, handle func(ctx *Context) erro
 		pattern = util.AddStr("/", self.Context.Version, pattern)
 	}
 	if self.CacheAware == nil {
-		log.Error("缓存服务尚未初始化", 0)
+		zlog.Error("缓存服务尚未初始化", 0)
 		return
 	}
 	if config == nil {

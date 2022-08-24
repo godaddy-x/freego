@@ -2,13 +2,13 @@ package node
 
 import (
 	"github.com/godaddy-x/freego/cache"
-	"github.com/godaddy-x/freego/component/gorsa"
-	"github.com/godaddy-x/freego/component/jwt"
-	"github.com/godaddy-x/freego/component/limiter"
-	"github.com/godaddy-x/freego/component/log"
+	"github.com/godaddy-x/freego/cache/limiter"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/node/common"
 	"github.com/godaddy-x/freego/util"
+	"github.com/godaddy-x/freego/util/gorsa"
+	"github.com/godaddy-x/freego/util/jwt"
+	"github.com/godaddy-x/freego/zlog"
 	"net/http"
 	"unsafe"
 )
@@ -217,7 +217,7 @@ func (self *Context) Authenticated() bool {
 func (self *Context) Parser(v interface{}) error {
 	if err := util.JsonToAny(self.Params.Data, v); err != nil {
 		msg := "JSON parameter parsing failed"
-		log.Error(msg, 0, log.String("method", self.Method), log.String("host", self.Host), log.String("device", self.Device), log.Any("data", self.Params))
+		zlog.Error(msg, 0, zlog.String("method", self.Method), zlog.String("host", self.Host), zlog.String("device", self.Device), zlog.Any("data", self.Params))
 		return ex.Throw{Msg: msg}
 	}
 	// TODO 备注: 已有会话状态时,指针填充context值,不能随意修改指针偏移值

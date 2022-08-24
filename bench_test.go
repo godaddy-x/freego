@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"github.com/godaddy-x/freego/sqld"
+	"github.com/godaddy-x/freego/orm/sqld"
 	"github.com/godaddy-x/freego/util"
 )
 

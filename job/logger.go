@@ -11,7 +11,7 @@ import (
 // DefaultLogger is used by Cron if none is specified.
 var DefaultLogger Logger = PrintfLogger(log.New(os.Stdout, "cron: ", log.LstdFlags))
 
-// DiscardLogger can be used by callers to discard all log messages.
+// DiscardLogger can be used by callers to discard all zlog messages.
 var DiscardLogger Logger = PrintfLogger(log.New(ioutil.Discard, "", 0))
 
 // Logger is the interface used in this package for logging, so that any backend
@@ -23,14 +23,14 @@ type Logger interface {
 	Error(err error, msg string, keysAndValues ...interface{})
 }
 
-// PrintfLogger wraps a Printf-based logger (such as the standard library "log")
+// PrintfLogger wraps a Printf-based logger (such as the standard library "zlog")
 // into an implementation of the Logger interface which logs errors only.
 func PrintfLogger(l interface{ Printf(string, ...interface{}) }) Logger {
 	return printfLogger{l, false}
 }
 
 // VerbosePrintfLogger wraps a Printf-based logger (such as the standard library
-// "log") into an implementation of the Logger interface which logs everything.
+// "zlog") into an implementation of the Logger interface which logs everything.
 func VerbosePrintfLogger(l interface{ Printf(string, ...interface{}) }) Logger {
 	return printfLogger{l, true}
 }

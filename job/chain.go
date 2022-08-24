@@ -34,7 +34,7 @@ func (c Chain) Then(j Job) Job {
 	return j
 }
 
-// Recover panics in wrapped jobs and log them with the provided logger.
+// Recover panics in wrapped jobs and zlog them with the provided logger.
 func Recover(logger Logger) JobWrapper {
 	return func(j Job) Job {
 		return FuncJob(func() {

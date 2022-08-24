@@ -2,8 +2,8 @@ package node
 
 import (
 	"github.com/godaddy-x/freego/cache"
-	"github.com/godaddy-x/freego/component/jwt"
 	"github.com/godaddy-x/freego/util"
+	"github.com/godaddy-x/freego/util/jwt"
 )
 
 type Session interface {

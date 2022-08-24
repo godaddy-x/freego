@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"github.com/godaddy-x/freego/component/amqp"
+	"github.com/godaddy-x/freego/amqp"
 	"testing"
 	"time"
 )
@@ -44,7 +44,7 @@ func TestMQPublish(t *testing.T) {
 	}
 	cli, _ := mq.Client()
 	content := map[string]interface{}{"test": 1234}
-	for ; ; {
+	for {
 		err := cli.Publish(exchange, queue, content)
 		if err != nil {
 			fmt.Println("send msg failed: ", err)

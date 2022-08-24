@@ -3,7 +3,7 @@ package main
 import (
 	"encoding/base64"
 	"fmt"
-	"github.com/godaddy-x/freego/component/gorsa"
+	"github.com/godaddy-x/freego/util/gorsa"
 	"testing"
 )
 

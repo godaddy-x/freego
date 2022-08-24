@@ -4,14 +4,14 @@ import (
 	"context"
 	"fmt"
 	"github.com/godaddy-x/freego/cache"
-	"github.com/godaddy-x/freego/component/consul/grpcx"
-	"github.com/godaddy-x/freego/component/consul/grpcx/pb"
-	"github.com/godaddy-x/freego/component/jwt"
-	"github.com/godaddy-x/freego/component/limiter"
+	"github.com/godaddy-x/freego/cache/limiter"
+	"github.com/godaddy-x/freego/consul/grpcx"
+	"github.com/godaddy-x/freego/consul/grpcx/pb"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/node"
 	"github.com/godaddy-x/freego/node/common"
 	"github.com/godaddy-x/freego/util"
+	"github.com/godaddy-x/freego/util/jwt"
 	"google.golang.org/grpc"
 )
 
@@ -126,7 +126,7 @@ func StartHttpNode() {
 				LogNo:    util.GetSnowFlakeStrID(),
 				CreateAt: util.Time(),
 			}
-			// TODO send log to rabbitmq
+			// TODO send zlog to rabbitmq
 			//fmt.Println("LogHandleFunc: ", res)
 			return res, nil
 		},
@@ -136,7 +136,7 @@ func StartHttpNode() {
 		AfterCompletionFunc: func(ctx *node.Context, res node.LogHandleRes, err error) error {
 			res.UpdateAt = util.Time()
 			res.CostMill = res.UpdateAt - res.CreateAt
-			// TODO send log to rabbitmq
+			// TODO send zlog to rabbitmq
 			//fmt.Println("AfterCompletionFunc: ", res)
 			return err
 		},

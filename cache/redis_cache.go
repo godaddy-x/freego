@@ -2,8 +2,8 @@ package cache
 
 import (
 	"github.com/garyburd/redigo/redis"
-	"github.com/godaddy-x/freego/component/log"
 	"github.com/godaddy-x/freego/util"
+	"github.com/godaddy-x/freego/zlog"
 	"time"
 )
 
@@ -54,7 +54,7 @@ func (self *RedisManager) InitConfig(input ...RedisConfig) (*RedisManager, error
 			return c, err
 		}}
 		redisSessions[dsName] = &RedisManager{Pool: pool, DsName: dsName}
-		log.Printf("redis service【%s】has been started successfully", dsName)
+		zlog.Printf("redis service【%s】has been started successfully", dsName)
 	}
 	if len(redisSessions) == 0 {
 		return nil, util.Error("init redis pool failed: sessions is nil")
