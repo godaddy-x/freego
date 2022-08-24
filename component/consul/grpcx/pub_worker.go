@@ -19,7 +19,7 @@ func (self *PubWorker) RPCLogin(ctx context.Context, req *pb2.RPCLoginReq) (*pb2
 	if len(req.Appid) != 32 {
 		return nil, util.Error("appid invalid")
 	}
-	if len(req.Nonce) != 16 {
+	if !util.CheckLen(req.Nonce, 16, 32) {
 		return nil, util.Error("nonce invalid")
 	}
 	if util.MathAbs(util.TimeSecond()-req.Time) > jwt.FIVE_MINUTES { // 判断绝对时间差超过5分钟
@@ -37,6 +37,7 @@ func (self *PubWorker) RPCLogin(ctx context.Context, req *pb2.RPCLoginReq) (*pb2
 		return nil, err
 	}
 	subject := &jwt.Subject{}
-	token := subject.Create(req.Appid).Expired(jwtConfig.TokenExp).Generate(jwtConfig)
+	subject.Create(req.Appid).Expired(jwtConfig.TokenExp)
+	token := subject.Generate(jwt.JwtConfig{TokenTyp: jwtConfig.TokenTyp, TokenAlg: jwtConfig.TokenAlg, TokenKey: jwtConfig.TokenKey})
 	return &pb2.RPCLoginRes{Token: token, Expired: subject.Payload.Exp}, nil
 }

@@ -48,7 +48,7 @@ func (self *MyWebNode) getUser(ctx *node.Context) error {
 }
 
 func testCallRPC() {
-	rpcToken := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJlMTBhZGMzOTQ5YmE1OWFiYmU1NmUwNTdmMjBmODgzZSIsImF1ZCI6IiIsImlzcyI6IiIsImlhdCI6MCwiZXhwIjoxNjY5Nzk1MDYyLCJkZXYiOiIiLCJqdGkiOiJ4TVlDRnc3QjNtUU1vTmREY3pheUJRPT0iLCJleHQiOnt9fQ==.AXLSwotawZvI+lcGGgT0vQS59v9TYRno3EMXSuc8N6o="
+	rpcToken := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJlMTBhZGMzOTQ5YmE1OWFiYmU1NmUwNTdmMjBmODgzZSIsImF1ZCI6IiIsImlzcyI6IiIsImlhdCI6MCwiZXhwIjoxNjYxMzExMzMyLCJkZXYiOiIiLCJqdGkiOiJjcWN3N1FmZ3QzK244Mi9FOUtpdGNRPT0iLCJleHQiOnt9fQ==.pCBCDoRRaVcmI9lsjVBCaXdvNuTu8LEnmwglsoppoDg="
 	res, err := grpcx.CallRPC(&grpcx.GRPC{
 		Token:   rpcToken,
 		Service: "PubWorker",

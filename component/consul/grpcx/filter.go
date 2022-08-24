@@ -17,8 +17,8 @@ const (
 )
 
 var defaultLimiter = rate.NewRateLimiter(rate.Option{
-	Limit:       2,
-	Bucket:      10,
+	Limit:       10,
+	Bucket:      100,
 	Distributed: true,
 })
 

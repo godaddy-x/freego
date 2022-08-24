@@ -1,9 +1,11 @@
 package main
 
 import (
+	"fmt"
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/component/consul"
 	"github.com/godaddy-x/freego/component/consul/grpcx"
+	"github.com/godaddy-x/freego/component/consul/grpcx/pb"
 	rate "github.com/godaddy-x/freego/component/limiter"
 	"github.com/godaddy-x/freego/node/test"
 	"github.com/godaddy-x/freego/util"
@@ -28,12 +30,18 @@ func initRedis() {
 	new(cache.RedisManager).InitConfig(conf)
 }
 
+var APPID = util.MD5("123456")
+var APPKEY = util.MD5("123456")
+
 func initGRPC() {
 	client := &grpcx.GRPCManager{}
-	client.CreateJwtConfig("123456", 8600000)
+	client.CreateJwtConfig(APPKEY)
 	client.CreateUnauthorizedUrl("/pub_worker.PubWorker/RPCLogin")
 	client.CreateAppConfigCall(func(appid string) (grpcx.AppConfig, error) {
-		return grpcx.AppConfig{Appid: "123456", Appkey: "123456"}, nil
+		if appid == APPKEY {
+			return grpcx.AppConfig{Appid: APPID, Appkey: APPKEY}, nil
+		}
+		return grpcx.AppConfig{}, util.Error("appid invalid")
 	})
 	client.CreateRateLimiterCall(func(method string) (rate.Option, error) {
 		return rate.Option{}, nil
@@ -53,6 +61,13 @@ func initGRPC() {
 	})
 }
 
+func initClientTokenAuth() {
+	new(grpcx.GRPCManager).CreateTokenAuth(APPID, func(res *pb.RPCLoginRes) error {
+		fmt.Println("rpc token:  ", res.Token)
+		return nil
+	})
+}
+
 func init() {
 	initConsul()
 	initRedis()
@@ -60,5 +75,6 @@ func init() {
 }
 
 func main() {
+	initClientTokenAuth()
 	http_test()
 }

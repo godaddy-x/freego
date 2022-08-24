@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"github.com/godaddy-x/freego/component/consul"
+	"github.com/godaddy-x/freego/component/consul/grpcx/pb"
 	"github.com/godaddy-x/freego/component/jwt"
 	rate "github.com/godaddy-x/freego/component/limiter"
 	"github.com/godaddy-x/freego/component/log"
@@ -27,7 +28,7 @@ const (
 var (
 	serverDialTLS   grpc.ServerOption
 	clientDialTLS   grpc.DialOption
-	jwtConfig       jwt.JwtConfig
+	jwtConfig       *jwt.JwtConfig
 	unauthorizedUrl []string
 	rateLimiterCall func(string) (rate.Option, error)
 	selectionCall   func([]*consulapi.ServiceEntry, *GRPC) *consulapi.ServiceEntry
@@ -69,16 +70,11 @@ type GRPC struct {
 	CallRPC func(conn *grpc.ClientConn, ctx context.Context) (interface{}, error) // grpc回调proto服务
 }
 
-func GetGRPCJwtConfig() (jwt.JwtConfig, error) {
+func GetGRPCJwtConfig() (*jwt.JwtConfig, error) {
 	if len(jwtConfig.TokenKey) == 0 {
-		return jwt.JwtConfig{}, util.Error("grpc jwt key is nil")
+		return nil, util.Error("grpc jwt key is nil")
 	}
-	return jwt.JwtConfig{
-		TokenTyp: jwtConfig.TokenTyp,
-		TokenAlg: jwtConfig.TokenAlg,
-		TokenKey: jwtConfig.TokenKey,
-		TokenExp: jwtConfig.TokenExp,
-	}, nil
+	return jwtConfig, nil
 }
 
 func GetGRPCAppConfig(appid string) (AppConfig, error) {
@@ -95,15 +91,22 @@ func (self *GRPCManager) CreateUnauthorizedUrl(url ...string) {
 	unauthorizedUrl = url
 }
 
-func (self *GRPCManager) CreateJwtConfig(tokenKey string, tokenExp int64) {
-	if len(jwtConfig.TokenKey) > 0 {
+func (self *GRPCManager) CreateJwtConfig(tokenKey string, tokenExp ...int64) {
+	if jwtConfig != nil {
 		return
 	}
-	jwtConfig = jwt.JwtConfig{
+	if len(tokenKey) < 32 {
+		panic("jwt tokenKey length should be >= 32")
+	}
+	var exp = int64(3600)
+	if len(tokenExp) > 0 && tokenExp[0] >= 3600 {
+		exp = tokenExp[0]
+	}
+	jwtConfig = &jwt.JwtConfig{
 		TokenTyp: jwt.JWT,
 		TokenAlg: jwt.HS256,
 		TokenKey: tokenKey,
-		TokenExp: tokenExp,
+		TokenExp: exp,
 	}
 }
 
@@ -309,6 +312,55 @@ func (self *GRPCManager) RunServer(objects ...*GRPC) {
 	if err := grpcServer.Serve(l); err != nil {
 		panic(err)
 	}
+}
+
+// CreateTokenAuth important: ensure that the service starts only once
+// JWT Token expires in 1 hour
+// The remaining 1200s will be automatically renewed and detected every 15s
+func (self *GRPCManager) CreateTokenAuth(appid string, callback func(res *pb.RPCLoginRes) error) (string, error) {
+	appConfig, err := GetGRPCAppConfig(appid)
+	if err != nil {
+		return "", err
+	}
+	if len(appConfig.Appkey) == 0 {
+		return "", util.Error("rpc appConfig key is nil")
+	}
+	req := &pb.RPCLoginReq{
+		Appid: appid,
+		Nonce: util.RandStr(32),
+		Time:  util.TimeSecond(),
+	}
+	req.Signature = util.HMAC_SHA256(util.AddStr(req.Appid, req.Nonce, req.Time), appConfig.Appkey, true)
+	res, err := CallRPC(&GRPC{
+		Service: "PubWorker",
+		CallRPC: func(conn *grpc.ClientConn, ctx context.Context) (interface{}, error) {
+			return pb.NewPubWorkerClient(conn).RPCLogin(ctx, req)
+		}})
+	if err != nil {
+		return "", err
+	}
+	object, _ := res.(*pb.RPCLoginRes)
+	if err := callback(object); err != nil {
+		return "", err
+	}
+	go self.renewGRPCToken(appid, callback, object.Expired)
+	return object.Token, nil
+}
+
+func (self *GRPCManager) renewGRPCToken(appid string, callback func(res *pb.RPCLoginRes) error, expired int64) error {
+	for {
+		log.Warn("detecting rpc token expiration", 0, log.Int64("remnant", expired-util.TimeSecond()))
+		if expired-util.TimeSecond() > 2400 { // TODO token过期时间大于2400s则忽略,每15s检测一次
+			time.Sleep(15 * time.Second)
+			continue
+		}
+		if _, err := self.CreateTokenAuth(appid, callback); err != nil {
+			log.Error("init rpc token failed", 0, log.AddError(err))
+		}
+		log.Info("rpc token renewal succeeded", 0)
+		return nil
+	}
+	return nil
 }
 
 func CallRPC(object *GRPC) (interface{}, error) {
