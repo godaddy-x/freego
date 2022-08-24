@@ -22,7 +22,8 @@ import (
 )
 
 const (
-	limiterKey = "grpc:limiter:"
+	limiterKey     = "grpc:limiter:"
+	timeDifference = 2400
 )
 
 var (
@@ -347,8 +348,8 @@ func (self *GRPCManager) CreateTokenAuth(appid string, callback func(res *pb.RPC
 
 func (self *GRPCManager) renewGRPCToken(appid string, callback func(res *pb.RPCLoginRes) error, expired int64) error {
 	for {
-		log.Warn("detecting rpc token expiration", 0, log.Int64("remnant", expired-util.TimeSecond()))
-		if expired-util.TimeSecond() > 2400 { // TODO token过期时间大于2400s则忽略,每15s检测一次
+		log.Warn("detecting rpc token expiration", 0, log.Int64("countDown", expired-util.TimeSecond()-timeDifference))
+		if expired-util.TimeSecond() > timeDifference { // TODO token过期时间大于2400s则忽略,每15s检测一次
 			time.Sleep(15 * time.Second)
 			continue
 		}
