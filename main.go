@@ -57,6 +57,7 @@ func initGRPC() {
 		CrtFile:   "./consul/grpcx/cert/client.crt",
 		HostName:  "localhost",
 	})
+	//client.CreateAuthorizeTLS("./consul/grpcx/cert/server.key")
 }
 
 func init() {

@@ -19,7 +19,7 @@ const (
 )
 
 var (
-	unauthorizedUrl = []string{"/pub_worker.PubWorker/RPCLogin"}
+	unauthorizedUrl = []string{"/pub_worker.PubWorker/Authorize", "/pub_worker.PubWorker/PublicKey"}
 )
 
 var defaultLimiter = rate.NewRateLimiter(rate.Option{

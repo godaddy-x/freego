@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.2.0
 // - protoc             v3.21.5
-// source: consul/grpcx/pub_worker.proto
+// source: consul/grpcx/proto/pub_worker.proto
 
 package pb
 
@@ -23,7 +23,8 @@ const _ = grpc.SupportPackageIsVersion7
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type PubWorkerClient interface {
 	GenerateId(ctx context.Context, in *GenerateIdReq, opts ...grpc.CallOption) (*GenerateIdRes, error)
-	RPCLogin(ctx context.Context, in *RPCLoginReq, opts ...grpc.CallOption) (*RPCLoginRes, error)
+	Authorize(ctx context.Context, in *AuthorizeReq, opts ...grpc.CallOption) (*AuthorizeRes, error)
+	PublicKey(ctx context.Context, in *PublicKeyReq, opts ...grpc.CallOption) (*PublicKeyRes, error)
 }
 
 type pubWorkerClient struct {
@@ -43,9 +44,18 @@ func (c *pubWorkerClient) GenerateId(ctx context.Context, in *GenerateIdReq, opt
 	return out, nil
 }
 
-func (c *pubWorkerClient) RPCLogin(ctx context.Context, in *RPCLoginReq, opts ...grpc.CallOption) (*RPCLoginRes, error) {
-	out := new(RPCLoginRes)
-	err := c.cc.Invoke(ctx, "/pub_worker.PubWorker/RPCLogin", in, out, opts...)
+func (c *pubWorkerClient) Authorize(ctx context.Context, in *AuthorizeReq, opts ...grpc.CallOption) (*AuthorizeRes, error) {
+	out := new(AuthorizeRes)
+	err := c.cc.Invoke(ctx, "/pub_worker.PubWorker/Authorize", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *pubWorkerClient) PublicKey(ctx context.Context, in *PublicKeyReq, opts ...grpc.CallOption) (*PublicKeyRes, error) {
+	out := new(PublicKeyRes)
+	err := c.cc.Invoke(ctx, "/pub_worker.PubWorker/PublicKey", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +67,8 @@ func (c *pubWorkerClient) RPCLogin(ctx context.Context, in *RPCLoginReq, opts ..
 // for forward compatibility
 type PubWorkerServer interface {
 	GenerateId(context.Context, *GenerateIdReq) (*GenerateIdRes, error)
-	RPCLogin(context.Context, *RPCLoginReq) (*RPCLoginRes, error)
+	Authorize(context.Context, *AuthorizeReq) (*AuthorizeRes, error)
+	PublicKey(context.Context, *PublicKeyReq) (*PublicKeyRes, error)
 	mustEmbedUnimplementedPubWorkerServer()
 }
 
@@ -68,8 +79,11 @@ type UnimplementedPubWorkerServer struct {
 func (UnimplementedPubWorkerServer) GenerateId(context.Context, *GenerateIdReq) (*GenerateIdRes, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GenerateId not implemented")
 }
-func (UnimplementedPubWorkerServer) RPCLogin(context.Context, *RPCLoginReq) (*RPCLoginRes, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method RPCLogin not implemented")
+func (UnimplementedPubWorkerServer) Authorize(context.Context, *AuthorizeReq) (*AuthorizeRes, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Authorize not implemented")
+}
+func (UnimplementedPubWorkerServer) PublicKey(context.Context, *PublicKeyReq) (*PublicKeyRes, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method PublicKey not implemented")
 }
 func (UnimplementedPubWorkerServer) mustEmbedUnimplementedPubWorkerServer() {}
 
@@ -102,20 +116,38 @@ func _PubWorker_GenerateId_Handler(srv interface{}, ctx context.Context, dec fun
 	return interceptor(ctx, in, info, handler)
 }
 
-func _PubWorker_RPCLogin_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(RPCLoginReq)
+func _PubWorker_Authorize_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AuthorizeReq)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(PubWorkerServer).RPCLogin(ctx, in)
+		return srv.(PubWorkerServer).Authorize(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/pub_worker.PubWorker/RPCLogin",
+		FullMethod: "/pub_worker.PubWorker/Authorize",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(PubWorkerServer).RPCLogin(ctx, req.(*RPCLoginReq))
+		return srv.(PubWorkerServer).Authorize(ctx, req.(*AuthorizeReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PubWorker_PublicKey_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PublicKeyReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PubWorkerServer).PublicKey(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/pub_worker.PubWorker/PublicKey",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PubWorkerServer).PublicKey(ctx, req.(*PublicKeyReq))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -132,10 +164,14 @@ var PubWorker_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _PubWorker_GenerateId_Handler,
 		},
 		{
-			MethodName: "RPCLogin",
-			Handler:    _PubWorker_RPCLogin_Handler,
+			MethodName: "Authorize",
+			Handler:    _PubWorker_Authorize_Handler,
+		},
+		{
+			MethodName: "PublicKey",
+			Handler:    _PubWorker_PublicKey_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "consul/grpcx/pub_worker.proto",
+	Metadata: "consul/grpcx/proto/pub_worker.proto",
 }

@@ -6,22 +6,29 @@ message GenerateIdReq {
   int64 node = 1;
   string kind = 2;
 }
+
 message GenerateIdRes {
   int64 value = 1;
 }
 
-message RPCLoginReq {
-  string appid = 1;
-  string nonce = 2;
-  int64 time = 3;
-  string signature = 4;
+message AuthorizeReq {
+  string message = 1;
 }
-message RPCLoginRes {
+
+message AuthorizeRes {
   string token = 1;
   int64 expired = 2;
 }
 
+message PublicKeyReq {
+}
+
+message PublicKeyRes {
+  string publicKey = 1;
+}
+
 service PubWorker{
   rpc GenerateId(GenerateIdReq) returns (GenerateIdRes){}
-  rpc RPCLogin(RPCLoginReq) returns (RPCLoginRes){}
+  rpc Authorize(AuthorizeReq) returns (AuthorizeRes){}
+  rpc PublicKey(PublicKeyReq) returns (PublicKeyRes){}
 }

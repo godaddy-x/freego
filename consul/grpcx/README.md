@@ -7,8 +7,8 @@ go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
 go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 
 ## 3.
-protoc --go_out=. ./consul/grpcx/pub_worker.proto
-protoc --go-grpc_out=. ./consul/grpcx/pub_worker.proto
+protoc --go_out=. ./consul/grpcx/proto/pub_worker.proto
+protoc --go-grpc_out=. ./consul/grpcx/proto/pub_worker.proto
 
 ## 4. 生成TLS证书
 
@@ -37,6 +37,5 @@ openssl pkcs8 -topk8 -nocrypt -in server.key -out server.pem
 
 ### 独立server.key进行SAN自签
 openssl genrsa -out server.key 2048
-openssl rsa -in server.key -out server.key
-openssl x509 -req -days 3650 -in server.csr -CA ca.crt -CAkey ca.key -set_serial 01 -out server.crt -extfile TLS.md -extensions SAN
+openssl req -new -key server.key -out server.csr -config TLS.md -extensions SAN
 openssl x509 -req -days 3650 -in server.csr -set_serial 01 -signkey server.key -out server.crt -extfile TLS.md -extensions SAN

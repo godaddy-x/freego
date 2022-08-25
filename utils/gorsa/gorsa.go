@@ -109,8 +109,14 @@ func (self *RsaObj) LoadRsaFile(filePath string) error {
 	if err != nil {
 		return err
 	}
+	block1 := pem.Block{
+		Type:  "RSA PUBLICK KEY",
+		Bytes: x509.MarshalPKCS1PublicKey(&prikey.PublicKey),
+	}
+	pubkeybase64 := base64.URLEncoding.EncodeToString(pem.EncodeToMemory(&block1))
 	self.prikey = prikey
 	self.pubkey = &prikey.PublicKey
+	self.PubkeyBase64 = pubkeybase64
 	return nil
 }
 

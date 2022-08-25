@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/godaddy-x/freego/consul/grpcx"
+	"github.com/godaddy-x/freego/consul/grpcx/impl"
 	"github.com/godaddy-x/freego/consul/grpcx/pb"
 	"github.com/godaddy-x/freego/utils"
 	"google.golang.org/grpc"
@@ -16,7 +17,7 @@ func TestConsulxRunGRPCServer(t *testing.T) {
 			Address: "localhost",
 			Service: "PubWorker",
 			Tags:    []string{"ID Generator"},
-			AddRPC:  func(server *grpc.Server) { pb.RegisterPubWorkerServer(server, &grpcx.PubWorker{}) },
+			AddRPC:  func(server *grpc.Server) { pb.RegisterPubWorkerServer(server, &impl.PubWorker{}) },
 		},
 	}
 	grpcx.RunServer("", true, objects...)

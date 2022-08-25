@@ -9,11 +9,13 @@ import (
 	"github.com/godaddy-x/freego/consul"
 	"github.com/godaddy-x/freego/consul/grpcx/pb"
 	"github.com/godaddy-x/freego/utils"
+	"github.com/godaddy-x/freego/utils/gorsa"
 	"github.com/godaddy-x/freego/utils/jwt"
 	"github.com/godaddy-x/freego/zlog"
 	consulapi "github.com/hashicorp/consul/api"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
 	"io/ioutil"
 	"math/rand"
 	"net"
@@ -28,6 +30,7 @@ var (
 	rateLimiterCall func(string) (rate.Option, error)
 	selectionCall   func([]*consulapi.ServiceEntry, *GRPC) *consulapi.ServiceEntry
 	appConfigCall   func(string) (AppConfig, error)
+	authorizeTLS    *gorsa.RsaObj
 	accessToken     = ""
 )
 
@@ -65,11 +68,25 @@ type GRPC struct {
 	CallRPC func(conn *grpc.ClientConn, ctx context.Context) (interface{}, error) // grpc回调proto服务
 }
 
+type AuthObject struct {
+	Appid     string
+	Nonce     string
+	Time      int64
+	Signature string
+}
+
 func GetGRPCJwtConfig() (*jwt.JwtConfig, error) {
 	if len(jwtConfig.TokenKey) == 0 {
 		return nil, utils.Error("grpc jwt key is nil")
 	}
 	return jwtConfig, nil
+}
+
+func GetAuthorizeTLS() (*gorsa.RsaObj, error) {
+	if authorizeTLS == nil {
+		return nil, utils.Error("authorize tls is nil")
+	}
+	return authorizeTLS, nil
 }
 
 func GetGRPCAppConfig(appid string) (AppConfig, error) {
@@ -119,6 +136,22 @@ func (self *GRPCManager) CreateSelectionCall(fun func([]*consulapi.ServiceEntry,
 	selectionCall = fun
 }
 
+// If server TLS is used, the certificate server.key is used by default
+// Otherwise, the method needs to be explicitly called to set the certificate
+func (self *GRPCManager) CreateAuthorizeTLS(keyPath string) {
+	if authorizeTLS != nil {
+		return
+	}
+	if len(keyPath) == 0 {
+		panic("authorize tls key path is nil")
+	}
+	obj := &gorsa.RsaObj{}
+	if err := obj.LoadRsaFile(keyPath); err != nil {
+		panic(err)
+	}
+	authorizeTLS = obj
+}
+
 func (self *GRPCManager) CreateServerTLS(tlsConfig TlsConfig) {
 	if serverDialTLS != nil {
 		return
@@ -138,6 +171,7 @@ func (self *GRPCManager) CreateServerTLS(tlsConfig TlsConfig) {
 			panic(err)
 		}
 		serverDialTLS = grpc.Creds(creds)
+		self.CreateAuthorizeTLS(tlsConfig.KeyFile)
 	}
 	if tlsConfig.UseMTLS {
 		if len(tlsConfig.CACrtFile) == 0 {
@@ -165,6 +199,7 @@ func (self *GRPCManager) CreateServerTLS(tlsConfig TlsConfig) {
 			ClientCAs: certPool,
 		})
 		serverDialTLS = grpc.Creds(creds)
+		self.CreateAuthorizeTLS(tlsConfig.KeyFile)
 	}
 }
 
@@ -300,11 +335,11 @@ func RunServer(consulDs string, authenticate bool, objects ...*GRPC) {
 	}
 }
 
-// RunClient important: ensure that the service starts only once
+// Important: ensure that the service starts only once
 // JWT Token expires in 1 hour
 // The remaining 1200s will be automatically renewed and detected every 15s
 func RunClient(appid string) {
-	var loginRes *pb.RPCLoginRes
+	var loginRes *pb.AuthorizeRes
 	for {
 		res, err := CallRPC(&GRPC{
 			Service: "PubWorker",
@@ -316,20 +351,40 @@ func RunClient(appid string) {
 				if len(appConfig.Appkey) == 0 {
 					return nil, utils.Error("rpc appConfig key is nil")
 				}
-				req := &pb.RPCLoginReq{
+				authObject := &AuthObject{
 					Appid: appid,
-					Nonce: utils.RandStr(32),
+					Nonce: utils.RandStr(16),
 					Time:  utils.TimeSecond(),
 				}
-				req.Signature = utils.HMAC_SHA256(utils.AddStr(req.Appid, req.Nonce, req.Time), appConfig.Appkey, true)
-				return pb.NewPubWorkerClient(conn).RPCLogin(ctx, req)
+				authObject.Signature = utils.HMAC_SHA256(utils.AddStr(authObject.Appid, authObject.Nonce, authObject.Time), appConfig.Appkey, true)
+				b64, err := utils.ToJsonBase64(authObject)
+				if err != nil {
+					return nil, err
+				}
+				// load public key
+				pub, err := pb.NewPubWorkerClient(conn).PublicKey(ctx, &pb.PublicKeyReq{})
+				if err != nil {
+					return nil, err
+				}
+				rsaObj := &gorsa.RsaObj{}
+				if err := rsaObj.LoadRsaPemFileBase64(pub.PublicKey); err != nil {
+					return nil, err
+				}
+				content, err := rsaObj.Encrypt(utils.Str2Bytes(b64))
+				if err != nil {
+					return nil, err
+				}
+				req := &pb.AuthorizeReq{
+					Message: content,
+				}
+				return pb.NewPubWorkerClient(conn).Authorize(ctx, req)
 			}})
 		if err != nil {
 			zlog.Error("rpc login failed", 0, zlog.AddError(err))
 			time.Sleep(5 * time.Second)
 			continue
 		}
-		loginRes, _ = res.(*pb.RPCLoginRes)
+		loginRes, _ = res.(*pb.AuthorizeRes)
 		break
 	}
 	accessToken = loginRes.Token
@@ -385,6 +440,8 @@ func CallRPC(object *GRPC) (interface{}, error) {
 	}
 	if clientDialTLS != nil {
 		opts = append(opts, clientDialTLS)
+	} else {
+		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(object.Timeout)*time.Millisecond)
 	defer cancel()
