@@ -54,7 +54,7 @@ func (self *RedisManager) InitConfig(input ...RedisConfig) (*RedisManager, error
 			return c, err
 		}}
 		redisSessions[dsName] = &RedisManager{Pool: pool, DsName: dsName}
-		zlog.Printf("redis service【%s】has been started successfully", dsName)
+		zlog.Printf("redis service【%s】has been started successful", dsName)
 	}
 	if len(redisSessions) == 0 {
 		return nil, utils.Error("init redis pool failed: sessions is nil")
@@ -62,12 +62,12 @@ func (self *RedisManager) InitConfig(input ...RedisConfig) (*RedisManager, error
 	return self, nil
 }
 
-func (self *RedisManager) Client(dsName ...string) (*RedisManager, error) {
-	ds := DIC.MASTER
-	if len(dsName) > 0 && len(dsName[0]) > 0 {
-		ds = dsName[0]
+func (self *RedisManager) Client(ds ...string) (*RedisManager, error) {
+	dsName := DIC.MASTER
+	if len(ds) > 0 && len(ds[0]) > 0 {
+		dsName = ds[0]
 	}
-	manager := redisSessions[ds]
+	manager := redisSessions[dsName]
 	if manager == nil {
 		return nil, utils.Error("redis session [", ds, "] not found...")
 	}

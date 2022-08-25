@@ -52,17 +52,17 @@ func (self *PublishManager) InitConfig(input ...AmqpConfig) (*PublishManager, er
 			return nil, err
 		}
 		publishMgrs[v.DsName] = publishMgr
-		zlog.Printf("rabbitmq publish service【%s】has been started successfully", v.DsName)
+		zlog.Printf("rabbitmq publish service【%s】has been started successful", v.DsName)
 	}
 	return self, nil
 }
 
-func (self *PublishManager) Client(dsname ...string) (*PublishManager, error) {
-	ds := DIC.MASTER
-	if len(dsname) > 0 && len(dsname[0]) > 0 {
-		ds = dsname[0]
+func (self *PublishManager) Client(ds ...string) (*PublishManager, error) {
+	dsName := DIC.MASTER
+	if len(ds) > 0 && len(ds[0]) > 0 {
+		dsName = ds[0]
 	}
-	return publishMgrs[ds], nil
+	return publishMgrs[dsName], nil
 }
 
 func (self *PublishManager) Connect() (*PublishManager, error) {
@@ -185,7 +185,7 @@ func (self *PublishManager) listen(pub *PublishMQ) error {
 			case <-closeChan:
 				pub.ready = false
 				self.listen(pub)
-				zlog.Warn("rabbitmq publish received channel exception, successfully reconnected", 0, zlog.String("exchange", pub.option.Exchange), zlog.String("queue", pub.option.Queue))
+				zlog.Warn("rabbitmq publish received channel exception, successful reconnected", 0, zlog.String("exchange", pub.option.Exchange), zlog.String("queue", pub.option.Queue))
 				return
 			}
 		}

@@ -294,7 +294,7 @@ func RunServer(consulDs string, authenticate bool, objects ...*GRPC) {
 	if err != nil {
 		panic(err)
 	}
-	zlog.Println(utils.AddStr("grpc server【", utils.AddStr(":", utils.AnyToStr(self.consul.Config.RpcPort)), "】has been started successfully"))
+	zlog.Println(utils.AddStr("grpc server【", utils.AddStr(":", utils.AnyToStr(self.consul.Config.RpcPort)), "】has been started successful"))
 	if err := grpcServer.Serve(l); err != nil {
 		panic(err)
 	}

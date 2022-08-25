@@ -76,7 +76,7 @@ func (self *MysqlManager) buildByConfig(manager cache.ICache, input ...MysqlConf
 			rdb.Timeout = v.Timeout
 		}
 		rdbs[rdb.DsName] = rdb
-		zlog.Printf("mysql service【%s】has been started successfully", v.DsName)
+		zlog.Printf("mysql service【%s】has been started successful", v.DsName)
 	}
 	if len(rdbs) == 0 {
 		return utils.Error("mysql init failed: sessions is nil")

@@ -37,17 +37,17 @@ func (self *PullManager) InitConfig(input ...AmqpConfig) (*PullManager, error) {
 			return nil, err
 		}
 		pullMgrs[v.DsName] = pullMgr
-		zlog.Printf("rabbitmq pull service【%s】has been started successfully", v.DsName)
+		zlog.Printf("rabbitmq pull service【%s】has been started successful", v.DsName)
 	}
 	return self, nil
 }
 
-func (self *PullManager) Client(dsname ...string) (*PullManager, error) {
-	ds := DIC.MASTER
-	if len(dsname) > 0 && len(dsname[0]) > 0 {
-		ds = dsname[0]
+func (self *PullManager) Client(ds ...string) (*PullManager, error) {
+	dsName := DIC.MASTER
+	if len(ds) > 0 && len(ds[0]) > 0 {
+		dsName = ds[0]
 	}
-	return pullMgrs[ds], nil
+	return pullMgrs[dsName], nil
 }
 
 func (self *PullManager) AddPullReceiver(receivers ...*PullReceiver) {
@@ -161,7 +161,7 @@ func (self *PullManager) listen(receiver *PullReceiver) {
 				d.Ack(false)
 			case <-closeChan:
 				self.listen(receiver)
-				zlog.Warn("rabbitmq pull received channel exception, successfully reconnected", 0, zlog.String("exchange", exchange), zlog.String("queue", queue))
+				zlog.Warn("rabbitmq pull received channel exception, successful reconnected", 0, zlog.String("exchange", exchange), zlog.String("queue", queue))
 				return
 			}
 		}

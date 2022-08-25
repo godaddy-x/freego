@@ -491,13 +491,13 @@ func (self *HttpNode) RenderTo() error {
 func (self *HttpNode) StartServer() {
 	go func() {
 		if self.CacheAware != nil {
-			zlog.Printf("cache service has been started successfully")
+			zlog.Printf("cache service has been started successful")
 		}
 		if self.Context.ServerCert != nil {
-			zlog.Printf("RSA certificate service has been started successfully")
+			zlog.Printf("RSA certificate service has been started successful")
 		}
 		url := utils.AddStr(self.Context.Host, ":", self.Context.Port)
-		zlog.Printf("http【%s】service has been started successfully", url)
+		zlog.Printf("http【%s】service has been started successful", url)
 		if err := http.ListenAndServe(url, self.limiterTimeoutHandler()); err != nil {
 			zlog.Error("http service init failed", 0, zlog.AddError(err))
 		}

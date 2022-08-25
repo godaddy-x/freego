@@ -59,7 +59,7 @@ func (self *ConsulManager) InitConfig(input ...ConsulConfig) (*ConsulManager, er
 		manager.Config = &conf
 		consulSessions[manager.Config.DsName] = manager
 		manager.initSlowLog()
-		zlog.Printf("consul service %s【%s】has been started successfully", conf.Host, conf.DsName)
+		zlog.Printf("consul service %s【%s】has been started successful", conf.Host, conf.DsName)
 	}
 	if len(consulSessions) == 0 {
 		zlog.Printf("consul init failed: sessions is nil")
@@ -82,7 +82,7 @@ func (self *ConsulManager) initSlowLog() {
 				MaxBackups: 7,
 				MaxSize:    512,
 			}})
-		fmt.Println("consul monitoring service started successfully...")
+		fmt.Println("consul monitoring service started successful...")
 	}
 }
 
@@ -90,12 +90,12 @@ func (self *ConsulManager) GetSlowLog() *zap.Logger {
 	return consulSlowlog
 }
 
-func (self *ConsulManager) Client(dsname ...string) (*ConsulManager, error) {
-	ds := DIC.MASTER
-	if len(dsname) > 0 && len(dsname[0]) > 0 {
-		ds = dsname[0]
+func (self *ConsulManager) Client(ds ...string) (*ConsulManager, error) {
+	dsName := DIC.MASTER
+	if len(ds) > 0 && len(ds[0]) > 0 {
+		dsName = ds[0]
 	}
-	manager := consulSessions[ds]
+	manager := consulSessions[dsName]
 	if manager == nil {
 		return nil, utils.Error("consul session [", ds, "] not found...")
 	}
