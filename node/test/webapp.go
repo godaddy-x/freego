@@ -72,13 +72,12 @@ func (self *MyWebNode) pubkey(ctx *node.Context) error {
 	return self.Text(ctx, ctx.ServerCert.PubkeyBase64)
 }
 
-var tokenKey = "123456" + utils.CreateLocalSecretKey(12, 45, 23, 60, 58, 30)
-
 func GetJwtConfig() jwt.JwtConfig {
 	return jwt.JwtConfig{
 		TokenTyp: jwt.JWT,
 		TokenAlg: jwt.HS256,
-		TokenKey: tokenKey,
+		TokenKey: "123456" + utils.CreateLocalSecretKey(12, 45, 23, 60, 58, 30),
+		TokenExp: jwt.TWO_WEEK,
 	}
 }
 
