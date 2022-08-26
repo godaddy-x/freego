@@ -13,11 +13,13 @@ import (
 	"time"
 )
 
+var routerConfigs = make(map[string]*RouterConfig)
+
 type HttpNode struct {
 	HookNode
 }
 
-func (self *HttpNode) GetHeader() error {
+func (self *HttpNode) getHeader() error {
 	r := self.Context.Input
 	headers := map[string]string{}
 	if self.RouterConfig.Original {
@@ -43,8 +45,89 @@ func (self *HttpNode) GetHeader() error {
 	return nil
 }
 
-// 按指定规则进行数据解码,校验API参数安全
-func (self *HttpNode) Authenticate(req *ReqDto) error {
+func (self *HttpNode) getParams() error {
+	r := self.Context.Input
+	if r.Method == POST { // only body json parameter is accepted
+		r.ParseForm()
+		body, err := ioutil.ReadAll(r.Body)
+		if err != nil {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "failed to read body parameters", Err: err}
+		}
+		r.Body.Close()
+		if self.RouterConfig.Original { //
+			data := map[string]interface{}{}
+			if len(body) == 0 {
+				self.Context.Params = &ReqDto{Data: data}
+				return nil
+			}
+			if len(body) > (MAX_VALUE_LEN * 5) {
+				return ex.Throw{Code: http.StatusLengthRequired, Msg: "body parameters length is too long"}
+			}
+			if err := utils.JsonUnmarshal(body, &data); err != nil {
+				return ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters JSON parsing failed", Err: err}
+			}
+			self.Context.Params = &ReqDto{Data: data}
+			return nil
+		}
+		if len(body) == 0 {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters is nil"}
+		}
+		if len(body) > (MAX_VALUE_LEN * 5) {
+			return ex.Throw{Code: http.StatusLengthRequired, Msg: "body parameters length is too long"}
+		}
+		req := &ReqDto{}
+		if err := utils.JsonUnmarshal(body, req); err != nil {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters JSON parsing failed", Err: err}
+		}
+		if err := self.validator(req); err != nil { // TODO important
+			return err
+		}
+		return nil
+	} else if r.Method == GET { // only url key/value parameter is accepted
+		if !self.RouterConfig.Original {
+			return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "GET type is not supported"}
+		}
+		r.ParseForm()
+		if len(r.Form) > MAX_FIELD_LEN {
+			return ex.Throw{Code: http.StatusLengthRequired, Msg: utils.AddStr("get url key name length is too long: ", len(r.Form))}
+		}
+		data := map[string]interface{}{}
+		for k, v := range r.Form {
+			if len(v) == 0 {
+				continue
+			}
+			v0 := v[0]
+			if len(v0) > MAX_VALUE_LEN {
+				return ex.Throw{Code: http.StatusLengthRequired, Msg: utils.AddStr("get url value length is too long: ", len(v0))}
+			}
+			data[k] = v[0]
+		}
+		self.Context.Params = &ReqDto{Data: data}
+	} else if r.Method == PUT {
+		return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "PUT type is not supported"}
+	} else if r.Method == PATCH {
+		return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "PATCH type is not supported"}
+	} else if r.Method == DELETE {
+		return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "DELETE type is not supported"}
+	} else {
+		return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "unknown request type"}
+	}
+	return nil
+}
+
+func (self *HttpNode) paddDevice() error {
+	d := self.Context.GetHeader("User-Agent")
+	if utils.HasStr(d, "Android") || utils.HasStr(d, "Adr") {
+		self.Context.Device = ANDROID
+	} else if utils.HasStr(d, "iPad") || utils.HasStr(d, "iPhone") || utils.HasStr(d, "Mac") {
+		self.Context.Device = IOS
+	} else {
+		self.Context.Device = WEB
+	}
+	return nil
+}
+
+func (self *HttpNode) validator(req *ReqDto) error {
 	d, b := req.Data.(string)
 	if !b || len(d) == 0 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request data is nil"}
@@ -123,83 +206,12 @@ func (self *HttpNode) Authenticate(req *ReqDto) error {
 	return nil
 }
 
-func (self *HttpNode) GetParams() error {
-	r := self.Context.Input
-	if r.Method == POST { // only body json parameter is accepted
-		r.ParseForm()
-		body, err := ioutil.ReadAll(r.Body)
-		if err != nil {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "failed to read body parameters", Err: err}
-		}
-		r.Body.Close()
-		if self.RouterConfig.Original { //
-			data := map[string]interface{}{}
-			if len(body) == 0 {
-				self.Context.Params = &ReqDto{Data: data}
-				return nil
-			}
-			if len(body) > (MAX_VALUE_LEN * 5) {
-				return ex.Throw{Code: http.StatusLengthRequired, Msg: "body parameters length is too long"}
-			}
-			if err := utils.JsonUnmarshal(body, &data); err != nil {
-				return ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters JSON parsing failed", Err: err}
-			}
-			self.Context.Params = &ReqDto{Data: data}
-			return nil
-		}
-		if len(body) == 0 {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters is nil"}
-		}
-		if len(body) > (MAX_VALUE_LEN * 5) {
-			return ex.Throw{Code: http.StatusLengthRequired, Msg: "body parameters length is too long"}
-		}
-		req := &ReqDto{}
-		if err := utils.JsonUnmarshal(body, req); err != nil {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters JSON parsing failed", Err: err}
-		}
-		if err := self.Authenticate(req); err != nil { // TODO important
-			return err
-		}
-		return nil
-	} else if r.Method == GET { // only url key/value parameter is accepted
-		if !self.RouterConfig.Original {
-			return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "GET type is not supported"}
-		}
-		r.ParseForm()
-		if len(r.Form) > MAX_FIELD_LEN {
-			return ex.Throw{Code: http.StatusLengthRequired, Msg: utils.AddStr("get url key name length is too long: ", len(r.Form))}
-		}
-		data := map[string]interface{}{}
-		for k, v := range r.Form {
-			if len(v) == 0 {
-				continue
-			}
-			v0 := v[0]
-			if len(v0) > MAX_VALUE_LEN {
-				return ex.Throw{Code: http.StatusLengthRequired, Msg: utils.AddStr("get url value length is too long: ", len(v0))}
-			}
-			data[k] = v[0]
-		}
-		self.Context.Params = &ReqDto{Data: data}
-	} else if r.Method == PUT {
-		return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "PUT type is not supported"}
-	} else if r.Method == PATCH {
-		return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "PATCH type is not supported"}
-	} else if r.Method == DELETE {
-		return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "DELETE type is not supported"}
-	} else {
-		return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "unknown request type"}
-	}
-	return nil
-}
-
-func (self *HttpNode) InitContext(ptr *NodePtr) error {
+func (self *HttpNode) initialize(ptr *NodePtr) error {
 	output := ptr.Output
 	input := ptr.Input
 	node := ptr.Node.(*HttpNode)
 	node.RouterConfig = ptr.RouterConfig
 	node.CreateAt = utils.Time()
-	node.OverrideFunc = self.OverrideFunc
 	node.SessionAware = self.SessionAware
 	node.CacheAware = self.CacheAware
 	node.Context = &Context{
@@ -216,177 +228,28 @@ func (self *HttpNode) InitContext(ptr *NodePtr) error {
 		PermConfig: self.Context.PermConfig,
 		Storage:    make(map[string]interface{}, 0),
 	}
-	if err := node.GetHeader(); err != nil {
-		return err
-	}
-	if err := node.GetParams(); err != nil {
-		return err
-	}
-	if err := node.PaddDevice(); err != nil {
-		return err
-	}
 	return nil
 }
 
-func (self *HttpNode) PaddDevice() error {
-	d := self.Context.GetHeader("User-Agent")
-	if utils.HasStr(d, "Android") || utils.HasStr(d, "Adr") {
-		self.Context.Device = ANDROID
-	} else if utils.HasStr(d, "iPad") || utils.HasStr(d, "iPhone") || utils.HasStr(d, "Mac") {
-		self.Context.Device = IOS
-	} else {
-		self.Context.Device = WEB
-	}
-	return nil
-}
-
-func (self *HttpNode) ValidSession() error {
-	if self.RouterConfig.Login || self.RouterConfig.Guest { // 登录接口和游客模式跳过会话认证
-		return nil
-	}
-	if len(self.Context.Token) == 0 {
-		return ex.Throw{Code: http.StatusUnauthorized, Msg: "AccessToken is ni"}
-	}
-	subject := &jwt.Subject{}
-	if err := subject.Verify(self.Context.Token, self.Context.JwtConfig().TokenKey); err != nil {
-		return ex.Throw{Code: http.StatusUnauthorized, Msg: "AccessToken is invalid or expired", Err: err}
-	}
-	self.Context.Roles = subject.GetTokenRole()
-	self.Context.Subject = subject.Payload
-	return nil
-}
-
-func (self *HttpNode) ValidReplayAttack() error {
-	//param := self.Context.Params
-	//if param == nil || len(param.Sign) == 0 {
-	//	return nil
-	//}
-	//key := utils.AddStr(JWT_SIG_, param.Sign)
-	//if c, err := self.CacheAware(); err != nil {
-	//	return err
-	//} else if b, err := c.GetInt64(key); err != nil {
-	//	return err
-	//} else if b > 1 {
-	//	return ex.Throw{Code: http.StatusForbidden, Msg: "重复请求不受理"}
-	//} else {
-	//	c.Put(key, 1, int((param.Time+jwt.FIVE_MINUTES)/1000))
-	//}
-	return nil
-}
-
-func (self *HttpNode) ValidPermission() error {
-	if self.Context.PermConfig == nil {
-		return nil
-	}
-	need, err := self.Context.PermConfig(self.Context.Method)
-	if err != nil {
-		return ex.Throw{Code: http.StatusUnauthorized, Msg: "failed to read authorization resource", Err: err}
-	} else if !need.ready { // 无授权资源配置,跳过
-		return nil
-	} else if need.NeedRole == nil || len(need.NeedRole) == 0 { // 无授权角色配置跳过
-		return nil
-	}
-	if need.NeedLogin == 0 { // 无登录状态,跳过
-		return nil
-	} else if !self.Context.Authenticated() { // 需要登录状态,会话为空,抛出异常
-		return ex.Throw{Code: http.StatusUnauthorized, Msg: "login status required"}
-	}
-	access := 0
-	needAccess := len(need.NeedRole)
-	for _, cr := range self.Context.Roles {
-		for _, nr := range need.NeedRole {
-			if cr == nr {
-				access++
-				if need.MathchAll == 0 || access == needAccess { // 任意授权通过则放行,或已满足授权长度
-					return nil
-				}
-			}
-		}
-	}
-	return ex.Throw{Code: http.StatusUnauthorized, Msg: "access defined"}
-}
-
-func (self *HttpNode) Proxy(ptr *NodePtr) {
+func (self *HttpNode) proxy(ptr *NodePtr) {
 	ob := &HttpNode{}
 	if err := func() error {
 		ptr.Node = ob
-		// 1.初始化请求上下文
-		if err := self.InitContext(ptr); err != nil {
+		if err := self.initialize(ptr); err != nil {
 			return err
 		}
-		// 2.校验会话有效性
-		if err := ob.ValidSession(); err != nil {
-			return err
+		for _, filter := range filterChainArr {
+			if err := filter(FilterObject{Ptr: ptr, Http: ob}); err != nil {
+				return err
+			}
 		}
-		// 3.校验重放攻击
-		if err := ob.ValidReplayAttack(); err != nil {
-			return err
-		}
-		// 4.校验访问权限
-		if err := ob.ValidPermission(); err != nil {
-			return err
-		}
-		// 5.上下文前置检测方法
-		if err := ob.PreHandle(); err != nil {
-			return err
-		}
-		// 6.保存监听日志方法
-		res, err := ob.LogHandle()
-		if err != nil {
-			return err
-		}
-		// 7.执行业务方法
-		err = ptr.Handle(ob.Context) // 抛出业务异常,建议使用ex模式
-		// 8.执行视图控制方法
-		err = ob.PostHandle(err)
-		// 9.执行释放资源方法
-		if err := ob.AfterCompletion(res, err); err != nil {
-			return err
-		}
-		return nil
+		return ob.renderTo()
 	}(); err != nil {
-		ob.RenderError(err)
+		ob.renderError(err)
 	}
 }
 
-func (self *HttpNode) PreHandle() error {
-	if self.OverrideFunc == nil || self.OverrideFunc.PreHandleFunc == nil {
-		return nil
-	}
-	return self.OverrideFunc.PreHandleFunc(self.Context)
-}
-
-func (self *HttpNode) LogHandle() (LogHandleRes, error) {
-	if self.OverrideFunc == nil || self.OverrideFunc.LogHandleFunc == nil {
-		return LogHandleRes{}, nil
-	}
-	return self.OverrideFunc.LogHandleFunc(self.Context)
-}
-
-func (self *HttpNode) PostHandle(err error) error {
-	if self.OverrideFunc == nil || self.OverrideFunc.PostHandleFunc == nil {
-		return nil
-	}
-	if err := self.OverrideFunc.PostHandleFunc(self.Context.Response, err); err != nil {
-		return err
-	}
-	if err != nil {
-		return err
-	}
-	return self.RenderTo()
-}
-
-func (self *HttpNode) AfterCompletion(res LogHandleRes, err error) error {
-	if self.OverrideFunc == nil || self.OverrideFunc.AfterCompletionFunc == nil {
-		return nil
-	}
-	if err := self.OverrideFunc.AfterCompletionFunc(self.Context, res, err); err != nil {
-		return err
-	}
-	return err
-}
-
-func (self *HttpNode) RenderError(err error) error {
+func (self *HttpNode) renderError(err error) error {
 	out := ex.Catch(err)
 	resp := &RespDto{
 		Code:    out.Code,
@@ -419,7 +282,7 @@ func (self *HttpNode) RenderError(err error) error {
 	return nil
 }
 
-func (self *HttpNode) RenderTo() error {
+func (self *HttpNode) renderTo() error {
 	switch self.Context.Response.ContentType {
 	case TEXT_PLAIN:
 		content := self.Context.Response.ContentEntity
@@ -488,24 +351,7 @@ func (self *HttpNode) RenderTo() error {
 	return nil
 }
 
-func (self *HttpNode) StartServer() {
-	go func() {
-		if self.CacheAware != nil {
-			zlog.Printf("cache service has been started successful")
-		}
-		if self.Context.ServerCert != nil {
-			zlog.Printf("RSA certificate service has been started successful")
-		}
-		url := utils.AddStr(self.Context.Host, ":", self.Context.Port)
-		zlog.Printf("http【%s】service has been started successful", url)
-		if err := http.ListenAndServe(url, self.limiterTimeoutHandler()); err != nil {
-			zlog.Error("http service init failed", 0, zlog.AddError(err))
-		}
-	}()
-	select {}
-}
-
-func (self *HttpNode) limiterTimeoutHandler() http.Handler {
+func (self *HttpNode) defaultHandler() http.Handler {
 	if self.GatewayLimiter == nil {
 		panic("gateway limiter is nil")
 	}
@@ -524,7 +370,26 @@ func (self *HttpNode) limiterTimeoutHandler() http.Handler {
 	return http.TimeoutHandler(handler, time.Duration(self.DisconnectTimeout)*time.Second, fmt.Sprintf(errorMsg, utils.Time(), utils.GetSnowFlakeStrID()))
 }
 
-var routerConfigs = make(map[string]*RouterConfig)
+func (self *HttpNode) StartServer() {
+	go func() {
+		if self.CacheAware != nil {
+			zlog.Printf("cache service has been started successful")
+		}
+		if self.Context.ServerCert != nil {
+			zlog.Printf("RSA certificate service has been started successful")
+		}
+		if err := createFilterChain(); err != nil {
+			zlog.Error("http service init filter chain failed", 0, zlog.AddError(err))
+			return
+		}
+		url := utils.AddStr(self.Context.Host, ":", self.Context.Port)
+		zlog.Printf("http【%s】service has been started successful", url)
+		if err := http.ListenAndServe(url, self.defaultHandler()); err != nil {
+			zlog.Error("http service init failed", 0, zlog.AddError(err))
+		}
+	}()
+	select {}
+}
 
 func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, routerConfig *RouterConfig) {
 	if !strings.HasPrefix(pattern, "/") {
@@ -555,7 +420,7 @@ func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, ro
 		routerConfigs[pattern] = routerConfig
 	}
 	self.Handler.Handle(pattern, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		self.Proxy(
+		self.proxy(
 			&NodePtr{
 				Node:         self,
 				RouterConfig: routerConfigs[pattern],

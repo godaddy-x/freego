@@ -47,7 +47,6 @@ type HookNode struct {
 	Context           *Context
 	SessionAware      SessionAware
 	CacheAware        func(ds ...string) (cache.ICache, error)
-	OverrideFunc      *OverrideFunc
 	GatewayLimiter    rate.RateLimiter
 	Handler           *http.ServeMux
 	RouterConfig      *RouterConfig
@@ -71,7 +70,8 @@ type RouterConfig struct {
 	AesResponse bool // 响应是否必须AES加密 false.否 true.是
 }
 
-type LogHandleRes struct {
+type HttpLog struct {
+	Method   string // 请求方法
 	LogNo    string // 日志唯一标记
 	CreateAt int64  // 日志创建时间
 	UpdateAt int64  // 日志完成时间
@@ -79,38 +79,12 @@ type LogHandleRes struct {
 }
 
 type ProtocolNode interface {
-	// 初始化上下文
-	InitContext(ptr *NodePtr) error
-	// 校验会话
-	ValidSession() error
-	// 校验重放攻击
-	ValidReplayAttack() error
-	// 校验权限
-	ValidPermission() error
-	// 获取请求头数据
-	GetHeader() error
-	// 获取请求参数
-	GetParams() error
-	// 核心代理方法
-	Proxy(ptr *NodePtr)
 	// 核心绑定路由方法, customize=true自定义不执行默认流程
 	Router(pattern string, handle func(ctx *Context) error, routerConfig *RouterConfig)
 	// json响应模式
 	Json(ctx *Context, data interface{}) error
 	// text响应模式
 	Text(ctx *Context, data string) error
-	// 前置检测方法(业务方法前执行)
-	PreHandle() error
-	// 日志监听方法(业务方法前执行)
-	LogHandle() (LogHandleRes, error)
-	// 业务执行方法->自定义处理执行方法(业务方法执行后,视图渲染前执行)
-	PostHandle(err error) error
-	// 最终响应执行方法(视图渲染后执行,可操作资源释放,保存日志等)
-	AfterCompletion(res LogHandleRes, err error) error
-	// 渲染输出
-	RenderTo() error
-	// 异常错误响应方法
-	RenderError(err error) error
 	// 启动服务
 	StartServer()
 }
@@ -166,13 +140,6 @@ type Response struct {
 	Encoding      string
 	ContentType   string
 	ContentEntity interface{}
-}
-
-type OverrideFunc struct {
-	PreHandleFunc       func(ctx *Context) error
-	LogHandleFunc       func(ctx *Context) (LogHandleRes, error)
-	PostHandleFunc      func(resp *Response, err error) error
-	AfterCompletionFunc func(ctx *Context, res LogHandleRes, err error) error
 }
 
 func (self *Context) GetHeader(k string) string {

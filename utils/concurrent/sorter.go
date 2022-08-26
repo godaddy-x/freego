@@ -4,10 +4,10 @@ import "sort"
 
 type Sorter struct {
 	item []interface{}
-	call func(o1, o2 interface{}) bool
+	call func(a, b interface{}) bool
 }
 
-func NewSorter(item []interface{}, call func(o1, o2 interface{}) bool) Sorter {
+func NewSorter(item []interface{}, call func(a, b interface{}) bool) Sorter {
 	return Sorter{item, call}
 }
 

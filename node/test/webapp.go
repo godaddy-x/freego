@@ -12,15 +12,12 @@ import (
 	"github.com/godaddy-x/freego/node/common"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/jwt"
+	"github.com/godaddy-x/freego/zlog"
 	"google.golang.org/grpc"
 )
 
 type MyWebNode struct {
 	node.HttpNode
-}
-
-type MyWsNode struct {
-	node.WebsocketNode
 }
 
 type GetUserReq struct {
@@ -92,6 +89,32 @@ func GetCacheAware(ds ...string) (cache.ICache, error) {
 	return local, nil
 }
 
+func init() {
+	node.AroundInvokerFilter(func(invoker *node.NodePtr, ctx *node.Context) error {
+		if b := limiter.Allow(ctx.Method); !b {
+			return ex.Throw{Code: 429, Msg: "the method request is full, please try again later"}
+		}
+		if ctx.Authenticated() {
+			if b := limiter.Allow(utils.AnyToStr(ctx.Subject.Sub)); !b {
+				return ex.Throw{Code: 429, Msg: "the access frequency is too fast, please try again later"}
+			}
+		}
+		log := node.HttpLog{
+			Method:   ctx.Method,
+			LogNo:    utils.GetSnowFlakeStrID(),
+			CreateAt: utils.Time(),
+		}
+		if err := invoker.Handle(ctx); err != nil {
+			return err
+		}
+		log.UpdateAt = utils.Time()
+		log.CostMill = log.UpdateAt - log.CreateAt
+		// TODO send zlog to rabbitmq
+		zlog.Info("http log", 0, zlog.Any("data", log))
+		return nil
+	})
+}
+
 func StartHttpNode() {
 	my := &MyWebNode{}
 	my.Context = &node.Context{
@@ -105,38 +128,6 @@ func StartHttpNode() {
 	//my.DisconnectTimeout = 10
 	my.GatewayLimiter = rate.NewRateLimiter(rate.Option{Limit: 50, Bucket: 50, Expire: 30, Distributed: true})
 	my.CacheAware = GetCacheAware
-	my.OverrideFunc = &node.OverrideFunc{
-		PreHandleFunc: func(ctx *node.Context) error {
-			if b := limiter.Allow(ctx.Method); !b {
-				return ex.Throw{Code: 429, Msg: "the method request is full, please try again later"}
-			}
-			if ctx.Authenticated() {
-				if b := limiter.Allow(utils.AnyToStr(ctx.Subject.Sub)); !b {
-					return ex.Throw{Code: 429, Msg: "the access frequency is too fast, please try again later"}
-				}
-			}
-			return nil
-		},
-		LogHandleFunc: func(ctx *node.Context) (node.LogHandleRes, error) {
-			res := node.LogHandleRes{
-				LogNo:    utils.GetSnowFlakeStrID(),
-				CreateAt: utils.Time(),
-			}
-			// TODO send zlog to rabbitmq
-			//fmt.Println("LogHandleFunc: ", res)
-			return res, nil
-		},
-		PostHandleFunc: func(resp *node.Response, err error) error {
-			return err
-		},
-		AfterCompletionFunc: func(ctx *node.Context, res node.LogHandleRes, err error) error {
-			res.UpdateAt = utils.Time()
-			res.CostMill = res.UpdateAt - res.CreateAt
-			// TODO send zlog to rabbitmq
-			//fmt.Println("AfterCompletionFunc: ", res)
-			return err
-		},
-	}
 	my.Router("/test1", my.test, nil)
 	my.Router("/test2", my.getUser, &node.RouterConfig{})
 	my.Router("/pubkey", my.pubkey, &node.RouterConfig{Original: true, Guest: true})
