@@ -88,30 +88,31 @@ func GetCacheAware(ds ...string) (cache.ICache, error) {
 	return local, nil
 }
 
-func init() {
-	node.AroundInvokerFilter(func(invoker *node.NodePtr, ctx *node.Context) error {
-		if b := limiter.Allow(ctx.Method); !b {
-			return ex.Throw{Code: 429, Msg: "the method request is full, please try again later"}
+type NewPostHandleFilter struct{}
+
+func (self *NewPostHandleFilter) DoFilter(chain node.Filter, args *node.FilterArg) error {
+	ctx := args.HttpNode.Context
+	if b := limiter.Allow(ctx.Method); !b {
+		return ex.Throw{Code: 429, Msg: "the method request is full, please try again later"}
+	}
+	if ctx.Authenticated() {
+		if b := limiter.Allow(utils.AnyToStr(ctx.Subject.Sub)); !b {
+			return ex.Throw{Code: 429, Msg: "the access frequency is too fast, please try again later"}
 		}
-		if ctx.Authenticated() {
-			if b := limiter.Allow(utils.AnyToStr(ctx.Subject.Sub)); !b {
-				return ex.Throw{Code: 429, Msg: "the access frequency is too fast, please try again later"}
-			}
-		}
-		log := node.HttpLog{
-			Method:   ctx.Method,
-			LogNo:    utils.GetSnowFlakeStrID(),
-			CreateAt: utils.Time(),
-		}
-		if err := invoker.Handle(ctx); err != nil {
-			return err
-		}
-		log.UpdateAt = utils.Time()
-		log.CostMill = log.UpdateAt - log.CreateAt
-		// TODO send zlog to rabbitmq
-		zlog.Info("http log", 0, zlog.Any("data", log))
-		return nil
-	})
+	}
+	log := node.HttpLog{
+		Method:   ctx.Method,
+		LogNo:    utils.GetSnowFlakeStrID(),
+		CreateAt: utils.Time(),
+	}
+	if err := args.NodePtr.PostHandle(args); err != nil {
+		return err
+	}
+	log.UpdateAt = utils.Time()
+	log.CostMill = log.UpdateAt - log.CreateAt
+	// TODO send zlog to rabbitmq
+	zlog.Info("http log", 0, zlog.Any("data", log))
+	return chain.DoFilter(chain, args)
 }
 
 func StartHttpNode() {
@@ -127,6 +128,7 @@ func StartHttpNode() {
 	//my.DisconnectTimeout = 10
 	my.GatewayLimiter = rate.NewRateLimiter(rate.Option{Limit: 50, Bucket: 50, Expire: 30, Distributed: true})
 	my.CacheAware = GetCacheAware
+	my.AddFilter(node.PostHandleFilterName, 50, &NewPostHandleFilter{})
 	my.Router("/test1", my.test, nil)
 	my.Router("/test2", my.getUser, &node.RouterConfig{})
 	my.Router("/pubkey", my.pubkey, &node.RouterConfig{Original: true, Guest: true})

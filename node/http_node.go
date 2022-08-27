@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/utils"
+	"github.com/godaddy-x/freego/utils/concurrent"
 	"github.com/godaddy-x/freego/utils/gorsa"
 	"github.com/godaddy-x/freego/utils/jwt"
 	"github.com/godaddy-x/freego/zlog"
@@ -238,10 +239,13 @@ func (self *HttpNode) proxy(ptr *NodePtr) {
 		if err := self.initialize(ptr); err != nil {
 			return err
 		}
-		for _, filter := range filterChainArr {
-			if err := filter(FilterObject{Ptr: ptr, Http: ob}); err != nil {
-				return err
-			}
+		router, b := routerConfigs[ptr.Pattern]
+		if !b {
+			return ex.Throw{Code: ex.SYSTEM, Msg: "router config is nil"}
+		}
+		chain := &FilterChain{}
+		if err := chain.DoFilter(chain, &FilterArg{NodePtr: ptr, HttpNode: ob, postHandle: router.postHandle}); err != nil {
+			return err
 		}
 		return ob.renderTo()
 	}(); err != nil {
@@ -259,7 +263,11 @@ func (self *HttpNode) renderError(err error) error {
 	if !self.Context.Authenticated() {
 		resp.Nonce = utils.RandNonce()
 	} else {
-		resp.Nonce = self.Context.Params.Nonce
+		if self.Context.Params == nil || len(self.Context.Params.Nonce) == 0 {
+			resp.Nonce = utils.RandNonce()
+		} else {
+			resp.Nonce = self.Context.Params.Nonce
+		}
 	}
 	if self.RouterConfig.Original {
 		if out.Code > 600 {
@@ -309,19 +317,16 @@ func (self *HttpNode) renderTo() error {
 		}
 		resp := &RespDto{
 			Code: http.StatusOK,
-			//Message: "success",
 			Time: utils.Time(),
-			//Data:  data,
-			Nonce: self.Context.Params.Nonce,
+		}
+		if self.Context.Params == nil || len(self.Context.Params.Nonce) == 0 {
+			resp.Nonce = utils.RandNonce()
+		} else {
+			resp.Nonce = self.Context.Params.Nonce
 		}
 		var key string
 		if self.RouterConfig.Login {
 			key = self.Context.ClientCert.PubkeyBase64
-			//data, err := self.Context.ClientCert.Encrypt(data)
-			//if err != nil {
-			//	return ex.Throw{Code: http.StatusInternalServerError, Msg: "RSA encryption response data failed", Err: err}
-			//}
-			//resp.Data = data
 			data, err := utils.AesEncrypt(data, key, key)
 			if err != nil {
 				return ex.Throw{Code: http.StatusInternalServerError, Msg: "AES encryption response data failed", Err: err}
@@ -358,7 +363,8 @@ func (self *HttpNode) defaultHandler() http.Handler {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if b := self.GatewayLimiter.Allow("HttpThreshold"); !b {
 			w.WriteHeader(429)
-			w.Write([]byte("the gateway request is full, please try again later"))
+			part := `{"c":429,"m":"the gateway request is full, please try again later","d":null,"t":%d,"n":"%s","p":0,"s":""}`
+			w.Write(utils.Str2Bytes(fmt.Sprintf(part, utils.Time(), utils.GetSnowFlakeStrID())))
 			return
 		}
 		self.Handler.ServeHTTP(w, r)
@@ -370,6 +376,25 @@ func (self *HttpNode) defaultHandler() http.Handler {
 	return http.TimeoutHandler(handler, time.Duration(self.DisconnectTimeout)*time.Second, fmt.Sprintf(errorMsg, utils.Time(), utils.GetSnowFlakeStrID()))
 }
 
+func (self *HttpNode) createFilterChain() error {
+	var fs []interface{}
+	for _, v := range filterMap {
+		fs = append(fs, v)
+	}
+	fs = concurrent.NewSorter(fs, func(a, b interface{}) bool {
+		o1 := a.(FilterSortBy)
+		o2 := b.(FilterSortBy)
+		return o1.order < o2.order
+	}).Sort()
+	for _, f := range fs {
+		filters = append(filters, f.(FilterSortBy).filter)
+	}
+	if len(filters) == 0 {
+		return utils.Error("filter chain is nil")
+	}
+	return nil
+}
+
 func (self *HttpNode) StartServer() {
 	go func() {
 		if self.CacheAware != nil {
@@ -378,8 +403,8 @@ func (self *HttpNode) StartServer() {
 		if self.Context.ServerCert != nil {
 			zlog.Printf("RSA certificate service has been started successful")
 		}
-		if err := createFilterChain(); err != nil {
-			zlog.Error("http service init filter chain failed", 0, zlog.AddError(err))
+		if err := self.createFilterChain(); err != nil {
+			zlog.Error("http service create filter chain failed", 0, zlog.AddError(err))
 			return
 		}
 		url := utils.AddStr(self.Context.Host, ":", self.Context.Port)
@@ -417,6 +442,7 @@ func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, ro
 		self.Handler = http.NewServeMux()
 	}
 	if _, b := routerConfigs[pattern]; !b {
+		routerConfig.postHandle = handle
 		routerConfigs[pattern] = routerConfig
 	}
 	self.Handler.Handle(pattern, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -427,12 +453,15 @@ func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, ro
 				Input:        r,
 				Output:       w,
 				Pattern:      pattern,
-				Handle:       handle,
+				PostHandle:   self.postHandle,
 			})
 	}))
 }
 
 func (self *HttpNode) Json(ctx *Context, data interface{}) error {
+	if data == nil {
+		data = map[string]string{}
+	}
 	ctx.Response = &Response{UTF8, APPLICATION_JSON, data}
 	return nil
 }
@@ -440,4 +469,24 @@ func (self *HttpNode) Json(ctx *Context, data interface{}) error {
 func (self *HttpNode) Text(ctx *Context, data string) error {
 	ctx.Response = &Response{UTF8, TEXT_PLAIN, data}
 	return nil
+}
+
+func (self *HttpNode) AddFilter(name string, order int, filter Filter) {
+	if len(name) == 0 || filter == nil {
+		return
+	}
+	filterMap[name] = FilterSortBy{order: order, filter: filter}
+	zlog.Printf("add filter [%s] successful", name)
+}
+
+func (self *HttpNode) ClearFilterChain() {
+	for k, _ := range filterMap {
+		delete(filterMap, k)
+	}
+}
+
+func (self *HttpNode) postHandle(args *FilterArg) error {
+	err := args.postHandle(args.HttpNode.Context)
+	args.NodePtr.Completed = true
+	return err
 }

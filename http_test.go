@@ -20,6 +20,7 @@ const token_secret = "Vd9oHk9/u54WCXJHy*kT^j#lKMoWoQRMQs9Oqtoc#lK!ZC@diQivDB5Vf5
 //const token_secret = ""
 
 var pubkey = utils.MD5(utils.RandStr(16), true)
+var srvPubkeyBase64 string
 
 func initSrvPubkey() string {
 	resp, err := http.Get(domain + "/pubkey")
@@ -36,10 +37,10 @@ func initSrvPubkey() string {
 
 // 测试使用的http post示例方法
 func ToPostBy(path string, req *node.ReqDto) {
-	srvPubkeyBase64 := initSrvPubkey()
-	if len(srvPubkeyBase64) == 0 {
-		panic("srvPubkeyBase64 is nil")
-	}
+	//srvPubkeyBase64 := initSrvPubkey()
+	//if len(srvPubkeyBase64) == 0 {
+	//	panic("srvPubkeyBase64 is nil")
+	//}
 	if req.Plan == 0 {
 		d := utils.Base64URLEncode(req.Data.([]byte))
 		req.Data = d
@@ -170,8 +171,8 @@ func BenchmarkGetUser(b *testing.B) {
 	b.StopTimer()
 	b.StartTimer()
 	for i := 0; i < b.N; i++ { //use b.N for looping
-		data, _ := utils.JsonMarshal(map[string]string{"test": "1234566"})
-		path := "/test1"
+		data, _ := utils.JsonMarshal(map[string]interface{}{"uid": 123, "name": "我爱中国/+_=/1df", "limit": 20, "offset": 5})
+		path := "/test2"
 		req := &node.ReqDto{
 			Data:  data,
 			Time:  utils.TimeSecond(),

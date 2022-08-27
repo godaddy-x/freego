@@ -59,7 +59,8 @@ type NodePtr struct {
 	Input        *http.Request
 	Output       http.ResponseWriter
 	Pattern      string
-	Handle       func(ctx *Context) error
+	PostHandle   func(args *FilterArg) error
+	Completed    bool
 }
 
 type RouterConfig struct {
@@ -68,6 +69,7 @@ type RouterConfig struct {
 	Original    bool // 是否原始方式 false.否 true.是
 	AesRequest  bool // 请求是否必须AES加密 false.否 true.是
 	AesResponse bool // 响应是否必须AES加密 false.否 true.是
+	postHandle  func(ctx *Context) error
 }
 
 type HttpLog struct {
@@ -182,6 +184,9 @@ func (self *Context) Authenticated() bool {
 }
 
 func (self *Context) Parser(v interface{}) error {
+	if self.Params == nil || self.Params.Data == nil {
+		return nil
+	}
 	if err := utils.JsonToAny(self.Params.Data, v); err != nil {
 		msg := "JSON parameter parsing failed"
 		zlog.Error(msg, 0, zlog.String("method", self.Method), zlog.String("host", self.Host), zlog.String("device", self.Device), zlog.Any("data", self.Params))
