@@ -59,7 +59,7 @@ type NodePtr struct {
 	Input        *http.Request
 	Output       http.ResponseWriter
 	Pattern      string
-	PostHandle   func(args *FilterArg) error
+	PostHandle   func(object *InvokeObject) error
 	Completed    bool
 }
 

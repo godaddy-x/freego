@@ -90,8 +90,8 @@ func GetCacheAware(ds ...string) (cache.ICache, error) {
 
 type NewPostHandleFilter struct{}
 
-func (self *NewPostHandleFilter) DoFilter(chain node.Filter, args *node.FilterArg) error {
-	ctx := args.HttpNode.Context
+func (self *NewPostHandleFilter) DoFilter(chain node.Filter, object *node.InvokeObject) error {
+	ctx := object.HttpNode.Context
 	if b := limiter.Allow(ctx.Method); !b {
 		return ex.Throw{Code: 429, Msg: "the method request is full, please try again later"}
 	}
@@ -105,14 +105,14 @@ func (self *NewPostHandleFilter) DoFilter(chain node.Filter, args *node.FilterAr
 		LogNo:    utils.GetSnowFlakeStrID(),
 		CreateAt: utils.Time(),
 	}
-	if err := args.NodePtr.PostHandle(args); err != nil {
+	if err := object.NodePtr.PostHandle(object); err != nil {
 		return err
 	}
 	log.UpdateAt = utils.Time()
 	log.CostMill = log.UpdateAt - log.CreateAt
 	// TODO send zlog to rabbitmq
 	zlog.Info("http log", 0, zlog.Any("data", log))
-	return chain.DoFilter(chain, args)
+	return chain.DoFilter(chain, object)
 }
 
 func StartHttpNode() {

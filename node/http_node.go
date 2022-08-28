@@ -244,7 +244,7 @@ func (self *HttpNode) proxy(ptr *NodePtr) {
 			return ex.Throw{Code: ex.SYSTEM, Msg: "router config is nil"}
 		}
 		chain := &FilterChain{}
-		if err := chain.DoFilter(chain, &FilterArg{NodePtr: ptr, HttpNode: ob, postHandle: router.postHandle}); err != nil {
+		if err := chain.DoFilter(chain, &InvokeObject{NodePtr: ptr, HttpNode: ob, postHandle: router.postHandle}); err != nil {
 			return err
 		}
 		return ob.renderTo()
@@ -485,8 +485,8 @@ func (self *HttpNode) ClearFilterChain() {
 	}
 }
 
-func (self *HttpNode) postHandle(args *FilterArg) error {
-	err := args.postHandle(args.HttpNode.Context)
-	args.NodePtr.Completed = true
+func (self *HttpNode) postHandle(object *InvokeObject) error {
+	err := object.postHandle(object.HttpNode.Context)
+	object.NodePtr.Completed = true
 	return err
 }
