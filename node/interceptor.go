@@ -20,7 +20,7 @@ var interceptorMap = map[string]interceptorSortBy{
 	PostHandleInterceptorName: {order: 10, interceptor: &PostHandleInterceptor{}},
 }
 
-func executeInterceptorChain(ptr *NodePtr, ctx *Context) error {
+func doInterceptorChain(ptr *NodePtr, ctx *Context) error {
 	o := &interceptorChain{pos: -1, ptr: ptr, ctx: ctx}
 	return o.execute()
 }

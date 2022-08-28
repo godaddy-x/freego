@@ -238,8 +238,7 @@ func (self *HttpNode) proxy(ptr *NodePtr) {
 		if err := self.initialize(ptr); err != nil {
 			return err
 		}
-		chain := &filterChain{}
-		if err := chain.DoFilter(chain, &FilterObject{NodePtr: ptr, HttpNode: ob}); err != nil {
+		if err := doFilterChain(ptr, ob); err != nil {
 			return err
 		}
 		return ob.renderTo()

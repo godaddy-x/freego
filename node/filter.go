@@ -29,6 +29,11 @@ var filterMap = map[string]filterSortBy{
 	ReplayFilterName:    {order: 40, filter: &ReplayFilter{}},
 }
 
+func doFilterChain(ptr *NodePtr, ob *HttpNode, args ...interface{}) error {
+	chain := &filterChain{}
+	return chain.DoFilter(chain, &FilterObject{NodePtr: ptr, HttpNode: ob, Args: args})
+}
+
 func createFilterChain() error {
 	var fs []interface{}
 	for _, v := range filterMap {
@@ -69,7 +74,7 @@ func (self *filterChain) getFilters() []Filter {
 func (self *filterChain) DoFilter(chain Filter, object *FilterObject) error {
 	fs := self.getFilters()
 	if self.pos == len(fs) {
-		return executeInterceptorChain(object.NodePtr, object.HttpNode.Context)
+		return doInterceptorChain(object.NodePtr, object.HttpNode.Context)
 	}
 	f := fs[self.pos]
 	self.pos++
