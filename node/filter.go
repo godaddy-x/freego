@@ -17,12 +17,12 @@ const (
 
 var filters []Filter
 
-type FilterSortBy struct {
+type filterSortBy struct {
 	order  int
 	filter Filter
 }
 
-var filterMap = map[string]FilterSortBy{
+var filterMap = map[string]filterSortBy{
 	ParameterFilterName: {order: 10, filter: &ParameterFilter{}},
 	SessionFilterName:   {order: 20, filter: &SessionFilter{}},
 	RoleFilterName:      {order: 30, filter: &RoleFilter{}},
@@ -35,12 +35,12 @@ func createFilterChain() error {
 		fs = append(fs, v)
 	}
 	fs = concurrent.NewSorter(fs, func(a, b interface{}) bool {
-		o1 := a.(FilterSortBy)
-		o2 := b.(FilterSortBy)
+		o1 := a.(filterSortBy)
+		o2 := b.(filterSortBy)
 		return o1.order < o2.order
 	}).Sort()
 	for _, f := range fs {
-		filters = append(filters, f.(FilterSortBy).filter)
+		filters = append(filters, f.(filterSortBy).filter)
 	}
 	if len(filters) == 0 {
 		return utils.Error("filter chain is nil")
@@ -48,29 +48,28 @@ func createFilterChain() error {
 	return nil
 }
 
-type InvokeObject struct {
+type FilterObject struct {
 	NodePtr  *NodePtr
 	HttpNode *HttpNode
 	Args     []interface{}
 }
 
 type Filter interface {
-	DoFilter(chain Filter, object *InvokeObject) error
+	DoFilter(chain Filter, object *FilterObject) error
 }
 
-type FilterChain struct {
+type filterChain struct {
 	pos int
 }
 
-func (self *FilterChain) getFilters() []Filter {
+func (self *filterChain) getFilters() []Filter {
 	return filters
 }
 
-func (self *FilterChain) DoFilter(chain Filter, object *InvokeObject) error {
+func (self *filterChain) DoFilter(chain Filter, object *FilterObject) error {
 	fs := self.getFilters()
 	if self.pos == len(fs) {
-		interceptorChain := &InterceptorChain{pos: -1, ptr: object.NodePtr, ctx: object.HttpNode.Context}
-		return interceptorChain.execute()
+		return executeInterceptorChain(object.NodePtr, object.HttpNode.Context)
 	}
 	f := fs[self.pos]
 	self.pos++
@@ -82,7 +81,7 @@ type ParameterFilter struct{}
 type RoleFilter struct{}
 type ReplayFilter struct{}
 
-func (self *ParameterFilter) DoFilter(chain Filter, object *InvokeObject) error {
+func (self *ParameterFilter) DoFilter(chain Filter, object *FilterObject) error {
 	if err := object.HttpNode.getHeader(); err != nil {
 		return err
 	}
@@ -95,7 +94,7 @@ func (self *ParameterFilter) DoFilter(chain Filter, object *InvokeObject) error 
 	return chain.DoFilter(chain, object)
 }
 
-func (self *SessionFilter) DoFilter(chain Filter, object *InvokeObject) error {
+func (self *SessionFilter) DoFilter(chain Filter, object *FilterObject) error {
 	if object.HttpNode.RouterConfig.Login || object.HttpNode.RouterConfig.Guest { // 登录接口和游客模式跳过会话认证
 		return chain.DoFilter(chain, object)
 	}
@@ -111,7 +110,7 @@ func (self *SessionFilter) DoFilter(chain Filter, object *InvokeObject) error {
 	return chain.DoFilter(chain, object)
 }
 
-func (self *RoleFilter) DoFilter(chain Filter, object *InvokeObject) error {
+func (self *RoleFilter) DoFilter(chain Filter, object *FilterObject) error {
 	if object.HttpNode.Context.PermConfig == nil {
 		return chain.DoFilter(chain, object)
 	}
@@ -143,7 +142,7 @@ func (self *RoleFilter) DoFilter(chain Filter, object *InvokeObject) error {
 	return ex.Throw{Code: http.StatusUnauthorized, Msg: "access defined"}
 }
 
-func (self *ReplayFilter) DoFilter(chain Filter, object *InvokeObject) error {
+func (self *ReplayFilter) DoFilter(chain Filter, object *FilterObject) error {
 	//param := object.HttpNode.Context.Params
 	//if param == nil || len(param.Sign) == 0 {
 	//	return nil

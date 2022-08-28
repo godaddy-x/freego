@@ -238,8 +238,8 @@ func (self *HttpNode) proxy(ptr *NodePtr) {
 		if err := self.initialize(ptr); err != nil {
 			return err
 		}
-		chain := &FilterChain{}
-		if err := chain.DoFilter(chain, &InvokeObject{NodePtr: ptr, HttpNode: ob}); err != nil {
+		chain := &filterChain{}
+		if err := chain.DoFilter(chain, &FilterObject{NodePtr: ptr, HttpNode: ob}); err != nil {
 			return err
 		}
 		return ob.renderTo()
@@ -457,7 +457,7 @@ func (self *HttpNode) AddFilter(name string, order int, filter Filter) {
 	if len(name) == 0 || filter == nil {
 		return
 	}
-	filterMap[name] = FilterSortBy{order: order, filter: filter}
+	filterMap[name] = filterSortBy{order: order, filter: filter}
 	zlog.Printf("add filter [%s] successful", name)
 }
 
@@ -465,7 +465,7 @@ func (self *HttpNode) AddInterceptor(name string, order int, interceptor Interce
 	if len(name) == 0 || interceptor == nil {
 		return
 	}
-	interceptorMap[name] = InterceptorSortBy{order: order, interceptor: interceptor}
+	interceptorMap[name] = interceptorSortBy{order: order, interceptor: interceptor}
 	zlog.Printf("add interceptor [%s] successful", name)
 }
 

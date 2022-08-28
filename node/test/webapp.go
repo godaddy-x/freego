@@ -12,6 +12,7 @@ import (
 	"github.com/godaddy-x/freego/node/common"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/jwt"
+	"github.com/godaddy-x/freego/zlog"
 	"google.golang.org/grpc"
 )
 
@@ -87,6 +88,13 @@ func GetCacheAware(ds ...string) (cache.ICache, error) {
 	return local, nil
 }
 
+type NewPostFilter struct{}
+
+func (self *NewPostFilter) DoFilter(chain node.Filter, object *node.FilterObject) error {
+	fmt.Println(" --- NewFilter.DoFilter ---")
+	return chain.DoFilter(chain, object)
+}
+
 type NewPostHandleInterceptor struct{}
 
 func (self *NewPostHandleInterceptor) PreHandle(ctx *node.Context) (bool, error) {
@@ -99,6 +107,7 @@ func (self *NewPostHandleInterceptor) PreHandle(ctx *node.Context) (bool, error)
 			return false, ex.Throw{Code: 429, Msg: "the access frequency is too fast, please try again later"}
 		}
 	}
+	ctx.Storage["httpLog"] = node.HttpLog{Method: ctx.Method, LogNo: utils.GetSnowFlakeStrID(), CreateAt: utils.Time()}
 	return true, nil
 }
 
@@ -109,6 +118,14 @@ func (self *NewPostHandleInterceptor) PostHandle(ctx *node.Context) error {
 
 func (self *NewPostHandleInterceptor) AfterCompletion(ctx *node.Context, err error) error {
 	fmt.Println(" --- NewPostHandleInterceptor AfterCompletion -- ")
+	v, b := ctx.Storage["httpLog"]
+	if !b {
+		return err
+	}
+	httpLog, _ := v.(node.HttpLog)
+	httpLog.UpdateAt = utils.Time()
+	httpLog.CostMill = httpLog.UpdateAt - httpLog.CreateAt
+	zlog.Info("http log", 0, zlog.Any("data", httpLog))
 	return err
 }
 
@@ -125,6 +142,7 @@ func StartHttpNode() {
 	//my.DisconnectTimeout = 10
 	my.GatewayLimiter = rate.NewRateLimiter(rate.Option{Limit: 50, Bucket: 50, Expire: 30, Distributed: true})
 	my.CacheAware = GetCacheAware
+	my.AddFilter("NewPostFilter", 100, &NewPostFilter{})
 	my.AddInterceptor(node.PostHandleInterceptorName, 50, &NewPostHandleInterceptor{})
 	my.Router("/test1", my.test, nil)
 	my.Router("/test2", my.getUser, &node.RouterConfig{})

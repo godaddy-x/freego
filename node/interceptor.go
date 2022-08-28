@@ -1,7 +1,6 @@
 package node
 
 import (
-	"fmt"
 	"github.com/godaddy-x/freego/utils/concurrent"
 	"github.com/godaddy-x/freego/zlog"
 )
@@ -12,13 +11,18 @@ const (
 
 var interceptors []Interceptor
 
-type InterceptorSortBy struct {
+type interceptorSortBy struct {
 	order       int
 	interceptor Interceptor
 }
 
-var interceptorMap = map[string]InterceptorSortBy{
+var interceptorMap = map[string]interceptorSortBy{
 	PostHandleInterceptorName: {order: 10, interceptor: &PostHandleInterceptor{}},
+}
+
+func executeInterceptorChain(ptr *NodePtr, ctx *Context) error {
+	o := &interceptorChain{pos: -1, ptr: ptr, ctx: ctx}
+	return o.execute()
 }
 
 func createInterceptorChain() error {
@@ -27,12 +31,12 @@ func createInterceptorChain() error {
 		fs = append(fs, v)
 	}
 	fs = concurrent.NewSorter(fs, func(a, b interface{}) bool {
-		o1 := a.(InterceptorSortBy)
-		o2 := b.(InterceptorSortBy)
+		o1 := a.(interceptorSortBy)
+		o2 := b.(interceptorSortBy)
 		return o1.order < o2.order
 	}).Sort()
 	for _, f := range fs {
-		interceptors = append(interceptors, f.(InterceptorSortBy).interceptor)
+		interceptors = append(interceptors, f.(interceptorSortBy).interceptor)
 	}
 	return nil
 }
@@ -43,13 +47,13 @@ type Interceptor interface {
 	AfterCompletion(ctx *Context, err error) error
 }
 
-type InterceptorChain struct {
+type interceptorChain struct {
 	ptr *NodePtr
 	ctx *Context
 	pos int
 }
 
-func (self *InterceptorChain) execute() error {
+func (self *interceptorChain) execute() error {
 	if b, err := self.ApplyPreHandle(); !b || err != nil {
 		return err
 	}
@@ -59,11 +63,11 @@ func (self *InterceptorChain) execute() error {
 	return nil
 }
 
-func (self *InterceptorChain) getInterceptors() []Interceptor {
+func (self *interceptorChain) getInterceptors() []Interceptor {
 	return interceptors
 }
 
-func (self *InterceptorChain) ApplyPreHandle() (bool, error) {
+func (self *interceptorChain) ApplyPreHandle() (bool, error) {
 	ors := self.getInterceptors()
 	for i := 0; i < len(ors); i++ {
 		or := ors[i]
@@ -75,8 +79,7 @@ func (self *InterceptorChain) ApplyPreHandle() (bool, error) {
 	return true, nil
 }
 
-func (self *InterceptorChain) ApplyPostHandle() error {
-	fmt.Println(" --- ptr.PostHandle ---")
+func (self *interceptorChain) ApplyPostHandle() error {
 	if err := self.ptr.PostHandle(self.ctx); err != nil {
 		return err
 	}
@@ -89,7 +92,7 @@ func (self *InterceptorChain) ApplyPostHandle() error {
 	return nil
 }
 
-func (self *InterceptorChain) ApplyAfterCompletion(err error) error {
+func (self *interceptorChain) ApplyAfterCompletion(err error) error {
 	ors := self.getInterceptors()
 	for i := self.pos; i >= 0; i-- {
 		if err := ors[i].AfterCompletion(self.ctx, err); err != nil {
