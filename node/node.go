@@ -166,12 +166,23 @@ func (self *Context) GetDataSign(d, n string, t, p int64, key ...string) string 
 	return utils.HMAC_SHA256(utils.AddStr(self.Method, d, n, t, p), secret, true)
 }
 
-func (self *Context) GetStorageStringValue(k string) string {
-	v, b := self.Storage[k]
-	if b {
-		return v.(string)
+func (self *Context) AddStorage(k string, v interface{}) error {
+	if len(k) == 0 || v == nil {
+		return utils.Error("key/value is nil")
 	}
-	return ""
+	self.Storage[k] = v
+	return nil
+}
+
+func (self *Context) GetStorage(k string) interface{} {
+	if len(k) == 0 {
+		return nil
+	}
+	v, b := self.Storage[k]
+	if !b || v == nil {
+		return nil
+	}
+	return v
 }
 
 func (self *Context) Authenticated() bool {

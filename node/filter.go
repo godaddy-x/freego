@@ -30,8 +30,8 @@ var filterMap = map[string]filterSortBy{
 }
 
 func doFilterChain(ptr *NodePtr, ob *HttpNode, args ...interface{}) error {
-	chain := &filterChain{}
-	return chain.DoFilter(chain, &FilterObject{NodePtr: ptr, HttpNode: ob, Args: args})
+	chain := &filterChain{ptr: ptr}
+	return chain.DoFilter(chain, &FilterObject{HttpNode: ob, Args: args})
 }
 
 func createFilterChain() error {
@@ -54,7 +54,6 @@ func createFilterChain() error {
 }
 
 type FilterObject struct {
-	NodePtr  *NodePtr
 	HttpNode *HttpNode
 	Args     []interface{}
 }
@@ -64,6 +63,7 @@ type Filter interface {
 }
 
 type filterChain struct {
+	ptr *NodePtr
 	pos int
 }
 
@@ -74,11 +74,11 @@ func (self *filterChain) getFilters() []Filter {
 func (self *filterChain) DoFilter(chain Filter, object *FilterObject) error {
 	fs := self.getFilters()
 	if self.pos == len(fs) {
-		return doInterceptorChain(object.NodePtr, object.HttpNode.Context)
+		return doInterceptorChain(self.ptr, object.HttpNode.Context)
 	}
 	f := fs[self.pos]
 	self.pos++
-	return f.DoFilter(chain, object)
+	return f.DoFilter(chain, &FilterObject{HttpNode: object.HttpNode, Args: object.Args})
 }
 
 type SessionFilter struct{}

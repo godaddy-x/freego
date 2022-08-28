@@ -107,7 +107,7 @@ func (self *NewPostHandleInterceptor) PreHandle(ctx *node.Context) (bool, error)
 			return false, ex.Throw{Code: 429, Msg: "the access frequency is too fast, please try again later"}
 		}
 	}
-	ctx.Storage["httpLog"] = node.HttpLog{Method: ctx.Method, LogNo: utils.GetSnowFlakeStrID(), CreateAt: utils.Time()}
+	ctx.AddStorage("httpLog", node.HttpLog{Method: ctx.Method, LogNo: utils.GetSnowFlakeStrID(), CreateAt: utils.Time()})
 	return true, nil
 }
 
@@ -118,9 +118,9 @@ func (self *NewPostHandleInterceptor) PostHandle(ctx *node.Context) error {
 
 func (self *NewPostHandleInterceptor) AfterCompletion(ctx *node.Context, err error) error {
 	fmt.Println(" --- NewPostHandleInterceptor AfterCompletion -- ")
-	v, b := ctx.Storage["httpLog"]
-	if !b {
-		return err
+	v := ctx.GetStorage("httpLog")
+	if v == nil {
+		return utils.Error("httpLog is nil")
 	}
 	httpLog, _ := v.(node.HttpLog)
 	httpLog.UpdateAt = utils.Time()

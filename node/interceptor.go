@@ -21,8 +21,8 @@ var interceptorMap = map[string]interceptorSortBy{
 }
 
 func doInterceptorChain(ptr *NodePtr, ctx *Context) error {
-	o := &interceptorChain{pos: -1, ptr: ptr, ctx: ctx}
-	return o.execute()
+	chain := &interceptorChain{pos: -1, ptr: ptr, ctx: ctx}
+	return chain.doInterceptor()
 }
 
 func createInterceptorChain() error {
@@ -53,7 +53,7 @@ type interceptorChain struct {
 	pos int
 }
 
-func (self *interceptorChain) execute() error {
+func (self *interceptorChain) doInterceptor() error {
 	if b, err := self.ApplyPreHandle(); !b || err != nil {
 		return err
 	}
@@ -68,9 +68,12 @@ func (self *interceptorChain) getInterceptors() []Interceptor {
 }
 
 func (self *interceptorChain) ApplyPreHandle() (bool, error) {
-	ors := self.getInterceptors()
-	for i := 0; i < len(ors); i++ {
-		or := ors[i]
+	interceptors := self.getInterceptors()
+	if len(interceptors) == 0 {
+		return true, nil
+	}
+	for i := 0; i < len(interceptors); i++ {
+		or := interceptors[i]
 		if b, err := or.PreHandle(self.ctx); !b || err != nil {
 			return false, self.ApplyAfterCompletion(err)
 		}
@@ -83,9 +86,12 @@ func (self *interceptorChain) ApplyPostHandle() error {
 	if err := self.ptr.PostHandle(self.ctx); err != nil {
 		return err
 	}
-	ors := self.getInterceptors()
-	for i := len(ors) - 1; i >= 0; i-- {
-		if err := ors[i].PostHandle(self.ctx); err != nil {
+	interceptors := self.getInterceptors()
+	if len(interceptors) == 0 {
+		return nil
+	}
+	for i := len(interceptors) - 1; i >= 0; i-- {
+		if err := interceptors[i].PostHandle(self.ctx); err != nil {
 			return err
 		}
 	}
@@ -93,9 +99,12 @@ func (self *interceptorChain) ApplyPostHandle() error {
 }
 
 func (self *interceptorChain) ApplyAfterCompletion(err error) error {
-	ors := self.getInterceptors()
+	interceptors := self.getInterceptors()
+	if len(interceptors) == 0 {
+		return err
+	}
 	for i := self.pos; i >= 0; i-- {
-		if err := ors[i].AfterCompletion(self.ctx, err); err != nil {
+		if err := interceptors[i].AfterCompletion(self.ctx, err); err != nil {
 			zlog.Error("interceptor.ApplyAfterCompletion failed", 0, zlog.AddError(err))
 		}
 	}
