@@ -126,11 +126,14 @@ func (self *NewPostHandleInterceptor) AfterCompletion(ctx *node.Context, err err
 	httpLog.UpdateAt = utils.Time()
 	httpLog.CostMill = httpLog.UpdateAt - httpLog.CreateAt
 	zlog.Info("http log", 0, zlog.Any("data", httpLog))
+	if err := node.RenderData(ctx); err != nil {
+		return err
+	}
 	return err
 }
 
 func StartHttpNode() {
-	my := &MyWebNode{}
+	var my = &MyWebNode{}
 	my.Context = &node.Context{
 		Host:      "0.0.0.0",
 		Port:      8090,

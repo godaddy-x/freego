@@ -20,8 +20,8 @@ var interceptorMap = map[string]interceptorSortBy{
 	PostHandleInterceptorName: {order: 10, interceptor: &PostHandleInterceptor{}},
 }
 
-func doInterceptorChain(ptr *NodePtr, ctx *Context) error {
-	chain := &interceptorChain{pos: -1, ptr: ptr, ctx: ctx}
+func doInterceptorChain(handle func(*Context) error, ctx *Context) error {
+	chain := &interceptorChain{pos: -1, handle: handle, ctx: ctx}
 	return chain.doInterceptor()
 }
 
@@ -48,9 +48,9 @@ type Interceptor interface {
 }
 
 type interceptorChain struct {
-	ptr *NodePtr
-	ctx *Context
-	pos int
+	handle func(*Context) error
+	ctx    *Context
+	pos    int
 }
 
 func (self *interceptorChain) doInterceptor() error {
@@ -83,7 +83,7 @@ func (self *interceptorChain) ApplyPreHandle() (bool, error) {
 }
 
 func (self *interceptorChain) ApplyPostHandle() error {
-	if err := self.ptr.PostHandle(self.ctx); err != nil {
+	if err := self.handle(self.ctx); err != nil {
 		return err
 	}
 	interceptors := self.getInterceptors()

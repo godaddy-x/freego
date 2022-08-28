@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	HTTP      = "http"
+	HTTP2     = "http2"
 	WEBSOCKET = "websocket"
 	UTF8      = "UTF-8"
 
@@ -43,23 +43,13 @@ const (
 )
 
 type HookNode struct {
-	CreateAt          int64
+	handler           *http.ServeMux
+	routerConfig      *RouterConfig
 	Context           *Context
 	SessionAware      SessionAware
 	CacheAware        func(ds ...string) (cache.ICache, error)
 	GatewayLimiter    rate.RateLimiter
-	Handler           *http.ServeMux
-	RouterConfig      *RouterConfig
 	DisconnectTimeout int64 // 超时主动断开客户端连接,秒
-}
-
-type NodePtr struct {
-	Node         interface{}
-	RouterConfig *RouterConfig
-	Input        *http.Request
-	Output       http.ResponseWriter
-	Pattern      string
-	PostHandle   func(ctx *Context) error
 }
 
 type RouterConfig struct {
@@ -79,7 +69,7 @@ type HttpLog struct {
 }
 
 type ProtocolNode interface {
-	// 核心绑定路由方法, customize=true自定义不执行默认流程
+	// 绑定路由方法
 	Router(pattern string, handle func(ctx *Context) error, routerConfig *RouterConfig)
 	// json响应模式
 	Json(ctx *Context, data interface{}) error
@@ -115,6 +105,7 @@ type Permission struct {
 }
 
 type Context struct {
+	CreateAt   int64
 	Host       string
 	Port       int64
 	Style      string
@@ -140,6 +131,7 @@ type Response struct {
 	Encoding      string
 	ContentType   string
 	ContentEntity interface{}
+	ByteResult    []byte
 }
 
 func (self *Context) GetHeader(k string) string {

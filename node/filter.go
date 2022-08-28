@@ -29,8 +29,8 @@ var filterMap = map[string]filterSortBy{
 	ReplayFilterName:    {order: 40, filter: &ReplayFilter{}},
 }
 
-func doFilterChain(ptr *NodePtr, ob *HttpNode, args ...interface{}) error {
-	chain := &filterChain{ptr: ptr}
+func doFilterChain(ob *HttpNode, handle func(*Context) error, args ...interface{}) error {
+	chain := &filterChain{handle: handle, pos: 0}
 	return chain.DoFilter(chain, &FilterObject{HttpNode: ob, Args: args})
 }
 
@@ -63,8 +63,8 @@ type Filter interface {
 }
 
 type filterChain struct {
-	ptr *NodePtr
-	pos int
+	handle func(*Context) error
+	pos    int
 }
 
 func (self *filterChain) getFilters() []Filter {
@@ -74,11 +74,11 @@ func (self *filterChain) getFilters() []Filter {
 func (self *filterChain) DoFilter(chain Filter, object *FilterObject) error {
 	fs := self.getFilters()
 	if self.pos == len(fs) {
-		return doInterceptorChain(self.ptr, object.HttpNode.Context)
+		return doInterceptorChain(self.handle, object.HttpNode.Context)
 	}
 	f := fs[self.pos]
 	self.pos++
-	return f.DoFilter(chain, &FilterObject{HttpNode: object.HttpNode, Args: object.Args})
+	return f.DoFilter(chain, object)
 }
 
 type SessionFilter struct{}
@@ -100,7 +100,7 @@ func (self *ParameterFilter) DoFilter(chain Filter, object *FilterObject) error 
 }
 
 func (self *SessionFilter) DoFilter(chain Filter, object *FilterObject) error {
-	if object.HttpNode.RouterConfig.Login || object.HttpNode.RouterConfig.Guest { // 登录接口和游客模式跳过会话认证
+	if object.HttpNode.routerConfig.Login || object.HttpNode.routerConfig.Guest { // 登录接口和游客模式跳过会话认证
 		return chain.DoFilter(chain, object)
 	}
 	if len(object.HttpNode.Context.Token) == 0 {

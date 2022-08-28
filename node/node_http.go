@@ -22,7 +22,7 @@ type HttpNode struct {
 func (self *HttpNode) getHeader() error {
 	r := self.Context.Input
 	headers := map[string]string{}
-	if self.RouterConfig.Original {
+	if self.routerConfig.Original {
 		if len(r.Header) > MAX_HEADER_SIZE {
 			return ex.Throw{Code: http.StatusLengthRequired, Msg: utils.AddStr("too many header parameters: ", len(r.Header))}
 		}
@@ -54,7 +54,7 @@ func (self *HttpNode) getParams() error {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "failed to read body parameters", Err: err}
 		}
 		r.Body.Close()
-		if self.RouterConfig.Original { //
+		if self.routerConfig.Original { //
 			data := map[string]interface{}{}
 			if len(body) == 0 {
 				self.Context.Params = &ReqDto{Data: data}
@@ -84,7 +84,7 @@ func (self *HttpNode) getParams() error {
 		}
 		return nil
 	} else if r.Method == GET { // only url key/value parameter is accepted
-		if !self.RouterConfig.Original {
+		if !self.routerConfig.Original {
 			return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "GET type is not supported"}
 		}
 		r.ParseForm()
@@ -144,24 +144,24 @@ func (self *HttpNode) validator(req *ReqDto) error {
 	if utils.MathAbs(utils.TimeSecond()-req.Time) > jwt.FIVE_MINUTES { // 判断绝对时间差超过5分钟
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request time invalid"}
 	}
-	if self.RouterConfig.AesRequest && req.Plan != 1 {
+	if self.routerConfig.AesRequest && req.Plan != 1 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters must use AES encryption"}
 	}
-	if self.RouterConfig.Login && req.Plan != 2 {
+	if self.routerConfig.Login && req.Plan != 2 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters must use RSA encryption"}
 	}
 	if !utils.CheckStrLen(req.Sign, 32, 64) {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature length invalid"}
 	}
 	var key string
-	if self.RouterConfig.Login {
+	if self.routerConfig.Login {
 		key = self.Context.ServerCert.PubkeyBase64
 	}
 	if self.Context.GetDataSign(d, req.Nonce, req.Time, req.Plan, key) != req.Sign {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature invalid"}
 	}
 	data := make(map[string]interface{}, 0)
-	if req.Plan == 1 && !self.RouterConfig.Login { // AES
+	if req.Plan == 1 && !self.routerConfig.Login { // AES
 		dec, err := utils.AesDecrypt(d, self.Context.GetTokenSecret(), utils.AddStr(req.Nonce, req.Time))
 		if err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "AES failed to parse data", Err: err}
@@ -169,7 +169,7 @@ func (self *HttpNode) validator(req *ReqDto) error {
 		if err := utils.JsonUnmarshal(utils.Str2Bytes(dec), &data); err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter JSON parsing failed"}
 		}
-	} else if req.Plan == 2 && self.RouterConfig.Login { // RSA
+	} else if req.Plan == 2 && self.routerConfig.Login { // RSA
 		//a := "To0IaxMwcWbX2CsQRv6jmUcPiNcPHn-73708NG8n99WAr5AS3ry7zEBtNRcDUuqhMjHS6NbQQrBOGVMKCfA1Mig2cgCh4wSq50p4omyAExEf1mDDA4bRo2_yPLCDBp63ERC3FJSJY_7ru07darWH6sZbymLigEjA4CWrpxmBQGKkr0gs6nYPIZg3eMuJj_RYmoIPYQtBU5BdPpKqPvtRWOAJBMtZbpSrxDBcCoA_0m3MbNYC4vvb1ivkABp_RXT_SlQqr9IEOqyBQpWpm5FBsoMZkXnMxFBhL1syaZwTK5Fr6Vj-85D0UsTXVPJmdLOBSirlJTgHLPKMMh70PxlEGQ=="
 		dec, err := self.Context.ServerCert.Decrypt(d)
 		if err != nil {
@@ -194,7 +194,7 @@ func (self *HttpNode) validator(req *ReqDto) error {
 		}
 		delete(data, CLIENT_PUBKEY)
 		self.Context.ClientCert = &gorsa.RsaObj{PubkeyBase64: pubkey_v}
-	} else if req.Plan == 0 && !self.RouterConfig.Login && !self.RouterConfig.AesRequest {
+	} else if req.Plan == 0 && !self.routerConfig.Login && !self.routerConfig.AesRequest {
 		if err := utils.ParseJsonBase64(d, &data); err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter JSON parsing failed"}
 		}
@@ -206,21 +206,18 @@ func (self *HttpNode) validator(req *ReqDto) error {
 	return nil
 }
 
-func (self *HttpNode) initialize(ptr *NodePtr) error {
-	output := ptr.Output
-	input := ptr.Input
-	node := ptr.Node.(*HttpNode)
-	node.RouterConfig = ptr.RouterConfig
-	node.CreateAt = utils.Time()
-	node.SessionAware = self.SessionAware
-	node.CacheAware = self.CacheAware
-	node.Context = &Context{
+func (self *HttpNode) initialize(ob *HttpNode, input *http.Request, output http.ResponseWriter, pattern string) error {
+	ob.routerConfig = routerConfigs[pattern]
+	ob.SessionAware = self.SessionAware
+	ob.CacheAware = self.CacheAware
+	ob.Context = &Context{
+		CreateAt:   utils.Time(),
 		Host:       utils.ClientIP(input),
 		Port:       self.Context.Port,
-		Style:      HTTP,
-		Method:     ptr.Pattern,
+		Style:      HTTP2,
+		Method:     pattern,
 		Version:    self.Context.Version,
-		Response:   &Response{UTF8, APPLICATION_JSON, nil},
+		Response:   &Response{Encoding: UTF8, ContentType: APPLICATION_JSON, ContentEntity: nil, ByteResult: nil},
 		Input:      input,
 		Output:     output,
 		ServerCert: self.Context.ServerCert,
@@ -231,14 +228,13 @@ func (self *HttpNode) initialize(ptr *NodePtr) error {
 	return nil
 }
 
-func (self *HttpNode) proxy(ptr *NodePtr) {
+func (self *HttpNode) proxy(pattern string, input *http.Request, output http.ResponseWriter, handle func(ctx *Context) error) {
 	ob := &HttpNode{}
 	if err := func() error {
-		ptr.Node = ob
-		if err := self.initialize(ptr); err != nil {
+		if err := self.initialize(ob, input, output, pattern); err != nil {
 			return err
 		}
-		if err := doFilterChain(ptr, ob); err != nil {
+		if err := doFilterChain(ob, handle); err != nil {
 			return err
 		}
 		return ob.renderTo()
@@ -263,7 +259,7 @@ func (self *HttpNode) renderError(err error) error {
 			resp.Nonce = self.Context.Params.Nonce
 		}
 	}
-	if self.RouterConfig.Original {
+	if self.routerConfig.Original {
 		if out.Code > 600 {
 			self.Context.Output.Header().Set("Content-Type", TEXT_PLAIN)
 			self.Context.Output.WriteHeader(http.StatusOK)
@@ -284,31 +280,29 @@ func (self *HttpNode) renderError(err error) error {
 	return nil
 }
 
-func (self *HttpNode) renderTo() error {
-	switch self.Context.Response.ContentType {
+func RenderData(ctx *Context) error {
+	routerConfig, _ := routerConfigs[ctx.Method]
+	switch ctx.Response.ContentType {
 	case TEXT_PLAIN:
-		content := self.Context.Response.ContentEntity
+		content := ctx.Response.ContentEntity
 		if v, b := content.(string); b {
-			self.Context.Output.Header().Set("Content-Type", TEXT_PLAIN)
-			self.Context.Output.Write(utils.Str2Bytes(v))
+			ctx.Response.ByteResult = utils.Str2Bytes(v)
 		} else {
-			self.Context.Output.Header().Set("Content-Type", TEXT_PLAIN)
-			self.Context.Output.Write(utils.Str2Bytes(""))
+			ctx.Response.ByteResult = utils.Str2Bytes("")
 		}
 	case APPLICATION_JSON:
-		if self.RouterConfig.Original {
-			if result, err := utils.JsonMarshal(self.Context.Response.ContentEntity); err != nil {
+		if routerConfig.Original {
+			if result, err := utils.JsonMarshal(ctx.Response.ContentEntity); err != nil {
 				return ex.Throw{Code: http.StatusInternalServerError, Msg: "response JSON data failed", Err: err}
 			} else {
-				self.Context.Output.Header().Set("Content-Type", APPLICATION_JSON)
-				self.Context.Output.Write(result)
+				ctx.Response.ByteResult = result
 			}
 			break
 		}
-		if self.Context.Response.ContentEntity == nil {
+		if ctx.Response.ContentEntity == nil {
 			return ex.Throw{Code: http.StatusInternalServerError, Msg: "response ContentEntity is nil"}
 		}
-		data, err := utils.JsonMarshal(self.Context.Response.ContentEntity)
+		data, err := utils.JsonMarshal(ctx.Response.ContentEntity)
 		if err != nil {
 			return ex.Throw{Code: http.StatusInternalServerError, Msg: "response conversion JSON failed", Err: err}
 		}
@@ -316,22 +310,22 @@ func (self *HttpNode) renderTo() error {
 			Code: http.StatusOK,
 			Time: utils.Time(),
 		}
-		if self.Context.Params == nil || len(self.Context.Params.Nonce) == 0 {
+		if ctx.Params == nil || len(ctx.Params.Nonce) == 0 {
 			resp.Nonce = utils.RandNonce()
 		} else {
-			resp.Nonce = self.Context.Params.Nonce
+			resp.Nonce = ctx.Params.Nonce
 		}
 		var key string
-		if self.RouterConfig.Login {
-			key = self.Context.ClientCert.PubkeyBase64
+		if routerConfig.Login {
+			key = ctx.ClientCert.PubkeyBase64
 			data, err := utils.AesEncrypt(data, key, key)
 			if err != nil {
 				return ex.Throw{Code: http.StatusInternalServerError, Msg: "AES encryption response data failed", Err: err}
 			}
 			resp.Data = data
 			resp.Plan = 2
-		} else if self.RouterConfig.AesResponse {
-			data, err := utils.AesEncrypt(data, self.Context.GetTokenSecret(), utils.AddStr(resp.Nonce, resp.Time))
+		} else if routerConfig.AesResponse {
+			data, err := utils.AesEncrypt(data, ctx.GetTokenSecret(), utils.AddStr(resp.Nonce, resp.Time))
 			if err != nil {
 				return ex.Throw{Code: http.StatusInternalServerError, Msg: "AES encryption response data failed", Err: err}
 			}
@@ -340,16 +334,21 @@ func (self *HttpNode) renderTo() error {
 		} else {
 			resp.Data = utils.Base64URLEncode(data)
 		}
-		resp.Sign = self.Context.GetDataSign(resp.Data.(string), resp.Nonce, resp.Time, resp.Plan, key)
+		resp.Sign = ctx.GetDataSign(resp.Data.(string), resp.Nonce, resp.Time, resp.Plan, key)
 		if result, err := utils.JsonMarshal(resp); err != nil {
 			return ex.Throw{Code: http.StatusInternalServerError, Msg: "response JSON data failed", Err: err}
 		} else {
-			self.Context.Output.Header().Set("Content-Type", APPLICATION_JSON)
-			self.Context.Output.Write(result)
+			ctx.Response.ByteResult = result
 		}
 	default:
 		return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "invalid response format"}
 	}
+	return nil
+}
+
+func (self *HttpNode) renderTo() error {
+	self.Context.Output.Header().Set("Content-Type", self.Context.Response.ContentType)
+	self.Context.Output.Write(self.Context.Response.ByteResult)
 	return nil
 }
 
@@ -364,7 +363,7 @@ func (self *HttpNode) defaultHandler() http.Handler {
 			w.Write(utils.Str2Bytes(fmt.Sprintf(part, utils.Time(), utils.GetSnowFlakeStrID())))
 			return
 		}
-		self.Handler.ServeHTTP(w, r)
+		self.handler.ServeHTTP(w, r)
 	})
 	if self.DisconnectTimeout <= 0 {
 		self.DisconnectTimeout = 180
@@ -420,22 +419,14 @@ func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, ro
 	if routerConfig == nil {
 		routerConfig = &RouterConfig{}
 	}
-	if self.Handler == nil {
-		self.Handler = http.NewServeMux()
+	if self.handler == nil {
+		self.handler = http.NewServeMux()
 	}
 	if _, b := routerConfigs[pattern]; !b {
 		routerConfigs[pattern] = routerConfig
 	}
-	self.Handler.Handle(pattern, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		self.proxy(
-			&NodePtr{
-				Node:         self,
-				RouterConfig: routerConfigs[pattern],
-				Input:        r,
-				Output:       w,
-				Pattern:      pattern,
-				PostHandle:   handle,
-			})
+	self.handler.Handle(pattern, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		self.proxy(pattern, r, w, handle)
 	}))
 }
 
@@ -443,12 +434,12 @@ func (self *HttpNode) Json(ctx *Context, data interface{}) error {
 	if data == nil {
 		data = map[string]string{}
 	}
-	ctx.Response = &Response{UTF8, APPLICATION_JSON, data}
+	ctx.Response = &Response{Encoding: UTF8, ContentType: APPLICATION_JSON, ContentEntity: data, ByteResult: nil}
 	return nil
 }
 
 func (self *HttpNode) Text(ctx *Context, data string) error {
-	ctx.Response = &Response{UTF8, TEXT_PLAIN, data}
+	ctx.Response = &Response{Encoding: UTF8, ContentType: TEXT_PLAIN, ContentEntity: data, ByteResult: nil}
 	return nil
 }
 
