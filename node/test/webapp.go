@@ -12,7 +12,6 @@ import (
 	"github.com/godaddy-x/freego/node/common"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/jwt"
-	"github.com/godaddy-x/freego/zlog"
 	"google.golang.org/grpc"
 )
 
@@ -88,31 +87,29 @@ func GetCacheAware(ds ...string) (cache.ICache, error) {
 	return local, nil
 }
 
-type NewPostHandleFilter struct{}
+type NewPostHandleInterceptor struct{}
 
-func (self *NewPostHandleFilter) DoFilter(chain node.Filter, object *node.InvokeObject) error {
-	ctx := object.HttpNode.Context
+func (self *NewPostHandleInterceptor) PreHandle(ctx *node.Context) (bool, error) {
+	fmt.Println(" --- NewPostHandleInterceptor PreHandle -- ")
 	if b := limiter.Allow(ctx.Method); !b {
-		return ex.Throw{Code: 429, Msg: "the method request is full, please try again later"}
+		return false, ex.Throw{Code: 429, Msg: "the method request is full, please try again later"}
 	}
 	if ctx.Authenticated() {
 		if b := limiter.Allow(utils.AnyToStr(ctx.Subject.Sub)); !b {
-			return ex.Throw{Code: 429, Msg: "the access frequency is too fast, please try again later"}
+			return false, ex.Throw{Code: 429, Msg: "the access frequency is too fast, please try again later"}
 		}
 	}
-	log := node.HttpLog{
-		Method:   ctx.Method,
-		LogNo:    utils.GetSnowFlakeStrID(),
-		CreateAt: utils.Time(),
-	}
-	if err := object.NodePtr.PostHandle(object); err != nil {
-		return err
-	}
-	log.UpdateAt = utils.Time()
-	log.CostMill = log.UpdateAt - log.CreateAt
-	// TODO send zlog to rabbitmq
-	zlog.Info("http log", 0, zlog.Any("data", log))
-	return chain.DoFilter(chain, object)
+	return true, nil
+}
+
+func (self *NewPostHandleInterceptor) PostHandle(ctx *node.Context) error {
+	fmt.Println(" --- NewPostHandleInterceptor PostHandle -- ")
+	return nil
+}
+
+func (self *NewPostHandleInterceptor) AfterCompletion(ctx *node.Context, err error) error {
+	fmt.Println(" --- NewPostHandleInterceptor AfterCompletion -- ")
+	return err
 }
 
 func StartHttpNode() {
@@ -128,7 +125,7 @@ func StartHttpNode() {
 	//my.DisconnectTimeout = 10
 	my.GatewayLimiter = rate.NewRateLimiter(rate.Option{Limit: 50, Bucket: 50, Expire: 30, Distributed: true})
 	my.CacheAware = GetCacheAware
-	my.AddFilter(node.PostHandleFilterName, 50, &NewPostHandleFilter{})
+	my.AddInterceptor(node.PostHandleInterceptorName, 50, &NewPostHandleInterceptor{})
 	my.Router("/test1", my.test, nil)
 	my.Router("/test2", my.getUser, &node.RouterConfig{})
 	my.Router("/pubkey", my.pubkey, &node.RouterConfig{Original: true, Guest: true})

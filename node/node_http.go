@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/utils"
-	"github.com/godaddy-x/freego/utils/concurrent"
 	"github.com/godaddy-x/freego/utils/gorsa"
 	"github.com/godaddy-x/freego/utils/jwt"
 	"github.com/godaddy-x/freego/zlog"
@@ -239,12 +238,8 @@ func (self *HttpNode) proxy(ptr *NodePtr) {
 		if err := self.initialize(ptr); err != nil {
 			return err
 		}
-		router, b := routerConfigs[ptr.Pattern]
-		if !b {
-			return ex.Throw{Code: ex.SYSTEM, Msg: "router config is nil"}
-		}
 		chain := &FilterChain{}
-		if err := chain.DoFilter(chain, &InvokeObject{NodePtr: ptr, HttpNode: ob, postHandle: router.postHandle}); err != nil {
+		if err := chain.DoFilter(chain, &InvokeObject{NodePtr: ptr, HttpNode: ob}); err != nil {
 			return err
 		}
 		return ob.renderTo()
@@ -311,6 +306,9 @@ func (self *HttpNode) renderTo() error {
 			}
 			break
 		}
+		if self.Context.Response.ContentEntity == nil {
+			return ex.Throw{Code: http.StatusInternalServerError, Msg: "response ContentEntity is nil"}
+		}
 		data, err := utils.JsonMarshal(self.Context.Response.ContentEntity)
 		if err != nil {
 			return ex.Throw{Code: http.StatusInternalServerError, Msg: "response conversion JSON failed", Err: err}
@@ -376,25 +374,6 @@ func (self *HttpNode) defaultHandler() http.Handler {
 	return http.TimeoutHandler(handler, time.Duration(self.DisconnectTimeout)*time.Second, fmt.Sprintf(errorMsg, utils.Time(), utils.GetSnowFlakeStrID()))
 }
 
-func (self *HttpNode) createFilterChain() error {
-	var fs []interface{}
-	for _, v := range filterMap {
-		fs = append(fs, v)
-	}
-	fs = concurrent.NewSorter(fs, func(a, b interface{}) bool {
-		o1 := a.(FilterSortBy)
-		o2 := b.(FilterSortBy)
-		return o1.order < o2.order
-	}).Sort()
-	for _, f := range fs {
-		filters = append(filters, f.(FilterSortBy).filter)
-	}
-	if len(filters) == 0 {
-		return utils.Error("filter chain is nil")
-	}
-	return nil
-}
-
 func (self *HttpNode) StartServer() {
 	go func() {
 		if self.CacheAware != nil {
@@ -403,8 +382,12 @@ func (self *HttpNode) StartServer() {
 		if self.Context.ServerCert != nil {
 			zlog.Printf("RSA certificate service has been started successful")
 		}
-		if err := self.createFilterChain(); err != nil {
+		if err := createFilterChain(); err != nil {
 			zlog.Error("http service create filter chain failed", 0, zlog.AddError(err))
+			return
+		}
+		if err := createInterceptorChain(); err != nil {
+			zlog.Error("http service create interceptor chain failed", 0, zlog.AddError(err))
 			return
 		}
 		url := utils.AddStr(self.Context.Host, ":", self.Context.Port)
@@ -442,7 +425,6 @@ func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, ro
 		self.Handler = http.NewServeMux()
 	}
 	if _, b := routerConfigs[pattern]; !b {
-		routerConfig.postHandle = handle
 		routerConfigs[pattern] = routerConfig
 	}
 	self.Handler.Handle(pattern, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -453,7 +435,7 @@ func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, ro
 				Input:        r,
 				Output:       w,
 				Pattern:      pattern,
-				PostHandle:   self.postHandle,
+				PostHandle:   handle,
 			})
 	}))
 }
@@ -479,14 +461,22 @@ func (self *HttpNode) AddFilter(name string, order int, filter Filter) {
 	zlog.Printf("add filter [%s] successful", name)
 }
 
+func (self *HttpNode) AddInterceptor(name string, order int, interceptor Interceptor) {
+	if len(name) == 0 || interceptor == nil {
+		return
+	}
+	interceptorMap[name] = InterceptorSortBy{order: order, interceptor: interceptor}
+	zlog.Printf("add interceptor [%s] successful", name)
+}
+
 func (self *HttpNode) ClearFilterChain() {
 	for k, _ := range filterMap {
 		delete(filterMap, k)
 	}
 }
 
-func (self *HttpNode) postHandle(object *InvokeObject) error {
-	err := object.postHandle(object.HttpNode.Context)
-	object.NodePtr.Completed = true
-	return err
+func (self *HttpNode) ClearInterceptorChain() {
+	for k, _ := range interceptorMap {
+		delete(interceptorMap, k)
+	}
 }

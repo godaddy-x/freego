@@ -2,16 +2,17 @@ package node
 
 import (
 	"github.com/godaddy-x/freego/ex"
+	"github.com/godaddy-x/freego/utils"
+	"github.com/godaddy-x/freego/utils/concurrent"
 	"github.com/godaddy-x/freego/utils/jwt"
 	"net/http"
 )
 
 const (
-	ParameterFilterName  = "ParameterFilter"
-	SessionFilterName    = "SessionFilter"
-	RoleFilterName       = "RoleFilter"
-	ReplayFilterName     = "ReplayFilter"
-	PostHandleFilterName = "PostHandleFilter"
+	ParameterFilterName = "ParameterFilter"
+	SessionFilterName   = "SessionFilter"
+	RoleFilterName      = "RoleFilter"
+	ReplayFilterName    = "ReplayFilter"
 )
 
 var filters []Filter
@@ -22,19 +23,35 @@ type FilterSortBy struct {
 }
 
 var filterMap = map[string]FilterSortBy{
-	ParameterFilterName:  {order: 10, filter: &ParameterFilter{}},
-	SessionFilterName:    {order: 20, filter: &SessionFilter{}},
-	RoleFilterName:       {order: 30, filter: &RoleFilter{}},
-	ReplayFilterName:     {order: 40, filter: &ReplayFilter{}},
-	PostHandleFilterName: {order: 50, filter: &PostHandleFilter{}},
+	ParameterFilterName: {order: 10, filter: &ParameterFilter{}},
+	SessionFilterName:   {order: 20, filter: &SessionFilter{}},
+	RoleFilterName:      {order: 30, filter: &RoleFilter{}},
+	ReplayFilterName:    {order: 40, filter: &ReplayFilter{}},
+}
+
+func createFilterChain() error {
+	var fs []interface{}
+	for _, v := range filterMap {
+		fs = append(fs, v)
+	}
+	fs = concurrent.NewSorter(fs, func(a, b interface{}) bool {
+		o1 := a.(FilterSortBy)
+		o2 := b.(FilterSortBy)
+		return o1.order < o2.order
+	}).Sort()
+	for _, f := range fs {
+		filters = append(filters, f.(FilterSortBy).filter)
+	}
+	if len(filters) == 0 {
+		return utils.Error("filter chain is nil")
+	}
+	return nil
 }
 
 type InvokeObject struct {
-	NodePtr    *NodePtr
-	HttpNode   *HttpNode
-	Errs       []error
-	Args       []interface{}
-	postHandle func(ctx *Context) error
+	NodePtr  *NodePtr
+	HttpNode *HttpNode
+	Args     []interface{}
 }
 
 type Filter interface {
@@ -51,8 +68,9 @@ func (self *FilterChain) getFilters() []Filter {
 
 func (self *FilterChain) DoFilter(chain Filter, object *InvokeObject) error {
 	fs := self.getFilters()
-	if object.NodePtr.Completed || self.pos == len(fs) {
-		return nil
+	if self.pos == len(fs) {
+		interceptorChain := &InterceptorChain{pos: -1, ptr: object.NodePtr, ctx: object.HttpNode.Context}
+		return interceptorChain.execute()
 	}
 	f := fs[self.pos]
 	self.pos++
@@ -63,7 +81,6 @@ type SessionFilter struct{}
 type ParameterFilter struct{}
 type RoleFilter struct{}
 type ReplayFilter struct{}
-type PostHandleFilter struct{}
 
 func (self *ParameterFilter) DoFilter(chain Filter, object *InvokeObject) error {
 	if err := object.HttpNode.getHeader(); err != nil {
@@ -141,12 +158,5 @@ func (self *ReplayFilter) DoFilter(chain Filter, object *InvokeObject) error {
 	//} else {
 	//	c.Put(key, 1, int((param.Time+jwt.FIVE_MINUTES)/1000))
 	//}
-	return chain.DoFilter(chain, object)
-}
-
-func (self *PostHandleFilter) DoFilter(chain Filter, object *InvokeObject) error {
-	if err := object.NodePtr.PostHandle(object); err != nil {
-		return err
-	}
 	return chain.DoFilter(chain, object)
 }

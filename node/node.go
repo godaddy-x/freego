@@ -59,8 +59,7 @@ type NodePtr struct {
 	Input        *http.Request
 	Output       http.ResponseWriter
 	Pattern      string
-	PostHandle   func(object *InvokeObject) error
-	Completed    bool
+	PostHandle   func(ctx *Context) error
 }
 
 type RouterConfig struct {
@@ -69,7 +68,6 @@ type RouterConfig struct {
 	Original    bool // 是否原始方式 false.否 true.是
 	AesRequest  bool // 请求是否必须AES加密 false.否 true.是
 	AesResponse bool // 响应是否必须AES加密 false.否 true.是
-	postHandle  func(ctx *Context) error
 }
 
 type HttpLog struct {
