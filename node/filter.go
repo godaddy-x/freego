@@ -6,6 +6,7 @@ import (
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/concurrent"
 	"github.com/godaddy-x/freego/utils/jwt"
+	"math"
 	"net/http"
 )
 
@@ -16,6 +17,7 @@ const (
 	UserRateLimiterFilterName    = "UserRateLimiterFilter"
 	RoleFilterName               = "RoleFilter"
 	ReplayFilterName             = "ReplayFilter"
+	PostHandleFilterName         = "PostHandleFilter"
 )
 
 var filters []Filter
@@ -32,11 +34,12 @@ var filterMap = map[string]filterSortBy{
 	UserRateLimiterFilterName:    {order: 40, filter: &UserRateLimiterFilter{}},
 	RoleFilterName:               {order: 50, filter: &RoleFilter{}},
 	ReplayFilterName:             {order: 60, filter: &ReplayFilter{}},
+	PostHandleFilterName:         {order: math.MaxInt, filter: &PostHandleFilter{}},
 }
 
 func doFilterChain(ob *HttpNode, handle func(*Context) error, args ...interface{}) error {
-	chain := &filterChain{handle: handle, pos: 0}
-	return chain.DoFilter(chain, &FilterObject{HttpNode: ob, Args: args})
+	chain := &filterChain{pos: 0}
+	return chain.DoFilter(chain, &FilterObject{HttpNode: ob, PostHandle: handle, Args: args})
 }
 
 func createFilterChain() error {
@@ -59,8 +62,9 @@ func createFilterChain() error {
 }
 
 type FilterObject struct {
-	HttpNode *HttpNode
-	Args     []interface{}
+	HttpNode   *HttpNode
+	PostHandle func(*Context) error
+	Args       []interface{}
 }
 
 type Filter interface {
@@ -68,8 +72,7 @@ type Filter interface {
 }
 
 type filterChain struct {
-	handle func(*Context) error
-	pos    int
+	pos int
 }
 
 func (self *filterChain) getFilters() []Filter {
@@ -79,7 +82,7 @@ func (self *filterChain) getFilters() []Filter {
 func (self *filterChain) DoFilter(chain Filter, object *FilterObject) error {
 	fs := self.getFilters()
 	if self.pos == len(fs) {
-		return doInterceptorChain(self.handle, object.HttpNode.Context)
+		return nil
 	}
 	f := fs[self.pos]
 	self.pos++
@@ -92,6 +95,7 @@ type SessionFilter struct{}
 type UserRateLimiterFilter struct{}
 type RoleFilter struct{}
 type ReplayFilter struct{}
+type PostHandleFilter struct{}
 
 var (
 	gatewayRateLimiter = rate.NewRateLimiter(rate.Option{Limit: 50, Bucket: 1000, Expire: 30, Distributed: true})
@@ -207,5 +211,12 @@ func (self *ReplayFilter) DoFilter(chain Filter, object *FilterObject) error {
 	//} else {
 	//	c.Put(key, 1, int((param.Time+jwt.FIVE_MINUTES)/1000))
 	//}
+	return chain.DoFilter(chain, object)
+}
+
+func (self *PostHandleFilter) DoFilter(chain Filter, object *FilterObject) error {
+	if err := object.PostHandle(object.HttpNode.Context); err != nil {
+		return err
+	}
 	return chain.DoFilter(chain, object)
 }

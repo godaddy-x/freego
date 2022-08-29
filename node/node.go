@@ -52,6 +52,7 @@ type HookNode struct {
 
 type Render struct {
 	To    func(*Context) error
+	Pre   func(*Context) error
 	Error func(*Context, error) error
 }
 

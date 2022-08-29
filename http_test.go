@@ -37,10 +37,10 @@ func initSrvPubkey() string {
 
 // 测试使用的http post示例方法
 func ToPostBy(path string, req *node.ReqDto) {
-	//srvPubkeyBase64 := initSrvPubkey()
-	//if len(srvPubkeyBase64) == 0 {
-	//	panic("srvPubkeyBase64 is nil")
-	//}
+	srvPubkeyBase64 := initSrvPubkey()
+	if len(srvPubkeyBase64) == 0 {
+		panic("srvPubkeyBase64 is nil")
+	}
 	if req.Plan == 0 {
 		d := utils.Base64URLEncode(req.Data.([]byte))
 		req.Data = d

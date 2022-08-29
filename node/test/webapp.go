@@ -90,25 +90,13 @@ func GetCacheAware(ds ...string) (cache.ICache, error) {
 type NewPostFilter struct{}
 
 func (self *NewPostFilter) DoFilter(chain node.Filter, object *node.FilterObject) error {
-	fmt.Println(" --- NewFilter.DoFilter ---")
-	return chain.DoFilter(chain, object)
-}
-
-type NewPostHandleInterceptor struct{}
-
-func (self *NewPostHandleInterceptor) PreHandle(ctx *node.Context) (bool, error) {
-	fmt.Println(" --- NewPostHandleInterceptor PreHandle -- ")
+	fmt.Println(" --- NewFilter.DoFilter before ---")
+	ctx := object.HttpNode.Context
 	ctx.AddStorage("httpLog", node.HttpLog{Method: ctx.Method, LogNo: utils.GetSnowFlakeStrID(), CreateAt: utils.Time()})
-	return true, nil
-}
-
-func (self *NewPostHandleInterceptor) PostHandle(ctx *node.Context) error {
-	fmt.Println(" --- NewPostHandleInterceptor PostHandle -- ")
-	return nil
-}
-
-func (self *NewPostHandleInterceptor) AfterCompletion(ctx *node.Context, err error) error {
-	fmt.Println(" --- NewPostHandleInterceptor AfterCompletion -- ")
+	if err := chain.DoFilter(chain, object); err != nil {
+		return err
+	}
+	fmt.Println(" --- NewFilter.DoFilter after ---")
 	v := ctx.GetStorage("httpLog")
 	if v == nil {
 		return utils.Error("httpLog is nil")
@@ -117,7 +105,7 @@ func (self *NewPostHandleInterceptor) AfterCompletion(ctx *node.Context, err err
 	httpLog.UpdateAt = utils.Time()
 	httpLog.CostMill = httpLog.UpdateAt - httpLog.CreateAt
 	zlog.Info("http log", 0, zlog.Any("data", httpLog))
-	return err
+	return nil
 }
 
 func StartHttpNode() {
@@ -129,7 +117,6 @@ func StartHttpNode() {
 	}
 	my.CacheAware = GetCacheAware
 	my.AddFilter("NewPostFilter", &NewPostFilter{}, 100)
-	my.AddInterceptor(node.PostHandleInterceptorName, &NewPostHandleInterceptor{}, 50)
 	my.Router("/test1", my.test, nil)
 	my.Router("/test2", my.getUser, &node.RouterConfig{})
 	my.Router("/pubkey", my.pubkey, &node.RouterConfig{Original: true, Guest: true})

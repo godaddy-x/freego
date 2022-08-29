@@ -226,15 +226,25 @@ func (self *HttpNode) doRequest(ob *HttpNode, pattern string, input *http.Reques
 		PermConfig:   self.Context.PermConfig,
 		Storage:      make(map[string]interface{}, 0),
 	}
-	return doFilterChain(ob, handle)
+	return self.preRender(ob.Context, doFilterChain(ob, handle))
+}
+
+func (self *HttpNode) preRender(ctx *Context, err error) error {
+	if err == nil {
+		err = self.Render.Pre(ctx)
+	}
+	if err != nil {
+		self.Render.Error(ctx, err)
+	}
+	return nil
 }
 
 func (self *HttpNode) proxy(pattern string, input *http.Request, output http.ResponseWriter, handle func(ctx *Context) error) {
 	ob := &HttpNode{}
 	if err := self.doRequest(ob, pattern, input, output, handle); err != nil {
-		ob.Render.Error(ob.Context, err)
+		return
 	}
-	if err := ob.Render.To(ob.Context); err != nil {
+	if err := self.Render.To(ob.Context); err != nil {
 		zlog.Error("render failed", 0, zlog.AddError(err))
 	}
 }
@@ -260,10 +270,6 @@ func (self *HttpNode) StartServer() {
 		}
 		if err := createFilterChain(); err != nil {
 			zlog.Error("http service create filter chain failed", 0, zlog.AddError(err))
-			return
-		}
-		if err := createInterceptorChain(); err != nil {
-			zlog.Error("http service create interceptor chain failed", 0, zlog.AddError(err))
 			return
 		}
 		url := utils.AddStr(self.Context.Host, ":", self.Context.Port)
@@ -295,7 +301,7 @@ func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, ro
 		self.Context.ServerCert = cert
 	}
 	if self.Render == nil {
-		self.Render = &Render{To: defaultRenderTo, Error: defaultRenderError}
+		self.Render = &Render{Pre: defaultRenderPre, To: defaultRenderTo, Error: defaultRenderError}
 	}
 	if routerConfig == nil {
 		routerConfig = &RouterConfig{}
@@ -336,31 +342,16 @@ func (self *HttpNode) AddFilter(name string, filter Filter, order ...int) {
 	zlog.Printf("add filter [%s] successful", name)
 }
 
-func (self *HttpNode) AddInterceptor(name string, interceptor Interceptor, order ...int) {
-	if len(name) == 0 || interceptor == nil {
-		return
-	}
-	orderBy := 0
-	if len(order) > 0 {
-		orderBy = order[0]
-	}
-	interceptorMap[name] = interceptorSortBy{order: orderBy, interceptor: interceptor}
-	zlog.Printf("add interceptor [%s] successful", name)
-}
-
 func (self *HttpNode) ClearFilterChain() {
 	for k, _ := range filterMap {
 		delete(filterMap, k)
 	}
 }
 
-func (self *HttpNode) ClearInterceptorChain() {
-	for k, _ := range interceptorMap {
-		delete(interceptorMap, k)
-	}
-}
-
 func defaultRenderError(ctx *Context, err error) error {
+	if err == nil {
+		return nil
+	}
 	out := ex.Catch(err)
 	resp := &RespDto{
 		Code:    out.Code,
@@ -403,5 +394,71 @@ func defaultRenderTo(ctx *Context) error {
 		ctx.Output.WriteHeader(ctx.Response.StatusCode)
 	}
 	ctx.Output.Write(ctx.Response.ContentEntityByte)
+	return nil
+}
+
+func defaultRenderPre(ctx *Context) error {
+	routerConfig, _ := routerConfigs[ctx.Method]
+	switch ctx.Response.ContentType {
+	case TEXT_PLAIN:
+		content := ctx.Response.ContentEntity
+		if v, b := content.(string); b {
+			ctx.Response.ContentEntityByte = utils.Str2Bytes(v)
+		} else {
+			ctx.Response.ContentEntityByte = utils.Str2Bytes("")
+		}
+	case APPLICATION_JSON:
+		if ctx.Response.ContentEntity == nil {
+			return ex.Throw{Code: http.StatusInternalServerError, Msg: "response ContentEntity is nil"}
+		}
+		if routerConfig.Original {
+			if result, err := utils.JsonMarshal(ctx.Response.ContentEntity); err != nil {
+				return ex.Throw{Code: http.StatusInternalServerError, Msg: "response JSON data failed", Err: err}
+			} else {
+				ctx.Response.ContentEntityByte = result
+			}
+			break
+		}
+		data, err := utils.JsonMarshal(ctx.Response.ContentEntity)
+		if err != nil {
+			return ex.Throw{Code: http.StatusInternalServerError, Msg: "response conversion JSON failed", Err: err}
+		}
+		resp := &RespDto{
+			Code: http.StatusOK,
+			Time: utils.Time(),
+		}
+		if ctx.Params == nil || len(ctx.Params.Nonce) == 0 {
+			resp.Nonce = utils.RandNonce()
+		} else {
+			resp.Nonce = ctx.Params.Nonce
+		}
+		var key string
+		if routerConfig.Login {
+			key = ctx.ClientCert.PubkeyBase64
+			data, err := utils.AesEncrypt(data, key, key)
+			if err != nil {
+				return ex.Throw{Code: http.StatusInternalServerError, Msg: "AES encryption response data failed", Err: err}
+			}
+			resp.Data = data
+			resp.Plan = 2
+		} else if routerConfig.AesResponse {
+			data, err := utils.AesEncrypt(data, ctx.GetTokenSecret(), utils.AddStr(resp.Nonce, resp.Time))
+			if err != nil {
+				return ex.Throw{Code: http.StatusInternalServerError, Msg: "AES encryption response data failed", Err: err}
+			}
+			resp.Data = data
+			resp.Plan = 1
+		} else {
+			resp.Data = utils.Base64URLEncode(data)
+		}
+		resp.Sign = ctx.GetDataSign(resp.Data.(string), resp.Nonce, resp.Time, resp.Plan, key)
+		if result, err := utils.JsonMarshal(resp); err != nil {
+			return ex.Throw{Code: http.StatusInternalServerError, Msg: "response JSON data failed", Err: err}
+		} else {
+			ctx.Response.ContentEntityByte = result
+		}
+	default:
+		return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "invalid response ContentType"}
+	}
 	return nil
 }
