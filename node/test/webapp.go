@@ -126,9 +126,6 @@ func (self *NewPostHandleInterceptor) AfterCompletion(ctx *node.Context, err err
 	httpLog.UpdateAt = utils.Time()
 	httpLog.CostMill = httpLog.UpdateAt - httpLog.CreateAt
 	zlog.Info("http log", 0, zlog.Any("data", httpLog))
-	if err := node.RenderData(ctx); err != nil {
-		return err
-	}
 	return err
 }
 
@@ -143,7 +140,7 @@ func StartHttpNode() {
 		//},
 	}
 	//my.DisconnectTimeout = 10
-	my.GatewayLimiter = rate.NewRateLimiter(rate.Option{Limit: 50, Bucket: 50, Expire: 30, Distributed: true})
+	my.RateLimiter = rate.NewRateLimiter(rate.Option{Limit: 50, Bucket: 50, Expire: 30, Distributed: true})
 	my.CacheAware = GetCacheAware
 	my.AddFilter("NewPostFilter", 100, &NewPostFilter{})
 	my.AddInterceptor(node.PostHandleInterceptorName, 50, &NewPostHandleInterceptor{})

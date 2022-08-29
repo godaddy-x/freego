@@ -1,12 +1,16 @@
 package node
 
 import (
+	"github.com/godaddy-x/freego/ex"
+	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/concurrent"
 	"github.com/godaddy-x/freego/zlog"
+	"net/http"
 )
 
 const (
-	PostHandleInterceptorName = "PostHandleInterceptor"
+	PostHandleInterceptorName   = "PostHandleInterceptor"
+	RenderHandleInterceptorName = "RenderHandleInterceptor"
 )
 
 var interceptors []Interceptor
@@ -17,7 +21,7 @@ type interceptorSortBy struct {
 }
 
 var interceptorMap = map[string]interceptorSortBy{
-	PostHandleInterceptorName: {order: 10, interceptor: &PostHandleInterceptor{}},
+	RenderHandleInterceptorName: {order: -999, interceptor: &RenderHandleInterceptor{}},
 }
 
 func doInterceptorChain(handle func(*Context) error, ctx *Context) error {
@@ -111,16 +115,78 @@ func (self *interceptorChain) ApplyAfterCompletion(err error) error {
 	return err
 }
 
-type PostHandleInterceptor struct{}
+type RenderHandleInterceptor struct{}
 
-func (self *PostHandleInterceptor) PreHandle(ctx *Context) (bool, error) {
+func (self *RenderHandleInterceptor) PreHandle(ctx *Context) (bool, error) {
 	return true, nil
 }
 
-func (self *PostHandleInterceptor) PostHandle(ctx *Context) error {
+func (self *RenderHandleInterceptor) PostHandle(ctx *Context) error {
+	routerConfig, _ := routerConfigs[ctx.Method]
+	switch ctx.Response.ContentType {
+	case TEXT_PLAIN:
+		content := ctx.Response.ContentEntity
+		if v, b := content.(string); b {
+			ctx.Response.ContentEntityByte = utils.Str2Bytes(v)
+		} else {
+			ctx.Response.ContentEntityByte = utils.Str2Bytes("")
+		}
+	case APPLICATION_JSON:
+		if routerConfig.Original {
+			if result, err := utils.JsonMarshal(ctx.Response.ContentEntity); err != nil {
+				return ex.Throw{Code: http.StatusInternalServerError, Msg: "response JSON data failed", Err: err}
+			} else {
+				ctx.Response.ContentEntityByte = result
+			}
+			break
+		}
+		if ctx.Response.ContentEntity == nil {
+			return ex.Throw{Code: http.StatusInternalServerError, Msg: "response ContentEntity is nil"}
+		}
+		data, err := utils.JsonMarshal(ctx.Response.ContentEntity)
+		if err != nil {
+			return ex.Throw{Code: http.StatusInternalServerError, Msg: "response conversion JSON failed", Err: err}
+		}
+		resp := &RespDto{
+			Code: http.StatusOK,
+			Time: utils.Time(),
+		}
+		if ctx.Params == nil || len(ctx.Params.Nonce) == 0 {
+			resp.Nonce = utils.RandNonce()
+		} else {
+			resp.Nonce = ctx.Params.Nonce
+		}
+		var key string
+		if routerConfig.Login {
+			key = ctx.ClientCert.PubkeyBase64
+			data, err := utils.AesEncrypt(data, key, key)
+			if err != nil {
+				return ex.Throw{Code: http.StatusInternalServerError, Msg: "AES encryption response data failed", Err: err}
+			}
+			resp.Data = data
+			resp.Plan = 2
+		} else if routerConfig.AesResponse {
+			data, err := utils.AesEncrypt(data, ctx.GetTokenSecret(), utils.AddStr(resp.Nonce, resp.Time))
+			if err != nil {
+				return ex.Throw{Code: http.StatusInternalServerError, Msg: "AES encryption response data failed", Err: err}
+			}
+			resp.Data = data
+			resp.Plan = 1
+		} else {
+			resp.Data = utils.Base64URLEncode(data)
+		}
+		resp.Sign = ctx.GetDataSign(resp.Data.(string), resp.Nonce, resp.Time, resp.Plan, key)
+		if result, err := utils.JsonMarshal(resp); err != nil {
+			return ex.Throw{Code: http.StatusInternalServerError, Msg: "response JSON data failed", Err: err}
+		} else {
+			ctx.Response.ContentEntityByte = result
+		}
+	default:
+		return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "invalid response ContentType"}
+	}
 	return nil
 }
 
-func (self *PostHandleInterceptor) AfterCompletion(ctx *Context, err error) error {
+func (self *RenderHandleInterceptor) AfterCompletion(ctx *Context, err error) error {
 	return err
 }

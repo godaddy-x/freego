@@ -100,7 +100,7 @@ func (self *ParameterFilter) DoFilter(chain Filter, object *FilterObject) error 
 }
 
 func (self *SessionFilter) DoFilter(chain Filter, object *FilterObject) error {
-	if object.HttpNode.routerConfig.Login || object.HttpNode.routerConfig.Guest { // 登录接口和游客模式跳过会话认证
+	if object.HttpNode.Context.RouterConfig.Login || object.HttpNode.Context.RouterConfig.Guest { // 登录接口和游客模式跳过会话认证
 		return chain.DoFilter(chain, object)
 	}
 	if len(object.HttpNode.Context.Token) == 0 {

@@ -11,7 +11,7 @@ import (
  */
 
 const (
-	SEP     = "∵∴"
+	sep     = "∵∴"
 	BIZ     = 100000 // 普通业务异常
 	JSON    = 999994 // JSON转换异常
 	NUMBER  = 999995 // 数值转换异常
@@ -56,11 +56,11 @@ func (self Throw) Error() string {
 	if self.Code == 0 {
 		self.Code = BIZ
 	}
-	return utils.AddStr(self.Code, SEP, self.Msg, SEP, self.Url)
+	return utils.AddStr(self.Code, sep, self.Msg, sep, self.Url)
 }
 
 func Catch(err error) Throw {
-	spl := strings.Split(err.Error(), SEP)
+	spl := strings.Split(err.Error(), sep)
 	if len(spl) == 1 {
 		return Throw{Code: UNKNOWN, Msg: spl[0]}
 	} else if len(spl) == 2 {

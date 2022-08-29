@@ -44,12 +44,17 @@ const (
 
 type HookNode struct {
 	handler           *http.ServeMux
-	routerConfig      *RouterConfig
 	Context           *Context
+	Render            *Render
 	SessionAware      SessionAware
 	CacheAware        func(ds ...string) (cache.ICache, error)
-	GatewayLimiter    rate.RateLimiter
+	RateLimiter       rate.RateLimiter
 	DisconnectTimeout int64 // 超时主动断开客户端连接,秒
+}
+
+type Render struct {
+	To    func(*Context) error
+	Error func(*Context, error) error
 }
 
 type RouterConfig struct {
@@ -105,33 +110,36 @@ type Permission struct {
 }
 
 type Context struct {
-	CreateAt   int64
-	Host       string
-	Port       int64
-	Style      string
-	Device     string
-	Method     string
-	Token      string
-	Headers    map[string]string
-	Params     *ReqDto
-	Subject    *jwt.Payload
-	Response   *Response
-	Version    string
-	Input      *http.Request
-	Output     http.ResponseWriter
-	ServerCert *gorsa.RsaObj
-	ClientCert *gorsa.RsaObj
-	JwtConfig  func() jwt.JwtConfig
-	PermConfig func(url string) (Permission, error)
-	Storage    map[string]interface{}
-	Roles      []int64
+	CreateAt     int64
+	Host         string
+	Port         int64
+	Style        string
+	Device       string
+	Method       string
+	Token        string
+	Headers      map[string]string
+	Params       *ReqDto
+	Subject      *jwt.Payload
+	Response     *Response
+	Version      string
+	Input        *http.Request
+	Output       http.ResponseWriter
+	RouterConfig *RouterConfig
+	ServerCert   *gorsa.RsaObj
+	ClientCert   *gorsa.RsaObj
+	JwtConfig    func() jwt.JwtConfig
+	PermConfig   func(url string) (Permission, error)
+	Storage      map[string]interface{}
+	Roles        []int64
 }
 
 type Response struct {
 	Encoding      string
 	ContentType   string
 	ContentEntity interface{}
-	ByteResult    []byte
+	// response result
+	StatusCode        int
+	ContentEntityByte []byte
 }
 
 func (self *Context) GetHeader(k string) string {
