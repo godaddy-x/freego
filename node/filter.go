@@ -1,6 +1,7 @@
 package node
 
 import (
+	rate "github.com/godaddy-x/freego/cache/limiter"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/concurrent"
@@ -9,10 +10,12 @@ import (
 )
 
 const (
-	ParameterFilterName = "ParameterFilter"
-	SessionFilterName   = "SessionFilter"
-	RoleFilterName      = "RoleFilter"
-	ReplayFilterName    = "ReplayFilter"
+	GatewayRateLimiterFilterName = "GatewayRateLimiterFilter"
+	ParameterFilterName          = "ParameterFilter"
+	SessionFilterName            = "SessionFilter"
+	UserRateLimiterFilterName    = "UserRateLimiterFilter"
+	RoleFilterName               = "RoleFilter"
+	ReplayFilterName             = "ReplayFilter"
 )
 
 var filters []Filter
@@ -23,10 +26,12 @@ type filterSortBy struct {
 }
 
 var filterMap = map[string]filterSortBy{
-	ParameterFilterName: {order: 10, filter: &ParameterFilter{}},
-	SessionFilterName:   {order: 20, filter: &SessionFilter{}},
-	RoleFilterName:      {order: 30, filter: &RoleFilter{}},
-	ReplayFilterName:    {order: 40, filter: &ReplayFilter{}},
+	GatewayRateLimiterFilterName: {order: 10, filter: &GatewayRateLimiterFilter{}},
+	ParameterFilterName:          {order: 20, filter: &ParameterFilter{}},
+	SessionFilterName:            {order: 30, filter: &SessionFilter{}},
+	UserRateLimiterFilterName:    {order: 40, filter: &UserRateLimiterFilter{}},
+	RoleFilterName:               {order: 50, filter: &RoleFilter{}},
+	ReplayFilterName:             {order: 60, filter: &ReplayFilter{}},
 }
 
 func doFilterChain(ob *HttpNode, handle func(*Context) error, args ...interface{}) error {
@@ -81,10 +86,37 @@ func (self *filterChain) DoFilter(chain Filter, object *FilterObject) error {
 	return f.DoFilter(chain, object)
 }
 
-type SessionFilter struct{}
+type GatewayRateLimiterFilter struct{}
 type ParameterFilter struct{}
+type SessionFilter struct{}
+type UserRateLimiterFilter struct{}
 type RoleFilter struct{}
 type ReplayFilter struct{}
+
+var (
+	gatewayRateLimiter = rate.NewRateLimiter(rate.Option{Limit: 50, Bucket: 1000, Expire: 30, Distributed: true})
+	methodRateLimiter  = rate.NewRateLimiter(rate.Option{Limit: 50, Bucket: 500, Expire: 30, Distributed: true})
+	userRateLimiter    = rate.NewRateLimiter(rate.Option{Limit: 5, Bucket: 10, Expire: 30, Distributed: true})
+)
+
+func SetGatewayRateLimiter(option rate.Option) {
+	gatewayRateLimiter = rate.NewRateLimiter(option)
+}
+
+func SetMethodRateLimiter(option rate.Option) {
+	methodRateLimiter = rate.NewRateLimiter(option)
+}
+
+func SetUserRateLimiter(option rate.Option) {
+	userRateLimiter = rate.NewRateLimiter(option)
+}
+
+func (self *GatewayRateLimiterFilter) DoFilter(chain Filter, object *FilterObject) error {
+	if b := gatewayRateLimiter.Allow("HttpThreshold"); !b {
+		return ex.Throw{Code: 429, Msg: "the gateway request is full, please try again later"}
+	}
+	return chain.DoFilter(chain, object)
+}
 
 func (self *ParameterFilter) DoFilter(chain Filter, object *FilterObject) error {
 	if err := object.HttpNode.getHeader(); err != nil {
@@ -112,6 +144,19 @@ func (self *SessionFilter) DoFilter(chain Filter, object *FilterObject) error {
 	}
 	object.HttpNode.Context.Roles = subject.GetTokenRole()
 	object.HttpNode.Context.Subject = subject.Payload
+	return chain.DoFilter(chain, object)
+}
+
+func (self *UserRateLimiterFilter) DoFilter(chain Filter, object *FilterObject) error {
+	ctx := object.HttpNode.Context
+	if b := userRateLimiter.Allow(ctx.Method); !b {
+		return ex.Throw{Code: 429, Msg: "the method request is full, please try again later"}
+	}
+	if ctx.Authenticated() {
+		if b := userRateLimiter.Allow(ctx.Subject.Sub); !b {
+			return ex.Throw{Code: 429, Msg: "the access frequency is too fast, please try again later"}
+		}
+	}
 	return chain.DoFilter(chain, object)
 }
 

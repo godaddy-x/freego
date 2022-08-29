@@ -7,7 +7,6 @@ import (
 	"github.com/godaddy-x/freego/cache/limiter"
 	"github.com/godaddy-x/freego/consul/grpcx"
 	"github.com/godaddy-x/freego/consul/grpcx/pb"
-	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/node"
 	"github.com/godaddy-x/freego/node/common"
 	"github.com/godaddy-x/freego/utils"
@@ -99,14 +98,6 @@ type NewPostHandleInterceptor struct{}
 
 func (self *NewPostHandleInterceptor) PreHandle(ctx *node.Context) (bool, error) {
 	fmt.Println(" --- NewPostHandleInterceptor PreHandle -- ")
-	if b := limiter.Allow(ctx.Method); !b {
-		return false, ex.Throw{Code: 429, Msg: "the method request is full, please try again later"}
-	}
-	if ctx.Authenticated() {
-		if b := limiter.Allow(utils.AnyToStr(ctx.Subject.Sub)); !b {
-			return false, ex.Throw{Code: 429, Msg: "the access frequency is too fast, please try again later"}
-		}
-	}
 	ctx.AddStorage("httpLog", node.HttpLog{Method: ctx.Method, LogNo: utils.GetSnowFlakeStrID(), CreateAt: utils.Time()})
 	return true, nil
 }
@@ -135,15 +126,10 @@ func StartHttpNode() {
 		Host:      "0.0.0.0",
 		Port:      8090,
 		JwtConfig: GetJwtConfig,
-		//PermConfig: func(url string) (node.Permission, error) {
-		//	return node.Permission{}, nil
-		//},
 	}
-	//my.DisconnectTimeout = 10
-	my.RateLimiter = rate.NewRateLimiter(rate.Option{Limit: 50, Bucket: 50, Expire: 30, Distributed: true})
 	my.CacheAware = GetCacheAware
-	my.AddFilter("NewPostFilter", 100, &NewPostFilter{})
-	my.AddInterceptor(node.PostHandleInterceptorName, 50, &NewPostHandleInterceptor{})
+	my.AddFilter("NewPostFilter", &NewPostFilter{}, 100)
+	my.AddInterceptor(node.PostHandleInterceptorName, &NewPostHandleInterceptor{}, 50)
 	my.Router("/test1", my.test, nil)
 	my.Router("/test2", my.getUser, &node.RouterConfig{})
 	my.Router("/pubkey", my.pubkey, &node.RouterConfig{Original: true, Guest: true})

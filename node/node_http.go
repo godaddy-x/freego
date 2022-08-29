@@ -240,16 +240,7 @@ func (self *HttpNode) proxy(pattern string, input *http.Request, output http.Res
 }
 
 func (self *HttpNode) defaultHandler() http.Handler {
-	if self.RateLimiter == nil {
-		panic("gateway rate limiter is nil")
-	}
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if b := self.RateLimiter.Allow("HttpThreshold"); !b {
-			w.WriteHeader(429)
-			part := `{"c":429,"m":"the gateway request is full, please try again later","d":null,"t":%d,"n":"%s","p":0,"s":""}`
-			w.Write(utils.Str2Bytes(fmt.Sprintf(part, utils.Time(), utils.GetSnowFlakeStrID())))
-			return
-		}
 		self.handler.ServeHTTP(w, r)
 	})
 	if self.DisconnectTimeout <= 0 {
@@ -288,12 +279,12 @@ func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, ro
 	if !strings.HasPrefix(pattern, "/") {
 		pattern = utils.AddStr("/", pattern)
 	}
-	if len(self.Context.Version) > 0 {
-		pattern = utils.AddStr("/", self.Context.Version, pattern)
-	}
 	if self.CacheAware == nil {
 		zlog.Error("cache service hasn't been initialized", 0)
 		return
+	}
+	if len(self.Context.Version) > 0 {
+		pattern = utils.AddStr("/", self.Context.Version, pattern)
 	}
 	if self.Context.ServerCert == nil {
 		cert := &gorsa.RsaObj{}
@@ -333,19 +324,27 @@ func (self *HttpNode) Text(ctx *Context, data string) error {
 	return nil
 }
 
-func (self *HttpNode) AddFilter(name string, order int, filter Filter) {
+func (self *HttpNode) AddFilter(name string, filter Filter, order ...int) {
 	if len(name) == 0 || filter == nil {
 		return
 	}
-	filterMap[name] = filterSortBy{order: order, filter: filter}
+	orderBy := 0
+	if len(order) > 0 {
+		orderBy = order[0]
+	}
+	filterMap[name] = filterSortBy{order: orderBy, filter: filter}
 	zlog.Printf("add filter [%s] successful", name)
 }
 
-func (self *HttpNode) AddInterceptor(name string, order int, interceptor Interceptor) {
+func (self *HttpNode) AddInterceptor(name string, interceptor Interceptor, order ...int) {
 	if len(name) == 0 || interceptor == nil {
 		return
 	}
-	interceptorMap[name] = interceptorSortBy{order: order, interceptor: interceptor}
+	orderBy := 0
+	if len(order) > 0 {
+		orderBy = order[0]
+	}
+	interceptorMap[name] = interceptorSortBy{order: orderBy, interceptor: interceptor}
 	zlog.Printf("add interceptor [%s] successful", name)
 }
 

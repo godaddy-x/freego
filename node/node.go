@@ -2,7 +2,6 @@ package node
 
 import (
 	"github.com/godaddy-x/freego/cache"
-	"github.com/godaddy-x/freego/cache/limiter"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/node/common"
 	"github.com/godaddy-x/freego/utils"
@@ -48,7 +47,6 @@ type HookNode struct {
 	Render            *Render
 	SessionAware      SessionAware
 	CacheAware        func(ds ...string) (cache.ICache, error)
-	RateLimiter       rate.RateLimiter
 	DisconnectTimeout int64 // 超时主动断开客户端连接,秒
 }
 
