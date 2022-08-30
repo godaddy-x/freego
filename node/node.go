@@ -44,16 +44,9 @@ const (
 type HookNode struct {
 	handler           *http.ServeMux
 	Context           *Context
-	Render            *Render
 	SessionAware      SessionAware
 	CacheAware        func(ds ...string) (cache.ICache, error)
 	DisconnectTimeout int64 // 超时主动断开客户端连接,秒
-}
-
-type Render struct {
-	To    func(*Context) error
-	Pre   func(*Context) error
-	Error func(*Context, error) error
 }
 
 type RouterConfig struct {
@@ -62,6 +55,7 @@ type RouterConfig struct {
 	Original    bool // 是否原始方式 false.否 true.是
 	AesRequest  bool // 请求是否必须AES加密 false.否 true.是
 	AesResponse bool // 响应是否必须AES加密 false.否 true.是
+	postHandle  func(*Context) error
 }
 
 type HttpLog struct {

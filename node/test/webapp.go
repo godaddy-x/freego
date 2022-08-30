@@ -89,11 +89,11 @@ func GetCacheAware(ds ...string) (cache.ICache, error) {
 
 type NewPostFilter struct{}
 
-func (self *NewPostFilter) DoFilter(chain node.Filter, object *node.FilterObject) error {
+func (self *NewPostFilter) DoFilter(chain node.Filter, object *node.FilterObject, args ...interface{}) error {
 	fmt.Println(" --- NewFilter.DoFilter before ---")
 	ctx := object.HttpNode.Context
 	ctx.AddStorage("httpLog", node.HttpLog{Method: ctx.Method, LogNo: utils.GetSnowFlakeStrID(), CreateAt: utils.Time()})
-	if err := chain.DoFilter(chain, object); err != nil {
+	if err := chain.DoFilter(chain, object, args...); err != nil {
 		return err
 	}
 	fmt.Println(" --- NewFilter.DoFilter after ---")

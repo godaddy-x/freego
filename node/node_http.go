@@ -206,10 +206,10 @@ func (self *HttpNode) validator(req *ReqDto) error {
 	return nil
 }
 
-func (self *HttpNode) doRequest(ob *HttpNode, pattern string, input *http.Request, output http.ResponseWriter, handle func(*Context) error) error {
+func (self *HttpNode) doRequest(pattern string, input *http.Request, output http.ResponseWriter) error {
+	ob := &HttpNode{}
 	ob.SessionAware = self.SessionAware
 	ob.CacheAware = self.CacheAware
-	ob.Render = self.Render
 	ob.Context = &Context{
 		CreateAt:     utils.Time(),
 		Host:         utils.ClientIP(input),
@@ -226,26 +226,12 @@ func (self *HttpNode) doRequest(ob *HttpNode, pattern string, input *http.Reques
 		PermConfig:   self.Context.PermConfig,
 		Storage:      make(map[string]interface{}, 0),
 	}
-	return self.preRender(ob.Context, doFilterChain(ob, handle))
+	return doFilterChain(ob)
 }
 
-func (self *HttpNode) preRender(ctx *Context, err error) error {
-	if err == nil {
-		err = self.Render.Pre(ctx)
-	}
-	if err != nil {
-		self.Render.Error(ctx, err)
-	}
-	return nil
-}
-
-func (self *HttpNode) proxy(pattern string, input *http.Request, output http.ResponseWriter, handle func(ctx *Context) error) {
-	ob := &HttpNode{}
-	if err := self.doRequest(ob, pattern, input, output, handle); err != nil {
-		return
-	}
-	if err := self.Render.To(ob.Context); err != nil {
-		zlog.Error("render failed", 0, zlog.AddError(err))
+func (self *HttpNode) proxy(pattern string, input *http.Request, output http.ResponseWriter) {
+	if err := self.doRequest(pattern, input, output); err != nil {
+		zlog.Error("doRequest failed", 0, zlog.AddError(err))
 	}
 }
 
@@ -283,14 +269,14 @@ func (self *HttpNode) StartServer() {
 
 func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, routerConfig *RouterConfig) {
 	if !strings.HasPrefix(pattern, "/") {
-		pattern = utils.AddStr("/", pattern)
+		pattern = "/" + pattern
 	}
 	if self.CacheAware == nil {
 		zlog.Error("cache service hasn't been initialized", 0)
 		return
 	}
 	if len(self.Context.Version) > 0 {
-		pattern = utils.AddStr("/", self.Context.Version, pattern)
+		pattern = "/" + self.Context.Version + pattern
 	}
 	if self.Context.ServerCert == nil {
 		cert := &gorsa.RsaObj{}
@@ -300,20 +286,18 @@ func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, ro
 		}
 		self.Context.ServerCert = cert
 	}
-	if self.Render == nil {
-		self.Render = &Render{Pre: defaultRenderPre, To: defaultRenderTo, Error: defaultRenderError}
-	}
 	if routerConfig == nil {
 		routerConfig = &RouterConfig{}
+	}
+	if _, b := routerConfigs[pattern]; !b {
+		routerConfig.postHandle = handle
+		routerConfigs[pattern] = routerConfig
 	}
 	if self.handler == nil {
 		self.handler = http.NewServeMux()
 	}
-	if _, b := routerConfigs[pattern]; !b {
-		routerConfigs[pattern] = routerConfig
-	}
 	self.handler.Handle(pattern, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		self.proxy(pattern, r, w, handle)
+		self.proxy(pattern, r, w)
 	}))
 }
 
