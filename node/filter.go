@@ -33,12 +33,12 @@ type FilterObject struct {
 }
 
 var filterMap = map[string]*FilterObject{
-	GatewayRateLimiterFilterName: {Name: GatewayRateLimiterFilterName, Order: 10, Filter: &GatewayRateLimiterFilter{}},
-	ParameterFilterName:          {Name: ParameterFilterName, Order: 20, Filter: &ParameterFilter{}},
-	SessionFilterName:            {Name: SessionFilterName, Order: 30, Filter: &SessionFilter{}},
-	UserRateLimiterFilterName:    {Name: UserRateLimiterFilterName, Order: 40, Filter: &UserRateLimiterFilter{}},
-	RoleFilterName:               {Name: RoleFilterName, Order: 50, Filter: &RoleFilter{}},
-	ReplayFilterName:             {Name: ReplayFilterName, Order: 60, Filter: &ReplayFilter{}, MatchPattern: []string{"/test"}},
+	GatewayRateLimiterFilterName: {Name: GatewayRateLimiterFilterName, Order: -100, Filter: &GatewayRateLimiterFilter{}},
+	ParameterFilterName:          {Name: ParameterFilterName, Order: -90, Filter: &ParameterFilter{}},
+	SessionFilterName:            {Name: SessionFilterName, Order: -80, Filter: &SessionFilter{}},
+	UserRateLimiterFilterName:    {Name: UserRateLimiterFilterName, Order: -70, Filter: &UserRateLimiterFilter{}},
+	RoleFilterName:               {Name: RoleFilterName, Order: -60, Filter: &RoleFilter{}},
+	ReplayFilterName:             {Name: ReplayFilterName, Order: -50, Filter: &ReplayFilter{}},
 	PostHandleFilterName:         {Name: PostHandleFilterName, Order: math.MaxInt, Filter: &PostHandleFilter{}},
 	RenderHandleFilterName:       {Name: RenderHandleFilterName, Order: math.MinInt, Filter: &RenderHandleFilter{}},
 }

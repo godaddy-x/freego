@@ -36,11 +36,11 @@ func (self *MysqlManager) InitConfig(input ...MysqlConfig) error {
 	return self.buildByConfig(nil, input...)
 }
 
-func (self *MysqlManager) InitConfigAndCache(manager cache.ICache, input ...MysqlConfig) error {
+func (self *MysqlManager) InitConfigAndCache(manager cache.Cache, input ...MysqlConfig) error {
 	return self.buildByConfig(manager, input...)
 }
 
-func (self *MysqlManager) buildByConfig(manager cache.ICache, input ...MysqlConfig) error {
+func (self *MysqlManager) buildByConfig(manager cache.Cache, input ...MysqlConfig) error {
 	for _, v := range input {
 		dsName := DIC.MASTER
 		if len(v.DsName) > 0 {

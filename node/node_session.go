@@ -177,7 +177,7 @@ func NewLocalCacheSessionAware() *DefaultCacheSessionAware {
 }
 
 type DefaultCacheSessionAware struct {
-	c cache.ICache
+	c cache.Cache
 }
 
 func (self *DefaultCacheSessionAware) CreateSession(s Session) error {

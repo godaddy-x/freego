@@ -48,7 +48,7 @@ type HookNode struct {
 	handler           *http.ServeMux
 	Context           *Context
 	SessionAware      SessionAware
-	CacheAware        func(ds ...string) (cache.ICache, error)
+	CacheAware        func(ds ...string) (cache.Cache, error)
 	DisconnectTimeout int64 // 超时主动断开客户端连接,秒
 }
 
@@ -106,18 +106,18 @@ type Permission struct {
 }
 
 type Context struct {
-	CreateAt     int64
 	Host         string
 	Port         int64
 	Style        string
+	Token        string
 	Device       string
 	Method       string
-	Token        string
+	Version      string
+	CreateAt     int64
 	Headers      map[string]string
 	Params       *ReqDto
 	Subject      *jwt.Payload
 	Response     *Response
-	Version      string
 	Input        *http.Request
 	Output       http.ResponseWriter
 	RouterConfig *RouterConfig

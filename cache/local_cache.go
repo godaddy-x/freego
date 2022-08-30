@@ -2,18 +2,19 @@ package cache
 
 import (
 	"github.com/godaddy-x/freego/utils"
+	"github.com/patrickmn/go-cache"
 	"time"
 )
 
 // 本地缓存管理器
 type LocalMapManager struct {
 	CacheManager
-	c *Cache
+	c *cache.Cache
 }
 
 // a默认缓存时间/分钟 b默认校验数据间隔时间/分钟
-func (self *LocalMapManager) NewCache(a, b int) ICache {
-	c := New(time.Duration(a)*time.Minute, time.Duration(b)*time.Minute)
+func (self *LocalMapManager) NewCache(a, b int) Cache {
+	c := cache.New(time.Duration(a)*time.Minute, time.Duration(b)*time.Minute)
 	return &LocalMapManager{c: c}
 }
 

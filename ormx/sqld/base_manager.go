@@ -64,7 +64,7 @@ type MGOSyncData struct {
 // 数据库管理器
 type DBManager struct {
 	Option
-	CacheManager cache.ICache   // 缓存管理器
+	CacheManager cache.Cache    // 缓存管理器
 	MGOSyncData  []*MGOSyncData // 同步数据对象
 	Errors       []error        // 错误异常记录
 }

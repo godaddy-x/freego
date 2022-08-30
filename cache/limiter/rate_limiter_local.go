@@ -11,7 +11,7 @@ type RateLimiter interface {
 
 type LocalRateLimiter struct {
 	mu     sync.Mutex
-	cache  cache.ICache
+	cache  cache.Cache
 	option Option
 }
 

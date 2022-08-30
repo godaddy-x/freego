@@ -74,7 +74,7 @@ func (self *MyWebNode) pubkey(ctx *node.Context) error {
 var local = new(cache.LocalMapManager).NewCache(30, 10)
 var limiter = rate.NewRateLimiter(rate.Option{Limit: 100, Bucket: 200, Expire: 30, Distributed: true})
 
-func GetCacheAware(ds ...string) (cache.ICache, error) {
+func GetCacheAware(ds ...string) (cache.Cache, error) {
 	return local, nil
 }
 

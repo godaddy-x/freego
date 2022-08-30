@@ -5,8 +5,7 @@ import (
 )
 
 // 缓存管理器
-type CacheManager struct {
-}
+type CacheManager struct{}
 
 /********************************** 缓存接口定义 **********************************/
 
@@ -17,7 +16,7 @@ type PutObj struct {
 }
 
 // 缓存定义接口接口
-type ICache interface {
+type Cache interface {
 	// 查询
 	Get(key string, input interface{}) (interface{}, bool, error)
 	GetInt64(key string) (int64, error)

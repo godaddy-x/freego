@@ -118,11 +118,11 @@ func (self *MGOManager) InitConfig(input ...MGOConfig) error {
 	return self.buildByConfig(nil, input...)
 }
 
-func (self *MGOManager) InitConfigAndCache(manager cache.ICache, input ...MGOConfig) error {
+func (self *MGOManager) InitConfigAndCache(manager cache.Cache, input ...MGOConfig) error {
 	return self.buildByConfig(manager, input...)
 }
 
-func (self *MGOManager) buildByConfig(manager cache.ICache, input ...MGOConfig) error {
+func (self *MGOManager) buildByConfig(manager cache.Cache, input ...MGOConfig) error {
 	for _, v := range input {
 		var session *mgo.Session
 		var err error
