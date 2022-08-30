@@ -68,7 +68,7 @@ func (self *MyWebNode) login(ctx *node.Context) error {
 
 func (self *MyWebNode) pubkey(ctx *node.Context) error {
 	testCallRPC()
-	return self.Text(ctx, ctx.ServerCert.PubkeyBase64)
+	return self.Text(ctx, ctx.ServerTLS.PubkeyBase64)
 }
 
 var local = new(cache.LocalMapManager).NewCache(30, 10)

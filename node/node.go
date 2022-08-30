@@ -121,8 +121,7 @@ type Context struct {
 	Input        *http.Request
 	Output       http.ResponseWriter
 	RouterConfig *RouterConfig
-	ServerCert   *gorsa.RsaObj
-	ClientCert   *gorsa.RsaObj
+	ServerTLS    *gorsa.RsaObj
 	PermConfig   func(url string) (Permission, error)
 	Storage      map[string]interface{}
 	Roles        []int64
@@ -151,7 +150,7 @@ func (self *Context) GetTokenSecret() string {
 	return jwt.GetTokenSecret(self.Token, jwtConfig.TokenKey)
 }
 
-func (self *Context) GetDataSign(d, n string, t, p int64, key ...string) string {
+func (self *Context) GetHmac256Sign(d, n string, t, p int64, key ...string) string {
 	var secret string
 	if len(key) > 0 && len(key[0]) > 0 {
 		secret = key[0]

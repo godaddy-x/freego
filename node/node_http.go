@@ -155,9 +155,9 @@ func (self *HttpNode) validator(req *ReqDto) error {
 	}
 	var key string
 	if self.Context.RouterConfig.Login {
-		key = self.Context.ServerCert.PubkeyBase64
+		key = self.Context.ServerTLS.PubkeyBase64
 	}
-	if self.Context.GetDataSign(d, req.Nonce, req.Time, req.Plan, key) != req.Sign {
+	if self.Context.GetHmac256Sign(d, req.Nonce, req.Time, req.Plan, key) != req.Sign {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature invalid"}
 	}
 	data := make(map[string]interface{}, 0)
@@ -171,7 +171,7 @@ func (self *HttpNode) validator(req *ReqDto) error {
 		}
 	} else if req.Plan == 2 && self.Context.RouterConfig.Login { // RSA
 		//a := "To0IaxMwcWbX2CsQRv6jmUcPiNcPHn-73708NG8n99WAr5AS3ry7zEBtNRcDUuqhMjHS6NbQQrBOGVMKCfA1Mig2cgCh4wSq50p4omyAExEf1mDDA4bRo2_yPLCDBp63ERC3FJSJY_7ru07darWH6sZbymLigEjA4CWrpxmBQGKkr0gs6nYPIZg3eMuJj_RYmoIPYQtBU5BdPpKqPvtRWOAJBMtZbpSrxDBcCoA_0m3MbNYC4vvb1ivkABp_RXT_SlQqr9IEOqyBQpWpm5FBsoMZkXnMxFBhL1syaZwTK5Fr6Vj-85D0UsTXVPJmdLOBSirlJTgHLPKMMh70PxlEGQ=="
-		dec, err := self.Context.ServerCert.Decrypt(d)
+		dec, err := self.Context.ServerTLS.Decrypt(d)
 		if err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "server private-key decrypt failed", Err: err}
 		}
@@ -193,7 +193,7 @@ func (self *HttpNode) validator(req *ReqDto) error {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key length invalid"}
 		}
 		delete(data, CLIENT_PUBKEY)
-		self.Context.ClientCert = &gorsa.RsaObj{PubkeyBase64: pubkey_v}
+		self.Context.AddStorage(CLIENT_PUBKEY, pubkey_v)
 	} else if req.Plan == 0 && !self.Context.RouterConfig.Login && !self.Context.RouterConfig.AesRequest {
 		if err := utils.ParseJsonBase64(d, &data); err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter JSON parsing failed"}
@@ -221,7 +221,7 @@ func (self *HttpNode) doRequest(pattern string, input *http.Request, output http
 		Input:        input,
 		Output:       output,
 		RouterConfig: routerConfigs[pattern],
-		ServerCert:   self.Context.ServerCert,
+		ServerTLS:    self.Context.ServerTLS,
 		PermConfig:   self.Context.PermConfig,
 		Storage:      make(map[string]interface{}, 0),
 	}
@@ -250,7 +250,7 @@ func (self *HttpNode) StartServer() {
 		if self.CacheAware != nil {
 			zlog.Printf("cache service has been started successful")
 		}
-		if self.Context.ServerCert != nil {
+		if self.Context.ServerTLS != nil {
 			zlog.Printf("RSA certificate service has been started successful")
 		}
 		if err := createFilterChain(); err != nil {
@@ -277,13 +277,13 @@ func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, ro
 	if len(self.Context.Version) > 0 {
 		pattern = "/" + self.Context.Version + pattern
 	}
-	if self.Context.ServerCert == nil {
-		cert := &gorsa.RsaObj{}
-		if err := cert.CreateRsa1024(); err != nil {
+	if self.Context.ServerTLS == nil {
+		tls := &gorsa.RsaObj{}
+		if err := tls.CreateRsa1024(); err != nil {
 			zlog.Error("RSA certificate generation failed", 0)
 			return
 		}
-		self.Context.ServerCert = cert
+		self.Context.ServerTLS = tls
 	}
 	if routerConfig == nil {
 		routerConfig = &RouterConfig{}
@@ -433,7 +433,11 @@ func defaultRenderPre(ctx *Context) error {
 		}
 		var key string
 		if routerConfig.Login {
-			key = ctx.ClientCert.PubkeyBase64
+			v := ctx.GetStorage(CLIENT_PUBKEY)
+			if v == nil {
+				return ex.Throw{Msg: "encryption pubkey is nil"}
+			}
+			key, _ = v.(string)
 			data, err := utils.AesEncrypt(data, key, key)
 			if err != nil {
 				return ex.Throw{Code: http.StatusInternalServerError, Msg: "AES encryption response data failed", Err: err}
@@ -450,7 +454,7 @@ func defaultRenderPre(ctx *Context) error {
 		} else {
 			resp.Data = utils.Base64URLEncode(data)
 		}
-		resp.Sign = ctx.GetDataSign(resp.Data.(string), resp.Nonce, resp.Time, resp.Plan, key)
+		resp.Sign = ctx.GetHmac256Sign(resp.Data.(string), resp.Nonce, resp.Time, resp.Plan, key)
 		if result, err := utils.JsonMarshal(resp); err != nil {
 			return ex.Throw{Code: http.StatusInternalServerError, Msg: "response JSON data failed", Err: err}
 		} else {
