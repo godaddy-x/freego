@@ -1,11 +1,13 @@
 package node
 
 import (
+	"fmt"
 	rate "github.com/godaddy-x/freego/cache/limiter"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/concurrent"
 	"github.com/godaddy-x/freego/utils/jwt"
+	"github.com/godaddy-x/freego/zlog"
 	"math"
 	"net/http"
 )
@@ -21,23 +23,24 @@ const (
 	RenderHandleFilterName       = "RenderHandleFilter"
 )
 
-var filters []FilterObject
+var filters []*FilterObject
 
 type FilterObject struct {
-	Order    int
-	Filter   Filter
-	MatchUrl []string
+	Name         string
+	Order        int
+	Filter       Filter
+	MatchPattern []string
 }
 
-var filterMap = map[string]FilterObject{
-	GatewayRateLimiterFilterName: {Order: 10, Filter: &GatewayRateLimiterFilter{}},
-	ParameterFilterName:          {Order: 20, Filter: &ParameterFilter{}},
-	SessionFilterName:            {Order: 30, Filter: &SessionFilter{}},
-	UserRateLimiterFilterName:    {Order: 40, Filter: &UserRateLimiterFilter{}},
-	RoleFilterName:               {Order: 50, Filter: &RoleFilter{}},
-	ReplayFilterName:             {Order: 60, Filter: &ReplayFilter{}},
-	PostHandleFilterName:         {Order: math.MaxInt, Filter: &PostHandleFilter{}},
-	RenderHandleFilterName:       {Order: math.MinInt, Filter: &RenderHandleFilter{}},
+var filterMap = map[string]*FilterObject{
+	GatewayRateLimiterFilterName: {Name: GatewayRateLimiterFilterName, Order: 10, Filter: &GatewayRateLimiterFilter{}},
+	ParameterFilterName:          {Name: ParameterFilterName, Order: 20, Filter: &ParameterFilter{}},
+	SessionFilterName:            {Name: SessionFilterName, Order: 30, Filter: &SessionFilter{}},
+	UserRateLimiterFilterName:    {Name: UserRateLimiterFilterName, Order: 40, Filter: &UserRateLimiterFilter{}},
+	RoleFilterName:               {Name: RoleFilterName, Order: 50, Filter: &RoleFilter{}},
+	ReplayFilterName:             {Name: ReplayFilterName, Order: 60, Filter: &ReplayFilter{}, MatchPattern: []string{"/test"}},
+	PostHandleFilterName:         {Name: PostHandleFilterName, Order: math.MaxInt, Filter: &PostHandleFilter{}},
+	RenderHandleFilterName:       {Name: RenderHandleFilterName, Order: math.MinInt, Filter: &RenderHandleFilter{}},
 }
 
 func doFilterChain(ob *HttpNode, args ...interface{}) error {
@@ -51,12 +54,14 @@ func createFilterChain() error {
 		fs = append(fs, v)
 	}
 	fs = concurrent.NewSorter(fs, func(a, b interface{}) bool {
-		o1 := a.(FilterObject)
-		o2 := b.(FilterObject)
+		o1 := a.(*FilterObject)
+		o2 := b.(*FilterObject)
 		return o1.Order < o2.Order
 	}).Sort()
 	for _, f := range fs {
-		filters = append(filters, f.(FilterObject))
+		v := f.(*FilterObject)
+		filters = append(filters, v)
+		zlog.Printf("add filter [%s] successful", v.Name)
 	}
 	if len(filters) == 0 {
 		return utils.Error("filter chain is nil")
@@ -77,18 +82,24 @@ type filterChain struct {
 	pos int
 }
 
-func (self *filterChain) getFilters() []FilterObject {
+func (self *filterChain) getFilters() []*FilterObject {
 	return filters
 }
 
 func (self *filterChain) DoFilter(chain Filter, object *NodeObject, args ...interface{}) error {
 	fs := self.getFilters()
-	if self.pos == len(fs) {
-		return nil
+	for self.pos < len(fs) {
+		f := fs[self.pos]
+		if f == nil || f.Filter == nil {
+			return ex.Throw{Code: ex.SYSTEM, Msg: fmt.Sprintf("filter [%s] is nil", f.Name)}
+		}
+		self.pos++
+		if !utils.MatchFilterURL(object.Node.Context.Method, f.MatchPattern) {
+			continue
+		}
+		return f.Filter.DoFilter(chain, object, args...)
 	}
-	f := fs[self.pos]
-	self.pos++
-	return f.Filter.DoFilter(chain, object, args...)
+	return nil
 }
 
 type GatewayRateLimiterFilter struct{}
@@ -174,7 +185,7 @@ func (self *RoleFilter) DoFilter(chain Filter, object *NodeObject, args ...inter
 	need, err := object.Node.Context.PermConfig(object.Node.Context.Method)
 	if err != nil {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "failed to read authorization resource", Err: err}
-	} else if !need.ready { // 无授权资源配置,跳过
+	} else if !need.Ready { // 无授权资源配置,跳过
 		return chain.DoFilter(chain, object, args...)
 	} else if need.NeedRole == nil || len(need.NeedRole) == 0 { // 无授权角色配置跳过
 		return chain.DoFilter(chain, object, args...)
@@ -230,7 +241,7 @@ func (self *RenderHandleFilter) DoFilter(chain Filter, object *NodeObject, args 
 		err = defaultRenderPre(object.Node.Context)
 	}
 	if err != nil {
-		defaultRenderError(object.Node.Context, err)
+		err = defaultRenderError(object.Node.Context, err)
 	}
 	return defaultRenderTo(object.Node.Context)
 }

@@ -944,3 +944,29 @@ func CheckStrLen(str string, min, max int) bool {
 	}
 	return false
 }
+
+func MatchFilterURL(requestPath string, matchPattern []string) bool {
+	if matchPattern == nil || len(matchPattern) == 0 {
+		return true
+	}
+	for _, pattern := range matchPattern {
+		// case 1
+		if requestPath == pattern || pattern == "/*" {
+			return true
+		}
+		// case 2 - Path Match ("/test*", "/test/*", "/test/test*")
+		if pattern == "/*" {
+			return true
+		}
+		if strings.HasSuffix(pattern, "*") {
+			l := len(pattern) - 1
+			if len(requestPath) < l {
+				return false
+			}
+			if requestPath[0:l] == pattern[0:l] {
+				return true
+			}
+		}
+	}
+	return false
+}

@@ -13,9 +13,8 @@ import (
 )
 
 const (
-	HTTP2     = "http2"
-	WEBSOCKET = "websocket"
-	UTF8      = "UTF-8"
+	HTTP2 = "http2"
+	UTF8  = "UTF-8"
 
 	ANDROID = "android"
 	IOS     = "ios"
@@ -54,12 +53,12 @@ type HookNode struct {
 }
 
 type RouterConfig struct {
-	Guest       bool // 游客模式 false.否 true.是
-	Login       bool // 是否登录请求 false.否 true.是
-	Original    bool // 是否原始方式 false.否 true.是
-	AesRequest  bool // 请求是否必须AES加密 false.否 true.是
-	AesResponse bool // 响应是否必须AES加密 false.否 true.是
-	postHandle  func(*Context) error
+	Guest       bool                 // 游客模式 false.否 true.是
+	Login       bool                 // 是否登录请求 false.否 true.是
+	Original    bool                 // 是否原始方式 false.否 true.是
+	AesRequest  bool                 // 请求是否必须AES加密 false.否 true.是
+	AesResponse bool                 // 响应是否必须AES加密 false.否 true.是
+	postHandle  func(*Context) error // 业务回调方法
 }
 
 type HttpLog struct {
@@ -100,7 +99,7 @@ type RespDto struct {
 }
 
 type Permission struct {
-	ready     bool
+	Ready     bool
 	MathchAll int64
 	NeedLogin int64
 	NeedRole  []int64

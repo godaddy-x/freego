@@ -313,12 +313,15 @@ func (self *HttpNode) Text(ctx *Context, data string) error {
 	return nil
 }
 
-func (self *HttpNode) AddFilter(name string, object FilterObject) {
-	if len(name) == 0 || object.Filter == nil {
+func (self *HttpNode) AddFilter(object *FilterObject) {
+	if object == nil {
+		panic("filter object is nil")
+	}
+	if len(object.Name) == 0 || object.Filter == nil {
 		panic("filter object name/filter is nil")
 	}
-	filterMap[name] = object
-	zlog.Printf("add filter [%s] successful", name)
+	filterMap[object.Name] = object
+	zlog.Printf("add filter [%s] successful", object.Name)
 }
 
 func (self *HttpNode) AddJwtConfig(config jwt.JwtConfig) {
