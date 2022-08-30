@@ -31,27 +31,30 @@ func initSrvPubkey() string {
 	if err != nil {
 		panic(err)
 	}
-	//fmt.Println(string(respBytes))
+	//output(string(respBytes))
 	return string(respBytes)
+}
+
+func output(a ...interface{}) {
+	fmt.Println(a...)
 }
 
 // 测试使用的http post示例方法
 func ToPostBy(path string, req *node.ReqDto) {
-	srvPubkeyBase64 := initSrvPubkey()
 	if len(srvPubkeyBase64) == 0 {
-		panic("srvPubkeyBase64 is nil")
+		srvPubkeyBase64 = initSrvPubkey()
 	}
 	if req.Plan == 0 {
 		d := utils.Base64URLEncode(req.Data.([]byte))
 		req.Data = d
-		fmt.Println("Base64数据: ", req.Data)
+		output("Base64数据: ", req.Data)
 	} else if req.Plan == 1 {
 		d, err := utils.AesEncrypt(req.Data.([]byte), token_secret, utils.AddStr(req.Nonce, req.Time))
 		if err != nil {
 			panic(err)
 		}
 		req.Data = d
-		fmt.Println("AES加密数据: ", req.Data)
+		output("AES加密数据: ", req.Data)
 	} else if req.Plan == 2 {
 		newRsa := &gorsa.RsaObj{}
 		if err := newRsa.LoadRsaPemFileBase64(srvPubkeyBase64); err != nil {
@@ -62,20 +65,20 @@ func ToPostBy(path string, req *node.ReqDto) {
 			panic(err)
 		}
 		req.Data = rsaData
-		fmt.Println("RSA加密数据: ", req.Data)
+		output("RSA加密数据: ", req.Data)
 	}
 	secret := token_secret
 	if req.Plan == 2 {
 		secret = srvPubkeyBase64
-		fmt.Println("nonce secret:", pubkey)
+		output("nonce secret:", pubkey)
 	}
 	req.Sign = utils.HMAC_SHA256(utils.AddStr(path, req.Data.(string), req.Nonce, req.Time, req.Plan), secret, true)
 	bytesData, err := utils.JsonMarshal(req)
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println("请求示例: ")
-	fmt.Println(string(bytesData))
+	output("请求示例: ")
+	output(string(bytesData))
 	reader := bytes.NewReader(bytesData)
 	request, err := http.NewRequest("POST", domain+path, reader)
 	if err != nil {
@@ -92,8 +95,8 @@ func ToPostBy(path string, req *node.ReqDto) {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println("响应示例: ")
-	fmt.Println(utils.Bytes2Str(respBytes))
+	output("响应示例: ")
+	output(utils.Bytes2Str(respBytes))
 	respData := &node.RespDto{}
 	if err := utils.JsonUnmarshal(respBytes, &respData); err != nil {
 		panic(err)
@@ -104,10 +107,10 @@ func ToPostBy(path string, req *node.ReqDto) {
 			key = pubkey
 		}
 		s := utils.HMAC_SHA256(utils.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan), key, true)
-		fmt.Println("****************** Response Signature Verify:", s == respData.Sign, "******************")
+		output("****************** Response Signature Verify:", s == respData.Sign, "******************")
 		if respData.Plan == 0 {
 			dec := utils.Base64URLDecode(respData.Data)
-			fmt.Println("Base64数据明文: ", string(dec))
+			output("Base64数据明文: ", string(dec))
 		}
 		if respData.Plan == 1 {
 			dec, err := utils.AesDecrypt(respData.Data.(string), key, utils.AddStr(respData.Nonce, respData.Time))
@@ -115,14 +118,14 @@ func ToPostBy(path string, req *node.ReqDto) {
 				panic(err)
 			}
 			respData.Data = dec
-			fmt.Println("AES数据明文: ", respData.Data)
+			output("AES数据明文: ", respData.Data)
 		}
 		if respData.Plan == 2 {
 			dec, err := utils.AesDecrypt(respData.Data.(string), pubkey, pubkey)
 			if err != nil {
 				panic(err)
 			}
-			fmt.Println("LOGIN数据明文: ", dec)
+			output("LOGIN数据明文: ", dec)
 		}
 	}
 }

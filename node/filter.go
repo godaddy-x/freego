@@ -112,8 +112,8 @@ type PostHandleFilter struct{}
 type RenderHandleFilter struct{}
 
 var (
-	gatewayRateLimiter = rate.NewRateLimiter(rate.Option{Limit: 50, Bucket: 1000, Expire: 30, Distributed: true})
-	methodRateLimiter  = rate.NewRateLimiter(rate.Option{Limit: 50, Bucket: 500, Expire: 30, Distributed: true})
+	gatewayRateLimiter = rate.NewRateLimiter(rate.Option{Limit: 200, Bucket: 2000, Expire: 30, Distributed: true})
+	methodRateLimiter  = rate.NewRateLimiter(rate.Option{Limit: 200, Bucket: 2000, Expire: 30, Distributed: true})
 	userRateLimiter    = rate.NewRateLimiter(rate.Option{Limit: 5, Bucket: 10, Expire: 30, Distributed: true})
 )
 
