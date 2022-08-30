@@ -41,7 +41,7 @@ var filterMap = map[string]filterSortBy{
 
 func doFilterChain(ob *HttpNode, args ...interface{}) error {
 	chain := &filterChain{pos: 0}
-	return chain.DoFilter(chain, &FilterObject{HttpNode: ob, PostHandle: ob.Context.RouterConfig.postHandle}, args...)
+	return chain.DoFilter(chain, &NodeObject{Node: ob, Handle: ob.Context.RouterConfig.postHandle}, args...)
 }
 
 func createFilterChain() error {
@@ -63,13 +63,13 @@ func createFilterChain() error {
 	return nil
 }
 
-type FilterObject struct {
-	HttpNode   *HttpNode
-	PostHandle func(*Context) error
+type NodeObject struct {
+	Node   *HttpNode
+	Handle func(*Context) error
 }
 
 type Filter interface {
-	DoFilter(chain Filter, object *FilterObject, args ...interface{}) error
+	DoFilter(chain Filter, object *NodeObject, args ...interface{}) error
 }
 
 type filterChain struct {
@@ -80,7 +80,7 @@ func (self *filterChain) getFilters() []Filter {
 	return filters
 }
 
-func (self *filterChain) DoFilter(chain Filter, object *FilterObject, args ...interface{}) error {
+func (self *filterChain) DoFilter(chain Filter, object *NodeObject, args ...interface{}) error {
 	fs := self.getFilters()
 	if self.pos == len(fs) {
 		return nil
@@ -117,44 +117,44 @@ func SetUserRateLimiter(option rate.Option) {
 	userRateLimiter = rate.NewRateLimiter(option)
 }
 
-func (self *GatewayRateLimiterFilter) DoFilter(chain Filter, object *FilterObject, args ...interface{}) error {
+func (self *GatewayRateLimiterFilter) DoFilter(chain Filter, object *NodeObject, args ...interface{}) error {
 	if b := gatewayRateLimiter.Allow("HttpThreshold"); !b {
 		return ex.Throw{Code: 429, Msg: "the gateway request is full, please try again later"}
 	}
 	return chain.DoFilter(chain, object, args...)
 }
 
-func (self *ParameterFilter) DoFilter(chain Filter, object *FilterObject, args ...interface{}) error {
-	if err := object.HttpNode.getHeader(); err != nil {
+func (self *ParameterFilter) DoFilter(chain Filter, object *NodeObject, args ...interface{}) error {
+	if err := object.Node.getHeader(); err != nil {
 		return err
 	}
-	if err := object.HttpNode.getParams(); err != nil {
+	if err := object.Node.getParams(); err != nil {
 		return err
 	}
-	if err := object.HttpNode.paddDevice(); err != nil {
+	if err := object.Node.paddDevice(); err != nil {
 		return err
 	}
 	return chain.DoFilter(chain, object, args...)
 }
 
-func (self *SessionFilter) DoFilter(chain Filter, object *FilterObject, args ...interface{}) error {
-	if object.HttpNode.Context.RouterConfig.Login || object.HttpNode.Context.RouterConfig.Guest { // 登录接口和游客模式跳过会话认证
+func (self *SessionFilter) DoFilter(chain Filter, object *NodeObject, args ...interface{}) error {
+	if object.Node.Context.RouterConfig.Login || object.Node.Context.RouterConfig.Guest { // 登录接口和游客模式跳过会话认证
 		return chain.DoFilter(chain, object, args...)
 	}
-	if len(object.HttpNode.Context.Token) == 0 {
+	if len(object.Node.Context.Token) == 0 {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "AccessToken is nil"}
 	}
 	subject := &jwt.Subject{}
-	if err := subject.Verify(object.HttpNode.Context.Token, object.HttpNode.Context.JwtConfig().TokenKey); err != nil {
+	if err := subject.Verify(object.Node.Context.Token, object.Node.GetJwtConfig().TokenKey); err != nil {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "AccessToken is invalid or expired", Err: err}
 	}
-	object.HttpNode.Context.Roles = subject.GetTokenRole()
-	object.HttpNode.Context.Subject = subject.Payload
+	object.Node.Context.Roles = subject.GetTokenRole()
+	object.Node.Context.Subject = subject.Payload
 	return chain.DoFilter(chain, object, args...)
 }
 
-func (self *UserRateLimiterFilter) DoFilter(chain Filter, object *FilterObject, args ...interface{}) error {
-	ctx := object.HttpNode.Context
+func (self *UserRateLimiterFilter) DoFilter(chain Filter, object *NodeObject, args ...interface{}) error {
+	ctx := object.Node.Context
 	if b := userRateLimiter.Allow(ctx.Method); !b {
 		return ex.Throw{Code: 429, Msg: "the method request is full, please try again later"}
 	}
@@ -166,11 +166,11 @@ func (self *UserRateLimiterFilter) DoFilter(chain Filter, object *FilterObject, 
 	return chain.DoFilter(chain, object, args...)
 }
 
-func (self *RoleFilter) DoFilter(chain Filter, object *FilterObject, args ...interface{}) error {
-	if object.HttpNode.Context.PermConfig == nil {
+func (self *RoleFilter) DoFilter(chain Filter, object *NodeObject, args ...interface{}) error {
+	if object.Node.Context.PermConfig == nil {
 		return chain.DoFilter(chain, object, args...)
 	}
-	need, err := object.HttpNode.Context.PermConfig(object.HttpNode.Context.Method)
+	need, err := object.Node.Context.PermConfig(object.Node.Context.Method)
 	if err != nil {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "failed to read authorization resource", Err: err}
 	} else if !need.ready { // 无授权资源配置,跳过
@@ -180,12 +180,12 @@ func (self *RoleFilter) DoFilter(chain Filter, object *FilterObject, args ...int
 	}
 	if need.NeedLogin == 0 { // 无登录状态,跳过
 		return chain.DoFilter(chain, object, args...)
-	} else if !object.HttpNode.Context.Authenticated() { // 需要登录状态,会话为空,抛出异常
+	} else if !object.Node.Context.Authenticated() { // 需要登录状态,会话为空,抛出异常
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "login status required"}
 	}
 	access := 0
 	needAccess := len(need.NeedRole)
-	for _, cr := range object.HttpNode.Context.Roles {
+	for _, cr := range object.Node.Context.Roles {
 		for _, nr := range need.NeedRole {
 			if cr == nr {
 				access++
@@ -198,13 +198,13 @@ func (self *RoleFilter) DoFilter(chain Filter, object *FilterObject, args ...int
 	return ex.Throw{Code: http.StatusUnauthorized, Msg: "access defined"}
 }
 
-func (self *ReplayFilter) DoFilter(chain Filter, object *FilterObject, args ...interface{}) error {
-	//param := object.HttpNode.Context.Params
+func (self *ReplayFilter) DoFilter(chain Filter, object *NodeObject, args ...interface{}) error {
+	//param := object.Node.Context.Params
 	//if param == nil || len(param.Sign) == 0 {
 	//	return nil
 	//}
 	//key := param.Sign
-	//if c, err := object.HttpNode.CacheAware(); err != nil {
+	//if c, err := object.Node.CacheAware(); err != nil {
 	//	return err
 	//} else if b, err := c.GetInt64(key); err != nil {
 	//	return err
@@ -216,20 +216,20 @@ func (self *ReplayFilter) DoFilter(chain Filter, object *FilterObject, args ...i
 	return chain.DoFilter(chain, object, args...)
 }
 
-func (self *PostHandleFilter) DoFilter(chain Filter, object *FilterObject, args ...interface{}) error {
-	if err := object.PostHandle(object.HttpNode.Context); err != nil {
+func (self *PostHandleFilter) DoFilter(chain Filter, object *NodeObject, args ...interface{}) error {
+	if err := object.Handle(object.Node.Context); err != nil {
 		return err
 	}
 	return chain.DoFilter(chain, object, args...)
 }
 
-func (self *RenderHandleFilter) DoFilter(chain Filter, object *FilterObject, args ...interface{}) error {
+func (self *RenderHandleFilter) DoFilter(chain Filter, object *NodeObject, args ...interface{}) error {
 	err := chain.DoFilter(chain, object, args...)
 	if err == nil {
-		err = defaultRenderPre(object.HttpNode.Context)
+		err = defaultRenderPre(object.Node.Context)
 	}
 	if err != nil {
-		defaultRenderError(object.HttpNode.Context, err)
+		defaultRenderError(object.Node.Context, err)
 	}
-	return defaultRenderTo(object.HttpNode.Context)
+	return defaultRenderTo(object.Node.Context)
 }

@@ -41,6 +41,10 @@ const (
 	CLIENT_PUBKEY = "pubkey"
 )
 
+var (
+	jwtConfig = jwt.JwtConfig{}
+)
+
 type HookNode struct {
 	handler           *http.ServeMux
 	Context           *Context
@@ -120,7 +124,6 @@ type Context struct {
 	RouterConfig *RouterConfig
 	ServerCert   *gorsa.RsaObj
 	ClientCert   *gorsa.RsaObj
-	JwtConfig    func() jwt.JwtConfig
 	PermConfig   func(url string) (Permission, error)
 	Storage      map[string]interface{}
 	Roles        []int64
@@ -146,7 +149,7 @@ func (self *Context) GetHeader(k string) string {
 }
 
 func (self *Context) GetTokenSecret() string {
-	return jwt.GetTokenSecret(self.Token, self.JwtConfig().TokenKey)
+	return jwt.GetTokenSecret(self.Token, jwtConfig.TokenKey)
 }
 
 func (self *Context) GetDataSign(d, n string, t, p int64, key ...string) string {

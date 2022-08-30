@@ -59,7 +59,7 @@ func testCallRPC() {
 func (self *MyWebNode) login(ctx *node.Context) error {
 	subject := &jwt.Subject{}
 	//self.LoginBySubject(subject, exp)
-	config := ctx.JwtConfig()
+	config := self.GetJwtConfig()
 	token := subject.Create(utils.GetSnowFlakeStrID()).Dev("APP").Generate(config)
 	secret := jwt.GetTokenSecret(token, config.TokenKey)
 	return self.Json(ctx, map[string]interface{}{"token": token, "secret": secret})
@@ -71,15 +71,6 @@ func (self *MyWebNode) pubkey(ctx *node.Context) error {
 	return self.Text(ctx, ctx.ServerCert.PubkeyBase64)
 }
 
-func GetJwtConfig() jwt.JwtConfig {
-	return jwt.JwtConfig{
-		TokenTyp: jwt.JWT,
-		TokenAlg: jwt.HS256,
-		TokenKey: "123456" + utils.CreateLocalSecretKey(12, 45, 23, 60, 58, 30),
-		TokenExp: jwt.TWO_WEEK,
-	}
-}
-
 var local = new(cache.LocalMapManager).NewCache(30, 10)
 var limiter = rate.NewRateLimiter(rate.Option{Limit: 100, Bucket: 200, Expire: 30, Distributed: true})
 
@@ -89,9 +80,9 @@ func GetCacheAware(ds ...string) (cache.ICache, error) {
 
 type NewPostFilter struct{}
 
-func (self *NewPostFilter) DoFilter(chain node.Filter, object *node.FilterObject, args ...interface{}) error {
+func (self *NewPostFilter) DoFilter(chain node.Filter, object *node.NodeObject, args ...interface{}) error {
 	fmt.Println(" --- NewFilter.DoFilter before ---")
-	ctx := object.HttpNode.Context
+	ctx := object.Node.Context
 	ctx.AddStorage("httpLog", node.HttpLog{Method: ctx.Method, LogNo: utils.GetSnowFlakeStrID(), CreateAt: utils.Time()})
 	if err := chain.DoFilter(chain, object, args...); err != nil {
 		return err
@@ -111,11 +102,16 @@ func (self *NewPostFilter) DoFilter(chain node.Filter, object *node.FilterObject
 func StartHttpNode() {
 	var my = &MyWebNode{}
 	my.Context = &node.Context{
-		Host:      "0.0.0.0",
-		Port:      8090,
-		JwtConfig: GetJwtConfig,
+		Host: "0.0.0.0",
+		Port: 8090,
 	}
 	my.CacheAware = GetCacheAware
+	my.AddJwtConfig(jwt.JwtConfig{
+		TokenTyp: jwt.JWT,
+		TokenAlg: jwt.HS256,
+		TokenKey: "123456" + utils.CreateLocalSecretKey(12, 45, 23, 60, 58, 30),
+		TokenExp: jwt.TWO_WEEK,
+	})
 	my.AddFilter("NewPostFilter", &NewPostFilter{}, 100)
 	my.Router("/test1", my.test, nil)
 	my.Router("/test2", my.getUser, &node.RouterConfig{})

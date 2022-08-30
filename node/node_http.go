@@ -222,7 +222,6 @@ func (self *HttpNode) doRequest(pattern string, input *http.Request, output http
 		Output:       output,
 		RouterConfig: routerConfigs[pattern],
 		ServerCert:   self.Context.ServerCert,
-		JwtConfig:    self.Context.JwtConfig,
 		PermConfig:   self.Context.PermConfig,
 		Storage:      make(map[string]interface{}, 0),
 	}
@@ -324,6 +323,23 @@ func (self *HttpNode) AddFilter(name string, filter Filter, order ...int) {
 	}
 	filterMap[name] = filterSortBy{order: orderBy, filter: filter}
 	zlog.Printf("add filter [%s] successful", name)
+}
+
+func (self *HttpNode) AddJwtConfig(config jwt.JwtConfig) {
+	if len(config.TokenKey) == 0 {
+		panic("jwt config key is nil")
+	}
+	if config.TokenExp < 0 {
+		panic("jwt config exp invalid")
+	}
+	jwtConfig.TokenAlg = config.TokenAlg
+	jwtConfig.TokenTyp = config.TokenTyp
+	jwtConfig.TokenKey = config.TokenKey
+	jwtConfig.TokenExp = config.TokenExp
+}
+
+func (self *HttpNode) GetJwtConfig() jwt.JwtConfig {
+	return jwtConfig
 }
 
 func (self *HttpNode) ClearFilterChain() {
