@@ -313,15 +313,11 @@ func (self *HttpNode) Text(ctx *Context, data string) error {
 	return nil
 }
 
-func (self *HttpNode) AddFilter(name string, filter Filter, order ...int) {
-	if len(name) == 0 || filter == nil {
-		return
+func (self *HttpNode) AddFilter(name string, object FilterObject) {
+	if len(name) == 0 || object.Filter == nil {
+		panic("filter object name/filter is nil")
 	}
-	orderBy := 0
-	if len(order) > 0 {
-		orderBy = order[0]
-	}
-	filterMap[name] = filterSortBy{order: orderBy, filter: filter}
+	filterMap[name] = object
 	zlog.Printf("add filter [%s] successful", name)
 }
 

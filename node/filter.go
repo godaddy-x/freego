@@ -21,22 +21,23 @@ const (
 	RenderHandleFilterName       = "RenderHandleFilter"
 )
 
-var filters []Filter
+var filters []FilterObject
 
-type filterSortBy struct {
-	order  int
-	filter Filter
+type FilterObject struct {
+	Order    int
+	Filter   Filter
+	MatchUrl []string
 }
 
-var filterMap = map[string]filterSortBy{
-	GatewayRateLimiterFilterName: {order: 10, filter: &GatewayRateLimiterFilter{}},
-	ParameterFilterName:          {order: 20, filter: &ParameterFilter{}},
-	SessionFilterName:            {order: 30, filter: &SessionFilter{}},
-	UserRateLimiterFilterName:    {order: 40, filter: &UserRateLimiterFilter{}},
-	RoleFilterName:               {order: 50, filter: &RoleFilter{}},
-	ReplayFilterName:             {order: 60, filter: &ReplayFilter{}},
-	PostHandleFilterName:         {order: math.MaxInt, filter: &PostHandleFilter{}},
-	RenderHandleFilterName:       {order: math.MinInt, filter: &RenderHandleFilter{}},
+var filterMap = map[string]FilterObject{
+	GatewayRateLimiterFilterName: {Order: 10, Filter: &GatewayRateLimiterFilter{}},
+	ParameterFilterName:          {Order: 20, Filter: &ParameterFilter{}},
+	SessionFilterName:            {Order: 30, Filter: &SessionFilter{}},
+	UserRateLimiterFilterName:    {Order: 40, Filter: &UserRateLimiterFilter{}},
+	RoleFilterName:               {Order: 50, Filter: &RoleFilter{}},
+	ReplayFilterName:             {Order: 60, Filter: &ReplayFilter{}},
+	PostHandleFilterName:         {Order: math.MaxInt, Filter: &PostHandleFilter{}},
+	RenderHandleFilterName:       {Order: math.MinInt, Filter: &RenderHandleFilter{}},
 }
 
 func doFilterChain(ob *HttpNode, args ...interface{}) error {
@@ -50,12 +51,12 @@ func createFilterChain() error {
 		fs = append(fs, v)
 	}
 	fs = concurrent.NewSorter(fs, func(a, b interface{}) bool {
-		o1 := a.(filterSortBy)
-		o2 := b.(filterSortBy)
-		return o1.order < o2.order
+		o1 := a.(FilterObject)
+		o2 := b.(FilterObject)
+		return o1.Order < o2.Order
 	}).Sort()
 	for _, f := range fs {
-		filters = append(filters, f.(filterSortBy).filter)
+		filters = append(filters, f.(FilterObject))
 	}
 	if len(filters) == 0 {
 		return utils.Error("filter chain is nil")
@@ -76,7 +77,7 @@ type filterChain struct {
 	pos int
 }
 
-func (self *filterChain) getFilters() []Filter {
+func (self *filterChain) getFilters() []FilterObject {
 	return filters
 }
 
@@ -87,7 +88,7 @@ func (self *filterChain) DoFilter(chain Filter, object *NodeObject, args ...inte
 	}
 	f := fs[self.pos]
 	self.pos++
-	return f.DoFilter(chain, object, args...)
+	return f.Filter.DoFilter(chain, object, args...)
 }
 
 type GatewayRateLimiterFilter struct{}
