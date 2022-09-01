@@ -6,8 +6,6 @@ import (
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/gorsa"
 	"github.com/valyala/fasthttp"
-	"io/ioutil"
-	"net/http"
 	"testing"
 	"time"
 )
@@ -24,16 +22,19 @@ var pubkey = utils.MD5(utils.RandStr(16), true)
 var srvPubkeyBase64 string
 
 func initSrvPubkey() string {
-	resp, err := http.Get(domain + "/pubkey")
-	if err != nil {
+	reqcli := fasthttp.AcquireRequest()
+	reqcli.Header.SetMethod("GET")
+	reqcli.SetRequestURI(domain + "/pubkey")
+	defer fasthttp.ReleaseRequest(reqcli)
+
+	respcli := fasthttp.AcquireResponse()
+	defer fasthttp.ReleaseResponse(respcli)
+	if _, b, err := fasthttp.Get(nil, domain+"/pubkey"); err != nil {
 		panic(err)
+	} else {
+		//output(string(respBytes))
+		return utils.Bytes2Str(b)
 	}
-	respBytes, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		panic(err)
-	}
-	//output(string(respBytes))
-	return string(respBytes)
 }
 
 func output(a ...interface{}) {
@@ -186,5 +187,13 @@ func BenchmarkGetUser(b *testing.B) {
 			Plan:  int64(1),
 		}
 		ToPostBy(path, req)
+	}
+}
+
+func BenchmarkPubkey(b *testing.B) {
+	b.StopTimer()
+	b.StartTimer()
+	for i := 0; i < b.N; i++ { //use b.N for looping
+		initSrvPubkey()
 	}
 }

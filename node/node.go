@@ -146,6 +146,9 @@ func (self *Context) GetHmac256Sign(d, n string, t, p int64, key ...string) stri
 }
 
 func (self *Context) AddStorage(k string, v interface{}) error {
+	if self.Storage == nil {
+		self.Storage = map[string]interface{}{}
+	}
 	if len(k) == 0 || v == nil {
 		return utils.Error("key/value is nil")
 	}
@@ -154,6 +157,9 @@ func (self *Context) AddStorage(k string, v interface{}) error {
 }
 
 func (self *Context) GetStorage(k string) interface{} {
+	if self.Storage == nil {
+		return nil
+	}
 	if len(k) == 0 {
 		return nil
 	}

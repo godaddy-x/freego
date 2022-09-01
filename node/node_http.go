@@ -13,6 +13,7 @@ import (
 	"time"
 )
 
+var emptyMap = map[string]string{}
 var routerConfigs = make(map[string]*RouterConfig)
 
 type HttpNode struct {
@@ -142,7 +143,7 @@ func (self *HttpNode) doRequest(handle func(ctx *Context) error, ctx *fasthttp.R
 		RouterConfig: routerConfigs[utils.Bytes2Str(ctx.Path())],
 		ServerTLS:    self.Context.ServerTLS,
 		PermConfig:   self.Context.PermConfig,
-		Storage:      make(map[string]interface{}, 0),
+		Storage:      nil,
 	}
 	return doFilterChain(ob, handle)
 }
@@ -211,15 +212,18 @@ func (self *HttpNode) addRouter(method, path string, handle func(ctx *Context) e
 }
 
 func (self *HttpNode) Json(ctx *Context, data interface{}) error {
+	ctx.Response.ContentType = APPLICATION_JSON
 	if data == nil {
-		data = map[string]string{}
+		ctx.Response.ContentEntity = emptyMap
+	} else {
+		ctx.Response.ContentEntity = data
 	}
-	ctx.Response = &Response{Encoding: UTF8, ContentType: APPLICATION_JSON, ContentEntity: data, ContentEntityByte: nil}
 	return nil
 }
 
 func (self *HttpNode) Text(ctx *Context, data string) error {
-	ctx.Response = &Response{Encoding: UTF8, ContentType: TEXT_PLAIN, ContentEntity: data, ContentEntityByte: nil}
+	ctx.Response.ContentType = TEXT_PLAIN
+	ctx.Response.ContentEntity = data
 	return nil
 }
 

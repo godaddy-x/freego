@@ -66,7 +66,7 @@ func (self *MyWebNode) login(ctx *node.Context) error {
 }
 
 func (self *MyWebNode) pubkey(ctx *node.Context) error {
-	testCallRPC()
+	//testCallRPC()
 	return self.Text(ctx, ctx.ServerTLS.PubkeyBase64)
 }
 
@@ -79,11 +79,11 @@ func GetCacheAware(ds ...string) (cache.Cache, error) {
 
 type NewPostFilter struct{}
 
-func (self *NewPostFilter) DoFilter(chain node.Filter, object *node.NodeObject, args ...interface{}) error {
+func (self *NewPostFilter) DoFilter(chain node.Filter, ob *node.HttpNode, handle func(*node.Context) error, args ...interface{}) error {
 	//fmt.Println(" --- NewFilter.DoFilter before ---")
-	ctx := object.Node.Context
+	ctx := ob.Context
 	ctx.AddStorage("httpLog", node.HttpLog{Method: ctx.Path, LogNo: utils.GetSnowFlakeStrID(), CreateAt: utils.Time()})
-	if err := chain.DoFilter(chain, object, args...); err != nil {
+	if err := chain.DoFilter(chain, ob, handle, args...); err != nil {
 		return err
 	}
 	//fmt.Println(" --- NewFilter.DoFilter after ---")
