@@ -17,7 +17,12 @@ import (
 
 var emptyMap = map[string]string{}
 var routerConfigs = make(map[string]*RouterConfig)
-var ctxPool = sync.Pool{New: func() interface{} { return &Context{} }}
+var ctxPool = sync.Pool{New: func() interface{} {
+	ctx := &Context{}
+	ctx.filterChain = &filterChain{}
+	ctx.Response = &Response{Encoding: UTF8, ContentType: APPLICATION_JSON, ContentEntity: nil, ContentEntityByte: nil}
+	return ctx
+}}
 
 type HttpNode struct {
 	HookNode
@@ -27,13 +32,21 @@ func (self *HttpNode) doRequest(handle func(ctx *Context) error, request *fastht
 	ctx := ctxPool.Get().(*Context)
 	ctx.CacheAware = self.Context.CacheAware
 	ctx.RequestCtx = request
+	ctx.Method = utils.Bytes2Str(request.Method())
 	ctx.Path = utils.Bytes2Str(request.Path())
 	ctx.RouterConfig = routerConfigs[ctx.Path]
 	ctx.ServerTLS = self.Context.ServerTLS
 	ctx.PermConfig = self.Context.PermConfig
-	ctx.Response = Response{Encoding: UTF8, ContentType: APPLICATION_JSON, ContentEntity: nil, ContentEntityByte: nil}
+	// reset
+	ctx.filterChain.pos = 0
+	ctx.Response.Encoding = UTF8
+	ctx.Response.ContentType = APPLICATION_JSON
+	ctx.Response.ContentEntity = nil
+	ctx.Response.StatusCode = 0
+	ctx.Response.ContentEntityByte = nil
+	ctx.Response = &Response{Encoding: UTF8, ContentType: APPLICATION_JSON, ContentEntity: nil, ContentEntityByte: nil}
 	ctxPool.Put(ctx)
-	return doFilterChain(ctx, handle)
+	return ctx.filterChain.DoFilter(ctx.filterChain, ctx, handle)
 }
 
 func (self *HttpNode) proxy(handle func(ctx *Context) error, ctx *fasthttp.RequestCtx) {

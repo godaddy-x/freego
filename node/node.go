@@ -111,11 +111,13 @@ type Context struct {
 	Token         string
 	Device        string
 	CreateAt      int64
+	Method        string
 	Path          string
 	RequestCtx    *fasthttp.RequestCtx
 	Subject       *jwt.Payload
 	JsonBody      *JsonBody
-	Response      Response
+	Response      *Response
+	filterChain   *filterChain
 	RouterConfig  *RouterConfig
 	ServerTLS     *gorsa.RsaObj
 	PermConfig    func(uid, url string, isRole ...bool) ([]int64, Permission, error)
@@ -215,8 +217,7 @@ func (self *Context) readParams() error {
 	} else {
 		self.Device = WEB
 	}
-	method := utils.Bytes2Str(self.RequestCtx.Method())
-	if method != POST {
+	if self.Method != POST {
 		return nil
 	}
 	self.Token = utils.Bytes2Str(self.RequestCtx.Request.Header.Peek(Authorization))
