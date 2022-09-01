@@ -1,6 +1,7 @@
 package node
 
 import (
+	"fmt"
 	"github.com/buaazp/fasthttprouter"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/utils"
@@ -9,7 +10,7 @@ import (
 	"github.com/godaddy-x/freego/zlog"
 	"github.com/valyala/fasthttp"
 	"net/http"
-	"strings"
+	"time"
 )
 
 var routerConfigs = make(map[string]*RouterConfig)
@@ -161,36 +162,30 @@ func (self *HttpNode) StartServer(address string) {
 			zlog.Printf("RSA certificate service has been started successful")
 		}
 		if err := createFilterChain(); err != nil {
-			zlog.Error("http service create filter chain failed", 0, zlog.AddError(err))
-			return
+			panic("http service create filter chain failed")
 		}
 		zlog.Printf("http【%s】service has been started successful", address)
-		if err := fasthttp.ListenAndServe(address, self.router.Handler); err != nil {
-			zlog.Error("http service init failed", 0, zlog.AddError(err))
+		if err := fasthttp.ListenAndServe(address, self.fastRouter.Handler); err != nil {
+			panic("http service init failed")
 		}
 	}()
 	select {}
 }
 
-func (self *HttpNode) Router(method, path string, handle func(ctx *Context) error, routerConfig *RouterConfig) {
-	if !utils.CheckStr(method, GET, POST, DELETE, PUT, PATCH, OPTIONS, HEAD) {
-		panic("http method invalid")
-	}
-	if !strings.HasPrefix(path, "/") {
-		path = "/" + path
-	}
+func (self *HttpNode) checkReady(path string, routerConfig *RouterConfig) {
 	if self.CacheAware == nil {
-		zlog.Error("cache service hasn't been initialized", 0)
-		return
+		panic("cache service hasn't been initialized")
 	}
 	if self.Context == nil {
 		self.Context = &Context{}
 	}
+	if self.AcceptTimeout <= 0 {
+		self.AcceptTimeout = 60
+	}
 	if self.Context.ServerTLS == nil {
 		tls := &gorsa.RsaObj{}
 		if err := tls.CreateRsa1024(); err != nil {
-			zlog.Error("RSA certificate generation failed", 0)
-			return
+			panic("RSA certificate generation failed")
 		}
 		self.Context.ServerTLS = tls
 	}
@@ -200,12 +195,19 @@ func (self *HttpNode) Router(method, path string, handle func(ctx *Context) erro
 	if _, b := routerConfigs[path]; !b {
 		routerConfigs[path] = routerConfig
 	}
-	if self.router == nil {
-		self.router = fasthttprouter.New()
+	if self.fastRouter == nil {
+		self.fastRouter = fasthttprouter.New()
 	}
-	self.router.Handle(method, path, func(ctx *fasthttp.RequestCtx) {
-		self.proxy(handle, ctx)
-	})
+}
+
+func (self *HttpNode) addRouter(method, path string, handle func(ctx *Context) error, routerConfig *RouterConfig) {
+	self.checkReady(path, routerConfig)
+	self.fastRouter.Handle(method, path, fasthttp.TimeoutHandler(
+		func(ctx *fasthttp.RequestCtx) {
+			self.proxy(handle, ctx)
+		},
+		time.Duration(self.AcceptTimeout)*time.Second,
+		fmt.Sprintf(`{"c":408,"m":"server actively disconnects the client","d":null,"t":%d,"n":"%s","p":0,"s":""}`, utils.Time(), utils.RandNonce())))
 }
 
 func (self *HttpNode) Json(ctx *Context, data interface{}) error {
@@ -274,7 +276,7 @@ func defaultRenderError(ctx *Context, err error) error {
 			resp.Nonce = ctx.JsonBody.Nonce
 		}
 	}
-	if ctx.RouterConfig.Original {
+	if ctx.RouterConfig.Guest {
 		if out.Code <= 600 {
 			ctx.Response.StatusCode = out.Code
 		}
@@ -318,7 +320,7 @@ func defaultRenderPre(ctx *Context) error {
 		if ctx.Response.ContentEntity == nil {
 			return ex.Throw{Code: http.StatusInternalServerError, Msg: "response ContentEntity is nil"}
 		}
-		if routerConfig.Original {
+		if routerConfig.Guest {
 			if result, err := utils.JsonMarshal(ctx.Response.ContentEntity); err != nil {
 				return ex.Throw{Code: http.StatusInternalServerError, Msg: "response JSON data failed", Err: err}
 			} else {
@@ -372,4 +374,32 @@ func defaultRenderPre(ctx *Context) error {
 		return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "invalid response ContentType"}
 	}
 	return nil
+}
+
+func (self *HttpNode) POST(path string, handle func(ctx *Context) error, routerConfig *RouterConfig) {
+	self.addRouter(POST, path, handle, routerConfig)
+}
+
+func (self *HttpNode) GET(path string, handle func(ctx *Context) error, routerConfig *RouterConfig) {
+	self.addRouter(GET, path, handle, routerConfig)
+}
+
+func (self *HttpNode) DELETE(path string, handle func(ctx *Context) error, routerConfig *RouterConfig) {
+	self.addRouter(DELETE, path, handle, routerConfig)
+}
+
+func (self *HttpNode) PUT(path string, handle func(ctx *Context) error, routerConfig *RouterConfig) {
+	self.addRouter(PUT, path, handle, routerConfig)
+}
+
+func (self *HttpNode) PATCH(path string, handle func(ctx *Context) error, routerConfig *RouterConfig) {
+	self.addRouter(PATCH, path, handle, routerConfig)
+}
+
+func (self *HttpNode) OPTIONS(path string, handle func(ctx *Context) error, routerConfig *RouterConfig) {
+	self.addRouter(OPTIONS, path, handle, routerConfig)
+}
+
+func (self *HttpNode) HEAD(path string, handle func(ctx *Context) error, routerConfig *RouterConfig) {
+	self.addRouter(HEAD, path, handle, routerConfig)
 }

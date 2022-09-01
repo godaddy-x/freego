@@ -98,7 +98,7 @@ func (self *NewPostFilter) DoFilter(chain node.Filter, object *node.NodeObject, 
 	return nil
 }
 
-func StartHttpNode() {
+func NewHTTP() *MyWebNode {
 	var my = &MyWebNode{}
 	my.CacheAware = GetCacheAware
 	my.AddJwtConfig(jwt.JwtConfig{
@@ -108,9 +108,14 @@ func StartHttpNode() {
 		TokenExp: jwt.TWO_WEEK,
 	})
 	my.AddFilter(&node.FilterObject{Name: "NewPostFilter", Order: 100, Filter: &NewPostFilter{}})
-	my.Router("POST", "/test1", my.test, nil)
-	my.Router("POST", "/test2", my.getUser, &node.RouterConfig{})
-	my.Router("GET", "/pubkey", my.pubkey, &node.RouterConfig{Original: true, Guest: true})
-	my.Router("POST", "/login", my.login, &node.RouterConfig{Login: true})
+	return my
+}
+
+func StartHttpNode() {
+	my := NewHTTP()
+	my.POST("/test1", my.test, nil)
+	my.POST("/test2", my.getUser, &node.RouterConfig{})
+	my.GET("/pubkey", my.pubkey, &node.RouterConfig{Guest: true})
+	my.POST("/login", my.login, &node.RouterConfig{Login: true})
 	my.StartServer(":8090")
 }
