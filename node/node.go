@@ -115,7 +115,7 @@ type Context struct {
 	RequestCtx    *fasthttp.RequestCtx
 	Subject       *jwt.Payload
 	JsonBody      *JsonBody
-	Response      *Response
+	Response      Response
 	RouterConfig  *RouterConfig
 	ServerTLS     *gorsa.RsaObj
 	PermConfig    func(uid, url string, isRole ...bool) ([]int64, Permission, error)

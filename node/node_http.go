@@ -11,28 +11,28 @@ import (
 	"github.com/godaddy-x/freego/zlog"
 	"github.com/valyala/fasthttp"
 	"net/http"
+	"sync"
 	"time"
 )
 
 var emptyMap = map[string]string{}
 var routerConfigs = make(map[string]*RouterConfig)
+var ctxPool = sync.Pool{New: func() interface{} { return &Context{} }}
 
 type HttpNode struct {
 	HookNode
 }
 
 func (self *HttpNode) doRequest(handle func(ctx *Context) error, request *fasthttp.RequestCtx) error {
-	ctx := &Context{
-		CacheAware:   self.Context.CacheAware,
-		CreateAt:     utils.Time(),
-		RequestCtx:   request,
-		Path:         utils.Bytes2Str(request.Path()),
-		Response:     &Response{Encoding: UTF8, ContentType: APPLICATION_JSON, ContentEntity: nil, ContentEntityByte: nil},
-		RouterConfig: routerConfigs[utils.Bytes2Str(request.Path())],
-		ServerTLS:    self.Context.ServerTLS,
-		PermConfig:   self.Context.PermConfig,
-		Storage:      nil,
-	}
+	ctx := ctxPool.Get().(*Context)
+	ctx.CacheAware = self.Context.CacheAware
+	ctx.RequestCtx = request
+	ctx.Path = utils.Bytes2Str(request.Path())
+	ctx.RouterConfig = routerConfigs[ctx.Path]
+	ctx.ServerTLS = self.Context.ServerTLS
+	ctx.PermConfig = self.Context.PermConfig
+	ctx.Response = Response{Encoding: UTF8, ContentType: APPLICATION_JSON, ContentEntity: nil, ContentEntityByte: nil}
+	ctxPool.Put(ctx)
 	return doFilterChain(ctx, handle)
 }
 

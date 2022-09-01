@@ -10,6 +10,7 @@ import (
 	"github.com/godaddy-x/freego/zlog"
 	"math"
 	"net/http"
+	"sync"
 )
 
 const (
@@ -25,13 +26,6 @@ const (
 
 var filters []*FilterObject
 
-type FilterObject struct {
-	Name         string
-	Order        int
-	Filter       Filter
-	MatchPattern []string
-}
-
 var filterMap = map[string]*FilterObject{
 	GatewayRateLimiterFilterName: {Name: GatewayRateLimiterFilterName, Order: -100, Filter: &GatewayRateLimiterFilter{}},
 	ParameterFilterName:          {Name: ParameterFilterName, Order: -90, Filter: &ParameterFilter{}},
@@ -43,8 +37,19 @@ var filterMap = map[string]*FilterObject{
 	RenderHandleFilterName:       {Name: RenderHandleFilterName, Order: math.MinInt, Filter: &RenderHandleFilter{}},
 }
 
+var chainPool = sync.Pool{New: func() interface{} { return &filterChain{} }}
+
+type FilterObject struct {
+	Name         string
+	Order        int
+	Filter       Filter
+	MatchPattern []string
+}
+
 func doFilterChain(ctx *Context, handle func(ctx *Context) error, args ...interface{}) error {
-	chain := &filterChain{pos: 0}
+	chain := chainPool.Get().(*filterChain)
+	chain.pos = 0
+	chainPool.Put(chain)
 	return chain.DoFilter(chain, ctx, handle, args...)
 }
 
