@@ -43,9 +43,9 @@ var filterMap = map[string]*FilterObject{
 	RenderHandleFilterName:       {Name: RenderHandleFilterName, Order: math.MinInt, Filter: &RenderHandleFilter{}},
 }
 
-func doFilterChain(ob *HttpNode, handle func(ctx *Context) error, args ...interface{}) error {
+func doFilterChain(ctx *Context, handle func(ctx *Context) error, args ...interface{}) error {
 	chain := &filterChain{pos: 0}
-	return chain.DoFilter(chain, ob, handle, args...)
+	return chain.DoFilter(chain, ctx, handle, args...)
 }
 
 func createFilterChain() error {
@@ -70,7 +70,7 @@ func createFilterChain() error {
 }
 
 type Filter interface {
-	DoFilter(chain Filter, ob *HttpNode, handle func(*Context) error, args ...interface{}) error
+	DoFilter(chain Filter, ctx *Context, handle func(*Context) error, args ...interface{}) error
 }
 
 type filterChain struct {
@@ -81,7 +81,7 @@ func (self *filterChain) getFilters() []*FilterObject {
 	return filters
 }
 
-func (self *filterChain) DoFilter(chain Filter, ob *HttpNode, handle func(*Context) error, args ...interface{}) error {
+func (self *filterChain) DoFilter(chain Filter, ctx *Context, handle func(*Context) error, args ...interface{}) error {
 	fs := self.getFilters()
 	for self.pos < len(fs) {
 		f := fs[self.pos]
@@ -89,10 +89,10 @@ func (self *filterChain) DoFilter(chain Filter, ob *HttpNode, handle func(*Conte
 			return ex.Throw{Code: ex.SYSTEM, Msg: fmt.Sprintf("filter [%s] is nil", f.Name)}
 		}
 		self.pos++
-		if !utils.MatchFilterURL(ob.Context.Path, f.MatchPattern) {
+		if !utils.MatchFilterURL(ctx.Path, f.MatchPattern) {
 			continue
 		}
-		return f.Filter.DoFilter(chain, ob, handle, args...)
+		return f.Filter.DoFilter(chain, ctx, handle, args...)
 	}
 	return nil
 }
@@ -124,37 +124,36 @@ func SetUserRateLimiter(option rate.Option) {
 	userRateLimiter = rate.NewRateLimiter(option)
 }
 
-func (self *GatewayRateLimiterFilter) DoFilter(chain Filter, ob *HttpNode, handle func(*Context) error, args ...interface{}) error {
+func (self *GatewayRateLimiterFilter) DoFilter(chain Filter, ctx *Context, handle func(*Context) error, args ...interface{}) error {
 	//if b := gatewayRateLimiter.Allow("HttpThreshold"); !b {
 	//	return ex.Throw{Code: 429, Msg: "the gateway request is full, please try again later"}
 	//}
-	return chain.DoFilter(chain, ob, handle, args...)
+	return chain.DoFilter(chain, ctx, handle, args...)
 }
 
-func (self *ParameterFilter) DoFilter(chain Filter, ob *HttpNode, handle func(*Context) error, args ...interface{}) error {
-	if err := ob.readParams(); err != nil {
+func (self *ParameterFilter) DoFilter(chain Filter, ctx *Context, handle func(*Context) error, args ...interface{}) error {
+	if err := ctx.readParams(); err != nil {
 		return err
 	}
-	return chain.DoFilter(chain, ob, handle, args...)
+	return chain.DoFilter(chain, ctx, handle, args...)
 }
 
-func (self *SessionFilter) DoFilter(chain Filter, ob *HttpNode, handle func(*Context) error, args ...interface{}) error {
-	if ob.Context.RouterConfig.Login || ob.Context.RouterConfig.Guest { // 登录接口和游客模式跳过会话认证
-		return chain.DoFilter(chain, ob, handle, args...)
+func (self *SessionFilter) DoFilter(chain Filter, ctx *Context, handle func(*Context) error, args ...interface{}) error {
+	if ctx.RouterConfig.Login || ctx.RouterConfig.Guest { // 登录接口和游客模式跳过会话认证
+		return chain.DoFilter(chain, ctx, handle, args...)
 	}
-	if len(ob.Context.Token) == 0 {
+	if len(ctx.Token) == 0 {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "AccessToken is nil"}
 	}
 	subject := &jwt.Subject{}
-	if err := subject.Verify(ob.Context.Token, ob.GetJwtConfig().TokenKey); err != nil {
+	if err := subject.Verify(ctx.Token, ctx.GetJwtConfig().TokenKey); err != nil {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "AccessToken is invalid or expired", Err: err}
 	}
-	ob.Context.Subject = subject.Payload
-	return chain.DoFilter(chain, ob, handle, args...)
+	ctx.Subject = subject.Payload
+	return chain.DoFilter(chain, ctx, handle, args...)
 }
 
-func (self *UserRateLimiterFilter) DoFilter(chain Filter, ob *HttpNode, handle func(*Context) error, args ...interface{}) error {
-	ctx := ob.Context
+func (self *UserRateLimiterFilter) DoFilter(chain Filter, ctx *Context, handle func(*Context) error, args ...interface{}) error {
 	//if b := methodRateLimiter.Allow(ctx.Path); !b {
 	//	return ex.Throw{Code: 429, Msg: "the method request is full, please try again later"}
 	//}
@@ -163,27 +162,27 @@ func (self *UserRateLimiterFilter) DoFilter(chain Filter, ob *HttpNode, handle f
 			return ex.Throw{Code: 429, Msg: "the access frequency is too fast, please try again later"}
 		}
 	}
-	return chain.DoFilter(chain, ob, handle, args...)
+	return chain.DoFilter(chain, ctx, handle, args...)
 }
 
-func (self *RoleFilter) DoFilter(chain Filter, ob *HttpNode, handle func(*Context) error, args ...interface{}) error {
-	if ob.Context.PermConfig == nil {
-		return chain.DoFilter(chain, ob, handle, args...)
+func (self *RoleFilter) DoFilter(chain Filter, ctx *Context, handle func(*Context) error, args ...interface{}) error {
+	if ctx.PermConfig == nil {
+		return chain.DoFilter(chain, ctx, handle, args...)
 	}
-	_, need, err := ob.Context.PermConfig(ob.Context.Subject.Sub, ob.Context.Path)
+	_, need, err := ctx.PermConfig(ctx.Subject.Sub, ctx.Path)
 	if err != nil {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "failed to read authorization resource", Err: err}
 	} else if !need.Ready { // 无授权资源配置,跳过
-		return chain.DoFilter(chain, ob, handle, args...)
+		return chain.DoFilter(chain, ctx, handle, args...)
 	} else if need.NeedRole == nil || len(need.NeedRole) == 0 { // 无授权角色配置跳过
-		return chain.DoFilter(chain, ob, handle, args...)
+		return chain.DoFilter(chain, ctx, handle, args...)
 	}
 	if need.NeedLogin == 0 { // 无登录状态,跳过
-		return chain.DoFilter(chain, ob, handle, args...)
-	} else if !ob.Context.Authenticated() { // 需要登录状态,会话为空,抛出异常
+		return chain.DoFilter(chain, ctx, handle, args...)
+	} else if !ctx.Authenticated() { // 需要登录状态,会话为空,抛出异常
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "login status required"}
 	}
-	roles, _, err := ob.Context.PermConfig(ob.Context.Subject.Sub, "", true)
+	roles, _, err := ctx.PermConfig(ctx.Subject.Sub, "", true)
 	if err != nil {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "user roles read failed"}
 	}
@@ -194,7 +193,7 @@ func (self *RoleFilter) DoFilter(chain Filter, ob *HttpNode, handle func(*Contex
 			if cr == nr {
 				access++
 				if need.MathchAll == 0 || access == needAccess { // 任意授权通过则放行,或已满足授权长度
-					return chain.DoFilter(chain, ob, handle, args...)
+					return chain.DoFilter(chain, ctx, handle, args...)
 				}
 			}
 		}
@@ -202,8 +201,8 @@ func (self *RoleFilter) DoFilter(chain Filter, ob *HttpNode, handle func(*Contex
 	return ex.Throw{Code: http.StatusUnauthorized, Msg: "access defined"}
 }
 
-func (self *ReplayFilter) DoFilter(chain Filter, ob *HttpNode, handle func(*Context) error, args ...interface{}) error {
-	//param := ob.Context.Params
+func (self *ReplayFilter) DoFilter(chain Filter, ctx *Context, handle func(*Context) error, args ...interface{}) error {
+	//param := ctx.Params
 	//if param == nil || len(param.Sign) == 0 {
 	//	return nil
 	//}
@@ -217,23 +216,23 @@ func (self *ReplayFilter) DoFilter(chain Filter, ob *HttpNode, handle func(*Cont
 	//} else {
 	//	c.Put(key, 1, int((param.Time+jwt.FIVE_MINUTES)/1000))
 	//}
-	return chain.DoFilter(chain, ob, handle, args...)
+	return chain.DoFilter(chain, ctx, handle, args...)
 }
 
-func (self *PostHandleFilter) DoFilter(chain Filter, ob *HttpNode, handle func(*Context) error, args ...interface{}) error {
-	if err := handle(ob.Context); err != nil {
+func (self *PostHandleFilter) DoFilter(chain Filter, ctx *Context, handle func(*Context) error, args ...interface{}) error {
+	if err := handle(ctx); err != nil {
 		return err
 	}
-	return chain.DoFilter(chain, ob, handle, args...)
+	return chain.DoFilter(chain, ctx, handle, args...)
 }
 
-func (self *RenderHandleFilter) DoFilter(chain Filter, ob *HttpNode, handle func(*Context) error, args ...interface{}) error {
-	err := chain.DoFilter(chain, ob, handle, args...)
+func (self *RenderHandleFilter) DoFilter(chain Filter, ctx *Context, handle func(*Context) error, args ...interface{}) error {
+	err := chain.DoFilter(chain, ctx, handle, args...)
 	if err == nil {
-		err = defaultRenderPre(ob.Context)
+		err = defaultRenderPre(ctx)
 	}
 	if err != nil {
-		err = defaultRenderError(ob.Context, err)
+		err = defaultRenderError(ctx, err)
 	}
-	return defaultRenderTo(ob.Context)
+	return defaultRenderTo(ctx)
 }

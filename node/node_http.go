@@ -3,6 +3,7 @@ package node
 import (
 	"fmt"
 	"github.com/buaazp/fasthttprouter"
+	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/gorsa"
@@ -20,132 +21,19 @@ type HttpNode struct {
 	HookNode
 }
 
-func (self *HttpNode) readParams() error {
-	agent := utils.Bytes2Str(self.Context.RequestCtx.Request.Header.Peek("User-Agent"))
-	if utils.HasStr(agent, "Android") || utils.HasStr(agent, "Adr") {
-		self.Context.Device = ANDROID
-	} else if utils.HasStr(agent, "iPad") || utils.HasStr(agent, "iPhone") || utils.HasStr(agent, "Mac") {
-		self.Context.Device = IOS
-	} else {
-		self.Context.Device = WEB
-	}
-	method := utils.Bytes2Str(self.Context.RequestCtx.Method())
-	if method != POST {
-		return nil
-	}
-	self.Context.Token = utils.Bytes2Str(self.Context.RequestCtx.Request.Header.Peek(Authorization))
-	body := self.Context.RequestCtx.PostBody()
-	if len(body) == 0 {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters is nil"}
-	}
-	if len(body) > (MAX_VALUE_LEN * 5) {
-		return ex.Throw{Code: http.StatusLengthRequired, Msg: "body parameters length is too long"}
-	}
-	req := &JsonBody{}
-	if err := utils.JsonUnmarshal(body, req); err != nil {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters JSON parsing failed", Err: err}
-	}
-	if err := self.validJsonBody(req); err != nil { // TODO important
-		return err
-	}
-	return nil
-}
-
-func (self *HttpNode) validJsonBody(req *JsonBody) error {
-	d, b := req.Data.(string)
-	if !b || len(d) == 0 {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "request data is nil"}
-	}
-	if !utils.CheckInt64(req.Plan, 0, 1, 2) {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "request plan invalid"}
-	}
-	if !utils.CheckLen(req.Nonce, 8, 32) {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "request nonce invalid"}
-	}
-	if req.Time <= 0 {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "request time must be > 0"}
-	}
-	if utils.MathAbs(utils.TimeSecond()-req.Time) > 3000 { // 判断绝对时间差超过5分钟
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "request time invalid"}
-	}
-	if self.Context.RouterConfig.AesRequest && req.Plan != 1 {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters must use AES encryption"}
-	}
-	if self.Context.RouterConfig.Login && req.Plan != 2 {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters must use RSA encryption"}
-	}
-	if !utils.CheckStrLen(req.Sign, 32, 64) {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature length invalid"}
-	}
-	var key string
-	if self.Context.RouterConfig.Login {
-		key = self.Context.ServerTLS.PubkeyBase64
-	}
-	if self.Context.GetHmac256Sign(d, req.Nonce, req.Time, req.Plan, key) != req.Sign {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature invalid"}
-	}
-	data := make(map[string]interface{}, 0)
-	if req.Plan == 1 && !self.Context.RouterConfig.Login { // AES
-		dec, err := utils.AesDecrypt(d, self.Context.GetTokenSecret(), utils.AddStr(req.Nonce, req.Time))
-		if err != nil {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "AES failed to parse data", Err: err}
-		}
-		if err := utils.JsonUnmarshal(utils.Str2Bytes(dec), &data); err != nil {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter JSON parsing failed"}
-		}
-	} else if req.Plan == 2 && self.Context.RouterConfig.Login { // RSA
-		//a := "To0IaxMwcWbX2CsQRv6jmUcPiNcPHn-73708NG8n99WAr5AS3ry7zEBtNRcDUuqhMjHS6NbQQrBOGVMKCfA1Mig2cgCh4wSq50p4omyAExEf1mDDA4bRo2_yPLCDBp63ERC3FJSJY_7ru07darWH6sZbymLigEjA4CWrpxmBQGKkr0gs6nYPIZg3eMuJj_RYmoIPYQtBU5BdPpKqPvtRWOAJBMtZbpSrxDBcCoA_0m3MbNYC4vvb1ivkABp_RXT_SlQqr9IEOqyBQpWpm5FBsoMZkXnMxFBhL1syaZwTK5Fr6Vj-85D0UsTXVPJmdLOBSirlJTgHLPKMMh70PxlEGQ=="
-		dec, err := self.Context.ServerTLS.Decrypt(d)
-		if err != nil {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "server private-key decrypt failed", Err: err}
-		}
-		if len(dec) == 0 {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "server private-key decrypt data is nil", Err: err}
-		}
-		if err := utils.JsonUnmarshal(utils.Str2Bytes(dec), &data); err != nil {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter JSON parsing failed"}
-		}
-		pubkey, b := data[CLIENT_PUBKEY]
-		if !b {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key not found"}
-		}
-		pubkey_v, b := pubkey.(string)
-		if !b {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key not string type"}
-		}
-		if len(pubkey_v) != 24 {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key length invalid"}
-		}
-		delete(data, CLIENT_PUBKEY)
-		self.Context.AddStorage(CLIENT_PUBKEY, pubkey_v)
-	} else if req.Plan == 0 && !self.Context.RouterConfig.Login && !self.Context.RouterConfig.AesRequest {
-		if err := utils.ParseJsonBase64(d, &data); err != nil {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter JSON parsing failed"}
-		}
-	} else {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters plan invalid"}
-	}
-	req.Data = data
-	self.Context.JsonBody = req
-	return nil
-}
-
-func (self *HttpNode) doRequest(handle func(ctx *Context) error, ctx *fasthttp.RequestCtx) error {
-	ob := &HttpNode{}
-	ob.SessionAware = self.SessionAware
-	ob.CacheAware = self.CacheAware
-	ob.Context = &Context{
-		CreateAt: utils.Time(),
-		// Host:         utils.ClientIP(input),
-		RequestCtx:   ctx,
-		Path:         utils.Bytes2Str(ctx.Path()),
+func (self *HttpNode) doRequest(handle func(ctx *Context) error, request *fasthttp.RequestCtx) error {
+	ctx := &Context{
+		CacheAware:   self.Context.CacheAware,
+		CreateAt:     utils.Time(),
+		RequestCtx:   request,
+		Path:         utils.Bytes2Str(request.Path()),
 		Response:     &Response{Encoding: UTF8, ContentType: APPLICATION_JSON, ContentEntity: nil, ContentEntityByte: nil},
-		RouterConfig: routerConfigs[utils.Bytes2Str(ctx.Path())],
+		RouterConfig: routerConfigs[utils.Bytes2Str(request.Path())],
 		ServerTLS:    self.Context.ServerTLS,
 		PermConfig:   self.Context.PermConfig,
 		Storage:      nil,
 	}
-	return doFilterChain(ob, handle)
+	return doFilterChain(ctx, handle)
 }
 
 func (self *HttpNode) proxy(handle func(ctx *Context) error, ctx *fasthttp.RequestCtx) {
@@ -156,7 +44,7 @@ func (self *HttpNode) proxy(handle func(ctx *Context) error, ctx *fasthttp.Reque
 
 func (self *HttpNode) StartServer(address string) {
 	go func() {
-		if self.CacheAware != nil {
+		if self.Context.CacheAware != nil {
 			zlog.Printf("cache service has been started successful")
 		}
 		if self.Context.ServerTLS != nil {
@@ -166,7 +54,7 @@ func (self *HttpNode) StartServer(address string) {
 			panic("http service create filter chain failed")
 		}
 		zlog.Printf("http【%s】service has been started successful", address)
-		if err := fasthttp.ListenAndServe(address, self.fastRouter.Handler); err != nil {
+		if err := fasthttp.ListenAndServe(address, self.Context.router.Handler); err != nil {
 			panic("http service init failed")
 		}
 	}()
@@ -174,14 +62,14 @@ func (self *HttpNode) StartServer(address string) {
 }
 
 func (self *HttpNode) checkReady(path string, routerConfig *RouterConfig) {
-	if self.CacheAware == nil {
-		panic("cache service hasn't been initialized")
-	}
 	if self.Context == nil {
 		self.Context = &Context{}
 	}
-	if self.AcceptTimeout <= 0 {
-		self.AcceptTimeout = 60
+	if self.Context.CacheAware == nil {
+		panic("cache service hasn't been initialized")
+	}
+	if self.Context.AcceptTimeout <= 0 {
+		self.Context.AcceptTimeout = 60
 	}
 	if self.Context.ServerTLS == nil {
 		tls := &gorsa.RsaObj{}
@@ -196,18 +84,18 @@ func (self *HttpNode) checkReady(path string, routerConfig *RouterConfig) {
 	if _, b := routerConfigs[path]; !b {
 		routerConfigs[path] = routerConfig
 	}
-	if self.fastRouter == nil {
-		self.fastRouter = fasthttprouter.New()
+	if self.Context.router == nil {
+		self.Context.router = fasthttprouter.New()
 	}
 }
 
 func (self *HttpNode) addRouter(method, path string, handle func(ctx *Context) error, routerConfig *RouterConfig) {
 	self.checkReady(path, routerConfig)
-	self.fastRouter.Handle(method, path, fasthttp.TimeoutHandler(
+	self.Context.router.Handle(method, path, fasthttp.TimeoutHandler(
 		func(ctx *fasthttp.RequestCtx) {
 			self.proxy(handle, ctx)
 		},
-		time.Duration(self.AcceptTimeout)*time.Second,
+		time.Duration(self.Context.AcceptTimeout)*time.Second,
 		fmt.Sprintf(`{"c":408,"m":"server actively disconnects the client","d":null,"t":%d,"n":"%s","p":0,"s":""}`, utils.Time(), utils.RandNonce())))
 }
 
@@ -238,6 +126,13 @@ func (self *HttpNode) AddFilter(object *FilterObject) {
 	zlog.Printf("add filter [%s] successful", object.Name)
 }
 
+func (self *HttpNode) AddCacheAware(cacheAware func(ds ...string) (cache.Cache, error)) {
+	if self.Context == nil {
+		self.Context = &Context{}
+	}
+	self.Context.CacheAware = cacheAware
+}
+
 func (self *HttpNode) AddJwtConfig(config jwt.JwtConfig) {
 	if len(config.TokenKey) == 0 {
 		panic("jwt config key is nil")
@@ -249,10 +144,6 @@ func (self *HttpNode) AddJwtConfig(config jwt.JwtConfig) {
 	jwtConfig.TokenTyp = config.TokenTyp
 	jwtConfig.TokenKey = config.TokenKey
 	jwtConfig.TokenExp = config.TokenExp
-}
-
-func (self *HttpNode) GetJwtConfig() jwt.JwtConfig {
-	return jwtConfig
 }
 
 func (self *HttpNode) ClearFilterChain() {

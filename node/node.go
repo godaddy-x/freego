@@ -10,6 +10,7 @@ import (
 	"github.com/godaddy-x/freego/utils/jwt"
 	"github.com/godaddy-x/freego/zlog"
 	"github.com/valyala/fasthttp"
+	"net/http"
 	"unsafe"
 )
 
@@ -48,11 +49,7 @@ var (
 )
 
 type HookNode struct {
-	fastRouter    *fasthttprouter.Router
-	Context       *Context
-	SessionAware  SessionAware
-	CacheAware    func(ds ...string) (cache.Cache, error)
-	AcceptTimeout int64 // 超时主动断开客户端连接,秒
+	Context *Context
 }
 
 type RouterConfig struct {
@@ -108,18 +105,21 @@ type Permission struct {
 }
 
 type Context struct {
-	Token        string
-	Device       string
-	CreateAt     int64
-	Path         string
-	RequestCtx   *fasthttp.RequestCtx
-	Subject      *jwt.Payload
-	JsonBody     *JsonBody
-	Response     *Response
-	RouterConfig *RouterConfig
-	ServerTLS    *gorsa.RsaObj
-	PermConfig   func(uid, url string, isRole ...bool) ([]int64, Permission, error)
-	Storage      map[string]interface{}
+	router        *fasthttprouter.Router
+	CacheAware    func(ds ...string) (cache.Cache, error)
+	AcceptTimeout int64 // 超时主动断开客户端连接,秒
+	Token         string
+	Device        string
+	CreateAt      int64
+	Path          string
+	RequestCtx    *fasthttp.RequestCtx
+	Subject       *jwt.Payload
+	JsonBody      *JsonBody
+	Response      *Response
+	RouterConfig  *RouterConfig
+	ServerTLS     *gorsa.RsaObj
+	PermConfig    func(uid, url string, isRole ...bool) ([]int64, Permission, error)
+	Storage       map[string]interface{}
 }
 
 type Response struct {
@@ -204,4 +204,117 @@ func (self *Context) Parser(v interface{}) error {
 	*((*common.BaseReq)(unsafe.Pointer(src))) = dst
 	self.JsonBody.Data = v
 	return nil
+}
+
+func (self *Context) readParams() error {
+	agent := utils.Bytes2Str(self.RequestCtx.Request.Header.Peek("User-Agent"))
+	if utils.HasStr(agent, "Android") || utils.HasStr(agent, "Adr") {
+		self.Device = ANDROID
+	} else if utils.HasStr(agent, "iPad") || utils.HasStr(agent, "iPhone") || utils.HasStr(agent, "Mac") {
+		self.Device = IOS
+	} else {
+		self.Device = WEB
+	}
+	method := utils.Bytes2Str(self.RequestCtx.Method())
+	if method != POST {
+		return nil
+	}
+	self.Token = utils.Bytes2Str(self.RequestCtx.Request.Header.Peek(Authorization))
+	body := self.RequestCtx.PostBody()
+	if len(body) == 0 {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters is nil"}
+	}
+	if len(body) > (MAX_VALUE_LEN * 5) {
+		return ex.Throw{Code: http.StatusLengthRequired, Msg: "body parameters length is too long"}
+	}
+	req := &JsonBody{}
+	if err := utils.JsonUnmarshal(body, req); err != nil {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters JSON parsing failed", Err: err}
+	}
+	if err := self.validJsonBody(req); err != nil { // TODO important
+		return err
+	}
+	return nil
+}
+
+func (self *Context) validJsonBody(req *JsonBody) error {
+	d, b := req.Data.(string)
+	if !b || len(d) == 0 {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "request data is nil"}
+	}
+	if !utils.CheckInt64(req.Plan, 0, 1, 2) {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "request plan invalid"}
+	}
+	if !utils.CheckLen(req.Nonce, 8, 32) {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "request nonce invalid"}
+	}
+	if req.Time <= 0 {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "request time must be > 0"}
+	}
+	if utils.MathAbs(utils.TimeSecond()-req.Time) > 3000 { // 判断绝对时间差超过5分钟
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "request time invalid"}
+	}
+	if self.RouterConfig.AesRequest && req.Plan != 1 {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters must use AES encryption"}
+	}
+	if self.RouterConfig.Login && req.Plan != 2 {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters must use RSA encryption"}
+	}
+	if !utils.CheckStrLen(req.Sign, 32, 64) {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature length invalid"}
+	}
+	var key string
+	if self.RouterConfig.Login {
+		key = self.ServerTLS.PubkeyBase64
+	}
+	if self.GetHmac256Sign(d, req.Nonce, req.Time, req.Plan, key) != req.Sign {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature invalid"}
+	}
+	data := make(map[string]interface{}, 0)
+	if req.Plan == 1 && !self.RouterConfig.Login { // AES
+		dec, err := utils.AesDecrypt(d, self.GetTokenSecret(), utils.AddStr(req.Nonce, req.Time))
+		if err != nil {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "AES failed to parse data", Err: err}
+		}
+		if err := utils.JsonUnmarshal(utils.Str2Bytes(dec), &data); err != nil {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter JSON parsing failed"}
+		}
+	} else if req.Plan == 2 && self.RouterConfig.Login { // RSA
+		dec, err := self.ServerTLS.Decrypt(d)
+		if err != nil {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "server private-key decrypt failed", Err: err}
+		}
+		if len(dec) == 0 {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "server private-key decrypt data is nil", Err: err}
+		}
+		if err := utils.JsonUnmarshal(utils.Str2Bytes(dec), &data); err != nil {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter JSON parsing failed"}
+		}
+		pubkey, b := data[CLIENT_PUBKEY]
+		if !b {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key not found"}
+		}
+		pubkey_v, b := pubkey.(string)
+		if !b {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key not string type"}
+		}
+		if len(pubkey_v) != 24 {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key length invalid"}
+		}
+		delete(data, CLIENT_PUBKEY)
+		self.AddStorage(CLIENT_PUBKEY, pubkey_v)
+	} else if req.Plan == 0 && !self.RouterConfig.Login && !self.RouterConfig.AesRequest {
+		if err := utils.ParseJsonBase64(d, &data); err != nil {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter JSON parsing failed"}
+		}
+	} else {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters plan invalid"}
+	}
+	req.Data = data
+	self.JsonBody = req
+	return nil
+}
+
+func (self *Context) GetJwtConfig() jwt.JwtConfig {
+	return jwtConfig
 }

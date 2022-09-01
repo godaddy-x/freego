@@ -58,7 +58,7 @@ func testCallRPC() {
 func (self *MyWebNode) login(ctx *node.Context) error {
 	subject := &jwt.Subject{}
 	//self.LoginBySubject(subject, exp)
-	config := self.GetJwtConfig()
+	config := ctx.GetJwtConfig()
 	token := subject.Create(utils.GetSnowFlakeStrID()).Dev("APP").Generate(config)
 	secret := jwt.GetTokenSecret(token, config.TokenKey)
 	return self.Json(ctx, map[string]interface{}{"token": token, "secret": secret})
@@ -73,17 +73,12 @@ func (self *MyWebNode) pubkey(ctx *node.Context) error {
 var local = new(cache.LocalMapManager).NewCache(30, 10)
 var limiter = rate.NewRateLimiter(rate.Option{Limit: 100, Bucket: 200, Expire: 30, Distributed: true})
 
-func GetCacheAware(ds ...string) (cache.Cache, error) {
-	return local, nil
-}
-
 type NewPostFilter struct{}
 
-func (self *NewPostFilter) DoFilter(chain node.Filter, ob *node.HttpNode, handle func(*node.Context) error, args ...interface{}) error {
+func (self *NewPostFilter) DoFilter(chain node.Filter, ctx *node.Context, handle func(*node.Context) error, args ...interface{}) error {
 	//fmt.Println(" --- NewFilter.DoFilter before ---")
-	ctx := ob.Context
 	ctx.AddStorage("httpLog", node.HttpLog{Method: ctx.Path, LogNo: utils.GetSnowFlakeStrID(), CreateAt: utils.Time()})
-	if err := chain.DoFilter(chain, ob, handle, args...); err != nil {
+	if err := chain.DoFilter(chain, ctx, handle, args...); err != nil {
 		return err
 	}
 	//fmt.Println(" --- NewFilter.DoFilter after ---")
@@ -100,12 +95,14 @@ func (self *NewPostFilter) DoFilter(chain node.Filter, ob *node.HttpNode, handle
 
 func NewHTTP() *MyWebNode {
 	var my = &MyWebNode{}
-	my.CacheAware = GetCacheAware
 	my.AddJwtConfig(jwt.JwtConfig{
 		TokenTyp: jwt.JWT,
 		TokenAlg: jwt.HS256,
 		TokenKey: "123456" + utils.CreateLocalSecretKey(12, 45, 23, 60, 58, 30),
 		TokenExp: jwt.TWO_WEEK,
+	})
+	my.AddCacheAware(func(ds ...string) (cache.Cache, error) {
+		return local, nil
 	})
 	my.AddFilter(&node.FilterObject{Name: "NewPostFilter", Order: 100, Filter: &NewPostFilter{}})
 	return my

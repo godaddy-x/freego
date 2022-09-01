@@ -5,6 +5,7 @@ go 1.18
 require (
 	github.com/Shopify/sarama v1.35.0
 	github.com/andybalholm/cascadia v1.3.1
+	github.com/buaazp/fasthttprouter v0.1.1
 	github.com/garyburd/redigo v1.6.3
 	github.com/globalsign/mgo v0.0.0-20181015135952-eeefdecb41b8
 	github.com/go-sql-driver/mysql v1.6.0
@@ -13,6 +14,7 @@ require (
 	github.com/hashicorp/consul/api v1.13.1
 	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/streadway/amqp v1.0.0
+	github.com/valyala/fasthttp v1.39.0
 	go.uber.org/zap v1.21.0
 	golang.org/x/net v0.0.0-20220812174116-3211cb980234
 	google.golang.org/grpc v1.48.0
@@ -23,7 +25,6 @@ require (
 require (
 	github.com/andybalholm/brotli v1.0.4 // indirect
 	github.com/armon/go-metrics v0.0.0-20180917152333-f0300d1749da // indirect
-	github.com/buaazp/fasthttprouter v0.1.1 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/eapache/go-resiliency v1.3.0 // indirect
 	github.com/eapache/go-xerial-snappy v0.0.0-20180814174437-776d5712da21 // indirect
@@ -53,7 +54,6 @@ require (
 	github.com/pierrec/lz4/v4 v4.1.15 // indirect
 	github.com/rcrowley/go-metrics v0.0.0-20201227073835-cf1acfcdf475 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
-	github.com/valyala/fasthttp v1.39.0 // indirect
 	go.uber.org/atomic v1.7.0 // indirect
 	go.uber.org/multierr v1.6.0 // indirect
 	golang.org/x/crypto v0.0.0-20220214200702-86341886e292 // indirect
