@@ -2,9 +2,9 @@
   "Host": "127.0.0.1",
   "Port": 6379,
   "Password": "",
-  "MaxIdle": 150,
-  "MaxActive": 150,
-  "IdleTimeout": 240,
+  "MaxIdle": 512,
+  "MaxActive": 2048,
+  "IdleTimeout": 60,
   "Network": "tcp",
   "LockTimeout": 15
 }

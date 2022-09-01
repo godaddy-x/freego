@@ -160,7 +160,7 @@ func (self *SessionFilter) DoFilter(chain Filter, object *NodeObject, args ...in
 
 func (self *UserRateLimiterFilter) DoFilter(chain Filter, object *NodeObject, args ...interface{}) error {
 	ctx := object.Node.Context
-	if b := userRateLimiter.Allow(ctx.Path); !b {
+	if b := methodRateLimiter.Allow(ctx.Path); !b {
 		return ex.Throw{Code: 429, Msg: "the method request is full, please try again later"}
 	}
 	if ctx.Authenticated() {
