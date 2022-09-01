@@ -1,6 +1,7 @@
 package node
 
 import (
+	"github.com/buaazp/fasthttprouter"
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/node/common"
@@ -8,13 +9,13 @@ import (
 	"github.com/godaddy-x/freego/utils/gorsa"
 	"github.com/godaddy-x/freego/utils/jwt"
 	"github.com/godaddy-x/freego/zlog"
-	"net/http"
+	"github.com/valyala/fasthttp"
 	"unsafe"
 )
 
 const (
-	HTTP2 = "http2"
-	UTF8  = "UTF-8"
+	HTTP = "http"
+	UTF8 = "UTF-8"
 
 	ANDROID = "android"
 	IOS     = "ios"
@@ -23,11 +24,13 @@ const (
 	TEXT_PLAIN       = "text/plain; charset=utf-8"
 	APPLICATION_JSON = "application/json; charset=utf-8"
 
-	GET    = "GET"
-	POST   = "POST"
-	PUT    = "PUT"
-	PATCH  = "PATCH"
-	DELETE = "DELETE"
+	GET     = "GET"
+	POST    = "POST"
+	PUT     = "PUT"
+	PATCH   = "PATCH"
+	DELETE  = "DELETE"
+	HEAD    = "HEAD"
+	OPTIONS = "OPTIONS"
 
 	MAX_HEADER_SIZE     = 25   // 最大响应头数量
 	MAX_PARAMETER_SIZE  = 50   // 最大参数数量
@@ -45,7 +48,7 @@ var (
 )
 
 type HookNode struct {
-	handler           *http.ServeMux
+	router            *fasthttprouter.Router
 	Context           *Context
 	SessionAware      SessionAware
 	CacheAware        func(ds ...string) (cache.Cache, error)
@@ -53,12 +56,11 @@ type HookNode struct {
 }
 
 type RouterConfig struct {
-	Guest       bool                 // 游客模式 false.否 true.是
-	Login       bool                 // 是否登录请求 false.否 true.是
-	Original    bool                 // 是否原始方式 false.否 true.是
-	AesRequest  bool                 // 请求是否必须AES加密 false.否 true.是
-	AesResponse bool                 // 响应是否必须AES加密 false.否 true.是
-	postHandle  func(*Context) error // 业务回调方法
+	Guest       bool // 游客模式 false.否 true.是
+	Login       bool // 是否登录请求 false.否 true.是
+	Original    bool // 是否原始方式 false.否 true.是
+	AesRequest  bool // 请求是否必须AES加密 false.否 true.是
+	AesResponse bool // 响应是否必须AES加密 false.否 true.是
 }
 
 type HttpLog struct {
@@ -80,7 +82,7 @@ type ProtocolNode interface {
 	StartServer()
 }
 
-type ReqDto struct {
+type JsonBody struct {
 	Data  interface{} `json:"d"`
 	Time  int64       `json:"t"`
 	Nonce string      `json:"n"`
@@ -88,7 +90,7 @@ type ReqDto struct {
 	Sign  string      `json:"s"`
 }
 
-type RespDto struct {
+type JsonResp struct {
 	Code    int         `json:"c"`
 	Message string      `json:"m"`
 	Data    interface{} `json:"d"`
@@ -106,25 +108,18 @@ type Permission struct {
 }
 
 type Context struct {
-	Host         string
-	Port         int64
-	Style        string
 	Token        string
 	Device       string
-	Method       string
-	Version      string
 	CreateAt     int64
-	Headers      map[string]string
-	Params       *ReqDto
+	Path         string
+	RequestCtx   *fasthttp.RequestCtx
 	Subject      *jwt.Payload
+	JsonBody     *JsonBody
 	Response     *Response
-	Input        *http.Request
-	Output       http.ResponseWriter
 	RouterConfig *RouterConfig
 	ServerTLS    *gorsa.RsaObj
-	PermConfig   func(url string) (Permission, error)
+	PermConfig   func(uid, url string, isRole ...bool) ([]int64, Permission, error)
 	Storage      map[string]interface{}
-	Roles        []int64
 }
 
 type Response struct {
@@ -134,16 +129,6 @@ type Response struct {
 	// response result
 	StatusCode        int
 	ContentEntityByte []byte
-}
-
-func (self *Context) GetHeader(k string) string {
-	if len(k) == 0 || len(self.Headers) == 0 {
-		return ""
-	}
-	if v, b := self.Headers[k]; b {
-		return v
-	}
-	return ""
 }
 
 func (self *Context) GetTokenSecret() string {
@@ -157,7 +142,7 @@ func (self *Context) GetHmac256Sign(d, n string, t, p int64, key ...string) stri
 	} else {
 		secret = self.GetTokenSecret()
 	}
-	return utils.HMAC_SHA256(utils.AddStr(self.Method, d, n, t, p), secret, true)
+	return utils.HMAC_SHA256(utils.AddStr(self.Path, d, n, t, p), secret, true)
 }
 
 func (self *Context) AddStorage(k string, v interface{}) error {
@@ -187,12 +172,12 @@ func (self *Context) Authenticated() bool {
 }
 
 func (self *Context) Parser(v interface{}) error {
-	if self.Params == nil || self.Params.Data == nil {
+	if self.JsonBody == nil || self.JsonBody.Data == nil {
 		return nil
 	}
-	if err := utils.JsonToAny(self.Params.Data, v); err != nil {
+	if err := utils.JsonToAny(self.JsonBody.Data, v); err != nil {
 		msg := "JSON parameter parsing failed"
-		zlog.Error(msg, 0, zlog.String("method", self.Method), zlog.String("host", self.Host), zlog.String("device", self.Device), zlog.Any("data", self.Params))
+		zlog.Error(msg, 0, zlog.String("path", self.Path), zlog.String("device", self.Device), zlog.Any("data", self.JsonBody))
 		return ex.Throw{Msg: msg}
 	}
 	// TODO 备注: 已有会话状态时,指针填充context值,不能随意修改指针偏移值
@@ -206,12 +191,11 @@ func (self *Context) Parser(v interface{}) error {
 	}
 	context := common.Context{
 		UserId: userId,
-		UserIP: self.Host,
 	}
 	src := utils.GetPtr(v, 0)
 	req := common.GetBaseReq(src)
 	dst := common.BaseReq{Context: context, Offset: req.Offset, Limit: req.Limit}
 	*((*common.BaseReq)(unsafe.Pointer(src))) = dst
-	self.Params.Data = v
+	self.JsonBody.Data = v
 	return nil
 }

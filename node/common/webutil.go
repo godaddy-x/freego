@@ -4,7 +4,6 @@ import "unsafe"
 
 type Context struct {
 	UserId int64
-	UserIP string
 }
 
 type BaseReq struct {

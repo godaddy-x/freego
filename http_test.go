@@ -1,14 +1,15 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
 	"github.com/godaddy-x/freego/node"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/gorsa"
+	"github.com/valyala/fasthttp"
 	"io/ioutil"
 	"net/http"
 	"testing"
+	"time"
 )
 
 const domain = "http://localhost:8090"
@@ -40,7 +41,7 @@ func output(a ...interface{}) {
 }
 
 // 测试使用的http post示例方法
-func ToPostBy(path string, req *node.ReqDto) {
+func ToPostBy(path string, req *node.JsonBody) {
 	if len(srvPubkeyBase64) == 0 {
 		srvPubkeyBase64 = initSrvPubkey()
 	}
@@ -78,26 +79,28 @@ func ToPostBy(path string, req *node.ReqDto) {
 		panic(err)
 	}
 	output("请求示例: ")
-	output(string(bytesData))
-	reader := bytes.NewReader(bytesData)
-	request, err := http.NewRequest("POST", domain+path, reader)
-	if err != nil {
+	output(utils.Bytes2Str(bytesData))
+
+	reqcli := fasthttp.AcquireRequest()
+	reqcli.Header.SetContentType("application/json;charset=UTF-8")
+	reqcli.Header.Set("Authorization", access_token)
+	reqcli.Header.SetMethod("POST")
+	reqcli.SetRequestURI(domain + path)
+	reqcli.SetBody(bytesData)
+	defer fasthttp.ReleaseRequest(reqcli)
+
+	respcli := fasthttp.AcquireResponse()
+	defer fasthttp.ReleaseResponse(respcli)
+
+	if err := fasthttp.DoTimeout(reqcli, respcli, 5*time.Second); err != nil {
 		panic(err)
 	}
-	request.Header.Set("Content-Type", "application/json;charset=UTF-8")
-	request.Header.Set("Authorization", access_token)
-	client := http.Client{}
-	resp, err := client.Do(request)
-	if err != nil {
-		panic(err)
-	}
-	respBytes, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		panic(err)
-	}
+
+	respBytes := respcli.Body()
+
 	output("响应示例: ")
 	output(utils.Bytes2Str(respBytes))
-	respData := &node.RespDto{}
+	respData := &node.JsonResp{}
 	if err := utils.JsonUnmarshal(respBytes, &respData); err != nil {
 		panic(err)
 	}
@@ -133,7 +136,7 @@ func ToPostBy(path string, req *node.ReqDto) {
 func TestRsaLogin(t *testing.T) {
 	data, _ := utils.JsonMarshal(map[string]string{"username": "1234567890123456", "password": "1234567890123456", "pubkey": pubkey})
 	path := "/login"
-	req := &node.ReqDto{
+	req := &node.JsonBody{
 		Data:  data,
 		Time:  utils.TimeSecond(),
 		Nonce: utils.RandNonce(),
@@ -145,7 +148,7 @@ func TestRsaLogin(t *testing.T) {
 func TestGetUser(t *testing.T) {
 	data, _ := utils.JsonMarshal(map[string]interface{}{"uid": 123, "name": "我爱中国/+_=/1df", "limit": 20, "offset": 5})
 	path := "/test2"
-	req := &node.ReqDto{
+	req := &node.JsonBody{
 		Data:  data,
 		Time:  utils.TimeSecond(),
 		Nonce: utils.RandNonce(),
@@ -160,7 +163,7 @@ func BenchmarkLogin(b *testing.B) {
 	for i := 0; i < b.N; i++ { //use b.N for looping
 		data, _ := utils.JsonMarshal(map[string]string{"username": "1234567890123456", "password": "1234567890123456", "pubkey": pubkey})
 		path := "/login"
-		req := &node.ReqDto{
+		req := &node.JsonBody{
 			Data:  data,
 			Time:  utils.TimeSecond(),
 			Nonce: utils.RandNonce(),
@@ -176,7 +179,7 @@ func BenchmarkGetUser(b *testing.B) {
 	for i := 0; i < b.N; i++ { //use b.N for looping
 		data, _ := utils.JsonMarshal(map[string]interface{}{"uid": 123, "name": "我爱中国/+_=/1df", "limit": 20, "offset": 5})
 		path := "/test2"
-		req := &node.ReqDto{
+		req := &node.JsonBody{
 			Data:  data,
 			Time:  utils.TimeSecond(),
 			Nonce: utils.RandNonce(),

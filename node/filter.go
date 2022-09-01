@@ -43,9 +43,9 @@ var filterMap = map[string]*FilterObject{
 	RenderHandleFilterName:       {Name: RenderHandleFilterName, Order: math.MinInt, Filter: &RenderHandleFilter{}},
 }
 
-func doFilterChain(ob *HttpNode, args ...interface{}) error {
+func doFilterChain(ob *HttpNode, handle func(ctx *Context) error, args ...interface{}) error {
 	chain := &filterChain{pos: 0}
-	return chain.DoFilter(chain, &NodeObject{Node: ob, Handle: ob.Context.RouterConfig.postHandle}, args...)
+	return chain.DoFilter(chain, &NodeObject{Node: ob, Handle: handle}, args...)
 }
 
 func createFilterChain() error {
@@ -94,7 +94,7 @@ func (self *filterChain) DoFilter(chain Filter, object *NodeObject, args ...inte
 			return ex.Throw{Code: ex.SYSTEM, Msg: fmt.Sprintf("filter [%s] is nil", f.Name)}
 		}
 		self.pos++
-		if !utils.MatchFilterURL(object.Node.Context.Method, f.MatchPattern) {
+		if !utils.MatchFilterURL(object.Node.Context.Path, f.MatchPattern) {
 			continue
 		}
 		return f.Filter.DoFilter(chain, object, args...)
@@ -137,13 +137,7 @@ func (self *GatewayRateLimiterFilter) DoFilter(chain Filter, object *NodeObject,
 }
 
 func (self *ParameterFilter) DoFilter(chain Filter, object *NodeObject, args ...interface{}) error {
-	if err := object.Node.getHeader(); err != nil {
-		return err
-	}
-	if err := object.Node.getParams(); err != nil {
-		return err
-	}
-	if err := object.Node.paddDevice(); err != nil {
+	if err := object.Node.readParams(); err != nil {
 		return err
 	}
 	return chain.DoFilter(chain, object, args...)
@@ -160,14 +154,13 @@ func (self *SessionFilter) DoFilter(chain Filter, object *NodeObject, args ...in
 	if err := subject.Verify(object.Node.Context.Token, object.Node.GetJwtConfig().TokenKey); err != nil {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "AccessToken is invalid or expired", Err: err}
 	}
-	object.Node.Context.Roles = subject.GetTokenRole()
 	object.Node.Context.Subject = subject.Payload
 	return chain.DoFilter(chain, object, args...)
 }
 
 func (self *UserRateLimiterFilter) DoFilter(chain Filter, object *NodeObject, args ...interface{}) error {
 	ctx := object.Node.Context
-	if b := userRateLimiter.Allow(ctx.Method); !b {
+	if b := userRateLimiter.Allow(ctx.Path); !b {
 		return ex.Throw{Code: 429, Msg: "the method request is full, please try again later"}
 	}
 	if ctx.Authenticated() {
@@ -182,7 +175,7 @@ func (self *RoleFilter) DoFilter(chain Filter, object *NodeObject, args ...inter
 	if object.Node.Context.PermConfig == nil {
 		return chain.DoFilter(chain, object, args...)
 	}
-	need, err := object.Node.Context.PermConfig(object.Node.Context.Method)
+	_, need, err := object.Node.Context.PermConfig(object.Node.Context.Subject.Sub, object.Node.Context.Path)
 	if err != nil {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "failed to read authorization resource", Err: err}
 	} else if !need.Ready { // 无授权资源配置,跳过
@@ -195,9 +188,13 @@ func (self *RoleFilter) DoFilter(chain Filter, object *NodeObject, args ...inter
 	} else if !object.Node.Context.Authenticated() { // 需要登录状态,会话为空,抛出异常
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "login status required"}
 	}
+	roles, _, err := object.Node.Context.PermConfig(object.Node.Context.Subject.Sub, "", true)
+	if err != nil {
+		return ex.Throw{Code: http.StatusUnauthorized, Msg: "user roles read failed"}
+	}
 	access := 0
 	needAccess := len(need.NeedRole)
-	for _, cr := range object.Node.Context.Roles {
+	for _, cr := range roles {
 		for _, nr := range need.NeedRole {
 			if cr == nr {
 				access++

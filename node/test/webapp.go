@@ -11,7 +11,6 @@ import (
 	"github.com/godaddy-x/freego/node/common"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/jwt"
-	"github.com/godaddy-x/freego/zlog"
 	"google.golang.org/grpc"
 )
 
@@ -81,13 +80,13 @@ func GetCacheAware(ds ...string) (cache.Cache, error) {
 type NewPostFilter struct{}
 
 func (self *NewPostFilter) DoFilter(chain node.Filter, object *node.NodeObject, args ...interface{}) error {
-	fmt.Println(" --- NewFilter.DoFilter before ---")
+	//fmt.Println(" --- NewFilter.DoFilter before ---")
 	ctx := object.Node.Context
-	ctx.AddStorage("httpLog", node.HttpLog{Method: ctx.Method, LogNo: utils.GetSnowFlakeStrID(), CreateAt: utils.Time()})
+	ctx.AddStorage("httpLog", node.HttpLog{Method: ctx.Path, LogNo: utils.GetSnowFlakeStrID(), CreateAt: utils.Time()})
 	if err := chain.DoFilter(chain, object, args...); err != nil {
 		return err
 	}
-	fmt.Println(" --- NewFilter.DoFilter after ---")
+	//fmt.Println(" --- NewFilter.DoFilter after ---")
 	v := ctx.GetStorage("httpLog")
 	if v == nil {
 		return utils.Error("httpLog is nil")
@@ -95,16 +94,12 @@ func (self *NewPostFilter) DoFilter(chain node.Filter, object *node.NodeObject, 
 	httpLog, _ := v.(node.HttpLog)
 	httpLog.UpdateAt = utils.Time()
 	httpLog.CostMill = httpLog.UpdateAt - httpLog.CreateAt
-	zlog.Info("http log", 0, zlog.Any("data", httpLog))
+	//zlog.Info("http log", 0, zlog.Any("data", httpLog))
 	return nil
 }
 
 func StartHttpNode() {
 	var my = &MyWebNode{}
-	my.Context = &node.Context{
-		Host: "0.0.0.0",
-		Port: 8090,
-	}
 	my.CacheAware = GetCacheAware
 	my.AddJwtConfig(jwt.JwtConfig{
 		TokenTyp: jwt.JWT,
@@ -113,9 +108,9 @@ func StartHttpNode() {
 		TokenExp: jwt.TWO_WEEK,
 	})
 	my.AddFilter(&node.FilterObject{Name: "NewPostFilter", Order: 100, Filter: &NewPostFilter{}})
-	my.Router("/test1", my.test, nil)
-	my.Router("/test2", my.getUser, &node.RouterConfig{})
-	my.Router("/pubkey", my.pubkey, &node.RouterConfig{Original: true, Guest: true})
-	my.Router("/login", my.login, &node.RouterConfig{Login: true})
-	my.StartServer()
+	my.Router("POST", "/test1", my.test, nil)
+	my.Router("POST", "/test2", my.getUser, &node.RouterConfig{})
+	my.Router("GET", "/pubkey", my.pubkey, &node.RouterConfig{Original: true, Guest: true})
+	my.Router("POST", "/login", my.login, &node.RouterConfig{Login: true})
+	my.StartServer(":8090")
 }

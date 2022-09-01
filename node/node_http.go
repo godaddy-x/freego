@@ -1,16 +1,15 @@
 package node
 
 import (
-	"fmt"
+	"github.com/buaazp/fasthttprouter"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/gorsa"
 	"github.com/godaddy-x/freego/utils/jwt"
 	"github.com/godaddy-x/freego/zlog"
-	"io/ioutil"
+	"github.com/valyala/fasthttp"
 	"net/http"
 	"strings"
-	"time"
 )
 
 var routerConfigs = make(map[string]*RouterConfig)
@@ -19,115 +18,38 @@ type HttpNode struct {
 	HookNode
 }
 
-func (self *HttpNode) getHeader() error {
-	r := self.Context.Input
-	headers := map[string]string{}
-	if self.Context.RouterConfig.Original {
-		if len(r.Header) > MAX_HEADER_SIZE {
-			return ex.Throw{Code: http.StatusLengthRequired, Msg: utils.AddStr("too many header parameters: ", len(r.Header))}
-		}
-		for k, v := range r.Header {
-			if len(k) > MAX_FIELD_LEN {
-				return ex.Throw{Code: http.StatusLengthRequired, Msg: utils.AddStr("header name length is too long: ", len(k))}
-			}
-			v0 := v[0]
-			if len(v0) > MAX_VALUE_LEN {
-				return ex.Throw{Code: http.StatusLengthRequired, Msg: utils.AddStr("header value length is too long: ", len(v0))}
-			}
-			headers[k] = v0
-		}
-	} else {
-		headers[USER_AGENT] = r.Header.Get(USER_AGENT)
-		headers[Authorization] = r.Header.Get(Authorization)
-	}
-	self.Context.Token = headers[Authorization]
-	self.Context.Headers = headers
-	return nil
-}
-
-func (self *HttpNode) getParams() error {
-	r := self.Context.Input
-	if r.Method == POST { // only body json parameter is accepted
-		r.ParseForm()
-		body, err := ioutil.ReadAll(r.Body)
-		if err != nil {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "failed to read body parameters", Err: err}
-		}
-		r.Body.Close()
-		if self.Context.RouterConfig.Original { //
-			data := map[string]interface{}{}
-			if len(body) == 0 {
-				self.Context.Params = &ReqDto{Data: data}
-				return nil
-			}
-			if len(body) > (MAX_VALUE_LEN * 5) {
-				return ex.Throw{Code: http.StatusLengthRequired, Msg: "body parameters length is too long"}
-			}
-			if err := utils.JsonUnmarshal(body, &data); err != nil {
-				return ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters JSON parsing failed", Err: err}
-			}
-			self.Context.Params = &ReqDto{Data: data}
-			return nil
-		}
-		if len(body) == 0 {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters is nil"}
-		}
-		if len(body) > (MAX_VALUE_LEN * 5) {
-			return ex.Throw{Code: http.StatusLengthRequired, Msg: "body parameters length is too long"}
-		}
-		req := &ReqDto{}
-		if err := utils.JsonUnmarshal(body, req); err != nil {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters JSON parsing failed", Err: err}
-		}
-		if err := self.validator(req); err != nil { // TODO important
-			return err
-		}
-		return nil
-	} else if r.Method == GET { // only url key/value parameter is accepted
-		if !self.Context.RouterConfig.Original {
-			return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "GET type is not supported"}
-		}
-		r.ParseForm()
-		if len(r.Form) > MAX_FIELD_LEN {
-			return ex.Throw{Code: http.StatusLengthRequired, Msg: utils.AddStr("get url key name length is too long: ", len(r.Form))}
-		}
-		data := map[string]interface{}{}
-		for k, v := range r.Form {
-			if len(v) == 0 {
-				continue
-			}
-			v0 := v[0]
-			if len(v0) > MAX_VALUE_LEN {
-				return ex.Throw{Code: http.StatusLengthRequired, Msg: utils.AddStr("get url value length is too long: ", len(v0))}
-			}
-			data[k] = v[0]
-		}
-		self.Context.Params = &ReqDto{Data: data}
-	} else if r.Method == PUT {
-		return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "PUT type is not supported"}
-	} else if r.Method == PATCH {
-		return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "PATCH type is not supported"}
-	} else if r.Method == DELETE {
-		return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "DELETE type is not supported"}
-	} else {
-		return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "unknown request type"}
-	}
-	return nil
-}
-
-func (self *HttpNode) paddDevice() error {
-	d := self.Context.GetHeader("User-Agent")
-	if utils.HasStr(d, "Android") || utils.HasStr(d, "Adr") {
+func (self *HttpNode) readParams() error {
+	agent := utils.Bytes2Str(self.Context.RequestCtx.Request.Header.Peek("User-Agent"))
+	if utils.HasStr(agent, "Android") || utils.HasStr(agent, "Adr") {
 		self.Context.Device = ANDROID
-	} else if utils.HasStr(d, "iPad") || utils.HasStr(d, "iPhone") || utils.HasStr(d, "Mac") {
+	} else if utils.HasStr(agent, "iPad") || utils.HasStr(agent, "iPhone") || utils.HasStr(agent, "Mac") {
 		self.Context.Device = IOS
 	} else {
 		self.Context.Device = WEB
 	}
+	method := utils.Bytes2Str(self.Context.RequestCtx.Method())
+	if method != POST {
+		return nil
+	}
+	self.Context.Token = utils.Bytes2Str(self.Context.RequestCtx.Request.Header.Peek(Authorization))
+	body := self.Context.RequestCtx.PostBody()
+	if len(body) == 0 {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters is nil"}
+	}
+	if len(body) > (MAX_VALUE_LEN * 5) {
+		return ex.Throw{Code: http.StatusLengthRequired, Msg: "body parameters length is too long"}
+	}
+	req := &JsonBody{}
+	if err := utils.JsonUnmarshal(body, req); err != nil {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters JSON parsing failed", Err: err}
+	}
+	if err := self.validJsonBody(req); err != nil { // TODO important
+		return err
+	}
 	return nil
 }
 
-func (self *HttpNode) validator(req *ReqDto) error {
+func (self *HttpNode) validJsonBody(req *JsonBody) error {
 	d, b := req.Data.(string)
 	if !b || len(d) == 0 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request data is nil"}
@@ -141,7 +63,7 @@ func (self *HttpNode) validator(req *ReqDto) error {
 	if req.Time <= 0 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request time must be > 0"}
 	}
-	if utils.MathAbs(utils.TimeSecond()-req.Time) > jwt.FIVE_MINUTES { // 判断绝对时间差超过5分钟
+	if utils.MathAbs(utils.TimeSecond()-req.Time) > 3000 { // 判断绝对时间差超过5分钟
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request time invalid"}
 	}
 	if self.Context.RouterConfig.AesRequest && req.Plan != 1 {
@@ -202,50 +124,35 @@ func (self *HttpNode) validator(req *ReqDto) error {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters plan invalid"}
 	}
 	req.Data = data
-	self.Context.Params = req
+	self.Context.JsonBody = req
 	return nil
 }
 
-func (self *HttpNode) doRequest(pattern string, input *http.Request, output http.ResponseWriter) error {
+func (self *HttpNode) doRequest(handle func(ctx *Context) error, ctx *fasthttp.RequestCtx) error {
 	ob := &HttpNode{}
 	ob.SessionAware = self.SessionAware
 	ob.CacheAware = self.CacheAware
 	ob.Context = &Context{
-		CreateAt:     utils.Time(),
-		Host:         utils.ClientIP(input),
-		Port:         self.Context.Port,
-		Style:        HTTP2,
-		Method:       pattern,
-		Version:      self.Context.Version,
+		CreateAt: utils.Time(),
+		// Host:         utils.ClientIP(input),
+		RequestCtx:   ctx,
+		Path:         utils.Bytes2Str(ctx.Path()),
 		Response:     &Response{Encoding: UTF8, ContentType: APPLICATION_JSON, ContentEntity: nil, ContentEntityByte: nil},
-		Input:        input,
-		Output:       output,
-		RouterConfig: routerConfigs[pattern],
+		RouterConfig: routerConfigs[utils.Bytes2Str(ctx.Path())],
 		ServerTLS:    self.Context.ServerTLS,
 		PermConfig:   self.Context.PermConfig,
 		Storage:      make(map[string]interface{}, 0),
 	}
-	return doFilterChain(ob)
+	return doFilterChain(ob, handle)
 }
 
-func (self *HttpNode) proxy(pattern string, input *http.Request, output http.ResponseWriter) {
-	if err := self.doRequest(pattern, input, output); err != nil {
+func (self *HttpNode) proxy(handle func(ctx *Context) error, ctx *fasthttp.RequestCtx) {
+	if err := self.doRequest(handle, ctx); err != nil {
 		zlog.Error("doRequest failed", 0, zlog.AddError(err))
 	}
 }
 
-func (self *HttpNode) defaultHandler() http.Handler {
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		self.handler.ServeHTTP(w, r)
-	})
-	if self.DisconnectTimeout <= 0 {
-		self.DisconnectTimeout = 180
-	}
-	errorMsg := `{"c":408,"m":"server actively disconnects the client","d":null,"t":%d,"n":"%s","p":0,"s":""}`
-	return http.TimeoutHandler(handler, time.Duration(self.DisconnectTimeout)*time.Second, fmt.Sprintf(errorMsg, utils.Time(), utils.GetSnowFlakeStrID()))
-}
-
-func (self *HttpNode) StartServer() {
+func (self *HttpNode) StartServer(address string) {
 	go func() {
 		if self.CacheAware != nil {
 			zlog.Printf("cache service has been started successful")
@@ -257,25 +164,27 @@ func (self *HttpNode) StartServer() {
 			zlog.Error("http service create filter chain failed", 0, zlog.AddError(err))
 			return
 		}
-		url := utils.AddStr(self.Context.Host, ":", self.Context.Port)
-		zlog.Printf("http【%s】service has been started successful", url)
-		if err := http.ListenAndServe(url, self.defaultHandler()); err != nil {
+		zlog.Printf("http【%s】service has been started successful", address)
+		if err := fasthttp.ListenAndServe(address, self.router.Handler); err != nil {
 			zlog.Error("http service init failed", 0, zlog.AddError(err))
 		}
 	}()
 	select {}
 }
 
-func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, routerConfig *RouterConfig) {
-	if !strings.HasPrefix(pattern, "/") {
-		pattern = "/" + pattern
+func (self *HttpNode) Router(method, path string, handle func(ctx *Context) error, routerConfig *RouterConfig) {
+	if !utils.CheckStr(method, GET, POST, DELETE, PUT, PATCH, OPTIONS, HEAD) {
+		panic("http method invalid")
+	}
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
 	}
 	if self.CacheAware == nil {
 		zlog.Error("cache service hasn't been initialized", 0)
 		return
 	}
-	if len(self.Context.Version) > 0 {
-		pattern = "/" + self.Context.Version + pattern
+	if self.Context == nil {
+		self.Context = &Context{}
 	}
 	if self.Context.ServerTLS == nil {
 		tls := &gorsa.RsaObj{}
@@ -288,16 +197,15 @@ func (self *HttpNode) Router(pattern string, handle func(ctx *Context) error, ro
 	if routerConfig == nil {
 		routerConfig = &RouterConfig{}
 	}
-	if _, b := routerConfigs[pattern]; !b {
-		routerConfig.postHandle = handle
-		routerConfigs[pattern] = routerConfig
+	if _, b := routerConfigs[path]; !b {
+		routerConfigs[path] = routerConfig
 	}
-	if self.handler == nil {
-		self.handler = http.NewServeMux()
+	if self.router == nil {
+		self.router = fasthttprouter.New()
 	}
-	self.handler.Handle(pattern, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		self.proxy(pattern, r, w)
-	}))
+	self.router.Handle(method, path, func(ctx *fasthttp.RequestCtx) {
+		self.proxy(handle, ctx)
+	})
 }
 
 func (self *HttpNode) Json(ctx *Context, data interface{}) error {
@@ -352,7 +260,7 @@ func defaultRenderError(ctx *Context, err error) error {
 		return nil
 	}
 	out := ex.Catch(err)
-	resp := &RespDto{
+	resp := &JsonResp{
 		Code:    out.Code,
 		Message: out.Msg,
 		Time:    utils.Time(),
@@ -360,10 +268,10 @@ func defaultRenderError(ctx *Context, err error) error {
 	if !ctx.Authenticated() {
 		resp.Nonce = utils.RandNonce()
 	} else {
-		if ctx.Params == nil || len(ctx.Params.Nonce) == 0 {
+		if ctx.JsonBody == nil || len(ctx.JsonBody.Nonce) == 0 {
 			resp.Nonce = utils.RandNonce()
 		} else {
-			resp.Nonce = ctx.Params.Nonce
+			resp.Nonce = ctx.JsonBody.Nonce
 		}
 	}
 	if ctx.RouterConfig.Original {
@@ -386,18 +294,18 @@ func defaultRenderError(ctx *Context, err error) error {
 }
 
 func defaultRenderTo(ctx *Context) error {
-	ctx.Output.Header().Set("Content-Type", ctx.Response.ContentType)
+	ctx.RequestCtx.SetContentType(ctx.Response.ContentType)
 	if ctx.Response.StatusCode == 0 {
-		ctx.Output.WriteHeader(http.StatusOK)
+		ctx.RequestCtx.SetStatusCode(http.StatusOK)
 	} else {
-		ctx.Output.WriteHeader(ctx.Response.StatusCode)
+		ctx.RequestCtx.SetStatusCode(ctx.Response.StatusCode)
 	}
-	ctx.Output.Write(ctx.Response.ContentEntityByte)
+	ctx.RequestCtx.Write(ctx.Response.ContentEntityByte)
 	return nil
 }
 
 func defaultRenderPre(ctx *Context) error {
-	routerConfig, _ := routerConfigs[ctx.Method]
+	routerConfig, _ := routerConfigs[ctx.Path]
 	switch ctx.Response.ContentType {
 	case TEXT_PLAIN:
 		content := ctx.Response.ContentEntity
@@ -422,14 +330,14 @@ func defaultRenderPre(ctx *Context) error {
 		if err != nil {
 			return ex.Throw{Code: http.StatusInternalServerError, Msg: "response conversion JSON failed", Err: err}
 		}
-		resp := &RespDto{
+		resp := &JsonResp{
 			Code: http.StatusOK,
 			Time: utils.Time(),
 		}
-		if ctx.Params == nil || len(ctx.Params.Nonce) == 0 {
+		if ctx.JsonBody == nil || len(ctx.JsonBody.Nonce) == 0 {
 			resp.Nonce = utils.RandNonce()
 		} else {
-			resp.Nonce = ctx.Params.Nonce
+			resp.Nonce = ctx.JsonBody.Nonce
 		}
 		var key string
 		if routerConfig.Login {
