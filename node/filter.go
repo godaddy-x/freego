@@ -65,7 +65,7 @@ func createFilterChain() error {
 }
 
 type Filter interface {
-	DoFilter(chain Filter, ctx *Context, handle func(*Context) error, args ...interface{}) error
+	DoFilter(chain Filter, ctx *Context, handle PostHandle, args ...interface{}) error
 }
 
 type filterChain struct {
@@ -76,7 +76,7 @@ func (self *filterChain) getFilters() []*FilterObject {
 	return filters
 }
 
-func (self *filterChain) DoFilter(chain Filter, ctx *Context, handle func(*Context) error, args ...interface{}) error {
+func (self *filterChain) DoFilter(chain Filter, ctx *Context, handle PostHandle, args ...interface{}) error {
 	fs := self.getFilters()
 	for self.pos < len(fs) {
 		f := fs[self.pos]
@@ -119,21 +119,21 @@ func SetUserRateLimiter(option rate.Option) {
 	userRateLimiter = rate.NewRateLimiter(option)
 }
 
-func (self *GatewayRateLimiterFilter) DoFilter(chain Filter, ctx *Context, handle func(*Context) error, args ...interface{}) error {
+func (self *GatewayRateLimiterFilter) DoFilter(chain Filter, ctx *Context, handle PostHandle, args ...interface{}) error {
 	//if b := gatewayRateLimiter.Allow("HttpThreshold"); !b {
 	//	return ex.Throw{Code: 429, Msg: "the gateway request is full, please try again later"}
 	//}
 	return chain.DoFilter(chain, ctx, handle, args...)
 }
 
-func (self *ParameterFilter) DoFilter(chain Filter, ctx *Context, handle func(*Context) error, args ...interface{}) error {
+func (self *ParameterFilter) DoFilter(chain Filter, ctx *Context, handle PostHandle, args ...interface{}) error {
 	if err := ctx.readParams(); err != nil {
 		return err
 	}
 	return chain.DoFilter(chain, ctx, handle, args...)
 }
 
-func (self *SessionFilter) DoFilter(chain Filter, ctx *Context, handle func(*Context) error, args ...interface{}) error {
+func (self *SessionFilter) DoFilter(chain Filter, ctx *Context, handle PostHandle, args ...interface{}) error {
 	if ctx.RouterConfig.Login || ctx.RouterConfig.Guest { // 登录接口和游客模式跳过会话认证
 		return chain.DoFilter(chain, ctx, handle, args...)
 	}
@@ -148,7 +148,7 @@ func (self *SessionFilter) DoFilter(chain Filter, ctx *Context, handle func(*Con
 	return chain.DoFilter(chain, ctx, handle, args...)
 }
 
-func (self *UserRateLimiterFilter) DoFilter(chain Filter, ctx *Context, handle func(*Context) error, args ...interface{}) error {
+func (self *UserRateLimiterFilter) DoFilter(chain Filter, ctx *Context, handle PostHandle, args ...interface{}) error {
 	//if b := methodRateLimiter.Allow(ctx.Path); !b {
 	//	return ex.Throw{Code: 429, Msg: "the method request is full, please try again later"}
 	//}
@@ -160,7 +160,7 @@ func (self *UserRateLimiterFilter) DoFilter(chain Filter, ctx *Context, handle f
 	return chain.DoFilter(chain, ctx, handle, args...)
 }
 
-func (self *RoleFilter) DoFilter(chain Filter, ctx *Context, handle func(*Context) error, args ...interface{}) error {
+func (self *RoleFilter) DoFilter(chain Filter, ctx *Context, handle PostHandle, args ...interface{}) error {
 	if ctx.PermConfig == nil {
 		return chain.DoFilter(chain, ctx, handle, args...)
 	}
@@ -196,7 +196,7 @@ func (self *RoleFilter) DoFilter(chain Filter, ctx *Context, handle func(*Contex
 	return ex.Throw{Code: http.StatusUnauthorized, Msg: "access defined"}
 }
 
-func (self *ReplayFilter) DoFilter(chain Filter, ctx *Context, handle func(*Context) error, args ...interface{}) error {
+func (self *ReplayFilter) DoFilter(chain Filter, ctx *Context, handle PostHandle, args ...interface{}) error {
 	//param := ctx.Params
 	//if param == nil || len(param.Sign) == 0 {
 	//	return nil
@@ -214,14 +214,14 @@ func (self *ReplayFilter) DoFilter(chain Filter, ctx *Context, handle func(*Cont
 	return chain.DoFilter(chain, ctx, handle, args...)
 }
 
-func (self *PostHandleFilter) DoFilter(chain Filter, ctx *Context, handle func(*Context) error, args ...interface{}) error {
+func (self *PostHandleFilter) DoFilter(chain Filter, ctx *Context, handle PostHandle, args ...interface{}) error {
 	if err := handle(ctx); err != nil {
 		return err
 	}
 	return chain.DoFilter(chain, ctx, handle, args...)
 }
 
-func (self *RenderHandleFilter) DoFilter(chain Filter, ctx *Context, handle func(*Context) error, args ...interface{}) error {
+func (self *RenderHandleFilter) DoFilter(chain Filter, ctx *Context, handle PostHandle, args ...interface{}) error {
 	err := chain.DoFilter(chain, ctx, handle, args...)
 	if err == nil {
 		err = defaultRenderPre(ctx)

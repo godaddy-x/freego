@@ -29,7 +29,9 @@ type HttpNode struct {
 	HookNode
 }
 
-func (self *HttpNode) doRequest(handle func(ctx *Context) error, request *fasthttp.RequestCtx) error {
+type PostHandle func(*Context) error
+
+func (self *HttpNode) doRequest(handle PostHandle, request *fasthttp.RequestCtx) error {
 	ctx := ctxPool.Get().(*Context)
 	ctx.CacheAware = self.Context.CacheAware
 	ctx.RequestCtx = request
@@ -49,7 +51,7 @@ func (self *HttpNode) doRequest(handle func(ctx *Context) error, request *fastht
 	return ctx.filterChain.DoFilter(ctx.filterChain, ctx, handle)
 }
 
-func (self *HttpNode) proxy(handle func(ctx *Context) error, ctx *fasthttp.RequestCtx) {
+func (self *HttpNode) proxy(handle PostHandle, ctx *fasthttp.RequestCtx) {
 	if err := self.doRequest(handle, ctx); err != nil {
 		zlog.Error("doRequest failed", 0, zlog.AddError(err))
 	}
@@ -106,7 +108,7 @@ func (self *HttpNode) checkReady(path string, routerConfig *RouterConfig) {
 	}
 }
 
-func (self *HttpNode) addRouter(method, path string, handle func(ctx *Context) error, routerConfig *RouterConfig) {
+func (self *HttpNode) addRouter(method, path string, handle PostHandle, routerConfig *RouterConfig) {
 	self.checkReady(path, routerConfig)
 	self.Context.router.Handle(method, path, fasthttp.TimeoutHandler(
 		func(ctx *fasthttp.RequestCtx) {
