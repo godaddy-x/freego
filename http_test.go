@@ -136,7 +136,7 @@ func ToPostBy(path string, req *node.JsonBody) {
 	}
 }
 
-func TestRsaLogin(t *testing.T) {
+func TestRSALogin(t *testing.T) {
 	data, _ := utils.JsonMarshal(map[string]string{"username": "1234567890123456", "password": "1234567890123456", "pubkey": pubkey})
 	path := "/login"
 	req := &node.JsonBody{
@@ -160,7 +160,7 @@ func TestGetUser(t *testing.T) {
 	ToPostBy(path, req)
 }
 
-func BenchmarkLogin(b *testing.B) {
+func BenchmarkRSALogin(b *testing.B) {
 	b.StopTimer()
 	b.StartTimer()
 	for i := 0; i < b.N; i++ { //use b.N for looping

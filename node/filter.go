@@ -152,11 +152,11 @@ func (self *UserRateLimiterFilter) DoFilter(chain Filter, ctx *Context, args ...
 	//if b := methodRateLimiter.Allow(ctx.Path); !b {
 	//	return ex.Throw{Code: 429, Msg: "the method request is full, please try again later"}
 	//}
-	if ctx.Authenticated() {
-		if b := userRateLimiter.Allow(ctx.Subject.Sub); !b {
-			return ex.Throw{Code: 429, Msg: "the access frequency is too fast, please try again later"}
-		}
-	}
+	//if ctx.Authenticated() {
+	//	if b := userRateLimiter.Allow(ctx.Subject.Sub); !b {
+	//		return ex.Throw{Code: 429, Msg: "the access frequency is too fast, please try again later"}
+	//	}
+	//}
 	return chain.DoFilter(chain, ctx, args...)
 }
 
