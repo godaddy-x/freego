@@ -266,7 +266,7 @@ func RunServer(consulDs string, authenticate bool, objects ...*GRPC) {
 	if len(objects) == 0 {
 		panic("rpc objects is nil...")
 	}
-	consul, err := new(consul.ConsulManager).Client(consulDs)
+	consul, err := consul.NewConsul(consulDs)
 	if err != nil {
 		panic(err)
 	}
@@ -416,7 +416,7 @@ func CallRPC(object *GRPC) (interface{}, error) {
 	if len(object.Tags) > 0 {
 		tag = object.Tags[0]
 	}
-	consul, err := new(consul.ConsulManager).Client(object.Ds)
+	consul, err := consul.NewConsul(object.Ds)
 	if err != nil {
 		return nil, err
 	}

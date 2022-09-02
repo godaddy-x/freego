@@ -58,6 +58,10 @@ func (self *MGOManager) Get(option ...Option) (*MGOManager, error) {
 	return self, nil
 }
 
+func NewMongo(option ...Option) (*MGOManager, error) {
+	return new(MGOManager).Get(option...)
+}
+
 // 获取mongo的数据库连接
 func (self *MGOManager) GetDatabase(copySession *mgo.Session, tb string) (*mgo.Collection, error) {
 	database := copySession.DB(self.Database)

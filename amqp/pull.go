@@ -50,6 +50,10 @@ func (self *PullManager) Client(ds ...string) (*PullManager, error) {
 	return pullMgrs[dsName], nil
 }
 
+func NewPull(ds ...string) (*PullManager, error) {
+	return new(PullManager).Client(ds...)
+}
+
 func (self *PullManager) AddPullReceiver(receivers ...*PullReceiver) {
 	for _, v := range receivers {
 		go self.start(v)

@@ -67,6 +67,10 @@ func (self *ConsulManager) InitConfig(input ...ConsulConfig) (*ConsulManager, er
 	return self, nil
 }
 
+func NewConsul(ds ...string) (*ConsulManager, error) {
+	return new(ConsulManager).Client(ds...)
+}
+
 func (self *ConsulManager) initSlowLog() {
 	if self.Config.SlowQuery == 0 || len(self.Config.SlowLogPath) == 0 {
 		return

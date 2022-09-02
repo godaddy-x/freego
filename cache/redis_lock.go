@@ -156,7 +156,7 @@ func (self *RedisManager) TryLockWithTimeout(resource string, expSecond int, cal
 }
 
 func SpinLocker(lockObj, errorMsg string, trySecond, expSecond int, callObj func() error) error {
-	redis, err := new(RedisManager).Client()
+	redis, err := NewRedis()
 	if err != nil {
 		return ex.Throw{Code: ex.CACHE, Msg: ex.CACHE_ERR, Err: err}
 	}
@@ -177,7 +177,7 @@ func SpinLocker(lockObj, errorMsg string, trySecond, expSecond int, callObj func
 }
 
 func TryLocker(lockObj, errorMsg string, expSecond int, callObj func() error) error {
-	redis, err := new(RedisManager).Client()
+	redis, err := NewRedis()
 	if err != nil {
 		return ex.Throw{Code: ex.CACHE, Msg: ex.CACHE_ERR, Err: err}
 	}

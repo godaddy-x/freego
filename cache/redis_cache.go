@@ -74,6 +74,10 @@ func (self *RedisManager) Client(ds ...string) (*RedisManager, error) {
 	return manager, nil
 }
 
+func NewRedis(ds ...string) (*RedisManager, error) {
+	return new(RedisManager).Client(ds...)
+}
+
 /********************************** redis缓存接口实现 **********************************/
 
 func (self *RedisManager) Get(key string, input interface{}) (interface{}, bool, error) {

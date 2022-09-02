@@ -83,3 +83,7 @@ func (self *MysqlManager) buildByConfig(manager cache.Cache, input ...MysqlConfi
 	}
 	return nil
 }
+
+func NewMysql(option ...Option) (*MysqlManager, error) {
+	return new(MysqlManager).Get(option...)
+}

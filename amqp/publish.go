@@ -65,6 +65,10 @@ func (self *PublishManager) Client(ds ...string) (*PublishManager, error) {
 	return publishMgrs[dsName], nil
 }
 
+func NewPublish(ds ...string) (*PublishManager, error) {
+	return new(PublishManager).Client(ds...)
+}
+
 func (self *PublishManager) Connect() (*PublishManager, error) {
 	conn, err := ConnectRabbitMQ(self.conf)
 	if err != nil {
