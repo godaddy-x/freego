@@ -41,7 +41,7 @@ func (self *HttpNode) doRequest(handle PostHandle, request *fasthttp.RequestCtx)
 	ctx.PermConfig = self.Context.PermConfig
 	ctx.postHandle = handle
 	// reset
-	ctx.PostCompleted = false
+	ctx.postCompleted = false
 	ctx.filterChain.pos = 0
 	ctx.Response.Encoding = UTF8
 	ctx.Response.ContentType = APPLICATION_JSON
