@@ -10,6 +10,7 @@ import (
 	"github.com/godaddy-x/freego/utils/jwt"
 	"github.com/godaddy-x/freego/zlog"
 	"github.com/valyala/fasthttp"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -44,7 +45,6 @@ func (self *HttpNode) doRequest(handle func(ctx *Context) error, request *fastht
 	ctx.Response.ContentEntity = nil
 	ctx.Response.StatusCode = 0
 	ctx.Response.ContentEntityByte = nil
-	ctx.Response = &Response{Encoding: UTF8, ContentType: APPLICATION_JSON, ContentEntity: nil, ContentEntityByte: nil}
 	ctxPool.Put(ctx)
 	return ctx.filterChain.DoFilter(ctx.filterChain, ctx, handle)
 }
@@ -67,8 +67,12 @@ func (self *HttpNode) StartServer(address string) {
 			panic("http service create filter chain failed")
 		}
 		zlog.Printf("http【%s】service has been started successful", address)
-		if err := fasthttp.ListenAndServe(address, self.Context.router.Handler); err != nil {
-			panic("http service init failed")
+		ln, err := net.Listen("tcp4", address)
+		if err != nil {
+			panic(err)
+		}
+		if err := fasthttp.Serve(NewGracefulListener(ln, time.Second*10), self.Context.router.Handler); err != nil {
+			panic(err)
 		}
 	}()
 	select {}
