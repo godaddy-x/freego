@@ -37,6 +37,18 @@ func main()  {
 #### You can implement any pre and post operations, and configure `MatchPattern` parameter to apply the specified method
 
 ```
+// default filters
+var filterMap = map[string]*FilterObject{
+	GatewayRateLimiterFilterName: {Name: GatewayRateLimiterFilterName, Order: -100, Filter: &GatewayRateLimiterFilter{}},
+	ParameterFilterName:          {Name: ParameterFilterName, Order: -90, Filter: &ParameterFilter{}},
+	SessionFilterName:            {Name: SessionFilterName, Order: -80, Filter: &SessionFilter{}},
+	UserRateLimiterFilterName:    {Name: UserRateLimiterFilterName, Order: -70, Filter: &UserRateLimiterFilter{}},
+	RoleFilterName:               {Name: RoleFilterName, Order: -60, Filter: &RoleFilter{}},
+	ReplayFilterName:             {Name: ReplayFilterName, Order: -50, Filter: &ReplayFilter{}},
+	PostHandleFilterName:         {Name: PostHandleFilterName, Order: math.MaxInt, Filter: &PostHandleFilter{}},
+	RenderHandleFilterName:       {Name: RenderHandleFilterName, Order: math.MinInt, Filter: &RenderHandleFilter{}},
+}
+
 type NewPostFilter struct{}
 
 func (self *NewPostFilter) DoFilter(chain node.Filter, ctx *node.Context, handle node.PostHandle, args ...interface{}) error {
@@ -69,4 +81,24 @@ func NewHTTP() *MyWebNode {
 	return my
 }
 ```
+
+#### Benchmark test webapi /pubkey
+```
+goos: darwin
+goarch: amd64
+cpu: Intel(R) Core(TM) i7-6820HQ CPU @ 2.70GHz
+BenchmarkPubkey
+BenchmarkPubkey-8          14770             80893 ns/op             515 B/op          1 allocs/op
+BenchmarkPubkey-8          14908             79999 ns/op             515 B/op          1 allocs/op
+BenchmarkPubkey-8          15063             79425 ns/op             514 B/op          1 allocs/op
+BenchmarkPubkey-8          15031             82307 ns/op             514 B/op          1 allocs/op
+BenchmarkPubkey-8          14925             80306 ns/op             515 B/op          1 allocs/op
+BenchmarkPubkey-8          15015             79758 ns/op             515 B/op          1 allocs/op
+BenchmarkPubkey-8          15133             79156 ns/op             515 B/op          1 allocs/op
+BenchmarkPubkey-8          15070             83157 ns/op             515 B/op          1 allocs/op
+BenchmarkPubkey-8          14887             79710 ns/op             517 B/op          1 allocs/op
+BenchmarkPubkey-8          15061             79666 ns/op             516 B/op          1 allocs/op
+```
+
+
 
