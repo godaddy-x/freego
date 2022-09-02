@@ -51,9 +51,9 @@ var filterMap = map[string]*FilterObject{
 
 type NewPostFilter struct{}
 
-func (self *NewPostFilter) DoFilter(chain node.Filter, ctx *node.Context, handle node.PostHandle, args ...interface{}) error {
+func (self *NewPostFilter) DoFilter(chain node.Filter, ctx *node.Context, args ...interface{}) error {
 	ctx.AddStorage("httpLog", node.HttpLog{Method: ctx.Path, LogNo: utils.GetSnowFlakeStrID(), CreateAt: utils.Time()})
-	if err := chain.DoFilter(chain, ctx, handle, args...); err != nil {
+	if err := chain.DoFilter(chain, ctx, args...); err != nil {
 		return err
 	}
 	v := ctx.GetStorage("httpLog")

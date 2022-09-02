@@ -122,6 +122,8 @@ type Context struct {
 	ServerTLS     *gorsa.RsaObj
 	PermConfig    func(uid, url string, isRole ...bool) ([]int64, Permission, error)
 	Storage       map[string]interface{}
+	postCompleted bool
+	postHandle    PostHandle
 }
 
 type Response struct {
@@ -318,4 +320,12 @@ func (self *Context) validJsonBody(req *JsonBody) error {
 
 func (self *Context) GetJwtConfig() jwt.JwtConfig {
 	return jwtConfig
+}
+
+func (self *Context) Handle() error {
+	if self.postCompleted {
+		return nil
+	}
+	self.postCompleted = true
+	return self.postHandle(self)
 }

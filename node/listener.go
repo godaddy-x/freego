@@ -21,7 +21,11 @@ type GracefulListener struct {
 }
 
 // NewGracefulListener wraps the given listener into 'graceful shutdown' listener.
-func NewGracefulListener(ln net.Listener, maxWaitTime time.Duration) net.Listener {
+func NewGracefulListener(address string, maxWaitTime time.Duration) net.Listener {
+	ln, err := net.Listen("tcp4", address)
+	if err != nil {
+		panic(err)
+	}
 	return &GracefulListener{
 		ln:          ln,
 		maxWaitTime: maxWaitTime,
