@@ -254,7 +254,7 @@ func (self *Context) validJsonBody(req *JsonBody) error {
 	if req.Time <= 0 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request time must be > 0"}
 	}
-	if utils.MathAbs(utils.TimeSecond()-req.Time) > 3000 { // 判断绝对时间差超过5分钟
+	if utils.MathAbs(utils.TimeSecond()-req.Time) > jwt.FIVE_MINUTES { // 判断绝对时间差超过5分钟
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request time invalid"}
 	}
 	if self.RouterConfig.AesRequest && req.Plan != 1 {
