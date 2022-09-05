@@ -8,11 +8,17 @@ import (
 	consulapi "github.com/hashicorp/consul/api"
 	"go.uber.org/zap"
 	"net/http"
+	"time"
 )
 
 var (
 	consulSessions = make(map[string]*ConsulManager, 0)
 	consulSlowlog  *zap.Logger
+	queryOptions   = &consulapi.QueryOptions{
+		UseCache:     true,
+		MaxAge:       7200 * time.Second,
+		StaleIfError: 14400 * time.Second,
+	}
 )
 
 type ConsulManager struct {
@@ -190,7 +196,7 @@ func (self *ConsulManager) GetAllService(service string) ([]*consulapi.AgentServ
 }
 
 func (self *ConsulManager) GetHealthService(service, tag string) ([]*consulapi.ServiceEntry, error) {
-	serviceEntry, _, err := self.Consulx.Health().Service(service, tag, false, &consulapi.QueryOptions{})
+	serviceEntry, _, err := self.Consulx.Health().Service(service, tag, false, queryOptions)
 	if err != nil {
 		return []*consulapi.ServiceEntry{}, err
 	}
