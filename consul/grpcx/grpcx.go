@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/keepalive"
 	"io/ioutil"
 	"math/rand"
 	"net"
@@ -279,6 +280,15 @@ func RunServer(consulDs string, authenticate bool, objects ...*GRPC) {
 		panic(err)
 	}
 	opts := []grpc.ServerOption{
+		grpc.KeepaliveParams(keepalive.ServerParameters{
+			Time:              10 * time.Second,
+			Timeout:           15 * time.Second,
+			MaxConnectionIdle: 3 * time.Minute,
+		}),
+		grpc.MaxSendMsgSize(1024 * 1024 * 8), // 最大消息8M
+		grpc.MaxRecvMsgSize(1024 * 1024 * 8),
+		grpc.ReadBufferSize(1024 * 8), // 就是这两个参数
+		grpc.WriteBufferSize(1024 * 8),
 		grpc.UnaryInterceptor(self.ServerInterceptor),
 	}
 	if serverDialTLS != nil {
