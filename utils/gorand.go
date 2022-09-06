@@ -8,7 +8,7 @@ import (
 
 const numbers = "0123456789"
 const letters = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-const letters_sp = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!@#$%^&*"
+const lettersSp = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!@#$%^&*"
 
 var src = rand.NewSource(time.Now().UnixNano())
 
@@ -39,7 +39,7 @@ func gorand(n int, letters string) string {
 
 func RandStr(n int, b ...bool) string {
 	if len(b) > 0 {
-		return gorand(n, letters_sp)
+		return gorand(n, lettersSp)
 	}
 	return gorand(n, letters)
 }

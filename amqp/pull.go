@@ -141,7 +141,9 @@ func (self *PullManager) listen(receiver *PullReceiver) {
 		receiver.OnError(fmt.Errorf("rabbitmq pull bind queue [%s] to exchange [%s] failed: %s", queue, exchange, err.Error()))
 		return
 	}
-	channel.Qos(prefetchCount, prefetchSize, false)
+	if err := channel.Qos(prefetchCount, prefetchSize, false); err != nil {
+		receiver.OnError(fmt.Errorf("rabbitmq pull queue %s qos failed failed: %s", queue, err.Error()))
+	}
 	// 开启消费数据
 	msgs, err := channel.Consume(queue, "", false, false, false, false, nil)
 	if err != nil {
@@ -162,7 +164,9 @@ func (self *PullManager) listen(receiver *PullReceiver) {
 				for !receiver.OnReceive(d.Body) {
 					time.Sleep(2 * time.Second)
 				}
-				d.Ack(false)
+				if err := d.Ack(false); err != nil {
+					zlog.Error("rabbitmq pull received ack failed", 0, zlog.AddError(err))
+				}
 			case <-closeChan:
 				self.listen(receiver)
 				zlog.Warn("rabbitmq pull received channel exception, successful reconnected", 0, zlog.String("exchange", exchange), zlog.String("queue", queue))
@@ -190,9 +194,7 @@ func (self *PullReceiver) OnError(err error) {
 	zlog.Error("rabbitmq pull receiver data failed", 0, zlog.AddError(err))
 }
 
-// 监听对象
 type PullReceiver struct {
-	group        *sync.WaitGroup
 	channel      *amqp.Channel
 	Config       *Config
 	ContentInter func() interface{}

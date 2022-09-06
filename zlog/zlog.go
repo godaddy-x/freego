@@ -112,7 +112,7 @@ func buildLog(config *ZapConfig) *zap.Logger {
 	atomicLevel := zap.NewAtomicLevel()
 	atomicLevel.SetLevel(GetLevel(config.Level))
 	// 设置控制台输出模式
-	writer := []zapcore.WriteSyncer{}
+	var writer []zapcore.WriteSyncer
 	if config.Console {
 		writer = append(writer, zapcore.AddSync(os.Stdout))
 	}

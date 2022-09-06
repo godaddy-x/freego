@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"os"
 )
 
@@ -39,7 +40,9 @@ func (self *RsaObj) CreateRsaFile(keyfile, pemfile string) error {
 	if err := pem.Encode(file, &block); err != nil {
 		return err
 	}
-	file.Close()
+	if err := file.Close(); err != nil {
+		fmt.Println(err)
+	}
 
 	// 生成公钥文件
 	block1 := pem.Block{
@@ -50,8 +53,12 @@ func (self *RsaObj) CreateRsaFile(keyfile, pemfile string) error {
 	if err != nil {
 		return err
 	}
-	pem.Encode(file, &block1)
-	file.Close()
+	if err := pem.Encode(file, &block1); err != nil {
+		fmt.Println(err)
+	}
+	if err := file.Close(); err != nil {
+		fmt.Println(err)
+	}
 	return nil
 }
 
@@ -99,8 +106,12 @@ func (self *RsaObj) LoadRsaFile(filePath string) error {
 	}
 	stat, _ := file.Stat()
 	content := make([]byte, stat.Size())
-	file.Read(content)
-	file.Close()
+	if _, err := file.Read(content); err != nil {
+		fmt.Println(err)
+	}
+	if err := file.Close(); err != nil {
+		fmt.Println(err)
+	}
 	block, _ := pem.Decode(content)
 	if block == nil {
 		return errors.New("RSA block invalid")
@@ -176,8 +187,12 @@ func (self *RsaObj) LoadRsaPubkey(filePath string) error {
 	}
 	stat, _ := file.Stat()
 	content := make([]byte, stat.Size())
-	file.Read(content)
-	file.Close()
+	if _, err := file.Read(content); err != nil {
+		fmt.Println(err)
+	}
+	if err := file.Close(); err != nil {
+		fmt.Println(err)
+	}
 	block, _ := pem.Decode(content)
 	pubkey, err := x509.ParsePKCS1PublicKey(block.Bytes)
 	if err != nil {

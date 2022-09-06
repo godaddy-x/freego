@@ -137,7 +137,7 @@ func (self *GRPCManager) CreateSelectionCall(fun func([]*consulapi.ServiceEntry,
 	selectionCall = fun
 }
 
-// If server TLS is used, the certificate server.key is used by default
+// CreateAuthorizeTLS If server TLS is used, the certificate server.key is used by default
 // Otherwise, the method needs to be explicitly called to set the certificate
 func (self *GRPCManager) CreateAuthorizeTLS(keyPath string) {
 	if authorizeTLS != nil {
@@ -267,11 +267,11 @@ func RunServer(consulDs string, authenticate bool, objects ...*GRPC) {
 	if len(objects) == 0 {
 		panic("rpc objects is nil...")
 	}
-	consul, err := consul.NewConsul(consulDs)
+	c, err := consul.NewConsul(consulDs)
 	if err != nil {
 		panic(err)
 	}
-	self := &GRPCManager{consul: consul, consulDs: consulDs, authenticate: authenticate}
+	self := &GRPCManager{consul: c, consulDs: consulDs, authenticate: authenticate}
 	services, err := self.consul.GetAllService("")
 	if err != nil {
 		panic(err)
@@ -287,7 +287,7 @@ func RunServer(consulDs string, authenticate bool, objects ...*GRPC) {
 		}),
 		grpc.MaxSendMsgSize(1024 * 1024 * 8), // 最大消息8M
 		grpc.MaxRecvMsgSize(1024 * 1024 * 8),
-		grpc.ReadBufferSize(1024 * 8), // 就是这两个参数
+		grpc.ReadBufferSize(1024 * 8),
 		grpc.WriteBufferSize(1024 * 8),
 		grpc.UnaryInterceptor(self.ServerInterceptor),
 	}
@@ -333,7 +333,9 @@ func RunServer(consulDs string, authenticate bool, objects ...*GRPC) {
 	}
 	go func() {
 		http.HandleFunc(self.consul.Config.CheckPath, self.consul.HealthCheck)
-		http.ListenAndServe(fmt.Sprintf(":%d", self.consul.Config.CheckPort), nil)
+		if err := http.ListenAndServe(fmt.Sprintf(":%d", self.consul.Config.CheckPort), nil); err != nil {
+			panic(err)
+		}
 	}()
 	l, err := net.Listen(self.consul.Config.Protocol, utils.AddStr(":", utils.AnyToStr(self.consul.Config.RpcPort)))
 	if err != nil {
@@ -345,7 +347,7 @@ func RunServer(consulDs string, authenticate bool, objects ...*GRPC) {
 	}
 }
 
-// Important: ensure that the service starts only once
+// RunClient Important: ensure that the service starts only once
 // JWT Token expires in 1 hour
 // The remaining 1200s will be automatically renewed and detected every 15s
 func RunClient(appid string) {
@@ -401,7 +403,7 @@ func RunClient(appid string) {
 	go renewClientToken(appid, loginRes.Expired)
 }
 
-func renewClientToken(appid string, expired int64) error {
+func renewClientToken(appid string, expired int64) {
 	for {
 		//zlog.Warn("detecting rpc token expiration", 0, zlog.Int64("countDown", expired-utils.TimeSecond()-timeDifference))
 		if expired-utils.TimeSecond() > timeDifference { // TODO token过期时间大于2400s则忽略,每15s检测一次
@@ -410,9 +412,8 @@ func renewClientToken(appid string, expired int64) error {
 		}
 		RunClient(appid)
 		zlog.Info("rpc token renewal succeeded", 0)
-		return nil
+		return
 	}
-	return nil
 }
 
 func CallRPC(object *GRPC) (interface{}, error) {
@@ -426,11 +427,11 @@ func CallRPC(object *GRPC) (interface{}, error) {
 	if len(object.Tags) > 0 {
 		tag = object.Tags[0]
 	}
-	consul, err := consul.NewConsul(object.Ds)
+	c, err := consul.NewConsul(object.Ds)
 	if err != nil {
 		return nil, err
 	}
-	services, err := consul.GetHealthService(object.Service, tag)
+	services, err := c.GetHealthService(object.Service, tag)
 	if err != nil {
 		return nil, utils.Error("query service [", object.Service, "] failed: ", err)
 	}
@@ -444,7 +445,7 @@ func CallRPC(object *GRPC) (interface{}, error) {
 	} else {
 		service = selectionCall(services, object).Service
 	}
-	client := &GRPCManager{consul: consul, consulDs: object.Ds, token: accessToken}
+	client := &GRPCManager{consul: c, consulDs: object.Ds, token: accessToken}
 	opts := []grpc.DialOption{
 		grpc.WithUnaryInterceptor(client.ClientInterceptor),
 	}
@@ -459,6 +460,9 @@ func CallRPC(object *GRPC) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer conn.Close()
-	return object.CallRPC(conn, ctx)
+	res, err := object.CallRPC(conn, ctx)
+	if err := conn.Close(); err != nil {
+		zlog.Error("close rpc connection failed", 0, zlog.AddError(err))
+	}
+	return res, err
 }

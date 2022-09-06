@@ -830,7 +830,6 @@ func buildMongoLimit(cnd *sqlc.Cnd) []int64 {
 		pageSize := pg.PageSize
 		return []int64{(pageNo - 1) * pageSize, pageSize}
 	}
-	return nil
 }
 
 func (self *MGOManager) writeLog(title string, start int64, pipe interface{}) {

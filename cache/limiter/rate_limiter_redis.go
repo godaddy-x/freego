@@ -54,14 +54,14 @@ func (self *RedisRateLimiter) key(resource string) string {
 }
 
 func (self *RedisRateLimiter) Allow(resource string) bool {
-	client, err := new(cache.RedisManager).Client()
+	client, err := cache.NewRedis()
 	if err != nil {
 		zlog.Error("redis rate limiter get client failed", 0, zlog.AddError(err))
 		return false
 	}
-	redis := client.Pool.Get()
-	defer redis.Close()
-	res, err := limiterScript.Do(redis, self.key(resource), self.option.Bucket, self.option.Limit, time.Now().UnixNano()/1e6)
+	rds := client.Pool.Get()
+	defer client.Close(rds)
+	res, err := limiterScript.Do(rds, self.key(resource), self.option.Bucket, self.option.Limit, time.Now().UnixNano()/1e6)
 	if err != nil {
 		zlog.Error("redis rate limiter client do lua script failed", 0, zlog.AddError(err))
 		return false

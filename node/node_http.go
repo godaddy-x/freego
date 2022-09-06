@@ -58,7 +58,7 @@ func (self *HttpNode) proxy(handle PostHandle, ctx *fasthttp.RequestCtx) {
 	}
 }
 
-func (self *HttpNode) StartServer(address string) {
+func (self *HttpNode) StartServer(addr string) {
 	go func() {
 		if self.Context.CacheAware != nil {
 			zlog.Printf("cache service has been started successful")
@@ -69,8 +69,8 @@ func (self *HttpNode) StartServer(address string) {
 		if err := createFilterChain(); err != nil {
 			panic("http service create filter chain failed")
 		}
-		zlog.Printf("http【%s】service has been started successful", address)
-		if err := fasthttp.Serve(NewGracefulListener(address, time.Second*10), self.Context.router.Handler); err != nil {
+		zlog.Printf("http【%s】service has been started successful", addr)
+		if err := fasthttp.Serve(NewGracefulListener(addr, time.Second*10), self.Context.router.Handler); err != nil {
 			panic(err)
 		}
 	}()
@@ -213,7 +213,9 @@ func defaultRenderTo(ctx *Context) error {
 	} else {
 		ctx.RequestCtx.SetStatusCode(ctx.Response.StatusCode)
 	}
-	ctx.RequestCtx.Write(ctx.Response.ContentEntityByte)
+	if _, err := ctx.RequestCtx.Write(ctx.Response.ContentEntityByte); err != nil {
+		zlog.Error("response failed", 0, zlog.AddError(err))
+	}
 	return nil
 }
 

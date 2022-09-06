@@ -15,7 +15,6 @@ import (
 )
 
 const (
-	HTTP = "http"
 	UTF8 = "UTF-8"
 
 	ANDROID = "android"
@@ -33,14 +32,9 @@ const (
 	HEAD    = "HEAD"
 	OPTIONS = "OPTIONS"
 
-	MAX_HEADER_SIZE     = 25   // 最大响应头数量
-	MAX_PARAMETER_SIZE  = 50   // 最大参数数量
-	MAX_FIELD_LEN       = 25   // 最大参数名长度
-	MAX_QUERYSTRING_LEN = 1000 // 最大GET参数名长度
-	MAX_VALUE_LEN       = 4000 // 最大参数值长度
+	MAX_VALUE_LEN = 4000 // 最大参数值长度
 
 	Authorization = "Authorization"
-	USER_AGENT    = "User-Agent"
 	CLIENT_PUBKEY = "pubkey"
 )
 
@@ -66,17 +60,6 @@ type HttpLog struct {
 	CreateAt int64  // 日志创建时间
 	UpdateAt int64  // 日志完成时间
 	CostMill int64  // 业务耗时,毫秒
-}
-
-type ProtocolNode interface {
-	// 绑定路由方法
-	Router(pattern string, handle func(ctx *Context) error, routerConfig *RouterConfig)
-	// json响应模式
-	Json(ctx *Context, data interface{}) error
-	// text响应模式
-	Text(ctx *Context, data string) error
-	// 启动服务
-	StartServer()
 }
 
 type JsonBody struct {
@@ -149,15 +132,14 @@ func (self *Context) GetHmac256Sign(d, n string, t, p int64, key ...string) stri
 	return utils.HMAC_SHA256(utils.AddStr(self.Path, d, n, t, p), secret, true)
 }
 
-func (self *Context) AddStorage(k string, v interface{}) error {
+func (self *Context) AddStorage(k string, v interface{}) {
 	if self.Storage == nil {
 		self.Storage = map[string]interface{}{}
 	}
 	if len(k) == 0 || v == nil {
-		return utils.Error("key/value is nil")
+		return
 	}
 	self.Storage[k] = v
-	return nil
 }
 
 func (self *Context) GetStorage(k string) interface{} {

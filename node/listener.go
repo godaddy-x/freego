@@ -68,7 +68,6 @@ func (ln *GracefulListener) waitForZeroConns() error {
 	case <-time.After(ln.maxWaitTime):
 		return fmt.Errorf("cannot complete graceful shutdown in %s", ln.maxWaitTime)
 	}
-	return nil
 }
 
 func (ln *GracefulListener) closeConn() {

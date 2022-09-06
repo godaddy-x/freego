@@ -12,7 +12,6 @@ var (
 	redisSessions = make(map[string]*RedisManager, 0)
 )
 
-// redis配置参数
 type RedisConfig struct {
 	DsName      string
 	Host        string
@@ -24,7 +23,6 @@ type RedisConfig struct {
 	Network     string
 }
 
-// redis缓存管理器
 type RedisManager struct {
 	CacheManager
 	DsName string
@@ -47,7 +45,9 @@ func (self *RedisManager) InitConfig(input ...RedisConfig) (*RedisManager, error
 			}
 			if len(v.Password) > 0 {
 				if _, err := c.Do("AUTH", v.Password); err != nil {
-					c.Close()
+					if err := c.Close(); err != nil {
+						zlog.Error("redis close failed", 0, zlog.AddError(err))
+					}
 					return nil, err
 				}
 			}
@@ -82,7 +82,7 @@ func NewRedis(ds ...string) (*RedisManager, error) {
 
 func (self *RedisManager) Get(key string, input interface{}) (interface{}, bool, error) {
 	client := self.Pool.Get()
-	defer client.Close()
+	defer self.Close(client)
 	value, err := redis.Bytes(client.Do("GET", key))
 	if err != nil && err != redis.ErrNil {
 		return nil, false, err
@@ -98,7 +98,7 @@ func (self *RedisManager) Get(key string, input interface{}) (interface{}, bool,
 
 func (self *RedisManager) GetInt64(key string) (int64, error) {
 	client := self.Pool.Get()
-	defer client.Close()
+	defer self.Close(client)
 	value, err := redis.Bytes(client.Do("GET", key))
 	if err != nil && err != redis.ErrNil {
 		return 0, err
@@ -115,7 +115,7 @@ func (self *RedisManager) GetInt64(key string) (int64, error) {
 
 func (self *RedisManager) GetFloat64(key string) (float64, error) {
 	client := self.Pool.Get()
-	defer client.Close()
+	defer self.Close(client)
 	value, err := redis.Bytes(client.Do("GET", key))
 	if err != nil && err != redis.ErrNil {
 		return 0, err
@@ -132,7 +132,7 @@ func (self *RedisManager) GetFloat64(key string) (float64, error) {
 
 func (self *RedisManager) GetString(key string) (string, error) {
 	client := self.Pool.Get()
-	defer client.Close()
+	defer self.Close(client)
 	value, err := redis.Bytes(client.Do("GET", key))
 	if err != nil && err != redis.ErrNil {
 		return "", err
@@ -145,7 +145,7 @@ func (self *RedisManager) GetString(key string) (string, error) {
 
 func (self *RedisManager) GetBool(key string) (bool, error) {
 	client := self.Pool.Get()
-	defer client.Close()
+	defer self.Close(client)
 	value, err := redis.Bytes(client.Do("GET", key))
 	if err != nil && err != redis.ErrNil {
 		return false, err
@@ -162,7 +162,7 @@ func (self *RedisManager) Put(key string, input interface{}, expire ...int) erro
 	}
 	value := utils.Str2Bytes(utils.AnyToStr(input))
 	client := self.Pool.Get()
-	defer client.Close()
+	defer self.Close(client)
 	if len(expire) > 0 && expire[0] > 0 {
 		if _, err := client.Do("SET", key, value, "EX", expire[0]); err != nil {
 			return err
@@ -180,8 +180,10 @@ func (self *RedisManager) PutBatch(objs ...*PutObj) error {
 		return nil
 	}
 	client := self.Pool.Get()
-	defer client.Close()
-	client.Send("MULTI")
+	defer self.Close(client)
+	if err := client.Send("MULTI"); err != nil {
+		return err
+	}
 	for _, v := range objs {
 		if v.Expire > 0 {
 			if err := client.Send("SET", v.Key, v.Value, "EX", v.Expire); err != nil {
@@ -201,8 +203,10 @@ func (self *RedisManager) PutBatch(objs ...*PutObj) error {
 
 func (self *RedisManager) Del(key ...string) error {
 	client := self.Pool.Get()
-	defer client.Close()
-	client.Send("MULTI")
+	defer self.Close(client)
+	if err := client.Send("MULTI"); err != nil {
+		return err
+	}
 	for _, v := range key {
 		if err := client.Send("DEL", v); err != nil {
 			return err
@@ -230,7 +234,7 @@ func (self *RedisManager) BrpopString(key string, expire int64) (string, error) 
 		return "", nil
 	}
 	client := self.Pool.Get()
-	defer client.Close()
+	defer self.Close(client)
 	ret, err := redis.ByteSlices(client.Do("BRPOP", key, expire))
 	if err != nil {
 		return "", err
@@ -269,7 +273,7 @@ func (self *RedisManager) Rpush(key string, val interface{}) error {
 		return nil
 	}
 	client := self.Pool.Get()
-	defer client.Close()
+	defer self.Close(client)
 	_, err := client.Do("RPUSH", key, utils.AnyToStr(val))
 	if err != nil {
 		return err
@@ -282,7 +286,7 @@ func (self *RedisManager) Publish(key string, val interface{}) error {
 		return nil
 	}
 	client := self.Pool.Get()
-	defer client.Close()
+	defer self.Close(client)
 	_, err := client.Do("PUBLISH", key, utils.AnyToStr(val))
 	if err != nil {
 		return err
@@ -290,20 +294,21 @@ func (self *RedisManager) Publish(key string, val interface{}) error {
 	return nil
 }
 
-// exp second
-func (self *RedisManager) Subscribe(key string, timeout int, call func(msg string) (bool, error)) error {
+func (self *RedisManager) Subscribe(key string, expSecond int, call func(msg string) (bool, error)) error {
 	if call == nil || len(key) == 0 {
 		return nil
 	}
-	if timeout <= 0 {
-		timeout = 5
+	if expSecond <= 0 {
+		expSecond = 5
 	}
 	client := self.Pool.Get()
-	defer client.Close()
+	defer self.Close(client)
 	c := redis.PubSubConn{Conn: client}
-	c.Subscribe(key)
+	if err := c.Subscribe(key); err != nil {
+		return err
+	}
 	for {
-		switch v := c.ReceiveWithTimeout(time.Duration(timeout) * time.Second).(type) {
+		switch v := c.ReceiveWithTimeout(time.Duration(expSecond) * time.Second).(type) {
 		case redis.Message:
 			if v.Channel == key {
 				r, err := call(utils.Bytes2Str(v.Data))
@@ -315,7 +320,6 @@ func (self *RedisManager) Subscribe(key string, timeout int, call func(msg strin
 			return v
 		}
 	}
-	return nil
 }
 
 func (self *RedisManager) LuaScript(cmd string, key []string, val ...interface{}) (interface{}, error) {
@@ -332,17 +336,16 @@ func (self *RedisManager) LuaScript(cmd string, key []string, val ...interface{}
 		}
 	}
 	client := self.Pool.Get()
-	defer client.Close()
+	defer self.Close(client)
 	return redis.NewScript(len(key), cmd).Do(client, args...)
 }
 
-// 数据量大时请慎用
 func (self *RedisManager) Keys(pattern ...string) ([]string, error) {
 	if pattern == nil || len(pattern) == 0 || pattern[0] == "*" {
 		return nil, nil
 	}
 	client := self.Pool.Get()
-	defer client.Close()
+	defer self.Close(client)
 	keys, err := redis.Strings(client.Do("KEYS", pattern[0]))
 	if err != nil {
 		return nil, err
@@ -350,7 +353,6 @@ func (self *RedisManager) Keys(pattern ...string) ([]string, error) {
 	return keys, nil
 }
 
-// 数据量大时请慎用
 func (self *RedisManager) Size(pattern ...string) (int, error) {
 	keys, err := self.Keys(pattern...)
 	if err != nil {
@@ -359,11 +361,16 @@ func (self *RedisManager) Size(pattern ...string) (int, error) {
 	return len(keys), nil
 }
 
-// 数据量大时请慎用
 func (self *RedisManager) Values(pattern ...string) ([]interface{}, error) {
 	return nil, utils.Error("No implementation method [Values] was found")
 }
 
 func (self *RedisManager) Flush() error {
 	return utils.Error("No implementation method [Flush] was found")
+}
+
+func (self *RedisManager) Close(conn redis.Conn) {
+	if err := conn.Close(); err != nil {
+		zlog.Error("redis conn close failed", 0, zlog.AddError(err))
+	}
 }

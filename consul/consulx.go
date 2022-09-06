@@ -113,7 +113,7 @@ func (self *ConsulManager) Client(ds ...string) (*ConsulManager, error) {
 }
 
 // 通过Consul中心获取指定JSON配置数据
-func (self *ConsulManager) GetJsonValue(key string, result interface{}, isEncrypt bool) error {
+func (self *ConsulManager) GetJsonValue(key string, result interface{}) error {
 	client := self.Consulx
 	kv := client.KV()
 	if kv == nil {
@@ -214,5 +214,7 @@ func (self *ConsulManager) CheckService(services []*consulapi.AgentService, srvN
 
 // 接口服务健康检查
 func (self *ConsulManager) HealthCheck(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintln(w, "consulCheck")
+	if _, err := fmt.Fprintln(w, "consulCheck"); err != nil {
+		zlog.Error("consul check output failed", 0, zlog.AddError(err))
+	}
 }

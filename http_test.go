@@ -14,8 +14,8 @@ import (
 
 const domain = "http://localhost:8090"
 
-const access_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxNTYxNjI1ODU1MjcxMTA4NjA5IiwiYXVkIjoiIiwiaXNzIjoiIiwiaWF0IjowLCJleHAiOjE2NjIzNjUxOTIsImRldiI6IkFQUCIsImp0aSI6Imt6cm5pdUZkclQxSG9LZDhVa1F0clE9PSIsImV4dCI6e319.k+Hw+abG1wyFksVrvNXkrIomRAbnrKmEkQuEzIHjFl4="
-const token_secret = "Vd9oHk9/u54WCXJHy*kT^j#lKMoWoQRMQs9Oqtoc#lK!ZC@diQivDB5Vf5+c4q4="
+const access_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxNTY3MDEzODI3NDkxMzk3NjMzIiwiYXVkIjoiIiwiaXNzIjoiIiwiaWF0IjowLCJleHAiOjE2NjM2NDk3ODQsImRldiI6IkFQUCIsImp0aSI6Img0YWplQVlSMXFFZlRLVjQyNVFVR3c9PSIsImV4dCI6e319.7xTHZFW0rE5fNO+COJh2N8iUcWS/0FDZWgUuX2JCLZQ="
+const token_secret = "eXgL3uQw62UGEjeHy*kT^j#lKah2rQGIofcknEKz#lK!ZC@diQrWHDX0wxio2Nc="
 
 //const access_token = ""
 //const token_secret = ""

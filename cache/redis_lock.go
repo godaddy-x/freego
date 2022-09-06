@@ -1,10 +1,10 @@
 package cache
 
 import (
-	"fmt"
 	"github.com/garyburd/redigo/redis"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/utils"
+	"github.com/godaddy-x/freego/zlog"
 	"time"
 )
 
@@ -61,19 +61,20 @@ func (lock *Lock) tryLock() (ok bool, err error) {
 	return status == lockSuccess, nil
 }
 
-func (lock *Lock) unlock() (err error) {
+func (lock *Lock) unlock() {
 	var argv3 string
 	if lock.spin {
 		argv3 = subscribeKey
 	}
-	_, err = unlockScript.Do(lock.conn, lock.key(), lock.subscribeKey(), lock.token, lock.subscribeData(), argv3)
+	_, err := unlockScript.Do(lock.conn, lock.key(), lock.subscribeKey(), lock.token, lock.subscribeData(), argv3)
 	if err != nil {
-		fmt.Println("unlockScript failed:", err)
+		zlog.Error("unlockScript failed:", 0, zlog.AddError(err))
 	}
 	if lock != nil && lock.conn != nil {
-		lock.conn.Close()
+		if err := lock.conn.Close(); err != nil {
+			zlog.Error("lock conn close failed", 0, zlog.AddError(err))
+		}
 	}
-	return
 }
 
 func (self *RedisManager) getLockWithTimeout(conn redis.Conn, resource string, expSecond time.Duration, spin bool) (lock *Lock, ok bool, err error) {
@@ -89,7 +90,7 @@ func (self *RedisManager) getLockWithTimeout(conn redis.Conn, resource string, e
 		if lock.spin {
 			return
 		}
-		conn.Close()
+		self.Close(conn)
 		lock = nil
 	}
 	return
@@ -128,7 +129,7 @@ func (self *RedisManager) SpinLockWithTimeout(resource string, trySecond, expSec
 			}
 			return true, nil
 		}); err != nil {
-			lock.conn.Close()
+			self.Close(lock.conn)
 			lock = nil
 			return ex.Throw{Code: ex.REDIS_LOCK_TIMEOUT, Msg: "spin locker acquire timeout", Err: err}
 		}
@@ -156,11 +157,11 @@ func (self *RedisManager) TryLockWithTimeout(resource string, expSecond int, cal
 }
 
 func SpinLocker(lockObj, errorMsg string, trySecond, expSecond int, callObj func() error) error {
-	redis, err := NewRedis()
+	rds, err := NewRedis()
 	if err != nil {
 		return ex.Throw{Code: ex.CACHE, Msg: ex.CACHE_ERR, Err: err}
 	}
-	if err := redis.SpinLockWithTimeout(lockObj, trySecond, expSecond, callObj); err != nil {
+	if err := rds.SpinLockWithTimeout(lockObj, trySecond, expSecond, callObj); err != nil {
 		if len(errorMsg) > 0 {
 			r := ex.Catch(err)
 			if r.Code == ex.REDIS_LOCK_ACQUIRE {
@@ -177,11 +178,11 @@ func SpinLocker(lockObj, errorMsg string, trySecond, expSecond int, callObj func
 }
 
 func TryLocker(lockObj, errorMsg string, expSecond int, callObj func() error) error {
-	redis, err := NewRedis()
+	rds, err := NewRedis()
 	if err != nil {
 		return ex.Throw{Code: ex.CACHE, Msg: ex.CACHE_ERR, Err: err}
 	}
-	if err := redis.TryLockWithTimeout(lockObj, expSecond, callObj); err != nil {
+	if err := rds.TryLockWithTimeout(lockObj, expSecond, callObj); err != nil {
 		if len(errorMsg) > 0 {
 			r := ex.Catch(err)
 			if r.Code == ex.REDIS_LOCK_ACQUIRE {

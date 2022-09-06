@@ -112,7 +112,7 @@ func JsonToAny(src interface{}, target interface{}) error {
 	}
 	if data, err := JsonMarshal(src); err != nil {
 		return err
-	} else if JsonUnmarshal(data, target); err != nil {
+	} else if err = JsonUnmarshal(data, target); err != nil {
 		return err
 	}
 	return nil
@@ -320,11 +320,11 @@ func AnyToStr(any interface{}) string {
 	} else if str, ok := any.(int32); ok {
 		return strconv.FormatInt(int64(str), 10)
 	} else if str, ok := any.(int64); ok {
-		return strconv.FormatInt(int64(str), 10)
+		return strconv.FormatInt(str, 10)
 	} else if str, ok := any.(float32); ok {
 		return strconv.FormatFloat(float64(str), 'f', 16, 64)
 	} else if str, ok := any.(float64); ok {
-		return strconv.FormatFloat(float64(str), 'f', 16, 64)
+		return strconv.FormatFloat(str, 'f', 16, 64)
 	} else if str, ok := any.(uint); ok {
 		return strconv.FormatUint(uint64(str), 10)
 	} else if str, ok := any.(uint8); ok {
@@ -334,7 +334,7 @@ func AnyToStr(any interface{}) string {
 	} else if str, ok := any.(uint32); ok {
 		return strconv.FormatUint(uint64(str), 10)
 	} else if str, ok := any.(uint64); ok {
-		return strconv.FormatUint(uint64(str), 10)
+		return strconv.FormatUint(str, 10)
 	} else if str, ok := any.(bool); ok {
 		if str {
 			return "true"
@@ -348,7 +348,6 @@ func AnyToStr(any interface{}) string {
 			return Bytes2Str(ret)
 		}
 	}
-	return ""
 }
 
 // 65-96大写字母 97-122小写字母
@@ -929,8 +928,8 @@ func Len(o interface{}) int {
 
 // 获取并校验字符串长度
 func CheckLen(o interface{}, min, max int) bool {
-	len := Len(o)
-	if len >= min && len <= max {
+	l := Len(o)
+	if l >= min && l <= max {
 		return true
 	}
 	return false

@@ -10,11 +10,8 @@ import (
 
 const (
 	direct = "direct"
-	topic  = "topic"
-	fanout = "fanout"
 )
 
-// Amqp配置参数
 type AmqpConfig struct {
 	DsName    string
 	Host      string
@@ -33,7 +30,6 @@ type Option struct {
 	SigKey   string `json:"-"`  // 验签密钥
 }
 
-// Amqp消息参数
 type MsgData struct {
 	Option    Option      `json:"op"`
 	Durable   bool        `json:"du"`
@@ -45,7 +41,6 @@ type MsgData struct {
 	Signature string      `json:"sg"`
 }
 
-// Amqp延迟发送配置
 type DLX struct {
 	DlxExchange string                                 // 死信交换机
 	DlxQueue    string                                 // 死信队列

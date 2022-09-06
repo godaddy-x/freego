@@ -2,6 +2,7 @@ package rate
 
 import (
 	"github.com/godaddy-x/freego/cache"
+	"github.com/godaddy-x/freego/zlog"
 	"sync"
 )
 
@@ -45,7 +46,9 @@ func (self *LocalRateLimiter) getLimiter(resource string) *Limiter {
 		}
 		if limiter == nil {
 			limiter = NewLimiter(Limit(self.option.Limit), self.option.Bucket)
-			self.cache.Put(resource, limiter, self.option.Expire)
+			if err := self.cache.Put(resource, limiter, self.option.Expire); err != nil {
+				zlog.Error("cache put failed", 0, zlog.AddError(err))
+			}
 		}
 		self.mu.Unlock()
 	}

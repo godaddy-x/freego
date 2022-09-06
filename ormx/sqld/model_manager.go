@@ -267,7 +267,7 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 				if rdate, err := utils.Str2Time(ret); err != nil {
 					return err
 				} else {
-					utils.SetInt64(ptr, int64(rdate))
+					utils.SetInt64(ptr, rdate)
 				}
 			}
 			return nil
@@ -319,7 +319,6 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 			return err
 		} else {
 			utils.SetUint16(ptr, ret)
-			return nil
 		}
 		return nil
 	case reflect.Uint32:

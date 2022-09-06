@@ -159,8 +159,12 @@ func (self *PublishManager) initQueue(data *MsgData) (*PublishMQ, error) {
 			SigTyp:   data.Option.SigTyp,
 		}
 		pub = &PublishMQ{channel: self.getChannel(), option: opt}
-		pub.prepareExchange()
-		pub.prepareQueue()
+		if err := pub.prepareExchange(); err != nil {
+			return nil, err
+		}
+		if err := pub.prepareQueue(); err != nil {
+			return nil, err
+		}
 		pub.ready = true
 		self.channels[chanKey] = pub
 		self.listen(pub)
@@ -168,7 +172,7 @@ func (self *PublishManager) initQueue(data *MsgData) (*PublishMQ, error) {
 	return pub, nil
 }
 
-func (self *PublishManager) listen(pub *PublishMQ) error {
+func (self *PublishManager) listen(pub *PublishMQ) {
 	pub.mu.Lock()
 	defer pub.mu.Unlock()
 	if !pub.ready { // 重新连接channel
@@ -194,7 +198,6 @@ func (self *PublishManager) listen(pub *PublishMQ) error {
 			}
 		}
 	}(closeChan)
-	return nil
 }
 
 func (self *PublishManager) Publish(exchange, queue string, content interface{}) error {
