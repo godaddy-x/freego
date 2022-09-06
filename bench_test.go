@@ -49,12 +49,10 @@ func initMongoDB() {
 }
 
 func init() {
+
 	// 注册对象
 	sqld.ModelDriver(
-		sqld.Hook{
-			func() interface{} { return &OwWallet{} },
-			func() interface{} { return &[]*OwWallet{} },
-		},
+		sqld.NewHook(func() interface{} { return &OwWallet{} }, func() interface{} { return &[]*OwWallet{} }),
 	)
 	//initConsul()
 	//initMysqlDB()

@@ -15,8 +15,8 @@ import (
 	"time"
 )
 
-func TestMysql(t *testing.T) {
-	db, err := new(sqld.MysqlManager).Get(sqld.Option{OpenTx: true})
+func TestMysqlUpdates(t *testing.T) {
+	db, err := sqld.NewMysql(sqld.Option{OpenTx: true})
 	if err != nil {
 		panic(err)
 	}
@@ -29,7 +29,9 @@ func TestMysql(t *testing.T) {
 		Id:    1234,
 		AppID: "1234",
 	}
-	db.Update(&o1, &o2)
+	if err := db.Update(&o1, &o2); err != nil {
+		panic(err)
+	}
 }
 
 func TestMysqlSave(t *testing.T) {
@@ -145,20 +147,16 @@ func TestMysqlFindById(t *testing.T) {
 }
 
 func TestMysqlFindOne(t *testing.T) {
-	db, err := new(sqld.MysqlManager).Get(sqld.Option{OpenTx: false})
+	db, err := sqld.NewMysql()
 	if err != nil {
 		panic(err)
 	}
 	defer db.Close()
-	l := utils.Time()
-	for i := 0; i < 1; i++ {
-
-	}
+	sql := sqlc.M().Fields("rootPath").Eq("id", 1).Between("index", 10, 50).Gte("index", 30).Like("name", "test").Or(sqlc.M().Eq("id", 12), sqlc.M().Eq("id", 13))
 	wallet := OwWallet{}
-	if err := db.FindOne(sqlc.M().Fields("rootPath").Eq("id", 1109819683034365953), &wallet); err != nil {
-		fmt.Println(err)
+	if err := db.FindOne(sql, &wallet); err != nil {
+		panic(err)
 	}
-	fmt.Println("cost: ", utils.Time()-l)
 }
 
 func TestMysqlFindList(t *testing.T) {

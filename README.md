@@ -1,7 +1,7 @@
 # freego
 High performance secure GRPC/ORM framework
 
-#### Create simple demo
+#### Create simple http demo
 ```
 type MyWebNode struct {
 	node.HttpNode
@@ -244,5 +244,69 @@ BenchmarkRSALogin-8         2028            505224 ns/op            1017 B/op   
 BenchmarkRSALogin-8         2079            501502 ns/op            1017 B/op         15 allocs/op
 BenchmarkRSALogin-8         2150            496770 ns/op            1013 B/op         15 allocs/op
 BenchmarkRSALogin-8         2020            500296 ns/op            1019 B/op         15 allocs/op
+```
+
+#### Create simple orm demo
+
+```
+func initMysqlDB() {
+	conf := sqld.MysqlConfig{}
+	if err := utils.ReadLocalJsonConfig("resource/mysql.json", &conf); err != nil {
+		panic(utils.AddStr("读取mysql配置失败: ", err.Error()))
+	}
+	new(sqld.MysqlManager).InitConfigAndCache(nil, conf)
+	fmt.Println("init mysql success")
+}
+
+func initMongoDB() {
+	conf := sqld.MGOConfig{}
+	if err := utils.ReadLocalJsonConfig("resource/mongo.json", &conf); err != nil {
+		panic(utils.AddStr("读取mongo配置失败: ", err.Error()))
+	}
+	new(sqld.MGOManager).InitConfigAndCache(nil, conf)
+	fmt.Println("init mongo success")
+}
+
+func init() {
+    sqld.ModelDriver(
+        sqld.NewHooK(func() interface{} { return &OwWallet{} }, func() interface{} { return &[]*OwWallet{} }),
+    )
+    initMongoDB()
+    initMysqlDB()
+}
+
+func TestMysqlUpdates(t *testing.T) {
+    // db, err := sqld.NewMongo(sqld.Option{OpenTx: true})
+	db, err := sqld.NewMysql(sqld.Option{OpenTx: true})
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+	o1 := OwWallet{
+		Id:    123,
+		AppID: "123",
+	}
+	o2 := OwWallet{
+		Id:    1234,
+		AppID: "1234",
+	}
+	if err := db.Update(&o1, &o2); err != nil {
+		panic(err)
+	}
+}
+
+func TestMysqlFind(t *testing.T) {
+    // db, err := sqld.NewMongo()
+	db, err := sqld.NewMysql()
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+	sql := sqlc.M().Fields("rootPath").Eq("id", 1).Between("index", 10, 50).Gte("index", 30).Like("name", "test").Or(sqlc.M().Eq("id", 12), sqlc.M().Eq("id", 13))
+	wallet := OwWallet{}
+	if err := db.FindOne(sql, &wallet); err != nil {
+		panic(err)
+	}
+}
 ```
 

@@ -45,6 +45,10 @@ func Model(v interface{}) func() interface{} {
 	return func() interface{} { return v }
 }
 
+func NewHook(obj func() interface{}, objs func() interface{}) Hook {
+	return Hook{NewObj: obj, NewObjArr: objs}
+}
+
 func ModelDriver(hook ...Hook) error {
 	if hook == nil || len(hook) == 0 {
 		return utils.Error("hook is nil")
