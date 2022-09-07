@@ -372,6 +372,15 @@ func RunClient(appid string, addrs ...string) {
 			panic(err)
 		}
 		client := &GRPCManager{consul: c, consulDs: ""}
+		clientOptions = append(clientOptions, grpc.WithInitialWindowSize(pool.InitialWindowSize))
+		clientOptions = append(clientOptions, grpc.WithInitialConnWindowSize(pool.InitialConnWindowSize))
+		clientOptions = append(clientOptions, grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(pool.MaxSendMsgSize)))
+		clientOptions = append(clientOptions, grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(pool.MaxRecvMsgSize)))
+		clientOptions = append(clientOptions, grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:                pool.KeepAliveTime,
+			Timeout:             pool.KeepAliveTimeout,
+			PermitWithoutStream: true,
+		}))
 		clientOptions = append(clientOptions, grpc.WithUnaryInterceptor(client.ClientInterceptor))
 		if clientDialTLS != nil {
 			clientOptions = append(clientOptions, clientDialTLS)
@@ -485,6 +494,8 @@ func CallRPC(object *GRPC) (interface{}, error) {
 	if selectionCall == nil { // 选取规则为空则默认随机
 		r := rand.New(rand.NewSource(utils.GetSnowFlakeIntID()))
 		service = services[r.Intn(len(services))].Service
+	} else if len(services) == 1 {
+		service = services[0].Service
 	} else {
 		service = selectionCall(services, object).Service
 	}
