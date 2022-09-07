@@ -67,6 +67,7 @@ type GRPC struct {
 	Address     string                                                                // 服务地址,为空时自动填充内网IP
 	Service     string                                                                // 服务名称
 	CacheSecond int                                                                   // 服务缓存时间/秒
+	TimeoutMill int                                                                   // RPC请求超时/毫秒
 	AddRPC      func(server *grpc.Server)                                             // grpc注册proto服务
 	CallRPC     func(conn *grpc.ClientConn, ctx context.Context) (interface{}, error) // grpc回调proto服务
 }
@@ -465,6 +466,9 @@ func CallRPC(object *GRPC) (interface{}, error) {
 	if len(object.Service) == 0 || len(object.Service) > 100 {
 		return nil, utils.Error("call service invalid")
 	}
+	if object.TimeoutMill <= 0 {
+		object.TimeoutMill = 60000
+	}
 	var tag string
 	if len(object.Tags) > 0 {
 		tag = object.Tags[0]
@@ -486,13 +490,15 @@ func CallRPC(object *GRPC) (interface{}, error) {
 	}
 	clientPool, b := clientPools[utils.AddStr(service.Address, ":", service.Port)]
 	if !b || clientPool == nil {
-		return nil, utils.Error("client pool select is nil: ", utils.AddStr(service.Address, ":", service.Port))
+		return nil, utils.Error("client pool is nil: ", utils.AddStr(service.Address, ":", service.Port))
 	}
 	conn, err := clientPool.Get()
 	if err != nil {
 		return nil, err
 	}
-	res, err := object.CallRPC(conn.Value(), context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(object.TimeoutMill)*time.Millisecond)
+	defer cancel()
+	res, err := object.CallRPC(conn.Value(), ctx)
 	if err := conn.Close(); err != nil {
 		zlog.Error("rpc connection close failed", 0, zlog.AddError(err))
 	}
