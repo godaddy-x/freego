@@ -67,7 +67,7 @@ func init() {
 }
 
 func main() {
-	grpcx.RunClient(APPID)
+	grpcx.RunClient(APPID, "localhost:20998")
 	http_test()
 
 	//router := fasthttprouter.New()

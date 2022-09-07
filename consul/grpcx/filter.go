@@ -78,21 +78,21 @@ func (self *GRPCManager) checkToken(ctx context.Context, method string) error {
 }
 
 func (self *GRPCManager) createToken(ctx context.Context, method string) (context.Context, error) {
-	if len(self.token) == 0 {
+	if len(accessToken) == 0 {
 		return ctx, nil
 	}
 	if utils.CheckStr(method, unauthorizedUrl...) {
 		return ctx, nil
 	}
-	md := metadata.New(map[string]string{token: self.token})
+	md := metadata.New(map[string]string{token: accessToken})
 	ctx = metadata.NewOutgoingContext(ctx, md)
 	return ctx, nil
 }
 
 func (self *GRPCManager) ServerInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp interface{}, err error) {
-	if err := self.rateLimit(info.FullMethod); err != nil {
-		return nil, err
-	}
+	//if err := self.rateLimit(info.FullMethod); err != nil {
+	//	return nil, err
+	//}
 	if err := self.checkToken(ctx, info.FullMethod); err != nil {
 		return nil, err
 	}
@@ -100,9 +100,9 @@ func (self *GRPCManager) ServerInterceptor(ctx context.Context, req interface{},
 }
 
 func (self *GRPCManager) ClientInterceptor(ctx context.Context, method string, req, reply interface{}, conn *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) (err error) {
-	if err := self.rateLimit(method); err != nil {
-		return err
-	}
+	//if err := self.rateLimit(method); err != nil {
+	//	return err
+	//}
 	ctx, err = self.createToken(ctx, method)
 	if err != nil {
 		return err

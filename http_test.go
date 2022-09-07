@@ -160,6 +160,10 @@ func TestGetUser(t *testing.T) {
 	ToPostBy(path, req)
 }
 
+func TestPubkey(t *testing.T) {
+	initSrvPubkey()
+}
+
 func BenchmarkRSALogin(b *testing.B) {
 	b.StopTimer()
 	b.StartTimer()

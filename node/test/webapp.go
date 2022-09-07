@@ -43,7 +43,7 @@ func (self *MyWebNode) getUser(ctx *node.Context) error {
 }
 
 func testCallRPC() {
-	res, err := grpcx.CallRPC(&grpcx.GRPC{
+	_, err := grpcx.CallRPC(&grpcx.GRPC{
 		Service:     "PubWorker",
 		CacheSecond: 30,
 		CallRPC: func(conn *grpc.ClientConn, ctx context.Context) (interface{}, error) {
@@ -52,7 +52,7 @@ func testCallRPC() {
 	if err != nil {
 		fmt.Println(err)
 	} else {
-		fmt.Println("grpc:", res)
+		//fmt.Println("grpc:", res)
 	}
 }
 

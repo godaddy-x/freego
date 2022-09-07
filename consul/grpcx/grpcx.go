@@ -13,6 +13,7 @@ import (
 	"github.com/godaddy-x/freego/utils/jwt"
 	"github.com/godaddy-x/freego/zlog"
 	consulapi "github.com/hashicorp/consul/api"
+	"github.com/shimingyah/pool"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
@@ -33,12 +34,13 @@ var (
 	appConfigCall   func(string) (AppConfig, error)
 	authorizeTLS    *gorsa.RsaObj
 	accessToken     = ""
+	clientOptions   []grpc.DialOption
+	clientPools     = make(map[string]pool.Pool, 0)
 )
 
 type GRPCManager struct {
 	consul       *consul.ConsulManager
 	consulDs     string
-	token        string
 	authenticate bool
 }
 
@@ -64,7 +66,6 @@ type GRPC struct {
 	Tags        []string                                                              // 服务标签名称
 	Address     string                                                                // 服务地址,为空时自动填充内网IP
 	Service     string                                                                // 服务名称
-	Timeout     int                                                                   // 请求超时/毫秒
 	CacheSecond int                                                                   // 服务缓存时间/秒
 	AddRPC      func(server *grpc.Server)                                             // grpc注册proto服务
 	CallRPC     func(conn *grpc.ClientConn, ctx context.Context) (interface{}, error) // grpc回调proto服务
@@ -281,15 +282,17 @@ func RunServer(consulDs string, authenticate bool, objects ...*GRPC) {
 		panic(err)
 	}
 	opts := []grpc.ServerOption{
-		grpc.KeepaliveParams(keepalive.ServerParameters{
-			Time:              10 * time.Second,
-			Timeout:           15 * time.Second,
-			MaxConnectionIdle: 3 * time.Minute,
+		grpc.InitialWindowSize(pool.InitialWindowSize),
+		grpc.InitialConnWindowSize(pool.InitialConnWindowSize),
+		grpc.MaxSendMsgSize(pool.MaxSendMsgSize),
+		grpc.MaxRecvMsgSize(pool.MaxRecvMsgSize),
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+			PermitWithoutStream: true,
 		}),
-		grpc.MaxSendMsgSize(1024 * 1024 * 8), // 最大消息8M
-		grpc.MaxRecvMsgSize(1024 * 1024 * 8),
-		grpc.ReadBufferSize(1024 * 8),
-		grpc.WriteBufferSize(1024 * 8),
+		grpc.KeepaliveParams(keepalive.ServerParameters{
+			Time:    pool.KeepAliveTime,
+			Timeout: pool.KeepAliveTimeout,
+		}),
 		grpc.UnaryInterceptor(self.ServerInterceptor),
 	}
 	if serverDialTLS != nil {
@@ -348,10 +351,50 @@ func RunServer(consulDs string, authenticate bool, objects ...*GRPC) {
 	}
 }
 
+func createClientConn(address string) (*grpc.ClientConn, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	conn, err := grpc.DialContext(ctx, address, clientOptions...)
+	if err != nil {
+		return nil, err
+	}
+	return conn, nil
+}
+
 // RunClient Important: ensure that the service starts only once
 // JWT Token expires in 1 hour
 // The remaining 1200s will be automatically renewed and detected every 15s
-func RunClient(appid string) {
+func RunClient(appid string, addrs ...string) {
+	if len(clientOptions) == 0 {
+		c, err := consul.NewConsul()
+		if err != nil {
+			panic(err)
+		}
+		client := &GRPCManager{consul: c, consulDs: ""}
+		clientOptions = append(clientOptions, grpc.WithUnaryInterceptor(client.ClientInterceptor))
+		if clientDialTLS != nil {
+			clientOptions = append(clientOptions, clientDialTLS)
+		} else {
+			clientOptions = append(clientOptions, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		}
+		if len(addrs) == 0 {
+			panic("client addrs is nil")
+		}
+		for _, v := range addrs {
+			options := pool.Options{
+				Dial:                 createClientConn,
+				MaxIdle:              8,
+				MaxActive:            64,
+				MaxConcurrentStreams: 64,
+				Reuse:                true,
+			}
+			clientPool, err := pool.New(v, options)
+			if err != nil {
+				panic(err)
+			}
+			clientPools[v] = clientPool
+		}
+	}
 	var loginRes *pb.AuthorizeRes
 	for {
 		res, err := CallRPC(&GRPC{
@@ -402,17 +445,17 @@ func RunClient(appid string) {
 		break
 	}
 	accessToken = loginRes.Token
-	go renewClientToken(appid, loginRes.Expired)
+	go renewClientToken(appid, loginRes.Expired, addrs...)
 }
 
-func renewClientToken(appid string, expired int64) {
+func renewClientToken(appid string, expired int64, addrs ...string) {
 	for {
 		//zlog.Warn("detecting rpc token expiration", 0, zlog.Int64("countDown", expired-utils.TimeSecond()-timeDifference))
 		if expired-utils.TimeSecond() > timeDifference { // TODO token过期时间大于2400s则忽略,每15s检测一次
 			time.Sleep(15 * time.Second)
 			continue
 		}
-		RunClient(appid)
+		RunClient(appid, addrs...)
 		zlog.Info("rpc token renewal succeeded", 0)
 		return
 	}
@@ -421,9 +464,6 @@ func renewClientToken(appid string, expired int64) {
 func CallRPC(object *GRPC) (interface{}, error) {
 	if len(object.Service) == 0 || len(object.Service) > 100 {
 		return nil, utils.Error("call service invalid")
-	}
-	if object.Timeout <= 0 {
-		object.Timeout = 60000
 	}
 	var tag string
 	if len(object.Tags) > 0 {
@@ -444,24 +484,17 @@ func CallRPC(object *GRPC) (interface{}, error) {
 	} else {
 		service = selectionCall(services, object).Service
 	}
-	client := &GRPCManager{consul: c, consulDs: object.Ds, token: accessToken}
-	opts := []grpc.DialOption{
-		grpc.WithUnaryInterceptor(client.ClientInterceptor),
+	clientPool, b := clientPools[utils.AddStr(service.Address, ":", service.Port)]
+	if !b || clientPool == nil {
+		return nil, utils.Error("client pool select is nil: ", utils.AddStr(service.Address, ":", service.Port))
 	}
-	if clientDialTLS != nil {
-		opts = append(opts, clientDialTLS)
-	} else {
-		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(object.Timeout)*time.Millisecond)
-	defer cancel()
-	conn, err := grpc.DialContext(ctx, utils.AddStr(service.Address, ":", service.Port), opts...)
+	conn, err := clientPool.Get()
 	if err != nil {
 		return nil, err
 	}
-	res, err := object.CallRPC(conn, ctx)
+	res, err := object.CallRPC(conn.Value(), context.Background())
 	if err := conn.Close(); err != nil {
-		zlog.Error("close rpc connection failed", 0, zlog.AddError(err))
+		zlog.Error("rpc connection close failed", 0, zlog.AddError(err))
 	}
 	return res, err
 }
