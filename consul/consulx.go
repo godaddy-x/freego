@@ -2,6 +2,7 @@ package consul
 
 import (
 	"fmt"
+	"github.com/godaddy-x/freego/cache"
 	DIC "github.com/godaddy-x/freego/common"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/zlog"
@@ -195,10 +196,29 @@ func (self *ConsulManager) GetAllService(service string) ([]*consulapi.AgentServ
 	return result, nil
 }
 
-func (self *ConsulManager) GetHealthService(service, tag string) ([]*consulapi.ServiceEntry, error) {
+var localCache = cache.NewLocalCache(30, 5)
+
+func (self *ConsulManager) GetHealthService(service, tag string, cacheSecond int) ([]*consulapi.ServiceEntry, error) {
+	if cacheSecond > 0 {
+		obj, has, err := localCache.Get("consul.grpc."+service, nil)
+		if err != nil {
+			return nil, err
+		}
+		if has && obj != nil {
+			return obj.([]*consulapi.ServiceEntry), nil
+		}
+	}
 	serviceEntry, _, err := self.Consulx.Health().Service(service, tag, false, queryOptions)
 	if err != nil {
-		return []*consulapi.ServiceEntry{}, err
+		return nil, err
+	}
+	if len(serviceEntry) == 0 {
+		return nil, utils.Error("no available services found: [", service, "]")
+	}
+	if cacheSecond > 0 {
+		if err := localCache.Put("consul.grpc."+service, serviceEntry, cacheSecond); err != nil {
+			return nil, err
+		}
 	}
 	return serviceEntry, nil
 }

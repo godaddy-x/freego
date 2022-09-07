@@ -44,7 +44,8 @@ func (self *MyWebNode) getUser(ctx *node.Context) error {
 
 func testCallRPC() {
 	res, err := grpcx.CallRPC(&grpcx.GRPC{
-		Service: "PubWorker",
+		Service:     "PubWorker",
+		CacheSecond: 30,
 		CallRPC: func(conn *grpc.ClientConn, ctx context.Context) (interface{}, error) {
 			return pb.NewPubWorkerClient(conn).GenerateId(ctx, &pb.GenerateIdReq{})
 		}})
@@ -66,7 +67,7 @@ func (self *MyWebNode) login(ctx *node.Context) error {
 }
 
 func (self *MyWebNode) pubkey(ctx *node.Context) error {
-	//testCallRPC()
+	testCallRPC()
 	return self.Text(ctx, ctx.ServerTLS.PubkeyBase64)
 }
 

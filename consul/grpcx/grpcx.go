@@ -60,13 +60,14 @@ type AppConfig struct {
 }
 
 type GRPC struct {
-	Ds      string                                                                // consul数据源ds
-	Tags    []string                                                              // 服务标签名称
-	Address string                                                                // 服务地址,为空时自动填充内网IP
-	Service string                                                                // 服务名称
-	Timeout int                                                                   // 请求超时/毫秒
-	AddRPC  func(server *grpc.Server)                                             // grpc注册proto服务
-	CallRPC func(conn *grpc.ClientConn, ctx context.Context) (interface{}, error) // grpc回调proto服务
+	Ds          string                                                                // consul数据源ds
+	Tags        []string                                                              // 服务标签名称
+	Address     string                                                                // 服务地址,为空时自动填充内网IP
+	Service     string                                                                // 服务名称
+	Timeout     int                                                                   // 请求超时/毫秒
+	CacheSecond int                                                                   // 服务缓存时间/秒
+	AddRPC      func(server *grpc.Server)                                             // grpc注册proto服务
+	CallRPC     func(conn *grpc.ClientConn, ctx context.Context) (interface{}, error) // grpc回调proto服务
 }
 
 type AuthObject struct {
@@ -354,7 +355,8 @@ func RunClient(appid string) {
 	var loginRes *pb.AuthorizeRes
 	for {
 		res, err := CallRPC(&GRPC{
-			Service: "PubWorker",
+			Service:     "PubWorker",
+			CacheSecond: 30,
 			CallRPC: func(conn *grpc.ClientConn, ctx context.Context) (interface{}, error) {
 				appConfig, err := GetGRPCAppConfig(appid)
 				if err != nil {
@@ -431,12 +433,9 @@ func CallRPC(object *GRPC) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	services, err := c.GetHealthService(object.Service, tag)
+	services, err := c.GetHealthService(object.Service, tag, object.CacheSecond)
 	if err != nil {
 		return nil, utils.Error("query service [", object.Service, "] failed: ", err)
-	}
-	if len(services) == 0 {
-		return nil, utils.Error("no available services found: [", object.Service, "]")
 	}
 	var service *consulapi.AgentService
 	if selectionCall == nil { // 选取规则为空则默认随机
