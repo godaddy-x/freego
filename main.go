@@ -67,7 +67,7 @@ func init() {
 }
 
 func main() {
-	grpcx.RunClient(APPID, "localhost:20998")
+	grpcx.RunClient(grpcx.ClientConfig{Appid: APPID, Timeout: 30, Addrs: []string{"localhost:20998"}})
 	http_test()
 
 	//router := fasthttprouter.New()

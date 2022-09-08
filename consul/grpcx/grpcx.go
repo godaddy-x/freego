@@ -44,6 +44,12 @@ type GRPCManager struct {
 	authenticate bool
 }
 
+type ClientConfig struct {
+	Appid   string
+	Addrs   []string
+	Timeout int
+}
+
 type TlsConfig struct {
 	UseTLS    bool
 	UseMTLS   bool
@@ -352,20 +358,19 @@ func RunServer(consulDs string, authenticate bool, objects ...*GRPC) {
 	}
 }
 
-func createClientConn(address string) (*grpc.ClientConn, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	conn, err := grpc.DialContext(ctx, address, clientOptions...)
-	if err != nil {
-		return nil, err
-	}
-	return conn, nil
-}
-
 // RunClient Important: ensure that the service starts only once
 // JWT Token expires in 1 hour
 // The remaining 1200s will be automatically renewed and detected every 15s
-func RunClient(appid string, addrs ...string) {
+func RunClient(config ClientConfig) {
+	if len(config.Appid) == 0 {
+		panic("appid is nil")
+	}
+	if config.Timeout <= 0 {
+		panic("timeout invalid")
+	}
+	if len(config.Addrs) == 0 {
+		panic("addrs is nil")
+	}
 	if len(clientOptions) == 0 {
 		c, err := consul.NewConsul()
 		if err != nil {
@@ -387,18 +392,11 @@ func RunClient(appid string, addrs ...string) {
 		} else {
 			clientOptions = append(clientOptions, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		}
-		if len(addrs) == 0 {
+		if len(config.Addrs) == 0 {
 			panic("client addrs is nil")
 		}
-		for _, v := range addrs {
-			options := pool.Options{
-				Dial:                 createClientConn,
-				MaxIdle:              8,
-				MaxActive:            64,
-				MaxConcurrentStreams: 64,
-				Reuse:                true,
-			}
-			clientPool, err := pool.New(v, options)
+		for _, v := range config.Addrs {
+			clientPool, err := pool.NewPool(pool.DefaultOptions, v, config.Timeout, clientOptions)
 			if err != nil {
 				panic(err)
 			}
@@ -411,7 +409,7 @@ func RunClient(appid string, addrs ...string) {
 			Service:     "PubWorker",
 			CacheSecond: 30,
 			CallRPC: func(conn *grpc.ClientConn, ctx context.Context) (interface{}, error) {
-				appConfig, err := GetGRPCAppConfig(appid)
+				appConfig, err := GetGRPCAppConfig(config.Appid)
 				if err != nil {
 					return nil, err
 				}
@@ -419,7 +417,7 @@ func RunClient(appid string, addrs ...string) {
 					return nil, utils.Error("rpc appConfig key is nil")
 				}
 				authObject := &AuthObject{
-					Appid: appid,
+					Appid: config.Appid,
 					Nonce: utils.RandStr(16),
 					Time:  utils.TimeSecond(),
 				}
@@ -455,17 +453,17 @@ func RunClient(appid string, addrs ...string) {
 		break
 	}
 	accessToken = loginRes.Token
-	go renewClientToken(appid, loginRes.Expired, addrs...)
+	go renewClientToken(config, loginRes.Expired)
 }
 
-func renewClientToken(appid string, expired int64, addrs ...string) {
+func renewClientToken(config ClientConfig, expired int64) {
 	for {
 		//zlog.Warn("detecting rpc token expiration", 0, zlog.Int64("countDown", expired-utils.TimeSecond()-timeDifference))
 		if expired-utils.TimeSecond() > timeDifference { // TODO token过期时间大于2400s则忽略,每15s检测一次
 			time.Sleep(15 * time.Second)
 			continue
 		}
-		RunClient(appid, addrs...)
+		RunClient(config)
 		zlog.Info("rpc token renewal succeeded", 0)
 		return
 	}
