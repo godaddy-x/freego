@@ -1,5 +1,5 @@
 # freego
-High performance secure GRPC/ORM framework
+High performance secure GRPC/ORM/NODE framework
 
 #### 1. Create simple http demo
 ```

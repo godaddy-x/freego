@@ -406,8 +406,7 @@ func RunClient(config ClientConfig) {
 	var loginRes *pb.AuthorizeRes
 	for {
 		res, err := CallRPC(&GRPC{
-			Service:     "PubWorker",
-			CacheSecond: 30,
+			Service: "PubWorker",
 			CallRPC: func(conn *grpc.ClientConn, ctx context.Context) (interface{}, error) {
 				appConfig, err := GetGRPCAppConfig(config.Appid)
 				if err != nil {
@@ -484,16 +483,18 @@ func CallRPC(object *GRPC) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	services, err := c.GetHealthService(object.Service, tag, object.CacheSecond)
+	services, err := c.GetCacheService(object.Service, tag, object.CacheSecond)
 	if err != nil {
 		return nil, utils.Error("query service [", object.Service, "] failed: ", err)
 	}
 	var service *consulapi.AgentService
 	if selectionCall == nil { // 选取规则为空则默认随机
-		r := rand.New(rand.NewSource(utils.GetSnowFlakeIntID()))
-		service = services[r.Intn(len(services))].Service
-	} else if len(services) == 1 {
-		service = services[0].Service
+		if len(services) == 1 {
+			service = services[0].Service
+		} else {
+			r := rand.New(rand.NewSource(utils.GetSnowFlakeIntID()))
+			service = services[r.Intn(len(services))].Service
+		}
 	} else {
 		service = selectionCall(services, object).Service
 	}

@@ -198,16 +198,7 @@ func (self *ConsulManager) GetAllService(service string) ([]*consulapi.AgentServ
 
 var localCache = cache.NewLocalCache(30, 5)
 
-func (self *ConsulManager) GetHealthService(service, tag string, cacheSecond int) ([]*consulapi.ServiceEntry, error) {
-	if cacheSecond > 0 {
-		obj, has, err := localCache.Get("consul.grpc."+service, nil)
-		if err != nil {
-			return nil, err
-		}
-		if has && obj != nil {
-			return obj.([]*consulapi.ServiceEntry), nil
-		}
-	}
+func (self *ConsulManager) GetHealthService(service, tag string) ([]*consulapi.ServiceEntry, error) {
 	serviceEntry, _, err := self.Consulx.Health().Service(service, tag, false, queryOptions)
 	if err != nil {
 		return nil, err
@@ -215,10 +206,26 @@ func (self *ConsulManager) GetHealthService(service, tag string, cacheSecond int
 	if len(serviceEntry) == 0 {
 		return nil, utils.Error("no available services found: [", service, "]")
 	}
-	if cacheSecond > 0 {
-		if err := localCache.Put("consul.grpc."+service, serviceEntry, cacheSecond); err != nil {
-			return nil, err
-		}
+	return serviceEntry, nil
+}
+
+func (self *ConsulManager) GetCacheService(service, tag string, cacheSecond int) ([]*consulapi.ServiceEntry, error) {
+	if cacheSecond <= 0 {
+		return self.GetHealthService(service, tag)
+	}
+	obj, has, err := localCache.Get("consul.grpc."+service+"."+tag, nil)
+	if err != nil {
+		return nil, err
+	}
+	if has && obj != nil {
+		return obj.([]*consulapi.ServiceEntry), nil
+	}
+	serviceEntry, err := self.GetHealthService(service, tag)
+	if err != nil {
+		return nil, err
+	}
+	if err := localCache.Put("consul.grpc."+service+"."+tag, serviceEntry, cacheSecond); err != nil {
+		return nil, err
 	}
 	return serviceEntry, nil
 }
