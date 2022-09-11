@@ -12,11 +12,16 @@ import (
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
 	"net"
+	"net/http"
+	_ "net/http/pprof"
 	"testing"
 	"time"
 )
 
 func TestConsulxRunGRPCServer(t *testing.T) {
+	go func() {
+		_ = http.ListenAndServe(":8848", nil)
+	}()
 	objects := []*grpcx.GRPC{
 		{
 			Address: "localhost",

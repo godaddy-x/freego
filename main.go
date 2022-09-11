@@ -7,8 +7,6 @@ import (
 	"github.com/godaddy-x/freego/consul/grpcx"
 	"github.com/godaddy-x/freego/node/test"
 	"github.com/godaddy-x/freego/utils"
-	"net/http"
-	_ "net/http/pprof"
 )
 
 func http_test() {
@@ -70,9 +68,6 @@ func init() {
 
 func main() {
 	grpcx.RunClient(grpcx.ClientConfig{Appid: APPID, Timeout: 30, Addrs: []string{"localhost:20998"}})
-	go func() {
-		_ = http.ListenAndServe(":8848", nil)
-	}()
 	http_test()
 	//router := fasthttprouter.New()
 	//router.GET("/pubkey", func(ctx *fasthttp.RequestCtx) {

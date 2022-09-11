@@ -130,7 +130,7 @@ func (self *PublishManager) initQueue(data *MsgData) (*PublishMQ, error) {
 		data.Option.SigTyp = 1
 	}
 	if len(data.Option.SigKey) < 32 {
-		data.Option.SigKey = utils.GetLocalSecretKey() + self.conf.SecretKey
+		data.Option.SigKey = utils.AddStr(utils.GetLocalSecretKey(), self.conf.SecretKey)
 	}
 	if len(data.Nonce) == 0 {
 		data.Nonce = utils.RandStr(6)
@@ -242,7 +242,7 @@ func (self *PublishManager) PublishMsgData(data *MsgData) error {
 		return utils.Error("rabbitmq publish signature type invalid")
 	}
 	data.Content = content
-	data.Signature = utils.HMAC_SHA256(content+data.Nonce, sigKey, true)
+	data.Signature = utils.HMAC_SHA256(utils.AddStr(content, data.Nonce), sigKey, true)
 	data.Option.SigKey = ""
 	if _, err := pub.sendMessage(data); err != nil {
 		return err

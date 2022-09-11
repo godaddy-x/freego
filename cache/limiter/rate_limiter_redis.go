@@ -3,6 +3,7 @@ package rate
 import (
 	"github.com/garyburd/redigo/redis"
 	"github.com/godaddy-x/freego/cache"
+	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/zlog"
 	"time"
 )
@@ -50,7 +51,7 @@ type RedisRateLimiter struct {
 }
 
 func (self *RedisRateLimiter) key(resource string) string {
-	return limiterKey + resource
+	return utils.AddStr(limiterKey, resource)
 }
 
 func (self *RedisRateLimiter) Allow(resource string) bool {

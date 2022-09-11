@@ -121,7 +121,7 @@ func (self *PullManager) listen(receiver *PullReceiver) {
 		receiver.Config.Option.SigTyp = 1
 	}
 	if len(receiver.Config.Option.SigKey) < 32 {
-		receiver.Config.Option.SigKey = utils.GetLocalSecretKey() + self.conf.SecretKey
+		receiver.Config.Option.SigKey = utils.AddStr(utils.GetLocalSecretKey(), self.conf.SecretKey)
 	}
 	if len(kind) == 0 {
 		kind = direct
@@ -231,7 +231,7 @@ func (self *PullReceiver) OnReceive(b []byte) bool {
 		zlog.Error("rabbitmq consumption data is nil", 0, zlog.Any("option", self.Config.Option), zlog.Any("message", msg))
 		return true
 	}
-	if msg.Signature != utils.HMAC_SHA256(v+msg.Nonce, sigKey, true) {
+	if msg.Signature != utils.HMAC_SHA256(utils.AddStr(v, msg.Nonce), sigKey, true) {
 		zlog.Error("rabbitmq consumption data signature invalid", 0, zlog.Any("option", self.Config.Option), zlog.Any("message", msg))
 		return true
 	}

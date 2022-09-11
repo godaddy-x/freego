@@ -13,11 +13,11 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"github.com/godaddy-x/freego/utils/decimal"
 	"github.com/godaddy-x/freego/utils/snowflake"
 	"github.com/google/uuid"
+	jsonIterator "github.com/json-iterator/go"
 	"io/ioutil"
 	"log"
 	"math/rand"
@@ -39,6 +39,7 @@ var (
 	random_byte_sp         = Str2Bytes("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!@#$%^*+-_=")
 	local_secret_key       = createDefaultLocalSecretKey()
 	local_token_secret_key = createLocalTokenSecretKey()
+	json                   = jsonIterator.ConfigCompatibleWithStandardLibrary
 )
 
 const (

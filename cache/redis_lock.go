@@ -38,7 +38,7 @@ type Lock struct {
 }
 
 func (lock *Lock) key() string {
-	return lockKey + lock.resource
+	return utils.AddStr(lockKey, lock.resource)
 }
 
 func (lock *Lock) subscribeKey() string {
@@ -46,7 +46,7 @@ func (lock *Lock) subscribeKey() string {
 }
 
 func (lock *Lock) subscribeData() string {
-	return subscribeKey + lock.resource
+	return utils.AddStr(subscribeKey, lock.resource)
 }
 
 func (lock *Lock) tryLock() (ok bool, err error) {

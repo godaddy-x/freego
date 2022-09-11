@@ -114,17 +114,17 @@ func (self *Subject) Generate(config JwtConfig) string {
 	if err != nil {
 		return ""
 	}
-	part1 := header + "." + payload
+	part1 := utils.AddStr(header, ".", payload)
 	return part1 + "." + self.Signature(part1, config.TokenKey)
 }
 
 func (self *Subject) Signature(text, key string) string {
-	return utils.HMAC_SHA256(text, utils.GetLocalSecretKey()+key, true)
+	return utils.HMAC_SHA256(text, utils.AddStr(utils.GetLocalSecretKey(), key), true)
 }
 
 func (self *Subject) GetTokenSecret(token, secret string) string {
 	key := utils.GetLocalTokenSecretKey()
-	key2 := utils.HMAC_SHA256(utils.SHA256(token, true)+utils.MD5(utils.GetLocalSecretKey(), true), secret, true)
+	key2 := utils.HMAC_SHA256(utils.AddStr(utils.SHA256(token, true), utils.MD5(utils.GetLocalSecretKey()), true), secret, true)
 	return key2[0:15] + key[3:13] + key2[15:30] + key[10:20] + key2[30:]
 }
 
@@ -139,7 +139,7 @@ func (self *Subject) Verify(token, key string) error {
 	part0 := part[0]
 	part1 := part[1]
 	part2 := part[2]
-	if self.Signature(part0+"."+part1, key) != part2 {
+	if self.Signature(utils.AddStr(part0, ".", part1), key) != part2 {
 		return utils.Error("token signature invalid")
 	}
 	payload := &Payload{}
@@ -156,11 +156,11 @@ func (self *Subject) Verify(token, key string) error {
 func (self *Subject) GetTokenRole() []int64 {
 	ext := self.Payload.Ext
 	if ext == nil || len(ext) == 0 {
-		return make([]int64, 0)
+		return nil
 	}
 	val, ok := ext["rol"]
 	if !ok {
-		return make([]int64, 0)
+		return nil
 	}
 	spl := strings.Split(val, ",")
 	role := make([]int64, 0, len(spl))
