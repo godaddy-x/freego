@@ -23,7 +23,7 @@ require (
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0
 )
 
-replace github.com/shimingyah/pool v1.0.0 => github.com/godaddy-x/pool v1.0.5
+replace github.com/shimingyah/pool v1.0.0 => github.com/godaddy-x/pool v1.0.7
 
 require (
 	github.com/andybalholm/brotli v1.0.4 // indirect

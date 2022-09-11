@@ -30,7 +30,7 @@ var (
 	clientDialTLS   grpc.DialOption
 	jwtConfig       *jwt.JwtConfig
 	rateLimiterCall func(string) (rate.Option, error)
-	selectionCall   func([]*consulapi.ServiceEntry, *GRPC) *consulapi.ServiceEntry
+	selectionCall   func([]*consulapi.ServiceEntry, GRPC) *consulapi.ServiceEntry
 	appConfigCall   func(string) (AppConfig, error)
 	authorizeTLS    *gorsa.RsaObj
 	accessToken     = ""
@@ -68,14 +68,13 @@ type AppConfig struct {
 }
 
 type GRPC struct {
-	Ds          string                                                                // consul数据源ds
-	Tags        []string                                                              // 服务标签名称
-	Address     string                                                                // 服务地址,为空时自动填充内网IP
-	Service     string                                                                // 服务名称
-	CacheSecond int                                                                   // 服务缓存时间/秒
-	TimeoutMill int                                                                   // RPC请求超时/毫秒
-	AddRPC      func(server *grpc.Server)                                             // grpc注册proto服务
-	CallRPC     func(conn *grpc.ClientConn, ctx context.Context) (interface{}, error) // grpc回调proto服务
+	Ds          string                    // consul数据源ds
+	Tags        []string                  // 服务标签名称
+	Address     string                    // 服务地址,为空时自动填充内网IP
+	Service     string                    // 服务名称
+	CacheSecond int                       // 服务缓存时间/秒
+	Timeout     int                       // context timeout/毫秒
+	AddRPC      func(server *grpc.Server) // grpc注册proto服务
 }
 
 type AuthObject struct {
@@ -139,7 +138,7 @@ func (self *GRPCManager) CreateRateLimiterCall(fun func(method string) (rate.Opt
 	rateLimiterCall = fun
 }
 
-func (self *GRPCManager) CreateSelectionCall(fun func([]*consulapi.ServiceEntry, *GRPC) *consulapi.ServiceEntry) {
+func (self *GRPCManager) CreateSelectionCall(fun func([]*consulapi.ServiceEntry, GRPC) *consulapi.ServiceEntry) {
 	if selectionCall != nil {
 		return
 	}
@@ -403,56 +402,65 @@ func RunClient(config ClientConfig) {
 			clientPools[v] = clientPool
 		}
 	}
-	var loginRes *pb.AuthorizeRes
+	var err error
+	var expired int64
 	for {
-		res, err := CallRPC(&GRPC{
-			Service: "PubWorker",
-			CallRPC: func(conn *grpc.ClientConn, ctx context.Context) (interface{}, error) {
-				appConfig, err := GetGRPCAppConfig(config.Appid)
-				if err != nil {
-					return nil, err
-				}
-				if len(appConfig.Appkey) == 0 {
-					return nil, utils.Error("rpc appConfig key is nil")
-				}
-				authObject := &AuthObject{
-					Appid: config.Appid,
-					Nonce: utils.RandStr(16),
-					Time:  utils.TimeSecond(),
-				}
-				authObject.Signature = utils.HMAC_SHA256(utils.AddStr(authObject.Appid, authObject.Nonce, authObject.Time), appConfig.Appkey, true)
-				b64, err := utils.ToJsonBase64(authObject)
-				if err != nil {
-					return nil, err
-				}
-				// load public key
-				pub, err := pb.NewPubWorkerClient(conn).PublicKey(ctx, &pb.PublicKeyReq{})
-				if err != nil {
-					return nil, err
-				}
-				rsaObj := &gorsa.RsaObj{}
-				if err := rsaObj.LoadRsaPemFileBase64(pub.PublicKey); err != nil {
-					return nil, err
-				}
-				content, err := rsaObj.Encrypt(utils.Str2Bytes(b64))
-				if err != nil {
-					return nil, err
-				}
-				req := &pb.AuthorizeReq{
-					Message: content,
-				}
-				return pb.NewPubWorkerClient(conn).Authorize(ctx, req)
-			}})
+		accessToken, expired, err = callLogin(config)
 		if err != nil {
 			zlog.Error("rpc login failed", 0, zlog.AddError(err))
 			time.Sleep(5 * time.Second)
 			continue
 		}
-		loginRes, _ = res.(*pb.AuthorizeRes)
 		break
 	}
-	accessToken = loginRes.Token
-	go renewClientToken(config, loginRes.Expired)
+	go renewClientToken(config, expired)
+}
+
+func callLogin(config ClientConfig) (string, int64, error) {
+	appConfig, err := GetGRPCAppConfig(config.Appid)
+	if err != nil {
+		return "", 0, err
+	}
+	if len(appConfig.Appkey) == 0 {
+		return "", 0, utils.Error("rpc appConfig key is nil")
+	}
+	authObject := &AuthObject{
+		Appid: config.Appid,
+		Nonce: utils.RandStr(16),
+		Time:  utils.TimeSecond(),
+	}
+	authObject.Signature = utils.HMAC_SHA256(utils.AddStr(authObject.Appid, authObject.Nonce, authObject.Time), appConfig.Appkey, true)
+	b64, err := utils.ToJsonBase64(authObject)
+	if err != nil {
+		return "", 0, err
+	}
+	conn, err := NewClientConn(GRPC{Service: "PubWorker"})
+	if err != nil {
+		return "", 0, err
+	}
+	defer conn.Close()
+	conn.NewContext(60000 * time.Millisecond)
+	// load public key
+	pub, err := pb.NewPubWorkerClient(conn.Value()).PublicKey(conn.Context(), &pb.PublicKeyReq{})
+	if err != nil {
+		return "", 0, err
+	}
+	rsaObj := &gorsa.RsaObj{}
+	if err := rsaObj.LoadRsaPemFileBase64(pub.PublicKey); err != nil {
+		return "", 0, err
+	}
+	content, err := rsaObj.Encrypt(utils.Str2Bytes(b64))
+	if err != nil {
+		return "", 0, err
+	}
+	req := &pb.AuthorizeReq{
+		Message: content,
+	}
+	res, err := pb.NewPubWorkerClient(conn.Value()).Authorize(conn.Context(), req)
+	if err != nil {
+		return "", 0, err
+	}
+	return res.Token, res.Expired, nil
 }
 
 func renewClientToken(config ClientConfig, expired int64) {
@@ -468,14 +476,15 @@ func renewClientToken(config ClientConfig, expired int64) {
 	}
 }
 
-func CallRPC(object *GRPC) (interface{}, error) {
+func NewClientConn(object GRPC) (pool.Conn, error) {
 	if len(object.Service) == 0 || len(object.Service) > 100 {
 		return nil, utils.Error("call service invalid")
 	}
-	if object.TimeoutMill <= 0 {
-		object.TimeoutMill = 60000
-	}
 	var tag string
+	var timeout int
+	if object.Timeout <= 0 {
+		timeout = 60000
+	}
 	if len(object.Tags) > 0 {
 		tag = object.Tags[0]
 	}
@@ -498,19 +507,19 @@ func CallRPC(object *GRPC) (interface{}, error) {
 	} else {
 		service = selectionCall(services, object).Service
 	}
-	clientPool, b := clientPools[utils.AddStr(service.Address, ":", service.Port)]
+	host := utils.AddStr(service.Address, ":", service.Port)
+	clientPool, b := clientPools[host]
 	if !b || clientPool == nil {
-		return nil, utils.Error("client pool is nil: ", utils.AddStr(service.Address, ":", service.Port))
+		return nil, utils.Error("client pool is nil: ", host)
 	}
 	conn, err := clientPool.Get()
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(object.TimeoutMill)*time.Millisecond)
-	defer cancel()
-	res, err := object.CallRPC(conn.Value(), ctx)
-	if err := conn.Close(); err != nil {
-		zlog.Error("rpc connection close failed", 0, zlog.AddError(err))
-	}
-	return res, err
+	conn.NewContext(time.Duration(timeout) * time.Millisecond)
+	return conn, nil
+}
+
+func NewContext(exp int) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), time.Duration(exp)*time.Millisecond)
 }

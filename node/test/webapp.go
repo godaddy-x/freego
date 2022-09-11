@@ -1,7 +1,6 @@
 package http_web
 
 import (
-	"context"
 	"fmt"
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/cache/limiter"
@@ -11,7 +10,6 @@ import (
 	"github.com/godaddy-x/freego/node/common"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/jwt"
-	"google.golang.org/grpc"
 )
 
 type MyWebNode struct {
@@ -43,17 +41,18 @@ func (self *MyWebNode) getUser(ctx *node.Context) error {
 }
 
 func testCallRPC() {
-	_, err := grpcx.CallRPC(&grpcx.GRPC{
-		Service:     "PubWorker",
-		CacheSecond: 30,
-		CallRPC: func(conn *grpc.ClientConn, ctx context.Context) (interface{}, error) {
-			return pb.NewPubWorkerClient(conn).GenerateId(ctx, &pb.GenerateIdReq{})
-		}})
+	conn, err := grpcx.NewClientConn(grpcx.GRPC{Service: "PubWorker"})
 	if err != nil {
 		fmt.Println(err)
-	} else {
-		//fmt.Println("grpc:", res)
+		return
 	}
+	defer conn.Close()
+	_, err = pb.NewPubWorkerClient(conn.Value()).GenerateId(conn.Context(), &pb.GenerateIdReq{})
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	//fmt.Println("call rpc:", res)
 }
 
 func (self *MyWebNode) login(ctx *node.Context) error {
