@@ -310,3 +310,63 @@ func TestMysqlFind(t *testing.T) {
 }
 ```
 
+#### 5. Create simple Consul&GRPC demo
+
+```
+func init() {
+	client := &grpcx.GRPCManager{}
+	client.CreateJwtConfig(APPKEY)
+	client.CreateAppConfigCall(func(appid string) (grpcx.AppConfig, error) {
+		if appid == APPKEY {
+			return grpcx.AppConfig{Appid: APPID, Appkey: APPKEY}, nil
+		}
+		return grpcx.AppConfig{}, utils.Error("appid invalid")
+	})
+	client.CreateRateLimiterCall(func(method string) (rate.Option, error) {
+		return rate.Option{}, nil
+	})
+	client.CreateServerTLS(grpcx.TlsConfig{
+		UseMTLS:   true,
+		CACrtFile: "./consul/grpcx/cert/ca.crt",
+		KeyFile:   "./consul/grpcx/cert/server.key",
+		CrtFile:   "./consul/grpcx/cert/server.crt",
+	})
+	client.CreateClientTLS(grpcx.TlsConfig{
+		UseMTLS:   true,
+		CACrtFile: "./consul/grpcx/cert/ca.crt",
+		KeyFile:   "./consul/grpcx/cert/client.key",
+		CrtFile:   "./consul/grpcx/cert/client.crt",
+		HostName:  "localhost",
+	})
+	client.CreateAuthorizeTLS("./consul/grpcx/cert/server.key")
+}
+
+// grpc server
+func TestConsulxGRPCServer(t *testing.T) {
+	objects := []*grpcx.GRPC{
+		{
+			Address: "localhost",
+			Service: "PubWorker",
+			Tags:    []string{"ID Generator"},
+			AddRPC:  func(server *grpc.Server) { pb.RegisterPubWorkerServer(server, &impl.PubWorker{}) },
+		},
+	}
+	grpcx.RunServer("", true, objects...)
+}
+
+// grpc client
+func TestConsulxGRPCClient(t *testing.T) {
+	grpcx.RunClient(grpcx.ClientConfig{Appid: APPID, Timeout: 30, Addrs: []string{addr}})
+	conn, err := grpcx.NewClientConn(grpcx.GRPC{Service: "PubWorker", Cache: 30})
+	if err != nil {
+		panic(err)
+	}
+	defer conn.Close()
+	res, err := pb.NewPubWorkerClient(conn.Value()).GenerateId(conn.Context(), &pb.GenerateIdReq{})
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("call rpc:", res)
+}
+```
+

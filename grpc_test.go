@@ -30,7 +30,7 @@ func TestConsulxRunGRPCServer(t *testing.T) {
 
 func TestConsulxCallGRPC_GenID(t *testing.T) {
 	grpcx.RunClient(grpcx.ClientConfig{Appid: APPID, Timeout: 30, Addrs: []string{addr}})
-	conn, err := grpcx.NewClientConn(grpcx.GRPC{Service: "PubWorker"})
+	conn, err := grpcx.NewClientConn(grpcx.GRPC{Service: "PubWorker", Cache: 30})
 	if err != nil {
 		panic(err)
 	}
