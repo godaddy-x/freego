@@ -17,7 +17,6 @@ import (
 	"github.com/godaddy-x/freego/utils/decimal"
 	"github.com/godaddy-x/freego/utils/snowflake"
 	"github.com/google/uuid"
-	jsonIterator "github.com/json-iterator/go"
 	"io/ioutil"
 	"log"
 	"math/rand"
@@ -39,7 +38,6 @@ var (
 	random_byte_sp         = Str2Bytes("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!@#$%^*+-_=")
 	local_secret_key       = createDefaultLocalSecretKey()
 	local_token_secret_key = createLocalTokenSecretKey()
-	json                   = jsonIterator.ConfigCompatibleWithStandardLibrary
 )
 
 const (
@@ -86,24 +84,6 @@ func CreateLocalSecretKey(arr ...int) string {
 		result = append(result, random_byte_sp[v])
 	}
 	return Bytes2Str(result)
-}
-
-// 对象转JSON字符串
-func JsonMarshal(v interface{}) ([]byte, error) {
-	if v == nil {
-		return nil, errors.New("data is nil")
-	}
-	return json.Marshal(v)
-}
-
-// JSON字符串转对象
-func JsonUnmarshal(data []byte, v interface{}) error {
-	if data == nil || len(data) == 0 {
-		return nil
-	}
-	d := json.NewDecoder(bytes.NewBuffer(data))
-	d.UseNumber()
-	return d.Decode(v)
 }
 
 // 对象转对象

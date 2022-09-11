@@ -39,14 +39,14 @@ type Header struct {
 }
 
 type Payload struct {
-	Sub string            `json:"sub"` // 用户主体
-	Aud string            `json:"aud"` // 接收token主体
-	Iss string            `json:"iss"` // 签发token主体
-	Iat int64             `json:"iat"` // 授权token时间1
-	Exp int64             `json:"exp"` // 授权token过期时间
-	Dev string            `json:"dev"` // 设备类型,web/app
-	Jti string            `json:"jti"` // 唯一身份标识,主要用来作为一次性token,从而回避重放攻击
-	Ext map[string]string `json:"ext"` // 扩展信息
+	Sub string `json:"sub"` // 用户主体
+	Aud string `json:"aud"` // 接收token主体
+	Iss string `json:"iss"` // 签发token主体
+	Iat int64  `json:"iat"` // 授权token时间1
+	Exp int64  `json:"exp"` // 授权token过期时间
+	Dev string `json:"dev"` // 设备类型,web/app
+	Jti string `json:"jti"` // 唯一身份标识,主要用来作为一次性token,从而回避重放攻击
+	Ext string `json:"ext"` // 扩展信息
 }
 
 func (self *Subject) AddHeader(config JwtConfig) *Subject {
@@ -59,7 +59,6 @@ func (self *Subject) Create(sub string) *Subject {
 		Sub: sub,
 		Exp: utils.TimeSecond() + TWO_WEEK,
 		Jti: utils.MD5(utils.GetUUID(), true),
-		Ext: map[string]string{},
 	}
 	return self
 }
@@ -97,13 +96,6 @@ func (self *Subject) Aud(aud string) *Subject {
 	return self
 }
 
-func (self *Subject) Extinfo(key, value string) *Subject {
-	if len(key) > 0 && len(value) > 0 {
-		self.Payload.Ext[key] = value
-	}
-	return self
-}
-
 func (self *Subject) Generate(config JwtConfig) string {
 	self.AddHeader(config)
 	header, err := utils.ToJsonBase64(self.Header)
@@ -128,7 +120,7 @@ func (self *Subject) GetTokenSecret(token, secret string) string {
 	return key2[0:15] + key[3:13] + key2[15:30] + key[10:20] + key2[30:]
 }
 
-func (self *Subject) Verify(token, key string) error {
+func (self *Subject) Verify(token, key string, decode bool) error {
 	if len(token) == 0 {
 		return utils.Error("token is nil")
 	}
@@ -142,38 +134,27 @@ func (self *Subject) Verify(token, key string) error {
 	if self.Signature(utils.AddStr(part0, ".", part1), key) != part2 {
 		return utils.Error("token signature invalid")
 	}
-	payload := &Payload{}
-	if err := utils.ParseJsonBase64(part1, payload); err != nil {
-		return err
+	b64 := utils.Base64URLDecode(part1)
+	if b64 == nil || len(b64) == 0 {
+		return utils.Error("token part base64 data decode failed")
 	}
-	if payload.Exp <= utils.TimeSecond() {
+	if utils.GetJsonInt(b64, "exp") <= utils.TimeSecond() {
 		return utils.Error("token expired or invalid")
 	}
-	self.Payload = payload
-	return nil
-}
-
-func (self *Subject) GetTokenRole() []int64 {
-	ext := self.Payload.Ext
-	if ext == nil || len(ext) == 0 {
-		return nil
-	}
-	val, ok := ext["rol"]
-	if !ok {
-		return nil
-	}
-	spl := strings.Split(val, ",")
-	role := make([]int64, 0, len(spl))
-	for _, v := range spl {
-		if len(v) > 0 {
-			x, err := utils.StrToInt64(v)
-			if err != nil {
-				continue
+	if decode {
+		//payload := &Payload{}
+		//if err := utils.ParseJsonBase64(part1, payload); err != nil {
+		//	return err
+		//}
+		//self.Payload = payload
+		if decode {
+			self.Payload = &Payload{
+				Sub: utils.GetJsonString(b64, "sub"),
+				Ext: utils.GetJsonString(b64, "ext"),
 			}
-			role = append(role, x)
 		}
 	}
-	return role
+	return nil
 }
 
 // 获取token的私钥

@@ -212,10 +212,16 @@ func (self *Context) readParams() error {
 	if len(body) > (MAX_VALUE_LEN * 5) {
 		return ex.Throw{Code: http.StatusLengthRequired, Msg: "body parameters length is too long"}
 	}
-	req := &JsonBody{}
-	if err := utils.JsonUnmarshal(body, req); err != nil {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters JSON parsing failed", Err: err}
+	req := &JsonBody{
+		Data:  utils.GetJsonString(body, "d"),
+		Time:  utils.GetJsonInt(body, "t"),
+		Nonce: utils.GetJsonString(body, "n"),
+		Plan:  utils.GetJsonInt(body, "p"),
+		Sign:  utils.GetJsonString(body, "s"),
 	}
+	//if err := utils.JsonUnmarshal(body, req); err != nil {
+	//	return ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters JSON parsing failed", Err: err}
+	//}
 	if err := self.validJsonBody(req); err != nil { // TODO important
 		return err
 	}

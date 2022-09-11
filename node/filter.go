@@ -141,7 +141,7 @@ func (self *SessionFilter) DoFilter(chain Filter, ctx *Context, args ...interfac
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "AccessToken is nil"}
 	}
 	subject := &jwt.Subject{}
-	if err := subject.Verify(ctx.Token, ctx.GetJwtConfig().TokenKey); err != nil {
+	if err := subject.Verify(ctx.Token, ctx.GetJwtConfig().TokenKey, true); err != nil {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "AccessToken is invalid or expired", Err: err}
 	}
 	ctx.Subject = subject.Payload

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"github.com/godaddy-x/freego/node"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/gorsa"
@@ -14,8 +13,8 @@ import (
 
 const domain = "http://localhost:8090"
 
-const access_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxNTY3MDEzODI3NDkxMzk3NjMzIiwiYXVkIjoiIiwiaXNzIjoiIiwiaWF0IjowLCJleHAiOjE2NjM2NDk3ODQsImRldiI6IkFQUCIsImp0aSI6Img0YWplQVlSMXFFZlRLVjQyNVFVR3c9PSIsImV4dCI6e319.7xTHZFW0rE5fNO+COJh2N8iUcWS/0FDZWgUuX2JCLZQ="
-const token_secret = "eXgL3uQw62UGEjeHy*kT^j#lKah2rQGIofcknEKz#lK!ZC@diQrWHDX0wxio2Nc="
+const access_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxNTY5MTAzNzEzMzA0MzEzODU3IiwiYXVkIjoiIiwiaXNzIjoiIiwiaWF0IjowLCJleHAiOjE2NjQxNDgwNTIsImRldiI6IkFQUCIsImp0aSI6IkpWd0FkOXJLUHo0dXBhWnVOMmx2VkE9PSIsImV4dCI6IiJ9.lasAJWo1Z+wTpGhlZvCgUmWuVlmYclkwKkoZwCiQRUs="
+const token_secret = "K4juPXhv9hMN5fSHy*kT^j#lKBDg43cWEx3idkQO#lK!ZC@diQ3CIESnhevjMHk="
 
 //const access_token = ""
 //const token_secret = ""
@@ -40,7 +39,7 @@ func initSrvPubkey() string {
 }
 
 func output(a ...interface{}) {
-	fmt.Println(a...)
+	//fmt.Println(a...)
 }
 
 // 测试使用的http post示例方法

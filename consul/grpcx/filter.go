@@ -71,7 +71,7 @@ func (self *GRPCManager) checkToken(ctx context.Context, method string) error {
 		return errors.New("rpc context jwt is nil")
 	}
 	subject := &jwt.Subject{}
-	if err := subject.Verify(token[0], jwtConfig.TokenKey); err != nil {
+	if err := subject.Verify(token[0], jwtConfig.TokenKey, false); err != nil {
 		return err
 	}
 	return nil
