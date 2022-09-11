@@ -59,7 +59,7 @@ func initGRPC() {
 		CrtFile:   "./consul/grpcx/cert/client.crt",
 		HostName:  "localhost",
 	})
-	//client.CreateAuthorizeTLS("./consul/grpcx/cert/server.key")
+	client.CreateAuthorizeTLS("./consul/grpcx/cert/server.key")
 }
 
 func init() {
@@ -74,7 +74,6 @@ func main() {
 		_ = http.ListenAndServe(":8848", nil)
 	}()
 	http_test()
-
 	//router := fasthttprouter.New()
 	//router.GET("/pubkey", func(ctx *fasthttp.RequestCtx) {
 	//	ctx.WriteString("LS0tLS1CRUdJTiBSU0EgUFVCTElDSyBLRVktLS0tLQpNSUdKQW9HQkFMK2hpYkw5S3hpb2JNOVRPbmx6cXN0WnhPSy9rU2JQQzMzSmpoVTdjbklUbXlRaThuaXZiUG5wCncwOUo5N0p4aDdxY0tOWVhpakxRdTZxei9xUFNXZ0pYaU9qOWhoc2E0bEdlNVVkRkJtaFpxZ2V3R1J6ckJJNEkKRFNqZk1xcDNCM3puV1h1VnBaSFZNYStJOFBDc1A5dEd3dzdPS2hzRFI0bmp3L3Z2UXdERkFnTUJBQUU9Ci0tLS0tRU5EIFJTQSBQVUJMSUNLIEtFWS0tLS0tCg==")

@@ -13,6 +13,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"net"
 	"testing"
+	"time"
 )
 
 func TestConsulxRunGRPCServer(t *testing.T) {
@@ -28,15 +29,13 @@ func TestConsulxRunGRPCServer(t *testing.T) {
 }
 
 func TestConsulxCallGRPC_GenID(t *testing.T) {
-	grpcx.RunClient(grpcx.ClientConfig{Appid: APPID, Timeout: 30, Addrs: []string{"localhost:20998"}})
+	grpcx.RunClient(grpcx.ClientConfig{Appid: APPID, Timeout: 30, Addrs: []string{addr}})
 	conn, err := grpcx.NewClientConn(grpcx.GRPC{Service: "PubWorker"})
 	if err != nil {
 		panic(err)
 	}
 	defer conn.Close()
-	ctx, cancel := grpcx.NewContext(5000)
-	defer cancel()
-	res, err := pb.NewPubWorkerClient(conn.Value()).GenerateId(ctx, &pb.GenerateIdReq{})
+	res, err := pb.NewPubWorkerClient(conn.Value()).GenerateId(conn.Context(), &pb.GenerateIdReq{})
 	if err != nil {
 		panic(err)
 	}
@@ -75,13 +74,14 @@ func TestGRPCServer(t *testing.T) {
 	}
 }
 
+var addr = "localhost:20998"
 var conn *grpc.ClientConn
 
 func init() {
-	conn, _ = grpc.Dial("localhost:8889", grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, _ = grpc.Dial(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 }
 
-const accessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJlMTBhZGMzOTQ5YmE1OWFiYmU1NmUwNTdmMjBmODgzZSIsImF1ZCI6IiIsImlzcyI6IiIsImlhdCI6MCwiZXhwIjoxNjYyNjIxMTk0LCJkZXYiOiJHUlBDIiwianRpIjoiaTRkS1FaQ25zejJZd0JSbVFkUHRnUT09IiwiZXh0Ijp7fX0=.wqWOml4WecF2f5U1eaxzv/wYmIwFG5JZGk6nVW/sWIQ="
+const accessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJlMTBhZGMzOTQ5YmE1OWFiYmU1NmUwNTdmMjBmODgzZSIsImF1ZCI6IiIsImlzcyI6IiIsImlhdCI6MCwiZXhwIjoxNjYyODc0NjkzLCJkZXYiOiJHUlBDIiwianRpIjoiYUR1SVZrRkFDa2s4VXJYdi8rWXV1Zz09IiwiZXh0Ijp7fX0=.PYV47/cGBq9kdGskPtndSGiVx3sQxEyna9aX3YXc33U="
 
 func TestGRPCClient(t *testing.T) {
 	fmt.Println(conn.Target())
@@ -100,14 +100,15 @@ func BenchmarkGRPCClient(b *testing.B) {
 	b.StopTimer()
 	b.StartTimer()
 	for i := 0; i < b.N; i++ { //use b.N for looping
-		ctx := context.Background()
-		//md := metadata.New(map[string]string{"token": accessToken})
-		//ctx = metadata.NewOutgoingContext(ctx, md)
+		ctx, cancel := context.WithTimeout(context.Background(), 60000*time.Millisecond)
+		md := metadata.New(map[string]string{"token": accessToken})
+		ctx = metadata.NewOutgoingContext(ctx, md)
 		client := pb.NewPubWorkerClient(conn)
 		_, err := client.GenerateId(ctx, &pb.GenerateIdReq{})
 		if err != nil {
 			panic(err)
 		}
+		cancel()
 		//fmt.Println(r)
 	}
 }

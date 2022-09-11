@@ -213,12 +213,12 @@ func (self *ConsulManager) GetCacheService(service, tag string, cacheSecond int)
 	if cacheSecond <= 0 {
 		return self.GetHealthService(service, tag)
 	}
-	obj, has, err := localCache.Get("consul.grpc."+service+"."+tag, nil)
+	cvl, has, err := localCache.Get("consul.grpc."+service+"."+tag, nil)
 	if err != nil {
 		return nil, err
 	}
-	if has && obj != nil {
-		return obj.([]*consulapi.ServiceEntry), nil
+	if has && cvl != nil {
+		return cvl.([]*consulapi.ServiceEntry), nil
 	}
 	serviceEntry, err := self.GetHealthService(service, tag)
 	if err != nil {

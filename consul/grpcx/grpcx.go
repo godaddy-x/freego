@@ -1,7 +1,6 @@
 package grpcx
 
 import (
-	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
@@ -68,13 +67,13 @@ type AppConfig struct {
 }
 
 type GRPC struct {
-	Ds          string                    // consul数据源ds
-	Tags        []string                  // 服务标签名称
-	Address     string                    // 服务地址,为空时自动填充内网IP
-	Service     string                    // 服务名称
-	CacheSecond int                       // 服务缓存时间/秒
-	Timeout     int                       // context timeout/毫秒
-	AddRPC      func(server *grpc.Server) // grpc注册proto服务
+	Ds      string                    // consul数据源ds
+	Tags    []string                  // 服务标签名称
+	Address string                    // 服务地址,为空时自动填充内网IP
+	Service string                    // 服务名称
+	Cache   int                       // 服务缓存时间/秒
+	Timeout int                       // context timeout/毫秒
+	AddRPC  func(server *grpc.Server) // grpc注册proto服务
 }
 
 type AuthObject struct {
@@ -438,8 +437,8 @@ func callLogin(config ClientConfig) (string, int64, error) {
 	if err != nil {
 		return "", 0, err
 	}
-	defer conn.Close()
 	conn.NewContext(60000 * time.Millisecond)
+	defer conn.Close()
 	// load public key
 	pub, err := pb.NewPubWorkerClient(conn.Value()).PublicKey(conn.Context(), &pb.PublicKeyReq{})
 	if err != nil {
@@ -492,7 +491,7 @@ func NewClientConn(object GRPC) (pool.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	services, err := c.GetCacheService(object.Service, tag, object.CacheSecond)
+	services, err := c.GetCacheService(object.Service, tag, object.Cache)
 	if err != nil {
 		return nil, utils.Error("query service [", object.Service, "] failed: ", err)
 	}
@@ -518,8 +517,4 @@ func NewClientConn(object GRPC) (pool.Conn, error) {
 	}
 	conn.NewContext(time.Duration(timeout) * time.Millisecond)
 	return conn, nil
-}
-
-func NewContext(exp int) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.Background(), time.Duration(exp)*time.Millisecond)
 }
