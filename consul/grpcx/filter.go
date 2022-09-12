@@ -113,7 +113,7 @@ func (self *GRPCManager) ClientInterceptor(ctx context.Context, method string, r
 		return err
 	}
 	cost := utils.Time() - start
-	if self.consul.Config.SlowQuery > 0 && cost > self.consul.Config.SlowQuery {
+	if self.consul != nil && self.consul.Config.SlowQuery > 0 && cost > self.consul.Config.SlowQuery {
 		l := self.consul.GetSlowLog()
 		if l != nil {
 			l.Warn("grpc call slow query", zlog.Int64("cost", cost), zlog.Any("service", method))

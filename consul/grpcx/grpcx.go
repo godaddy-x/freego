@@ -21,6 +21,7 @@ import (
 	"math/rand"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -34,19 +35,18 @@ var (
 	authorizeTLS    *gorsa.RsaObj
 	accessToken     = ""
 	clientOptions   []grpc.DialOption
-	clientPools     = make(map[string]pool.Pool, 0)
+	clientConnPools = ClientConnPool{pools: make(map[string]pool.Pool, 0)}
 )
+
+type ClientConnPool struct {
+	mu    sync.Mutex
+	pools map[string]pool.Pool
+}
 
 type GRPCManager struct {
 	consul       *consul.ConsulManager
 	consulDs     string
 	authenticate bool
-}
-
-type ClientConfig struct {
-	Appid   string
-	Addrs   []string
-	Timeout int
 }
 
 type TlsConfig struct {
@@ -359,15 +359,9 @@ func RunServer(consulDs string, authenticate bool, objects ...*GRPC) {
 // RunClient Important: ensure that the service starts only once
 // JWT Token expires in 1 hour
 // The remaining 1200s will be automatically renewed and detected every 15s
-func RunClient(config ClientConfig) {
-	if len(config.Appid) == 0 {
+func RunClient(appid string) {
+	if len(appid) == 0 {
 		panic("appid is nil")
-	}
-	if config.Timeout <= 0 {
-		panic("timeout invalid")
-	}
-	if len(config.Addrs) == 0 {
-		panic("addrs is nil")
 	}
 	if len(clientOptions) == 0 {
 		c, err := consul.NewConsul()
@@ -390,21 +384,11 @@ func RunClient(config ClientConfig) {
 		} else {
 			clientOptions = append(clientOptions, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		}
-		if len(config.Addrs) == 0 {
-			panic("client addrs is nil")
-		}
-		for _, v := range config.Addrs {
-			clientPool, err := pool.NewPool(pool.DefaultOptions, v, config.Timeout, clientOptions)
-			if err != nil {
-				panic(err)
-			}
-			clientPools[v] = clientPool
-		}
 	}
 	var err error
 	var expired int64
 	for {
-		accessToken, expired, err = callLogin(config)
+		accessToken, expired, err = callLogin(appid)
 		if err != nil {
 			zlog.Error("rpc login failed", 0, zlog.AddError(err))
 			time.Sleep(5 * time.Second)
@@ -412,11 +396,11 @@ func RunClient(config ClientConfig) {
 		}
 		break
 	}
-	go renewClientToken(config, expired)
+	go renewClientToken(appid, expired)
 }
 
-func callLogin(config ClientConfig) (string, int64, error) {
-	appConfig, err := GetGRPCAppConfig(config.Appid)
+func callLogin(appid string) (string, int64, error) {
+	appConfig, err := GetGRPCAppConfig(appid)
 	if err != nil {
 		return "", 0, err
 	}
@@ -424,7 +408,7 @@ func callLogin(config ClientConfig) (string, int64, error) {
 		return "", 0, utils.Error("rpc appConfig key is nil")
 	}
 	authObject := &AuthObject{
-		Appid: config.Appid,
+		Appid: appid,
 		Nonce: utils.RandStr(16),
 		Time:  utils.TimeSecond(),
 	}
@@ -462,14 +446,14 @@ func callLogin(config ClientConfig) (string, int64, error) {
 	return res.Token, res.Expired, nil
 }
 
-func renewClientToken(config ClientConfig, expired int64) {
+func renewClientToken(appid string, expired int64) {
 	for {
 		//zlog.Warn("detecting rpc token expiration", 0, zlog.Int64("countDown", expired-utils.TimeSecond()-timeDifference))
 		if expired-utils.TimeSecond() > timeDifference { // TODO token过期时间大于2400s则忽略,每15s检测一次
 			time.Sleep(15 * time.Second)
 			continue
 		}
-		RunClient(config)
+		RunClient(appid)
 		zlog.Info("rpc token renewal succeeded", 0)
 		return
 	}
@@ -506,15 +490,43 @@ func NewClientConn(object GRPC) (pool.Conn, error) {
 	} else {
 		service = selectionCall(services, object).Service
 	}
-	host := utils.AddStr(service.Address, ":", service.Port)
-	clientPool, b := clientPools[host]
-	if !b || clientPool == nil {
-		return nil, utils.Error("client pool is nil: ", host)
+	return clientConnPools.getClientConn(utils.AddStr(service.Address, ":", service.Port), timeout)
+}
+
+func (self *ClientConnPool) getClientConn(host string, timeout int) (pool.Conn, error) {
+	conn, err := self.readyClientConn(host, timeout)
+	if err != nil {
+		return nil, err
 	}
-	conn, err := clientPool.Get()
+	if conn != nil {
+		return conn, nil
+	}
+	return self.readyPool(host, timeout)
+}
+
+func (self *ClientConnPool) readyClientConn(host string, timeout int) (pool.Conn, error) {
+	p, b := self.pools[host]
+	if !b || p == nil {
+		return nil, nil
+	}
+	conn, err := p.Get()
 	if err != nil {
 		return nil, err
 	}
 	conn.NewContext(time.Duration(timeout) * time.Millisecond)
 	return conn, nil
+}
+
+func (self *ClientConnPool) readyPool(host string, timeout int) (pool.Conn, error) {
+	self.mu.Lock()
+	defer self.mu.Unlock()
+	if conn, err := self.readyClientConn(host, timeout); err == nil && conn != nil {
+		return conn, nil
+	}
+	pool, err := pool.NewPool(pool.DefaultOptions, host, 10, clientOptions)
+	if err != nil {
+		return nil, err
+	}
+	self.pools[host] = pool
+	return self.readyClientConn(host, timeout)
 }

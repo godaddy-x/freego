@@ -356,7 +356,7 @@ func TestConsulxGRPCServer(t *testing.T) {
 
 // grpc client
 func TestConsulxGRPCClient(t *testing.T) {
-	grpcx.RunClient(grpcx.ClientConfig{Appid: APPID, Timeout: 30, Addrs: []string{addr}})
+	grpcx.RunClient(APPID)
 	conn, err := grpcx.NewClientConn(grpcx.GRPC{Service: "PubWorker", Cache: 30})
 	if err != nil {
 		panic(err)
@@ -366,7 +366,27 @@ func TestConsulxGRPCClient(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println("call rpc:", res)
+	fmt.Println("call result: ", res)
 }
+
+// grpc client benchmark test
+func BenchmarkGRPCClient(b *testing.B) {
+	grpcx.RunClient(APPID)
+	b.StopTimer()
+	b.StartTimer()
+	for i := 0; i < b.N; i++ { //use b.N for looping
+		conn, err := grpcx.NewClientConn(grpcx.GRPC{Service: "PubWorker", Cache: 30})
+		if err != nil {
+			return
+		}
+		_, err = pb.NewPubWorkerClient(conn.Value()).GenerateId(conn.Context(), &pb.GenerateIdReq{})
+		if err != nil {
+			return
+		}
+		conn.Close()
+	}
+}
+
+BenchmarkGRPCClient-40              11070            212487 ns/op
 ```
 
