@@ -47,6 +47,7 @@ func ToPostBy(path string, req *node.JsonBody) {
 	if len(srvPubkeyBase64) == 0 {
 		srvPubkeyBase64 = initSrvPubkey()
 	}
+	var randomCode string
 	if req.Plan == 0 {
 		d := utils.Base64URLEncode(req.Data.([]byte))
 		req.Data = d
@@ -59,16 +60,22 @@ func ToPostBy(path string, req *node.JsonBody) {
 		req.Data = d
 		output("AES加密数据: ", req.Data)
 	} else if req.Plan == 2 {
+		output("RSA加密原文: ", pubkey)
 		newRsa := &gorsa.RsaObj{}
 		if err := newRsa.LoadRsaPemFileBase64(srvPubkeyBase64); err != nil {
 			panic(err)
 		}
-		rsaData, err := newRsa.Encrypt(req.Data.([]byte))
+		rsaData, err := newRsa.Encrypt(utils.Str2Bytes(pubkey))
 		if err != nil {
 			panic(err)
 		}
-		req.Data = rsaData
-		output("RSA加密数据: ", req.Data)
+		randomCode = rsaData
+		output("RSA加密数据: ", randomCode)
+		d, err := utils.AesEncrypt(req.Data.([]byte), pubkey, pubkey)
+		if err != nil {
+			panic(err)
+		}
+		req.Data = d
 	}
 	secret := token_secret
 	if req.Plan == 2 {
@@ -86,6 +93,7 @@ func ToPostBy(path string, req *node.JsonBody) {
 	reqcli := fasthttp.AcquireRequest()
 	reqcli.Header.SetContentType("application/json;charset=UTF-8")
 	reqcli.Header.Set("Authorization", access_token)
+	reqcli.Header.Set("RandomCode", randomCode)
 	reqcli.Header.SetMethod("POST")
 	reqcli.SetRequestURI(domain + path)
 	reqcli.SetBody(bytesData)
@@ -143,7 +151,7 @@ func ToPostBy(path string, req *node.JsonBody) {
 }
 
 func TestRSALogin(t *testing.T) {
-	data, _ := utils.JsonMarshal(map[string]string{"username": "1234567890123456", "password": "1234567890123456", "pubkey": pubkey})
+	data, _ := utils.JsonMarshal(map[string]string{"username": "1234567890123456", "password": "1234567890123456"})
 	path := "/login"
 	req := &node.JsonBody{
 		Data:  data,
@@ -174,7 +182,7 @@ func BenchmarkRSALogin(b *testing.B) {
 	b.StopTimer()
 	b.StartTimer()
 	for i := 0; i < b.N; i++ { //use b.N for looping
-		data, _ := utils.JsonMarshal(map[string]string{"username": "1234567890123456", "password": "1234567890123456", "pubkey": pubkey})
+		data, _ := utils.JsonMarshal(map[string]string{"username": "1234567890123456", "password": "1234567890123456"})
 		path := "/login"
 		req := &node.JsonBody{
 			Data:  data,

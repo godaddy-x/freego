@@ -89,7 +89,7 @@ func (self *HttpNode) checkReady(path string, routerConfig *RouterConfig) {
 	}
 	if self.Context.ServerTLS == nil {
 		tls := &gorsa.RsaObj{}
-		if err := tls.CreateRsa1024(); err != nil {
+		if err := tls.CreateRsa2048(); err != nil {
 			panic("RSA certificate generation failed")
 		}
 		self.Context.ServerTLS = tls
@@ -256,9 +256,9 @@ func defaultRenderPre(ctx *Context) error {
 		}
 		var key string
 		if routerConfig.Login {
-			v := ctx.GetStorage(CLIENT_PUBKEY)
+			v := ctx.GetStorage(RandomCode)
 			if v == nil {
-				return ex.Throw{Msg: "encryption pubkey is nil"}
+				return ex.Throw{Msg: "encryption random code is nil"}
 			}
 			key, _ = v.(string)
 			data, err := utils.AesEncrypt(data, key, key)
@@ -267,6 +267,7 @@ func defaultRenderPre(ctx *Context) error {
 			}
 			resp.Data = data
 			resp.Plan = 2
+			ctx.DelStorage(RandomCode)
 		} else if routerConfig.AesResponse {
 			data, err := utils.AesEncrypt(data, ctx.GetTokenSecret(), utils.AddStr(resp.Nonce, resp.Time))
 			if err != nil {

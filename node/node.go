@@ -35,7 +35,7 @@ const (
 	MAX_VALUE_LEN = 4000 // 最大参数值长度
 
 	Authorization = "Authorization"
-	CLIENT_PUBKEY = "pubkey"
+	RandomCode    = "RandomCode"
 )
 
 var (
@@ -156,6 +156,13 @@ func (self *Context) GetStorage(k string) interface{} {
 	return v
 }
 
+func (self *Context) DelStorage(k string) {
+	if self.Storage == nil {
+		return
+	}
+	delete(self.Storage, k)
+}
+
 func (self *Context) Authenticated() bool {
 	if self.Subject == nil || len(self.Subject.Sub) == 0 {
 		return false
@@ -219,9 +226,6 @@ func (self *Context) readParams() error {
 		Plan:  int64(utils.GetJsonInt(body, "p")),
 		Sign:  utils.GetJsonString(body, "s"),
 	}
-	//if err := utils.JsonUnmarshal(body, req); err != nil {
-	//	return ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters JSON parsing failed", Err: err}
-	//}
 	if err := self.validJsonBody(req); err != nil { // TODO important
 		return err
 	}
@@ -271,29 +275,25 @@ func (self *Context) validJsonBody(req *JsonBody) error {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter JSON parsing failed"}
 		}
 	} else if req.Plan == 2 && self.RouterConfig.Login { // RSA
-		dec, err := self.ServerTLS.Decrypt(d)
+		randomCode := utils.Bytes2Str(self.RequestCtx.Request.Header.Peek(RandomCode))
+		if len(randomCode) == 0 {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "client random code invalid"}
+		}
+		code, err := self.ServerTLS.Decrypt(randomCode)
 		if err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "server private-key decrypt failed", Err: err}
 		}
-		if len(dec) == 0 {
+		if len(code) == 0 {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "server private-key decrypt data is nil", Err: err}
+		}
+		dec, err := utils.AesDecrypt(d, code, code)
+		if err != nil {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "AES failed to parse data", Err: err}
 		}
 		if err := utils.JsonUnmarshal(utils.Str2Bytes(dec), &data); err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter JSON parsing failed"}
 		}
-		pubkey, b := data[CLIENT_PUBKEY]
-		if !b {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key not found"}
-		}
-		pubkey_v, b := pubkey.(string)
-		if !b {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key not string type"}
-		}
-		if len(pubkey_v) != 24 {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "client public-key length invalid"}
-		}
-		delete(data, CLIENT_PUBKEY)
-		self.AddStorage(CLIENT_PUBKEY, pubkey_v)
+		self.AddStorage(RandomCode, code)
 	} else if req.Plan == 0 && !self.RouterConfig.Login && !self.RouterConfig.AesRequest {
 		if err := utils.ParseJsonBase64(d, &data); err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter JSON parsing failed"}
