@@ -214,9 +214,9 @@ func (self *Context) readParams() error {
 	}
 	req := &JsonBody{
 		Data:  utils.GetJsonString(body, "d"),
-		Time:  utils.GetJsonInt(body, "t"),
+		Time:  int64(utils.GetJsonInt(body, "t")),
 		Nonce: utils.GetJsonString(body, "n"),
-		Plan:  utils.GetJsonInt(body, "p"),
+		Plan:  int64(utils.GetJsonInt(body, "p")),
 		Sign:  utils.GetJsonString(body, "s"),
 	}
 	//if err := utils.JsonUnmarshal(body, req); err != nil {

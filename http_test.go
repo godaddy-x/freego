@@ -102,10 +102,17 @@ func ToPostBy(path string, req *node.JsonBody) {
 
 	output("响应示例: ")
 	output(utils.Bytes2Str(respBytes))
-	respData := &node.JsonResp{}
-	if err := utils.JsonUnmarshal(respBytes, &respData); err != nil {
-		panic(err)
+	respData := &node.JsonResp{
+		Code:  utils.GetJsonInt(respBytes, "c"),
+		Data:  utils.GetJsonString(respBytes, "d"),
+		Nonce: utils.GetJsonString(respBytes, "n"),
+		Time:  int64(utils.GetJsonInt(respBytes, "t")),
+		Plan:  int64(utils.GetJsonInt(respBytes, "p")),
+		Sign:  utils.GetJsonString(respBytes, "s"),
 	}
+	//if err := utils.JsonUnmarshal(respBytes, &respData); err != nil {
+	//	panic(err)
+	//}
 	if respData.Code == 200 {
 		key := token_secret
 		if respData.Plan == 2 {

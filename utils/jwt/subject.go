@@ -138,7 +138,7 @@ func (self *Subject) Verify(token, key string, decode bool) error {
 	if b64 == nil || len(b64) == 0 {
 		return utils.Error("token part base64 data decode failed")
 	}
-	if utils.GetJsonInt(b64, "exp") <= utils.TimeSecond() {
+	if int64(utils.GetJsonInt(b64, "exp")) <= utils.TimeSecond() {
 		return utils.Error("token expired or invalid")
 	}
 	if decode {
