@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/cache/limiter"
-	"github.com/godaddy-x/freego/consul/grpcx"
-	"github.com/godaddy-x/freego/consul/grpcx/pb"
 	"github.com/godaddy-x/freego/node"
 	"github.com/godaddy-x/freego/node/common"
+	"github.com/godaddy-x/freego/rpcx"
+	"github.com/godaddy-x/freego/rpcx/pb"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/jwt"
 )
@@ -41,7 +41,7 @@ func (self *MyWebNode) getUser(ctx *node.Context) error {
 }
 
 func testCallRPC() {
-	conn, err := grpcx.NewClientConn(grpcx.GRPC{Service: "PubWorker", Cache: 30})
+	conn, err := rpcx.NewClientConn(rpcx.GRPC{Service: "PubWorker", Cache: 30})
 	if err != nil {
 		fmt.Println(err)
 		return

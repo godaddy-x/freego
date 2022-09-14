@@ -3,9 +3,8 @@ package main
 import (
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/cache/limiter"
-	"github.com/godaddy-x/freego/consul"
-	"github.com/godaddy-x/freego/consul/grpcx"
 	"github.com/godaddy-x/freego/node/test"
+	"github.com/godaddy-x/freego/rpcx"
 	"github.com/godaddy-x/freego/utils"
 	"net/http"
 	_ "net/http/pprof"
@@ -16,11 +15,11 @@ func http_test() {
 }
 
 func initConsul() {
-	conf := consul.ConsulConfig{}
+	conf := rpcx.ConsulConfig{}
 	if err := utils.ReadLocalJsonConfig("resource/consul.json", &conf); err != nil {
 		panic(utils.AddStr("读取consul配置失败: ", err.Error()))
 	}
-	new(consul.ConsulManager).InitConfig(conf)
+	new(rpcx.ConsulManager).InitConfig(conf)
 }
 
 func initRedis() {
@@ -35,31 +34,31 @@ var APPID = utils.MD5("123456")
 var APPKEY = utils.MD5("123456")
 
 func initGRPC() {
-	client := &grpcx.GRPCManager{}
+	client := &rpcx.GRPCManager{}
 	client.CreateJwtConfig(APPKEY)
-	client.CreateAppConfigCall(func(appid string) (grpcx.AppConfig, error) {
+	client.CreateAppConfigCall(func(appid string) (rpcx.AppConfig, error) {
 		if appid == APPKEY {
-			return grpcx.AppConfig{Appid: APPID, Appkey: APPKEY}, nil
+			return rpcx.AppConfig{Appid: APPID, Appkey: APPKEY}, nil
 		}
-		return grpcx.AppConfig{}, utils.Error("appid invalid")
+		return rpcx.AppConfig{}, utils.Error("appid invalid")
 	})
 	client.CreateRateLimiterCall(func(method string) (rate.Option, error) {
 		return rate.Option{}, nil
 	})
-	client.CreateServerTLS(grpcx.TlsConfig{
+	client.CreateServerTLS(rpcx.TlsConfig{
 		UseMTLS:   true,
-		CACrtFile: "./consul/grpcx/cert/ca.crt",
-		KeyFile:   "./consul/grpcx/cert/server.key",
-		CrtFile:   "./consul/grpcx/cert/server.crt",
+		CACrtFile: "./rpcx/cert/ca.crt",
+		KeyFile:   "./rpcx/cert/server.key",
+		CrtFile:   "./rpcx/cert/server.crt",
 	})
-	client.CreateClientTLS(grpcx.TlsConfig{
+	client.CreateClientTLS(rpcx.TlsConfig{
 		UseMTLS:   true,
-		CACrtFile: "./consul/grpcx/cert/ca.crt",
-		KeyFile:   "./consul/grpcx/cert/client.key",
-		CrtFile:   "./consul/grpcx/cert/client.crt",
+		CACrtFile: "./rpcx/cert/ca.crt",
+		KeyFile:   "./rpcx/cert/client.key",
+		CrtFile:   "./rpcx/cert/client.crt",
 		HostName:  "localhost",
 	})
-	client.CreateAuthorizeTLS("./consul/grpcx/cert/server.key")
+	client.CreateAuthorizeTLS("./rpcx/cert/server.key")
 }
 
 func init() {
@@ -72,7 +71,7 @@ func main() {
 	go func() {
 		_ = http.ListenAndServe(":8849", nil)
 	}()
-	grpcx.RunClient(APPID)
+	rpcx.RunClient(APPID)
 	http_test()
 	//router := fasthttprouter.New()
 	//router.GET("/pubkey", func(ctx *fasthttp.RequestCtx) {

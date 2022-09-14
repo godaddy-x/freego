@@ -2,9 +2,9 @@ package main
 
 import (
 	"fmt"
-	"github.com/godaddy-x/freego/consul/grpcx"
-	"github.com/godaddy-x/freego/consul/grpcx/impl"
-	"github.com/godaddy-x/freego/consul/grpcx/pb"
+	"github.com/godaddy-x/freego/rpcx"
+	"github.com/godaddy-x/freego/rpcx/impl"
+	"github.com/godaddy-x/freego/rpcx/pb"
 	"google.golang.org/grpc"
 	"net/http"
 	_ "net/http/pprof"
@@ -15,7 +15,7 @@ func TestConsulxRunGRPCServer(t *testing.T) {
 	go func() {
 		_ = http.ListenAndServe(":8848", nil)
 	}()
-	objects := []*grpcx.GRPC{
+	objects := []*rpcx.GRPC{
 		{
 			Address: "localhost",
 			Service: "PubWorker",
@@ -23,12 +23,12 @@ func TestConsulxRunGRPCServer(t *testing.T) {
 			AddRPC:  func(server *grpc.Server) { pb.RegisterPubWorkerServer(server, &impl.PubWorker{}) },
 		},
 	}
-	grpcx.RunServer("", true, objects...)
+	rpcx.RunServer("", true, objects...)
 }
 
 func TestConsulxCallGRPC_GenID(t *testing.T) {
-	grpcx.RunClient(APPID)
-	conn, err := grpcx.NewClientConn(grpcx.GRPC{Service: "PubWorker", Cache: 30})
+	rpcx.RunClient(APPID)
+	conn, err := rpcx.NewClientConn(rpcx.GRPC{Service: "PubWorker", Cache: 30})
 	if err != nil {
 		panic(err)
 	}
@@ -41,8 +41,8 @@ func TestConsulxCallGRPC_GenID(t *testing.T) {
 }
 
 func TestGRPCClient(t *testing.T) {
-	grpcx.RunClient(APPID)
-	conn, err := grpcx.NewClientConn(grpcx.GRPC{Service: "PubWorker", Cache: 30})
+	rpcx.RunClient(APPID)
+	conn, err := rpcx.NewClientConn(rpcx.GRPC{Service: "PubWorker", Cache: 30})
 	if err != nil {
 		panic(err)
 	}
@@ -55,11 +55,11 @@ func TestGRPCClient(t *testing.T) {
 }
 
 func BenchmarkGRPCClient(b *testing.B) {
-	grpcx.RunClient(APPID)
+	rpcx.RunClient(APPID)
 	b.StopTimer()
 	b.StartTimer()
 	for i := 0; i < b.N; i++ { //use b.N for looping
-		conn, err := grpcx.NewClientConn(grpcx.GRPC{Service: "PubWorker", Cache: 30})
+		conn, err := rpcx.NewClientConn(rpcx.GRPC{Service: "PubWorker", Cache: 30})
 		if err != nil {
 			fmt.Println(err)
 			return

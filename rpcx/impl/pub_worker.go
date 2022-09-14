@@ -2,8 +2,8 @@ package impl
 
 import (
 	"context"
-	"github.com/godaddy-x/freego/consul/grpcx"
-	"github.com/godaddy-x/freego/consul/grpcx/pb"
+	"github.com/godaddy-x/freego/rpcx"
+	"github.com/godaddy-x/freego/rpcx/pb"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/jwt"
 )
@@ -17,7 +17,7 @@ func (self *PubWorker) GenerateId(ctx context.Context, req *pb.GenerateIdReq) (*
 }
 
 func (self *PubWorker) PublicKey(ctx context.Context, req *pb.PublicKeyReq) (*pb.PublicKeyRes, error) {
-	rsaObj, err := grpcx.GetAuthorizeTLS()
+	rsaObj, err := rpcx.GetAuthorizeTLS()
 	if err != nil {
 		return nil, err
 	}
@@ -28,7 +28,7 @@ func (self *PubWorker) Authorize(ctx context.Context, req *pb.AuthorizeReq) (*pb
 	if len(req.Message) == 0 {
 		return nil, utils.Error("message is nil")
 	}
-	rsaObj, err := grpcx.GetAuthorizeTLS()
+	rsaObj, err := rpcx.GetAuthorizeTLS()
 	if err != nil {
 		return nil, err
 	}
@@ -36,7 +36,7 @@ func (self *PubWorker) Authorize(ctx context.Context, req *pb.AuthorizeReq) (*pb
 	if err != nil {
 		return nil, err
 	}
-	authObj := &grpcx.AuthObject{}
+	authObj := &rpcx.AuthObject{}
 	if err := utils.ParseJsonBase64(dec, authObj); err != nil {
 		return nil, err
 	}
@@ -49,14 +49,14 @@ func (self *PubWorker) Authorize(ctx context.Context, req *pb.AuthorizeReq) (*pb
 	if utils.MathAbs(utils.TimeSecond()-authObj.Time) > jwt.FIVE_MINUTES { // 判断绝对时间差超过5分钟
 		return nil, utils.Error("time invalid")
 	}
-	appConfig, err := grpcx.GetGRPCAppConfig(authObj.Appid)
+	appConfig, err := rpcx.GetGRPCAppConfig(authObj.Appid)
 	if err != nil {
 		return nil, err
 	}
 	if len(authObj.Signature) != 44 || utils.HMAC_SHA256(utils.AddStr(authObj.Appid, authObj.Nonce, authObj.Time), appConfig.Appkey, true) != authObj.Signature {
 		return nil, utils.Error("signature invalid")
 	}
-	jwtConfig, err := grpcx.GetGRPCJwtConfig()
+	jwtConfig, err := rpcx.GetGRPCJwtConfig()
 	if err != nil {
 		return nil, err
 	}

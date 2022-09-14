@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"github.com/godaddy-x/freego/node"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/gorsa"
@@ -39,7 +40,7 @@ func initSrvPubkey() string {
 }
 
 func output(a ...interface{}) {
-	//fmt.Println(a...)
+	fmt.Println(a...)
 }
 
 // 测试使用的http post示例方法

@@ -314,36 +314,36 @@ func TestMysqlFind(t *testing.T) {
 
 ```
 func init() {
-	client := &grpcx.GRPCManager{}
+	client := &rpcx.GRPCManager{}
 	client.CreateJwtConfig(APPKEY)
-	client.CreateAppConfigCall(func(appid string) (grpcx.AppConfig, error) {
+	client.CreateAppConfigCall(func(appid string) (rpcx.AppConfig, error) {
 		if appid == APPKEY {
-			return grpcx.AppConfig{Appid: APPID, Appkey: APPKEY}, nil
+			return rpcx.AppConfig{Appid: APPID, Appkey: APPKEY}, nil
 		}
-		return grpcx.AppConfig{}, utils.Error("appid invalid")
+		return rpcx.AppConfig{}, utils.Error("appid invalid")
 	})
 	client.CreateRateLimiterCall(func(method string) (rate.Option, error) {
 		return rate.Option{}, nil
 	})
-	client.CreateServerTLS(grpcx.TlsConfig{
+	client.CreateServerTLS(rpcx.TlsConfig{
 		UseMTLS:   true,
-		CACrtFile: "./consul/grpcx/cert/ca.crt",
-		KeyFile:   "./consul/grpcx/cert/server.key",
-		CrtFile:   "./consul/grpcx/cert/server.crt",
+		CACrtFile: "./rpcx/cert/ca.crt",
+		KeyFile:   "./rpcx/cert/server.key",
+		CrtFile:   "./rpcx/cert/server.crt",
 	})
-	client.CreateClientTLS(grpcx.TlsConfig{
+	client.CreateClientTLS(rpcx.TlsConfig{
 		UseMTLS:   true,
-		CACrtFile: "./consul/grpcx/cert/ca.crt",
-		KeyFile:   "./consul/grpcx/cert/client.key",
-		CrtFile:   "./consul/grpcx/cert/client.crt",
+		CACrtFile: "./rpcx/cert/ca.crt",
+		KeyFile:   "./rpcx/cert/client.key",
+		CrtFile:   "./rpcx/cert/client.crt",
 		HostName:  "localhost",
 	})
-	client.CreateAuthorizeTLS("./consul/grpcx/cert/server.key")
+	client.CreateAuthorizeTLS("./rpcx/cert/server.key")
 }
 
 // grpc server
 func TestConsulxGRPCServer(t *testing.T) {
-	objects := []*grpcx.GRPC{
+	objects := []*rpcx.GRPC{
 		{
 			Address: "localhost",
 			Service: "PubWorker",
@@ -351,13 +351,13 @@ func TestConsulxGRPCServer(t *testing.T) {
 			AddRPC:  func(server *grpc.Server) { pb.RegisterPubWorkerServer(server, &impl.PubWorker{}) },
 		},
 	}
-	grpcx.RunServer("", true, objects...)
+	rpcx.RunServer("", true, objects...)
 }
 
 // grpc client
 func TestConsulxGRPCClient(t *testing.T) {
-	grpcx.RunClient(APPID)
-	conn, err := grpcx.NewClientConn(grpcx.GRPC{Service: "PubWorker", Cache: 30})
+	rpcx.RunClient(APPID)
+	conn, err := rpcx.NewClientConn(rpcx.GRPC{Service: "PubWorker", Cache: 30})
 	if err != nil {
 		panic(err)
 	}
@@ -371,11 +371,11 @@ func TestConsulxGRPCClient(t *testing.T) {
 
 // grpc client benchmark test
 func BenchmarkGRPCClient(b *testing.B) {
-	grpcx.RunClient(APPID)
+	rpcx.RunClient(APPID)
 	b.StopTimer()
 	b.StartTimer()
 	for i := 0; i < b.N; i++ { //use b.N for looping
-		conn, err := grpcx.NewClientConn(grpcx.GRPC{Service: "PubWorker", Cache: 30})
+		conn, err := rpcx.NewClientConn(rpcx.GRPC{Service: "PubWorker", Cache: 30})
 		if err != nil {
 			return
 		}

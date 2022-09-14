@@ -1,12 +1,11 @@
-package grpcx
+package rpcx
 
 import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
 	"github.com/godaddy-x/freego/cache/limiter"
-	"github.com/godaddy-x/freego/consul"
-	"github.com/godaddy-x/freego/consul/grpcx/pb"
+	"github.com/godaddy-x/freego/rpcx/pb"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/gorsa"
 	"github.com/godaddy-x/freego/utils/jwt"
@@ -44,7 +43,7 @@ type ClientConnPool struct {
 }
 
 type GRPCManager struct {
-	consul       *consul.ConsulManager
+	consul       *ConsulManager
 	consulDs     string
 	authenticate bool
 }
@@ -274,7 +273,7 @@ func RunServer(consulDs string, authenticate bool, objects ...*GRPC) {
 	if len(objects) == 0 {
 		panic("rpc objects is nil...")
 	}
-	c, err := consul.NewConsul(consulDs)
+	c, err := NewConsul(consulDs)
 	if err != nil {
 		panic(err)
 	}
@@ -364,7 +363,7 @@ func RunClient(appid string) {
 		panic("appid is nil")
 	}
 	if len(clientOptions) == 0 {
-		c, err := consul.NewConsul()
+		c, err := NewConsul()
 		if err != nil {
 			panic(err)
 		}
@@ -471,7 +470,7 @@ func NewClientConn(object GRPC) (pool.Conn, error) {
 	if len(object.Tags) > 0 {
 		tag = object.Tags[0]
 	}
-	c, err := consul.NewConsul(object.Ds)
+	c, err := NewConsul(object.Ds)
 	if err != nil {
 		return nil, err
 	}
