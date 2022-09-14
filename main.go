@@ -3,6 +3,7 @@ package main
 import (
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/cache/limiter"
+	ballast "github.com/godaddy-x/freego/gc"
 	"github.com/godaddy-x/freego/node/test"
 	"github.com/godaddy-x/freego/rpcx"
 	"github.com/godaddy-x/freego/utils"
@@ -68,6 +69,7 @@ func init() {
 }
 
 func main() {
+	ballast.GC(512*ballast.MB, 30)
 	go func() {
 		_ = http.ListenAndServe(":8849", nil)
 	}()
