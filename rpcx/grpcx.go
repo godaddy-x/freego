@@ -522,7 +522,7 @@ func (self *ClientConnPool) readyPool(host string, timeout int) (pool.Conn, erro
 	if conn, err := self.readyClientConn(host, timeout); err == nil && conn != nil {
 		return conn, nil
 	}
-	pool, err := pool.NewPool(pool.DefaultOptions, host, 10, clientOptions)
+	pool, err := pool.NewPool(pool.DefaultOptions, pool.ConnConfig{Address: host, Timeout: 10, Opts: clientOptions})
 	if err != nil {
 		return nil, err
 	}

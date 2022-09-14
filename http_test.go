@@ -119,9 +119,6 @@ func ToPostBy(path string, req *node.JsonBody) {
 		Plan:  int64(utils.GetJsonInt(respBytes, "p")),
 		Sign:  utils.GetJsonString(respBytes, "s"),
 	}
-	//if err := utils.JsonUnmarshal(respBytes, &respData); err != nil {
-	//	panic(err)
-	//}
 	if respData.Code == 200 {
 		key := token_secret
 		if respData.Plan == 2 {
