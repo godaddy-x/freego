@@ -45,7 +45,6 @@ type DBConfig struct {
 
 // 数据选项
 type Option struct {
-	Node        int64  // 节点
 	DsName      string // 数据源,分库时使用
 	Database    string // 数据库名称
 	OpenTx      bool   // 是否开启事务 true.是 false.否
@@ -221,7 +220,6 @@ func (self *RDBManager) GetDB(options ...Option) error {
 		return self.Error("datasource [", dsName, "] not found...")
 	}
 	self.Db = rdb.Db
-	self.Node = rdb.Node
 	self.DsName = rdb.DsName
 	self.Database = rdb.Database
 	self.Timeout = 10000
@@ -229,9 +227,6 @@ func (self *RDBManager) GetDB(options ...Option) error {
 	self.CacheManager = rdb.CacheManager
 	self.OpenTx = false
 	if len(option.DsName) > 0 {
-		if option.Node > 0 {
-			self.Node = option.Node
-		}
 		if len(option.DsName) > 0 {
 			self.DsName = option.DsName
 		}
@@ -285,14 +280,14 @@ func (self *RDBManager) Save(data ...interface{}) error {
 				if vv.FieldKind == reflect.Int64 {
 					lastInsertId := utils.GetInt64(utils.GetPtr(v, obv.PkOffset))
 					if lastInsertId == 0 {
-						lastInsertId = utils.GetSnowFlakeIntID(self.Node)
+						lastInsertId = utils.NextIID()
 						utils.SetInt64(utils.GetPtr(v, vv.FieldOffset), lastInsertId)
 					}
 					parameter = append(parameter, lastInsertId)
 				} else if vv.FieldKind == reflect.String {
 					lastInsertId := utils.GetString(utils.GetPtr(v, obv.PkOffset))
 					if len(lastInsertId) == 0 {
-						lastInsertId := utils.GetSnowFlakeStrID(self.Node)
+						lastInsertId := utils.NextSID()
 						utils.SetString(utils.GetPtr(v, vv.FieldOffset), lastInsertId)
 					}
 					parameter = append(parameter, lastInsertId)

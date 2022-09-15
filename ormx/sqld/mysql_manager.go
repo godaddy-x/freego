@@ -63,9 +63,6 @@ func (self *MysqlManager) buildByConfig(manager cache.Cache, input ...MysqlConfi
 		rdb.DsName = dsName
 		rdb.Database = v.Database
 		rdb.CacheManager = manager
-		if v.Node > 0 {
-			rdb.Node = v.Node
-		}
 		if v.OpenTx {
 			rdb.OpenTx = v.OpenTx
 		}

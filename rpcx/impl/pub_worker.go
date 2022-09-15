@@ -13,7 +13,7 @@ type PubWorker struct {
 }
 
 func (self *PubWorker) GenerateId(ctx context.Context, req *pb.GenerateIdReq) (*pb.GenerateIdRes, error) {
-	return &pb.GenerateIdRes{Value: utils.GetSnowFlakeIntID(req.Node)}, nil
+	return &pb.GenerateIdRes{Value: utils.NextIID()}, nil
 }
 
 func (self *PubWorker) PublicKey(ctx context.Context, req *pb.PublicKeyReq) (*pb.PublicKeyRes, error) {

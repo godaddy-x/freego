@@ -44,7 +44,7 @@ func TestMysqlSave(t *testing.T) {
 	for i := 0; i < 1; i++ {
 		wallet := OwWallet{
 			// AppID:        map[string]interface{}{"test": 1},
-			WalletID:     utils.GetSnowFlakeStrID(),
+			WalletID:     utils.NextSID(),
 			PasswordType: 1,
 			Password:     "123456",
 			RootPath:     "m/44'/88'/0'",
@@ -70,9 +70,9 @@ func TestMysqlUpdate(t *testing.T) {
 	vs := []interface{}{}
 	for i := 0; i < 10; i++ {
 		wallet := OwWallet{
-			Id: utils.GetSnowFlakeIntID(),
+			Id: utils.NextIID(),
 			// AppID:        "123456",
-			WalletID:     utils.GetSnowFlakeStrID(),
+			WalletID:     utils.NextSID(),
 			PasswordType: 1,
 			Password:     "123456",
 			RootPath:     "m/44'/88'/0'",
@@ -111,9 +111,9 @@ func TestMysqlDetele(t *testing.T) {
 	vs := []interface{}{}
 	for i := 0; i < 2000; i++ {
 		wallet := OwWallet{
-			Id: utils.GetSnowFlakeIntID(),
+			Id: utils.NextIID(),
 			//AppID:        map[string]interface{}{"test": 1},
-			WalletID:     utils.GetSnowFlakeStrID(),
+			WalletID:     utils.NextSID(),
 			PasswordType: 1,
 			Password:     "123456",
 			RootPath:     "m/44'/88'/0'",
@@ -224,8 +224,8 @@ func TestMongoSave(t *testing.T) {
 	defer db.Close()
 	//l := utils.UnixMilli()
 	o := OwWallet{
-		AppID:    utils.GetSnowFlakeStrID(),
-		WalletID: utils.GetSnowFlakeStrID(),
+		AppID:    utils.NextSID(),
+		WalletID: utils.NextSID(),
 	}
 	if err := db.Save(&o); err != nil {
 		fmt.Println(err)
@@ -268,7 +268,7 @@ func TestMongoDelete(t *testing.T) {
 		wallet := OwWallet{
 			Id: 1136806872108498948,
 			// AppID:        map[string]interface{}{"test": 1},
-			WalletID:     utils.GetSnowFlakeStrID(),
+			WalletID:     utils.NextSID(),
 			PasswordType: 1,
 			Password:     "123456",
 			RootPath:     "m/44'/88'/0'",

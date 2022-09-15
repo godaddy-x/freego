@@ -59,7 +59,7 @@ func (self *MyWebNode) login(ctx *node.Context) error {
 	subject := &jwt.Subject{}
 	//self.LoginBySubject(subject, exp)
 	config := ctx.GetJwtConfig()
-	token := subject.Create(utils.GetSnowFlakeStrID()).Dev("APP").Generate(config)
+	token := subject.Create(utils.NextSID()).Dev("APP").Generate(config)
 	secret := jwt.GetTokenSecret(token, config.TokenKey)
 	return self.Json(ctx, map[string]interface{}{"token": token, "secret": secret})
 	//return self.Html(ctx, "/web/index.html", map[string]interface{}{"tewt": 1})
@@ -77,7 +77,7 @@ type NewPostFilter struct{}
 
 func (self *NewPostFilter) DoFilter(chain node.Filter, ctx *node.Context, args ...interface{}) error {
 	//fmt.Println(" --- NewFilter.DoFilter before ---")
-	ctx.AddStorage("httpLog", node.HttpLog{Method: ctx.Path, LogNo: utils.GetSnowFlakeStrID(), CreateAt: utils.UnixMilli()})
+	ctx.AddStorage("httpLog", node.HttpLog{Method: ctx.Path, LogNo: utils.NextSID(), CreateAt: utils.UnixMilli()})
 	if err := chain.DoFilter(chain, ctx, args...); err != nil {
 		return err
 	}

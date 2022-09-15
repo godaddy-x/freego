@@ -80,7 +80,7 @@ func (lock *Lock) unlock() {
 func (self *RedisManager) getLockWithTimeout(conn redis.Conn, resource string, expSecond time.Duration, spin bool) (lock *Lock, ok bool, err error) {
 	lock = &Lock{
 		resource: resource,
-		token:    utils.GetSnowFlakeStrID(),
+		token:    utils.NextSID(),
 		conn:     conn,
 		exp:      expSecond,
 		spin:     spin,

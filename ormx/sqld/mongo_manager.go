@@ -91,7 +91,6 @@ func (self *MGOManager) GetDB(options ...Option) error {
 		return self.Error("mongo session [", dsName, "] not found...")
 	}
 	self.Session = mgo.Session
-	self.Node = mgo.Node
 	self.DsName = mgo.DsName
 	self.Database = mgo.Database
 	self.Timeout = 10000
@@ -99,9 +98,6 @@ func (self *MGOManager) GetDB(options ...Option) error {
 	self.SlowLogPath = mgo.SlowLogPath
 	self.CacheManager = mgo.CacheManager
 	if len(option.DsName) > 0 {
-		if option.Node > 0 {
-			self.Node = option.Node
-		}
 		if len(option.DsName) > 0 {
 			self.DsName = option.DsName
 		}
@@ -177,9 +173,6 @@ func (self *MGOManager) buildByConfig(manager cache.Cache, input ...MGOConfig) e
 		mgo.Database = v.Database
 		mgo.SlowQuery = v.SlowQuery
 		mgo.SlowLogPath = v.SlowLogPath
-		if v.Node > 0 {
-			mgo.Node = v.Node
-		}
 		if v.OpenTx {
 			mgo.OpenTx = v.OpenTx
 		}
@@ -247,13 +240,13 @@ func (self *MGOManager) Save(data ...interface{}) error {
 		if obv.PkKind == reflect.Int64 {
 			lastInsertId := utils.GetInt64(utils.GetPtr(v, obv.PkOffset))
 			if lastInsertId == 0 {
-				lastInsertId = utils.GetSnowFlakeIntID(self.Node)
+				lastInsertId = utils.NextIID()
 				utils.SetInt64(utils.GetPtr(v, obv.PkOffset), lastInsertId)
 			}
 		} else if obv.PkKind == reflect.String {
 			lastInsertId := utils.GetString(utils.GetPtr(v, obv.PkOffset))
 			if len(lastInsertId) == 0 {
-				lastInsertId = utils.GetSnowFlakeStrID(self.Node)
+				lastInsertId = utils.NextSID()
 				utils.SetString(utils.GetPtr(v, obv.PkOffset), lastInsertId)
 			}
 		} else {

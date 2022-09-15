@@ -214,6 +214,6 @@ func BenchmarkPubkey(b *testing.B) {
 	b.StopTimer()
 	b.StartTimer()
 	for i := 0; i < b.N; i++ { //use b.N for looping
-		initSrvPubkey()
+		utils.NextIID()
 	}
 }

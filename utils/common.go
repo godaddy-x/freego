@@ -24,7 +24,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 	"unicode/utf8"
 	"unsafe"
@@ -32,11 +31,10 @@ import (
 
 var (
 	cst_sh, _              = time.LoadLocation("Asia/Shanghai") //上海
-	snowflakes             = make(map[int64]*snowflake.Node, 0)
-	mu                     sync.Mutex
 	random_byte_sp         = Str2Bytes("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!@#$%^*+-_=")
 	local_secret_key       = createDefaultLocalSecretKey()
 	local_token_secret_key = createLocalTokenSecretKey()
+	snowflake_node         = GetSnowflakeNode(0)
 )
 
 const (
@@ -50,9 +48,12 @@ const (
 	OneMonth      = OneDay * 30
 )
 
-func init() {
-	node, _ := snowflake.NewNode(0)
-	snowflakes[0] = node
+func GetSnowflakeNode(n int64) *snowflake.Node {
+	node, err := snowflake.NewNode(n)
+	if err != nil {
+		panic(err)
+	}
+	return node
 }
 
 func GetLocalSecretKey() string {
@@ -312,28 +313,14 @@ func LowerFirst(str string) string {
 	return upperStr
 }
 
-// 获取雪花string ID,默认为0区
-func GetSnowFlakeStrID(sec ...int64) string {
-	return AnyToStr(GetSnowFlakeIntID(sec...))
+// NextIID 获取雪花int64 ID,默认为1024区
+func NextIID() int64 {
+	return snowflake_node.Generate().Int64()
 }
 
-// 获取雪花int64 ID,默认为0区
-func GetSnowFlakeIntID(sec ...int64) int64 {
-	seed := int64(0)
-	if sec != nil && len(sec) > 0 && sec[0] > 0 {
-		seed = sec[0]
-	}
-	node, ok := snowflakes[seed]
-	if !ok || node == nil {
-		mu.Lock()
-		node, ok = snowflakes[seed]
-		if !ok || node == nil {
-			node, _ = snowflake.NewNode(seed)
-			snowflakes[seed] = node
-		}
-		mu.Unlock()
-	}
-	return node.Generate().Int64()
+// NextSID 获取雪花string ID,默认为1024区
+func NextSID() string {
+	return snowflake_node.Generate().String()
 }
 
 func GetUUID(replace ...bool) string {
@@ -640,18 +627,6 @@ func Shift(input interface{}, ln int, fz bool) string {
 		part1 = AddStr(part1, ".", part2)
 	}
 	return part1
-}
-
-// 获取动态区间ID
-func NextID(seed ...int64) int64 {
-	if seed == nil || len(seed) == 0 {
-		return GetSnowFlakeIntID(int64(ModRand(1024)))
-	}
-	seed0 := seed[0]
-	if seed0 < 0 || seed0 > 1024 {
-		seed0 = 256
-	}
-	return GetSnowFlakeIntID(seed0)
 }
 
 func Reverse(s string) string {
