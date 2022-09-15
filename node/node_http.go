@@ -32,24 +32,13 @@ type PostHandle func(*Context) error
 
 func (self *HttpNode) doRequest(handle PostHandle, request *fasthttp.RequestCtx) error {
 	ctx := ctxPool.Get().(*Context)
-	ctx.CacheAware = self.Context.CacheAware
-	ctx.RequestCtx = request
-	ctx.Method = utils.Bytes2Str(request.Method())
-	ctx.Path = utils.Bytes2Str(request.Path())
-	ctx.RouterConfig = routerConfigs[ctx.Path]
-	ctx.ServerTLS = self.Context.ServerTLS
-	ctx.PermConfig = self.Context.PermConfig
-	ctx.postHandle = handle
-	// reset
-	ctx.postCompleted = false
-	ctx.filterChain.pos = 0
-	ctx.Response.Encoding = UTF8
-	ctx.Response.ContentType = APPLICATION_JSON
-	ctx.Response.ContentEntity = nil
-	ctx.Response.StatusCode = 0
-	ctx.Response.ContentEntityByte = nil
+	ctx.reset(self.Context, handle, request)
+	if err := ctx.filterChain.DoFilter(ctx.filterChain, ctx); err != nil {
+		ctxPool.Put(ctx)
+		return err
+	}
 	ctxPool.Put(ctx)
-	return ctx.filterChain.DoFilter(ctx.filterChain, ctx)
+	return nil
 }
 
 func (self *HttpNode) proxy(handle PostHandle, ctx *fasthttp.RequestCtx) {

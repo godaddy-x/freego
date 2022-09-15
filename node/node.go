@@ -317,3 +317,21 @@ func (self *Context) Handle() error {
 	self.postCompleted = true
 	return self.postHandle(self)
 }
+
+func (self *Context) reset(ctx *Context, handle PostHandle, request *fasthttp.RequestCtx) {
+	self.CacheAware = ctx.CacheAware
+	self.ServerTLS = ctx.ServerTLS
+	self.PermConfig = ctx.PermConfig
+	self.postHandle = handle
+	self.RequestCtx = request
+	self.Method = utils.Bytes2Str(self.RequestCtx.Method())
+	self.Path = utils.Bytes2Str(self.RequestCtx.Path())
+	self.RouterConfig = routerConfigs[self.Path]
+	self.postCompleted = false
+	self.filterChain.pos = 0
+	self.Response.Encoding = UTF8
+	self.Response.ContentType = APPLICATION_JSON
+	self.Response.ContentEntity = nil
+	self.Response.StatusCode = 0
+	self.Response.ContentEntityByte = nil
+}

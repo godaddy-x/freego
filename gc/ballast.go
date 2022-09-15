@@ -14,7 +14,7 @@ const (
 	GB = 1024 * MB
 )
 
-// GC 1.触发条件间隔2分钟 2.达到内存堆阀值 3.手动触发runtime.GC
+// GC 1.触发条件间隔2分钟 2.达到内存堆阀值 3.手动触发runtime.GC 4.启动GC触发
 // 触发阀值 memory * percent% * 2 (percent default 100%)
 func GC(memory int, percent int) {
 	if percent > 0 {
