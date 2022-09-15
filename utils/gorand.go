@@ -4,6 +4,7 @@ import (
 	"math/rand"
 	"time"
 	"unsafe"
+	_ "unsafe"
 )
 
 const numbers = "0123456789"
@@ -19,6 +20,9 @@ const (
 	letterIdMask = 1<<letterIdBits - 1
 	letterIdMax  = 63 / letterIdBits
 )
+
+//go:linkname fastrand runtime.fastrand
+func fastrand() uint32
 
 func gorand(n int, letters string) string {
 	b := make([]byte, n)
@@ -50,4 +54,9 @@ func RandInt(n int) string {
 
 func RandNonce() string {
 	return RandStr(8)
+}
+
+// ModRand 调用底层生成随机数,进行取模运算,性能提升10倍
+func ModRand(n int) int {
+	return int(fastrand() % uint32(n))
 }

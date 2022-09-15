@@ -46,7 +46,7 @@ func (self *PubWorker) Authorize(ctx context.Context, req *pb.AuthorizeReq) (*pb
 	if !utils.CheckLen(authObj.Nonce, 8, 16) {
 		return nil, utils.Error("nonce invalid")
 	}
-	if utils.MathAbs(utils.TimeSecond()-authObj.Time) > jwt.FIVE_MINUTES { // 判断绝对时间差超过5分钟
+	if utils.MathAbs(utils.UnixSecond()-authObj.Time) > jwt.FIVE_MINUTES { // 判断绝对时间差超过5分钟
 		return nil, utils.Error("time invalid")
 	}
 	appConfig, err := rpcx.GetGRPCAppConfig(authObj.Appid)

@@ -153,7 +153,7 @@ func TestRSALogin(t *testing.T) {
 	path := "/login"
 	req := &node.JsonBody{
 		Data:  data,
-		Time:  utils.TimeSecond(),
+		Time:  utils.UnixSecond(),
 		Nonce: utils.RandNonce(),
 		Plan:  int64(2),
 	}
@@ -165,7 +165,7 @@ func TestGetUser(t *testing.T) {
 	path := "/test2"
 	req := &node.JsonBody{
 		Data:  data,
-		Time:  utils.TimeSecond(),
+		Time:  utils.UnixSecond(),
 		Nonce: utils.RandNonce(),
 		Plan:  int64(1),
 	}
@@ -184,7 +184,7 @@ func BenchmarkRSALogin(b *testing.B) {
 		path := "/login"
 		req := &node.JsonBody{
 			Data:  data,
-			Time:  utils.TimeSecond(),
+			Time:  utils.UnixSecond(),
 			Nonce: utils.RandNonce(),
 			Plan:  int64(2),
 		}
@@ -200,7 +200,7 @@ func BenchmarkGetUser(b *testing.B) {
 		path := "/test2"
 		req := &node.JsonBody{
 			Data:  data,
-			Time:  utils.TimeSecond(),
+			Time:  utils.UnixSecond(),
 			Nonce: utils.RandNonce(),
 			Plan:  int64(1),
 		}

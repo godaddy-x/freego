@@ -57,7 +57,7 @@ func (self *Subject) AddHeader(config JwtConfig) *Subject {
 func (self *Subject) Create(sub string) *Subject {
 	self.Payload = &Payload{
 		Sub: sub,
-		Exp: utils.TimeSecond() + TWO_WEEK,
+		Exp: utils.UnixSecond() + TWO_WEEK,
 		Jti: utils.MD5(utils.GetUUID(), true),
 	}
 	return self
@@ -69,7 +69,7 @@ func (self *Subject) Expired(exp int64) *Subject {
 		if self.Payload.Iat > 0 {
 			self.Payload.Exp = self.Payload.Iat + exp
 		} else {
-			self.Payload.Exp = utils.TimeSecond() + exp
+			self.Payload.Exp = utils.UnixSecond() + exp
 		}
 	}
 	return self
@@ -138,7 +138,7 @@ func (self *Subject) Verify(token, key string, decode bool) error {
 	if b64 == nil || len(b64) == 0 {
 		return utils.Error("token part base64 data decode failed")
 	}
-	if int64(utils.GetJsonInt(b64, "exp")) <= utils.TimeSecond() {
+	if int64(utils.GetJsonInt(b64, "exp")) <= utils.UnixSecond() {
 		return utils.Error("token expired or invalid")
 	}
 	if decode {

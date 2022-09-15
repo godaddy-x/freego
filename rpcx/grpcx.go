@@ -17,7 +17,6 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 	"io/ioutil"
-	"math/rand"
 	"net"
 	"net/http"
 	"sync"
@@ -409,7 +408,7 @@ func callLogin(appid string) (string, int64, error) {
 	authObject := &AuthObject{
 		Appid: appid,
 		Nonce: utils.RandStr(16),
-		Time:  utils.TimeSecond(),
+		Time:  utils.UnixSecond(),
 	}
 	authObject.Signature = utils.HMAC_SHA256(utils.AddStr(authObject.Appid, authObject.Nonce, authObject.Time), appConfig.Appkey, true)
 	b64, err := utils.ToJsonBase64(authObject)
@@ -448,7 +447,7 @@ func callLogin(appid string) (string, int64, error) {
 func renewClientToken(appid string, expired int64) {
 	for {
 		//zlog.Warn("detecting rpc token expiration", 0, zlog.Int64("countDown", expired-utils.TimeSecond()-timeDifference))
-		if expired-utils.TimeSecond() > timeDifference { // TODO token过期时间大于2400s则忽略,每15s检测一次
+		if expired-utils.UnixSecond() > timeDifference { // TODO token过期时间大于2400s则忽略,每15s检测一次
 			time.Sleep(15 * time.Second)
 			continue
 		}
@@ -483,8 +482,7 @@ func NewClientConn(object GRPC) (pool.Conn, error) {
 		if len(services) == 1 {
 			service = services[0].Service
 		} else {
-			r := rand.New(rand.NewSource(utils.GetSnowFlakeIntID()))
-			service = services[r.Intn(len(services))].Service
+			service = services[utils.ModRand(len(services))].Service
 		}
 	} else {
 		service = selectionCall(services, object).Service
