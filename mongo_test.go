@@ -9,7 +9,7 @@ import (
 )
 
 func TestMongoFindOne(t *testing.T) {
-	l := utils.Time()
+	l := utils.UnixMilli()
 	db, err := new(sqld.MGOManager).Get()
 	if err != nil {
 		panic(err)
@@ -19,11 +19,11 @@ func TestMongoFindOne(t *testing.T) {
 	if err := db.FindOne(sqlc.M().Fields("password").Eq("id", 1182663723102240768), o); err != nil {
 		fmt.Println(err)
 	}
-	fmt.Println("cost: ", utils.Time()-l)
+	fmt.Println("cost: ", utils.UnixMilli()-l)
 }
 
 func TestMongoUpdateByCnd(t *testing.T) {
-	l := utils.Time()
+	l := utils.UnixMilli()
 	db, err := new(sqld.MGOManager).Get()
 	if err != nil {
 		panic(err)
@@ -32,5 +32,5 @@ func TestMongoUpdateByCnd(t *testing.T) {
 	if err := db.UpdateByCnd(sqlc.M(&OwWallet{}).Eq("id", 1182663723102240768).Upset([]string{"password", "rootPath"}, "123456test", "/test/123")); err != nil {
 		fmt.Println(err)
 	}
-	fmt.Println("cost: ", utils.Time()-l)
+	fmt.Println("cost: ", utils.UnixMilli()-l)
 }

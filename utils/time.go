@@ -21,7 +21,7 @@ func UnixSecond() int64 {
 }
 
 // 获取当前时间/毫秒
-func Time() int64 {
+func UnixMilli() int64 {
 	return UnixNano() / 1e6
 }
 

@@ -333,7 +333,7 @@ func (self *RDBManager) Save(data ...interface{}) error {
 
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
-		defer zlog.Debug("[Mysql.Save] sql zlog", utils.Time(), zlog.String("sql", prepare), zlog.Any("values", parameter))
+		defer zlog.Debug("[Mysql.Save] sql zlog", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
 	defer cancel()
@@ -443,7 +443,7 @@ func (self *RDBManager) Update(data ...interface{}) error {
 
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
-		defer zlog.Debug("[Mysql.Update] sql zlog", utils.Time(), zlog.String("sql", prepare), zlog.Any("values", parameter))
+		defer zlog.Debug("[Mysql.Update] sql zlog", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	var err error
 	var stmt *sql.Stmt
@@ -516,7 +516,7 @@ func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) error {
 
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
-		defer zlog.Debug("[Mysql.UpdateByCnd] sql zlog", utils.Time(), zlog.String("sql", prepare), zlog.Any("values", parameter))
+		defer zlog.Debug("[Mysql.UpdateByCnd] sql zlog", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
 	defer cancel()
@@ -595,7 +595,7 @@ func (self *RDBManager) Delete(data ...interface{}) error {
 
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
-		defer zlog.Debug("[Mysql.Delete] sql zlog", utils.Time(), zlog.String("sql", prepare), zlog.Any("values", parameter))
+		defer zlog.Debug("[Mysql.Delete] sql zlog", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
 	defer cancel()
@@ -669,7 +669,7 @@ func (self *RDBManager) FindById(data interface{}) error {
 	sqlbuf.WriteString(" limit 1")
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
-		defer zlog.Debug("[Mysql.FindById] sql zlog", utils.Time(), zlog.String("sql", prepare), zlog.Any("values", parameter))
+		defer zlog.Debug("[Mysql.FindById] sql zlog", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
 	defer cancel()
@@ -766,7 +766,7 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data interface{}) error {
 	// }
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
-		defer zlog.Debug("[Mysql.FindOne] sql zlog", utils.Time(), zlog.String("sql", prepare), zlog.Any("values", parameter))
+		defer zlog.Debug("[Mysql.FindOne] sql zlog", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
 	defer cancel()
@@ -869,7 +869,7 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 		return self.Error(err)
 	}
 	if zlog.IsDebug() {
-		defer zlog.Debug("[Mysql.FindList] sql zlog", utils.Time(), zlog.String("sql", prepare), zlog.Any("values", parameter))
+		defer zlog.Debug("[Mysql.FindList] sql zlog", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
 	defer cancel()
@@ -958,7 +958,7 @@ func (self *RDBManager) Count(cnd *sqlc.Cnd) (int64, error) {
 
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
-		defer zlog.Debug("[Mysql.Count] sql zlog", utils.Time(), zlog.String("sql", prepare), zlog.Any("values", parameter))
+		defer zlog.Debug("[Mysql.Count] sql zlog", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
 	defer cancel()
@@ -1087,7 +1087,7 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 		return self.Error(err)
 	}
 	if zlog.IsDebug() {
-		defer zlog.Debug("[Mysql.FindListComplex] sql zlog", utils.Time(), zlog.String("sql", prepare), zlog.Any("values", parameter))
+		defer zlog.Debug("[Mysql.FindListComplex] sql zlog", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
 	defer cancel()
@@ -1222,7 +1222,7 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data interface{}) error {
 	// }
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
-		defer zlog.Debug("[Mysql.FindOneComplex] sql zlog", utils.Time(), zlog.String("sql", prepare), zlog.Any("values", parameter))
+		defer zlog.Debug("[Mysql.FindOneComplex] sql zlog", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
 	defer cancel()

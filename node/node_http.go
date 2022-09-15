@@ -101,7 +101,7 @@ func (self *HttpNode) addRouter(method, path string, handle PostHandle, routerCo
 			self.proxy(handle, ctx)
 		},
 		time.Duration(self.Context.AcceptTimeout)*time.Second,
-		fmt.Sprintf(`{"c":408,"m":"server actively disconnects the client","d":null,"t":%d,"n":"%s","p":0,"s":""}`, utils.Time(), utils.RandNonce())))
+		fmt.Sprintf(`{"c":408,"m":"server actively disconnects the client","d":null,"t":%d,"n":"%s","p":0,"s":""}`, utils.UnixMilli(), utils.RandNonce())))
 }
 
 func (self *HttpNode) Json(ctx *Context, data interface{}) error {
@@ -165,7 +165,7 @@ func defaultRenderError(ctx *Context, err error) error {
 	resp := &JsonResp{
 		Code:    out.Code,
 		Message: out.Msg,
-		Time:    utils.Time(),
+		Time:    utils.UnixMilli(),
 	}
 	if !ctx.Authenticated() {
 		resp.Nonce = utils.RandNonce()
@@ -236,7 +236,7 @@ func defaultRenderPre(ctx *Context) error {
 		}
 		resp := &JsonResp{
 			Code: http.StatusOK,
-			Time: utils.Time(),
+			Time: utils.UnixMilli(),
 		}
 		if ctx.JsonBody == nil || len(ctx.JsonBody.Nonce) == 0 {
 			resp.Nonce = utils.RandNonce()

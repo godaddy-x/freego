@@ -206,7 +206,7 @@ func (self *PullReceiver) OnReceive(b []byte) bool {
 		return true
 	}
 	if zlog.IsDebug() {
-		defer zlog.Debug("rabbitmq pull consumption data monitoring", utils.Time(), zlog.String("message", utils.Bytes2Str(b)))
+		defer zlog.Debug("rabbitmq pull consumption data monitoring", utils.UnixMilli(), zlog.String("message", utils.Bytes2Str(b)))
 	}
 	msg := MsgData{}
 	if err := utils.JsonUnmarshal(b, &msg); err != nil {

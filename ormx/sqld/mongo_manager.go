@@ -241,7 +241,7 @@ func (self *MGOManager) Save(data ...interface{}) error {
 		return self.Error(err)
 	}
 	if zlog.IsDebug() {
-		defer zlog.Debug("[Mongo.Save]", utils.Time(), zlog.Any("data", data))
+		defer zlog.Debug("[Mongo.Save]", utils.UnixMilli(), zlog.Any("data", data))
 	}
 	for _, v := range data {
 		if obv.PkKind == reflect.Int64 {
@@ -290,7 +290,7 @@ func (self *MGOManager) Update(data ...interface{}) error {
 		return self.Error(err)
 	}
 	if zlog.IsDebug() {
-		defer zlog.Debug("[Mongo.Update]", utils.Time(), zlog.Any("data", data))
+		defer zlog.Debug("[Mongo.Update]", utils.UnixMilli(), zlog.Any("data", data))
 	}
 	for _, v := range data {
 		if obv.PkKind == reflect.Int64 {
@@ -345,7 +345,7 @@ func (self *MGOManager) Delete(data ...interface{}) error {
 		return self.Error(err)
 	}
 	if zlog.IsDebug() {
-		defer zlog.Debug("[Mongo.Delete]", utils.Time(), zlog.Any("data", data))
+		defer zlog.Debug("[Mongo.Delete]", utils.UnixMilli(), zlog.Any("data", data))
 	}
 	delIds := make([]interface{}, 0, len(data))
 	for _, v := range data {
@@ -393,7 +393,7 @@ func (self *MGOManager) Count(cnd *sqlc.Cnd) (int64, error) {
 	if err != nil {
 		return 0, utils.Error("[Mongo.Count] build pipe failed: ", err)
 	}
-	defer self.writeLog("[Mongo.Count]", utils.Time(), pipe)
+	defer self.writeLog("[Mongo.Count]", utils.UnixMilli(), pipe)
 	result := CountResult{}
 	if err := db.Pipe(pipe).One(&result); err != nil {
 		if err == mgo.ErrNotFound {
@@ -437,7 +437,7 @@ func (self *MGOManager) FindOne(cnd *sqlc.Cnd, data interface{}) error {
 	if err != nil {
 		return utils.Error("[Mongo.FindOne]build pipe failed: ", err)
 	}
-	defer self.writeLog("[Mongo.FindOne]", utils.Time(), pipe)
+	defer self.writeLog("[Mongo.FindOne]", utils.UnixMilli(), pipe)
 	if err := db.Pipe(pipe).One(data); err != nil {
 		if err == mgo.ErrNotFound {
 			return nil
@@ -472,7 +472,7 @@ func (self *MGOManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	if err != nil {
 		return utils.Error("[Mongo.FindList] build pipe failed: ", err)
 	}
-	defer self.writeLog("[Mongo.FindList]", utils.Time(), pipe)
+	defer self.writeLog("[Mongo.FindList]", utils.UnixMilli(), pipe)
 	if err := db.Pipe(pipe).All(data); err != nil {
 		if err == mgo.ErrNotFound {
 			return nil
@@ -506,7 +506,7 @@ func (self *MGOManager) UpdateByCnd(cnd *sqlc.Cnd) error {
 	if upset == nil || len(upset) == 0 {
 		return utils.Error("pipe upset is nil")
 	}
-	defer self.writeLog("[Mongo.UpdateByCnd]", utils.Time(), map[string]interface{}{"match": match, "upset": upset})
+	defer self.writeLog("[Mongo.UpdateByCnd]", utils.UnixMilli(), map[string]interface{}{"match": match, "upset": upset})
 	if _, err := db.UpdateAll(match, upset); err != nil {
 		return utils.Error("[Mongo.UpdateByCnd] update failed: ", err)
 	}
@@ -833,7 +833,7 @@ func buildMongoLimit(cnd *sqlc.Cnd) []int64 {
 }
 
 func (self *MGOManager) writeLog(title string, start int64, pipe interface{}) {
-	cost := utils.Time() - start
+	cost := utils.UnixMilli() - start
 	if self.SlowQuery > 0 && cost > self.SlowQuery {
 		l := self.getSlowLog()
 		if l != nil {

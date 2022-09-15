@@ -107,12 +107,12 @@ func (self *GRPCManager) ClientInterceptor(ctx context.Context, method string, r
 	if err != nil {
 		return err
 	}
-	start := utils.Time()
+	start := utils.UnixMilli()
 	if err := invoker(ctx, method, req, reply, conn, opts...); err != nil {
 		zlog.Error("grpc call failed", start, zlog.String("service", method), zlog.AddError(err))
 		return err
 	}
-	cost := utils.Time() - start
+	cost := utils.UnixMilli() - start
 	if self.consul != nil && self.consul.Config.SlowQuery > 0 && cost > self.consul.Config.SlowQuery {
 		l := self.consul.GetSlowLog()
 		if l != nil {

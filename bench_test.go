@@ -99,7 +99,7 @@ func init() {
 //			panic(err)
 //		}
 //		defer db.Close()
-//		//l := utils.Time()
+//		//l := utils.UnixMilli()
 //		o := OwWallet{
 //			AppID:    utils.GetSnowFlakeStrID(),
 //			WalletID: utils.GetSnowFlakeStrID(),
@@ -153,12 +153,12 @@ func init() {
 //			panic(err)
 //		}
 //		defer db.Close()
-//		//l := utils.Time()
+//		//l := utils.UnixMilli()
 //		wallet := OwWallet{}
 //		if err := db.FindOne(sqlc.M().Eq("id", 1109819683034365953), &wallet); err != nil {
 //			fmt.Println(err)
 //		}
-//		//fmt.Println("cost: ", utils.Time()-l)
+//		//fmt.Println("cost: ", utils.UnixMilli()-l)
 //	}
 //}
 //

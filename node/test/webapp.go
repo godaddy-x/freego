@@ -77,7 +77,7 @@ type NewPostFilter struct{}
 
 func (self *NewPostFilter) DoFilter(chain node.Filter, ctx *node.Context, args ...interface{}) error {
 	//fmt.Println(" --- NewFilter.DoFilter before ---")
-	ctx.AddStorage("httpLog", node.HttpLog{Method: ctx.Path, LogNo: utils.GetSnowFlakeStrID(), CreateAt: utils.Time()})
+	ctx.AddStorage("httpLog", node.HttpLog{Method: ctx.Path, LogNo: utils.GetSnowFlakeStrID(), CreateAt: utils.UnixMilli()})
 	if err := chain.DoFilter(chain, ctx, args...); err != nil {
 		return err
 	}
@@ -87,7 +87,7 @@ func (self *NewPostFilter) DoFilter(chain node.Filter, ctx *node.Context, args .
 		return utils.Error("httpLog is nil")
 	}
 	httpLog, _ := v.(node.HttpLog)
-	httpLog.UpdateAt = utils.Time()
+	httpLog.UpdateAt = utils.UnixMilli()
 	httpLog.CostMill = httpLog.UpdateAt - httpLog.CreateAt
 	//zlog.Info("http log", 0, zlog.Any("data", httpLog))
 	return nil

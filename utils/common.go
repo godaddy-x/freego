@@ -19,7 +19,6 @@ import (
 	"github.com/google/uuid"
 	"io/ioutil"
 	"log"
-	"math/rand"
 	"net"
 	"net/http"
 	"os"
@@ -644,11 +643,9 @@ func Shift(input interface{}, ln int, fz bool) string {
 }
 
 // 获取动态区间ID
-func GetNextID(seed ...int64) int64 {
+func NextID(seed ...int64) int64 {
 	if seed == nil || len(seed) == 0 {
-		r := rand.New(rand.NewSource(Time()))
-		seed0 := r.Intn(1024)
-		return GetSnowFlakeIntID(int64(seed0))
+		return GetSnowFlakeIntID(int64(ModRand(1024)))
 	}
 	seed0 := seed[0]
 	if seed0 < 0 || seed0 > 1024 {

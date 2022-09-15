@@ -93,12 +93,12 @@ func (self *JWTSession) GetHost() string {
 }
 
 func (self *JWTSession) Touch() error {
-	self.LastAccessTime = utils.Time()
+	self.LastAccessTime = utils.UnixMilli()
 	return nil
 }
 
 func (self *JWTSession) Stop() error {
-	self.StopTime = utils.Time()
+	self.StopTime = utils.UnixMilli()
 	self.Expire = true
 	return nil
 }
@@ -128,7 +128,7 @@ func (self *JWTSession) Invalid() bool {
 }
 
 func (self *JWTSession) IsTimeout() bool {
-	if utils.Time() > (self.LastAccessTime + self.Timeout) {
+	if utils.UnixMilli() > (self.LastAccessTime + self.Timeout) {
 		self.Stop()
 		return true
 	}
