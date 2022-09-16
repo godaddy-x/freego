@@ -12,7 +12,6 @@ import (
 	"github.com/godaddy-x/freego/zlog"
 	"reflect"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -56,8 +55,9 @@ type Option struct {
 
 type MGOSyncData struct {
 	CacheOption int           // 1.save 2.update 3.delete
-	CacheModel  interface{}   // 对象模型
-	CacheObject []interface{} // 需要缓存的数据 CacheSync为true时有效
+	CacheModel  sqlc.Object   // 对象模型
+	CacheCnd    *sqlc.Cnd     // 需要缓存的数据 CacheSync为true时有效
+	CacheObject []sqlc.Object // 需要缓存的数据 CacheSync为true时有效
 }
 
 // 数据库管理器
@@ -77,23 +77,23 @@ type IDBase interface {
 	// 获取数据库管理器
 	GetDB(option ...Option) error
 	// 保存数据
-	Save(datas ...interface{}) error
+	Save(datas ...sqlc.Object) error
 	// 更新数据
-	Update(datas ...interface{}) error
+	Update(datas ...sqlc.Object) error
 	// 按条件更新数据
 	UpdateByCnd(cnd *sqlc.Cnd) error
 	// 删除数据
-	Delete(datas ...interface{}) error
+	Delete(datas ...sqlc.Object) error
 	// 统计数据
 	Count(cnd *sqlc.Cnd) (int64, error)
 	// 按ID查询单条数据
-	FindById(data interface{}) error
+	FindById(data sqlc.Object) error
 	// 按条件查询单条数据
-	FindOne(cnd *sqlc.Cnd, data interface{}) error
+	FindOne(cnd *sqlc.Cnd, data sqlc.Object) error
 	// 按条件查询数据
 	FindList(cnd *sqlc.Cnd, data interface{}) error
 	// 按复杂条件查询数据
-	FindOneComplex(cnd *sqlc.Cnd, data interface{}) error
+	FindOneComplex(cnd *sqlc.Cnd, data sqlc.Object) error
 	// 按复杂条件查询数据列表
 	FindListComplex(cnd *sqlc.Cnd, data interface{}) error
 	// 构建数据表别名
@@ -118,11 +118,11 @@ func (self *DBManager) GetDB(option ...Option) error {
 	return utils.Error("No implementation method [GetDB] was found")
 }
 
-func (self *DBManager) Save(datas ...interface{}) error {
+func (self *DBManager) Save(datas ...sqlc.Object) error {
 	return utils.Error("No implementation method [Save] was found")
 }
 
-func (self *DBManager) Update(datas ...interface{}) error {
+func (self *DBManager) Update(datas ...sqlc.Object) error {
 	return utils.Error("No implementation method [Update] was found")
 }
 
@@ -130,7 +130,7 @@ func (self *DBManager) UpdateByCnd(cnd *sqlc.Cnd) error {
 	return utils.Error("No implementation method [UpdateByCnd] was found")
 }
 
-func (self *DBManager) Delete(datas ...interface{}) error {
+func (self *DBManager) Delete(datas ...sqlc.Object) error {
 	return utils.Error("No implementation method [Delete] was found")
 }
 
@@ -138,11 +138,11 @@ func (self *DBManager) Count(cnd *sqlc.Cnd) (int64, error) {
 	return 0, utils.Error("No implementation method [Count] was found")
 }
 
-func (self *DBManager) FindById(data interface{}) error {
+func (self *DBManager) FindById(data sqlc.Object) error {
 	return utils.Error("No implementation method [FindById] was found")
 }
 
-func (self *DBManager) FindOne(cnd *sqlc.Cnd, data interface{}) error {
+func (self *DBManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
 	return utils.Error("No implementation method [FindOne] was found")
 }
 
@@ -150,7 +150,7 @@ func (self *DBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	return utils.Error("No implementation method [FindList] was found")
 }
 
-func (self *DBManager) FindOneComplex(cnd *sqlc.Cnd, data interface{}) error {
+func (self *DBManager) FindOneComplex(cnd *sqlc.Cnd, data sqlc.Object) error {
 	return utils.Error("No implementation method [FindOneComplexOne] was found")
 }
 
@@ -253,17 +253,16 @@ func (self *RDBManager) GetDB(options ...Option) error {
 	return nil
 }
 
-func (self *RDBManager) Save(data ...interface{}) error {
+func (self *RDBManager) Save(data ...sqlc.Object) error {
 	if data == nil || len(data) == 0 {
 		return self.Error("[Mysql.Save] data is nil")
 	}
 	if len(data) > 2000 {
 		return self.Error("[Mysql.Save] data length > 2000")
 	}
-	obk := reflect.TypeOf(data[0]).String()
-	obv, ok := modelDrivers[obk]
+	obv, ok := modelDrivers[data[0].GetTable()]
 	if !ok {
-		return self.Error("[Mysql.Save] registration object type not found [", obk, "]")
+		return self.Error("[Mysql.Save] registration object type not found [", data[0].GetTable(), "]")
 	}
 	var fready bool
 	parameter := make([]interface{}, 0, len(obv.FieldElem)*len(data))
@@ -319,7 +318,7 @@ func (self *RDBManager) Save(data ...interface{}) error {
 	str2 := utils.Bytes2Str(vpart.Bytes())
 	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str1)+len(str2)+64))
 	sqlbuf.WriteString("insert into ")
-	sqlbuf.WriteString(obv.TabelName)
+	sqlbuf.WriteString(obv.TableName)
 	sqlbuf.WriteString(" (")
 	sqlbuf.WriteString(utils.Substr(str1, 0, len(str1)-1))
 	sqlbuf.WriteString(")")
@@ -328,7 +327,7 @@ func (self *RDBManager) Save(data ...interface{}) error {
 
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
-		defer zlog.Debug("[Mysql.Save] sql zlog", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
+		defer zlog.Debug("[Mysql.Save] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
 	defer cancel()
@@ -351,23 +350,21 @@ func (self *RDBManager) Save(data ...interface{}) error {
 		return self.Error("[Mysql.Save] affected rows <= 0: ", rowsAffected)
 	}
 	if self.MongoSync && obv.ToMongo {
-		sdata := &MGOSyncData{SAVE, obv.Hook.NewObj(), data}
-		self.MGOSyncData = append(self.MGOSyncData, sdata)
+		self.MGOSyncData = append(self.MGOSyncData, &MGOSyncData{SAVE, data[0], nil, data})
 	}
 	return nil
 }
 
-func (self *RDBManager) Update(data ...interface{}) error {
+func (self *RDBManager) Update(data ...sqlc.Object) error {
 	if data == nil || len(data) == 0 {
 		return self.Error("[Mysql.Update] data is nil")
 	}
 	if len(data) > 2000 {
 		return self.Error("[Mysql.Update] data length > 2000")
 	}
-	obk := reflect.TypeOf(data[0]).String()
-	obv, ok := modelDrivers[obk]
+	obv, ok := modelDrivers[data[0].GetTable()]
 	if !ok {
-		return self.Error("[Mysql.Update] registration object type not found [", obk, "]")
+		return self.Error("[Mysql.Update] registration object type not found [", data[0].GetTable(), "]")
 	}
 	parameter := make([]interface{}, 0, len(obv.FieldElem)*len(data))
 	fpart := bytes.NewBuffer(make([]byte, 0, 45*len(data)*len(obv.FieldElem)))
@@ -427,7 +424,7 @@ func (self *RDBManager) Update(data ...interface{}) error {
 	str2 := utils.Bytes2Str(vpart.Bytes())
 	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str1)+len(str2)+64))
 	sqlbuf.WriteString("update ")
-	sqlbuf.WriteString(obv.TabelName)
+	sqlbuf.WriteString(obv.TableName)
 	sqlbuf.WriteString(" set ")
 	sqlbuf.WriteString(utils.Substr(str1, 0, len(str1)-1))
 	sqlbuf.WriteString(" where ")
@@ -438,7 +435,7 @@ func (self *RDBManager) Update(data ...interface{}) error {
 
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
-		defer zlog.Debug("[Mysql.Update] sql zlog", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
+		defer zlog.Debug("[Mysql.Update] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	var err error
 	var stmt *sql.Stmt
@@ -462,8 +459,7 @@ func (self *RDBManager) Update(data ...interface{}) error {
 		return nil
 	}
 	if self.MongoSync && obv.ToMongo {
-		sdata := &MGOSyncData{UPDATE, obv.Hook.NewObj(), data}
-		self.MGOSyncData = append(self.MGOSyncData, sdata)
+		self.MGOSyncData = append(self.MGOSyncData, &MGOSyncData{UPDATE, data[0], nil, data})
 	}
 	return nil
 }
@@ -475,10 +471,9 @@ func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) error {
 	if cnd.Upsets == nil || len(cnd.Upsets) == 0 {
 		return self.Error("[Mysql.UpdateByCnd] upset fields is nil")
 	}
-	obk := reflect.TypeOf(cnd.Model).String()
-	obv, ok := modelDrivers[obk]
+	obv, ok := modelDrivers[cnd.Model.GetTable()]
 	if !ok {
-		return self.Error("[Mysql.UpdateByCnd] registration object type not found [", obk, "]")
+		return self.Error("[Mysql.UpdateByCnd] registration object type not found [", cnd.Model.GetTable(), "]")
 	}
 	case_part, case_arg := self.BuildWhereCase(cnd)
 	if case_part.Len() == 0 || len(case_arg) == 0 {
@@ -503,7 +498,7 @@ func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) error {
 	str2 := utils.Bytes2Str(vpart.Bytes())
 	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str1)+len(str2)+64))
 	sqlbuf.WriteString("update ")
-	sqlbuf.WriteString(obv.TabelName)
+	sqlbuf.WriteString(obv.TableName)
 	sqlbuf.WriteString(" set ")
 	sqlbuf.WriteString(utils.Substr(str1, 0, len(str1)-1))
 	sqlbuf.WriteString(" ")
@@ -511,7 +506,7 @@ func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) error {
 
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
-		defer zlog.Debug("[Mysql.UpdateByCnd] sql zlog", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
+		defer zlog.Debug("[Mysql.UpdateByCnd] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
 	defer cancel()
@@ -535,34 +530,25 @@ func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) error {
 		return nil
 	}
 	if self.MongoSync && obv.ToMongo {
-		sdata := &MGOSyncData{UPDATE_BY_CND, obv.Hook.NewObj(), []interface{}{cnd}}
-		self.MGOSyncData = append(self.MGOSyncData, sdata)
+		self.MGOSyncData = append(self.MGOSyncData, &MGOSyncData{UPDATE_BY_CND, cnd.Model, cnd, nil})
 	}
 	return nil
 }
 
-func (self *RDBManager) Delete(data ...interface{}) error {
+func (self *RDBManager) Delete(data ...sqlc.Object) error {
 	if data == nil || len(data) == 0 {
 		return self.Error("[Mysql.Delete] data is nil")
 	}
 	if len(data) > 2000 {
 		return self.Error("[Mysql.Delete] data length > 2000")
 	}
-	obk := reflect.TypeOf(data[0]).String()
-	obv, ok := modelDrivers[obk]
+	obv, ok := modelDrivers[data[0].GetTable()]
 	if !ok {
-		return self.Error("[Mysql.Delete] registration object type not found [", obk, "]")
+		return self.Error("[Mysql.Delete] registration object type not found [", data[0].GetTable(), "]")
 	}
 	parameter := make([]interface{}, 0, len(data))
 	vpart := bytes.NewBuffer(make([]byte, 0, 2*len(data)))
 	for _, v := range data {
-		if len(obk) == 0 {
-			obk = reflect.TypeOf(v).String()
-		}
-		obv, ok := modelDrivers[obk]
-		if !ok {
-			return self.Error("[Mysql.Delete] registration object type not found [", obk, "]")
-		}
 		if obv.PkKind == reflect.Int64 {
 			lastInsertId := utils.GetInt64(utils.GetPtr(v, obv.PkOffset))
 			if lastInsertId == 0 {
@@ -581,7 +567,7 @@ func (self *RDBManager) Delete(data ...interface{}) error {
 	str2 := utils.Bytes2Str(vpart.Bytes())
 	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str2)+64))
 	sqlbuf.WriteString("delete from ")
-	sqlbuf.WriteString(obv.TabelName)
+	sqlbuf.WriteString(obv.TableName)
 	sqlbuf.WriteString(" where ")
 	sqlbuf.WriteString(obv.PkName)
 	sqlbuf.WriteString(" in (")
@@ -590,7 +576,7 @@ func (self *RDBManager) Delete(data ...interface{}) error {
 
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
-		defer zlog.Debug("[Mysql.Delete] sql zlog", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
+		defer zlog.Debug("[Mysql.Delete] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
 	defer cancel()
@@ -614,21 +600,18 @@ func (self *RDBManager) Delete(data ...interface{}) error {
 		return nil
 	}
 	if self.MongoSync && obv.ToMongo {
-		sdata := &MGOSyncData{DELETE, obv.Hook.NewObj(), data}
-		self.MGOSyncData = append(self.MGOSyncData, sdata)
+		self.MGOSyncData = append(self.MGOSyncData, &MGOSyncData{DELETE, data[0], nil, data})
 	}
 	return nil
 }
 
-// 按ID查询单条数据
-func (self *RDBManager) FindById(data interface{}) error {
+func (self *RDBManager) FindById(data sqlc.Object) error {
 	if data == nil {
 		return self.Error("[Mysql.FindById] data is nil")
 	}
-	obk := reflect.TypeOf(data).String()
-	obv, ok := modelDrivers[obk]
+	obv, ok := modelDrivers[data.GetTable()]
 	if !ok {
-		return self.Error("[Mysql.FindById] registration object type not found [", obk, "]")
+		return self.Error("[Mysql.FindById] registration object type not found [", data.GetTable(), "]")
 	}
 	var parameter []interface{}
 	if obv.PkKind == reflect.Int64 {
@@ -657,14 +640,14 @@ func (self *RDBManager) FindById(data interface{}) error {
 	sqlbuf.WriteString("select ")
 	sqlbuf.WriteString(utils.Substr(str1, 0, len(str1)-1))
 	sqlbuf.WriteString(" from ")
-	sqlbuf.WriteString(obv.TabelName)
+	sqlbuf.WriteString(obv.TableName)
 	sqlbuf.WriteString(" where ")
 	sqlbuf.WriteString(obv.PkName)
 	sqlbuf.WriteString(" = ?")
 	sqlbuf.WriteString(" limit 1")
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
-		defer zlog.Debug("[Mysql.FindById] sql zlog", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
+		defer zlog.Debug("[Mysql.FindById] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
 	defer cancel()
@@ -708,15 +691,13 @@ func (self *RDBManager) FindById(data interface{}) error {
 	return nil
 }
 
-// 按条件查询单条数据
-func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data interface{}) error {
+func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
 	if data == nil {
 		return self.Error("[Mysql.FindOne] data is nil")
 	}
-	obk := reflect.TypeOf(data).String()
-	obv, ok := modelDrivers[obk]
+	obv, ok := modelDrivers[data.GetTable()]
 	if !ok {
-		return self.Error("[Mysql.FindOne] registration object type not found [", obk, "]")
+		return self.Error("[Mysql.FindOne] registration object type not found [", data.GetTable(), "]")
 	}
 	var parameter []interface{}
 	fpart := bytes.NewBuffer(make([]byte, 0, 12*len(obv.FieldElem)))
@@ -737,17 +718,18 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data interface{}) error {
 		vpart.WriteString("where")
 		str := case_part.String()
 		vpart.WriteString(utils.Substr(str, 0, len(str)-3))
-	} else {
-		vpart = bytes.NewBuffer(make([]byte, 0, 0))
 	}
 	str1 := utils.Bytes2Str(fpart.Bytes())
-	str2 := utils.Bytes2Str(vpart.Bytes())
+	str2 := ""
+	if vpart != nil {
+		str2 = utils.Bytes2Str(vpart.Bytes())
+	}
 	sortby := self.BuilSortBy(cnd)
 	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str1)+len(str2)+len(sortby)+32))
 	sqlbuf.WriteString("select ")
 	sqlbuf.WriteString(utils.Substr(str1, 0, len(str1)-1))
 	sqlbuf.WriteString(" from ")
-	sqlbuf.WriteString(obv.TabelName)
+	sqlbuf.WriteString(obv.TableName)
 	sqlbuf.WriteString(" ")
 	sqlbuf.WriteString(utils.Substr(str2, 0, len(str2)-1))
 	if len(sortby) > 0 {
@@ -761,7 +743,7 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data interface{}) error {
 	// }
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
-		defer zlog.Debug("[Mysql.FindOne] sql zlog", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
+		defer zlog.Debug("[Mysql.FindOne] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
 	defer cancel()
@@ -805,20 +787,16 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data interface{}) error {
 	return nil
 }
 
-// 按条件查询多条数据
 func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	if data == nil {
 		return self.Error("[Mysql.FindList] data is nil")
 	}
-	obk := reflect.TypeOf(data).String()
-	if !strings.HasPrefix(obk, "*[]") {
-		return self.Error("[Mysql.FindList] the return parameter must be an array pointer type")
-	} else {
-		obk = utils.Substr(obk, 3, len(obk))
+	if cnd.Model == nil {
+		return self.Error("[Mysql.FindList] model is nil")
 	}
-	obv, ok := modelDrivers[obk]
+	obv, ok := modelDrivers[cnd.Model.GetTable()]
 	if !ok {
-		return self.Error("[Mysql.FindList] registration object type not found [", obk, "]")
+		return self.Error("[Mysql.FindList] registration object type not found [", cnd.Model.GetTable(), "]")
 	}
 	fpart := bytes.NewBuffer(make([]byte, 0, 12*len(obv.FieldElem)))
 	for _, vv := range obv.FieldElem {
@@ -839,20 +817,23 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 		vpart.WriteString("where")
 		str := case_part.String()
 		vpart.WriteString(utils.Substr(str, 0, len(str)-3))
-	} else {
-		vpart = bytes.NewBuffer(make([]byte, 0, 0))
 	}
 	str1 := utils.Bytes2Str(fpart.Bytes())
-	str2 := utils.Bytes2Str(vpart.Bytes())
+	str2 := ""
+	if vpart != nil {
+		str2 = utils.Bytes2Str(vpart.Bytes())
+	}
 	groupby := self.BuilGroupBy(cnd)
 	sortby := self.BuilSortBy(cnd)
 	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str1)+len(str2)+len(groupby)+len(sortby)+32))
 	sqlbuf.WriteString("select ")
 	sqlbuf.WriteString(utils.Substr(str1, 0, len(str1)-1))
 	sqlbuf.WriteString(" from ")
-	sqlbuf.WriteString(obv.TabelName)
+	sqlbuf.WriteString(obv.TableName)
 	sqlbuf.WriteString(" ")
-	sqlbuf.WriteString(utils.Substr(str2, 0, len(str2)-1))
+	if len(str2) > 0 {
+		sqlbuf.WriteString(utils.Substr(str2, 0, len(str2)-1))
+	}
 	if len(groupby) > 0 {
 		sqlbuf.WriteString(groupby)
 	}
@@ -864,7 +845,7 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 		return self.Error(err)
 	}
 	if zlog.IsDebug() {
-		defer zlog.Debug("[Mysql.FindList] sql zlog", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
+		defer zlog.Debug("[Mysql.FindList] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
 	defer cancel()
@@ -898,7 +879,7 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	slicev := resultv.Elem()
 	slicev = slicev.Slice(0, slicev.Cap())
 	for _, v := range out {
-		model := obv.Hook.NewObj()
+		model := cnd.Model.NewObject()
 		for i := 0; i < len(obv.FieldElem); i++ {
 			vv := obv.FieldElem[i]
 			if vv.Ignore {
@@ -915,15 +896,13 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	return nil
 }
 
-// 根据条件统计查询
 func (self *RDBManager) Count(cnd *sqlc.Cnd) (int64, error) {
 	if cnd.Model == nil {
 		return 0, self.Error("[Mysql.Count] data is nil")
 	}
-	obk := reflect.TypeOf(cnd.Model).String()
-	obv, ok := modelDrivers[obk]
+	obv, ok := modelDrivers[cnd.Model.GetTable()]
 	if !ok {
-		return 0, self.Error("[Mysql.Count] registration object type not found [", obk, "]")
+		return 0, self.Error("[Mysql.Count] registration object type not found [", cnd.Model.GetTable(), "]")
 	}
 	fpart := bytes.NewBuffer(make([]byte, 0, 32))
 	fpart.WriteString("count(1)")
@@ -938,22 +917,24 @@ func (self *RDBManager) Count(cnd *sqlc.Cnd) (int64, error) {
 		vpart.WriteString("where")
 		str := case_part.String()
 		vpart.WriteString(utils.Substr(str, 0, len(str)-3))
-	} else {
-		vpart = bytes.NewBuffer(make([]byte, 0, 0))
 	}
 	str1 := utils.Bytes2Str(fpart.Bytes())
-	str2 := utils.Bytes2Str(vpart.Bytes())
+	str2 := ""
+	if vpart != nil {
+		str2 = utils.Bytes2Str(vpart.Bytes())
+	}
 	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str1)+len(str2)+32))
 	sqlbuf.WriteString("select ")
 	sqlbuf.WriteString(str1)
 	sqlbuf.WriteString(" from ")
-	sqlbuf.WriteString(obv.TabelName)
+	sqlbuf.WriteString(obv.TableName)
 	sqlbuf.WriteString(" ")
-	sqlbuf.WriteString(utils.Substr(str2, 0, len(str2)-1))
-
+	if len(str2) > 0 {
+		sqlbuf.WriteString(utils.Substr(str2, 0, len(str2)-1))
+	}
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
-		defer zlog.Debug("[Mysql.Count] sql zlog", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
+		defer zlog.Debug("[Mysql.Count] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
 	defer cancel()
@@ -1002,21 +983,18 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 	if data == nil {
 		return self.Error("[Mysql.FindListComplex] data is nil")
 	}
+	if cnd.Model == nil {
+		return self.Error("[Mysql.FindListComplex] model is nil")
+	}
 	if cnd.FromCond == nil || len(cnd.FromCond.Table) == 0 {
 		return self.Error("[Mysql.FindListComplex] from table is nil")
 	}
 	if cnd.AnyFields == nil || len(cnd.AnyFields) == 0 {
 		return self.Error("[Mysql.FindListComplex] any fields is nil")
 	}
-	obk := reflect.TypeOf(data).String()
-	if !strings.HasPrefix(obk, "*[]") {
-		return self.Error("[Mysql.FindListComplex] the return parameter must be an array pointer type")
-	} else {
-		obk = utils.Substr(obk, 3, len(obk))
-	}
-	obv, ok := modelDrivers[obk]
+	obv, ok := modelDrivers[cnd.Model.GetTable()]
 	if !ok {
-		return self.Error("[Mysql.FindListComplex] registration object type not found [", obk, "]")
+		return self.Error("[Mysql.FindListComplex] registration object type not found [", cnd.Model.GetTable(), "]")
 	}
 	fpart := bytes.NewBuffer(make([]byte, 0, 30*len(cnd.AnyFields)))
 	for _, vv := range cnd.AnyFields {
@@ -1034,11 +1012,12 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 		vpart.WriteString("where")
 		str := case_part.String()
 		vpart.WriteString(utils.Substr(str, 0, len(str)-3))
-	} else {
-		vpart = bytes.NewBuffer(make([]byte, 0, 0))
 	}
 	str1 := utils.Bytes2Str(fpart.Bytes())
-	str2 := utils.Bytes2Str(vpart.Bytes())
+	str2 := ""
+	if vpart != nil {
+		str2 = utils.Bytes2Str(vpart.Bytes())
+	}
 	groupby := self.BuilGroupBy(cnd)
 	sortby := self.BuilSortBy(cnd)
 	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str1)+len(str2)+len(groupby)+len(sortby)+32))
@@ -1069,7 +1048,9 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 			sqlbuf.WriteString(" ")
 		}
 	}
-	sqlbuf.WriteString(utils.Substr(str2, 0, len(str2)-1))
+	if len(str2) > 0 {
+		sqlbuf.WriteString(utils.Substr(str2, 0, len(str2)-1))
+	}
 	if len(groupby) > 0 {
 		sqlbuf.WriteString(groupby)
 	}
@@ -1082,7 +1063,7 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 		return self.Error(err)
 	}
 	if zlog.IsDebug() {
-		defer zlog.Debug("[Mysql.FindListComplex] sql zlog", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
+		defer zlog.Debug("[Mysql.FindListComplex] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
 	defer cancel()
@@ -1119,7 +1100,7 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 	slicev := resultv.Elem()
 	slicev = slicev.Slice(0, slicev.Cap())
 	for _, v := range out {
-		model := obv.Hook.NewObj()
+		model := cnd.Model.NewObject()
 		for i := 0; i < len(cols); i++ {
 			for _, vv := range obv.FieldElem {
 				if vv.FieldJsonName == cols[i] {
@@ -1137,7 +1118,7 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 	return nil
 }
 
-func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data interface{}) error {
+func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data sqlc.Object) error {
 	if data == nil {
 		return self.Error("[Mysql.FindOneComplex] data is nil")
 	}
@@ -1147,10 +1128,9 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data interface{}) error {
 	if cnd.AnyFields == nil || len(cnd.AnyFields) == 0 {
 		return self.Error("[Mysql.FindOneComplex] any fields is nil")
 	}
-	obk := reflect.TypeOf(data).String()
-	obv, ok := modelDrivers[obk]
+	obv, ok := modelDrivers[data.GetTable()]
 	if !ok {
-		return self.Error("[Mysql.FindOneComplex] registration object type not found [", obk, "]")
+		return self.Error("[Mysql.FindOneComplex] registration object type not found [", data.GetTable(), "]")
 	}
 	fpart := bytes.NewBuffer(make([]byte, 0, 30*len(cnd.AnyFields)))
 	for _, vv := range cnd.AnyFields {
@@ -1168,11 +1148,12 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data interface{}) error {
 		vpart.WriteString("where")
 		str := case_part.String()
 		vpart.WriteString(utils.Substr(str, 0, len(str)-3))
-	} else {
-		vpart = bytes.NewBuffer(make([]byte, 0, 0))
 	}
 	str1 := utils.Bytes2Str(fpart.Bytes())
-	str2 := utils.Bytes2Str(vpart.Bytes())
+	str2 := ""
+	if vpart != nil {
+		str2 = utils.Bytes2Str(vpart.Bytes())
+	}
 	groupby := self.BuilGroupBy(cnd)
 	sortby := self.BuilSortBy(cnd)
 	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str1)+len(str2)+len(groupby)+len(sortby)+32))
@@ -1203,7 +1184,9 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data interface{}) error {
 			sqlbuf.WriteString(" ")
 		}
 	}
-	sqlbuf.WriteString(utils.Substr(str2, 0, len(str2)-1))
+	if len(str2) > 0 {
+		sqlbuf.WriteString(utils.Substr(str2, 0, len(str2)-1))
+	}
 	if len(groupby) > 0 {
 		sqlbuf.WriteString(groupby)
 	}
@@ -1217,7 +1200,7 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data interface{}) error {
 	// }
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
-		defer zlog.Debug("[Mysql.FindOneComplex] sql zlog", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
+		defer zlog.Debug("[Mysql.FindOneComplex] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
 	defer cancel()
@@ -1283,7 +1266,7 @@ func (self *RDBManager) Close() error {
 	if self.Errors == nil && len(self.Errors) == 0 && self.MongoSync && len(self.MGOSyncData) > 0 {
 		for _, v := range self.MGOSyncData {
 			if len(v.CacheObject) > 0 {
-				if err := self.mongoSyncData(v.CacheOption, v.CacheModel, v.CacheObject...); err != nil {
+				if err := self.mongoSyncData(v.CacheOption, v.CacheModel, v.CacheCnd, v.CacheObject...); err != nil {
 					zlog.Error("MySQL data synchronization Mongo failed", 0, zlog.Any("data", v), zlog.AddError(err))
 				}
 			}
@@ -1293,14 +1276,14 @@ func (self *RDBManager) Close() error {
 }
 
 // mongo同步数据
-func (self *RDBManager) mongoSyncData(option int, model interface{}, data ...interface{}) error {
+func (self *RDBManager) mongoSyncData(option int, model sqlc.Object, cnd *sqlc.Cnd, data ...sqlc.Object) error {
 	mongo, err := new(MGOManager).Get(self.Option)
 	if err != nil {
 		return utils.Error("failed to get Mongo connection: ", err)
 	}
 	defer mongo.Close()
 	mongo.MGOSyncData = []*MGOSyncData{
-		{option, model, nil},
+		{option, model, cnd, data},
 	}
 	switch option {
 	case SAVE:
@@ -1310,12 +1293,8 @@ func (self *RDBManager) mongoSyncData(option int, model interface{}, data ...int
 	case DELETE:
 		return mongo.Delete(data...)
 	case UPDATE_BY_CND:
-		if data == nil || len(data) == 0 {
+		if cnd == nil {
 			return utils.Error("synchronization condition object is nil")
-		}
-		cnd, ok := data[0].(*sqlc.Cnd)
-		if !ok {
-			return utils.Error("invalid synchronization condition object")
 		}
 		return mongo.UpdateByCnd(cnd)
 	}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/godaddy-x/freego/ormx/sqlc"
 	"github.com/godaddy-x/freego/ormx/sqld"
 	"github.com/godaddy-x/freego/utils"
 )
@@ -26,6 +27,14 @@ type OwWallet struct {
 	State        int64  `json:"state" bson:"state"`
 }
 
+func (o *OwWallet) GetTable() string {
+	return "ow_wallet"
+}
+
+func (o *OwWallet) NewObject() sqlc.Object {
+	return &OwWallet{}
+}
+
 // go build -gcflags=-m main.go
 // go tool pprof -http=":8081" .\cpuprofile.out
 // go test bench_test.go -bench .  -benchmem -count=5 -cpuprofile cpuprofile.out -memprofile memprofile.out
@@ -48,12 +57,18 @@ func initMongoDB() {
 	fmt.Println("init mongo success")
 }
 
+func initDriver() {
+	sqld.ModelDriver(
+		&OwWallet{},
+	)
+}
+
 func init() {
 
 	// 注册对象
-	sqld.ModelDriver(
-		sqld.NewHook(func() interface{} { return &OwWallet{} }, func() interface{} { return &[]*OwWallet{} }),
-	)
+	//sqld.ModelDriver(
+	//	sqld.NewHook(func() interface{} { return &OwWallet{} }, func() interface{} { return &[]*OwWallet{} }),
+	//)
 	//initConsul()
 	//initMysqlDB()
 	//initMongoDB()

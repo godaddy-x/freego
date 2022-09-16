@@ -5,18 +5,18 @@ import (
 	_ "unsafe"
 )
 
-//go:linkname callRuntimeWalltime runtime.walltime
-func callRuntimeWalltime() (int64, int32)
+//go:linkname now time.now
+func now() (sec int64, nsec int32, mono int64)
 
 // UnixNano 直接调用底层方法比time.Now()性能提升1倍
 func UnixNano() int64 {
-	s, m := callRuntimeWalltime()
+	s, m, _ := now()
 	return s*1e9 + int64(m)
 }
 
 // 获取当前时间/秒
 func UnixSecond() int64 {
-	s, _ := callRuntimeWalltime()
+	s, _, _ := now()
 	return s
 }
 

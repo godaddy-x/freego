@@ -10,7 +10,6 @@ import (
 	"github.com/godaddy-x/freego/zlog"
 	"go.uber.org/zap"
 	"reflect"
-	"strings"
 	"time"
 )
 
@@ -211,7 +210,7 @@ func (self *MGOManager) getSlowLog() *zap.Logger {
 }
 
 // 保存数据到mongo集合
-func (self *MGOManager) Save(data ...interface{}) error {
+func (self *MGOManager) Save(data ...sqlc.Object) error {
 	if data == nil || len(data) == 0 {
 		return self.Error("[Mongo.Save] data is nil")
 	}
@@ -222,20 +221,20 @@ func (self *MGOManager) Save(data ...interface{}) error {
 	if len(self.MGOSyncData) > 0 {
 		d = self.MGOSyncData[0].CacheModel
 	}
-	obk := reflect.TypeOf(d).String()
-	obv, ok := modelDrivers[obk]
+	obv, ok := modelDrivers[d.GetTable()]
 	if !ok {
-		return self.Error("[Mongo.Save] registration object type not found [", obk, "]")
+		return self.Error("[Mongo.Save] registration object type not found [", d.GetTable(), "]")
 	}
 	copySession := self.Session.Copy()
 	defer copySession.Close()
-	db, err := self.GetDatabase(copySession, obv.TabelName)
+	db, err := self.GetDatabase(copySession, d.GetTable())
 	if err != nil {
 		return self.Error(err)
 	}
 	if zlog.IsDebug() {
 		defer zlog.Debug("[Mongo.Save]", utils.UnixMilli(), zlog.Any("data", data))
 	}
+	adds := make([]interface{}, 0, len(data))
 	for _, v := range data {
 		if obv.PkKind == reflect.Int64 {
 			lastInsertId := utils.GetInt64(utils.GetPtr(v, obv.PkOffset))
@@ -252,15 +251,16 @@ func (self *MGOManager) Save(data ...interface{}) error {
 		} else {
 			return utils.Error("only Int64 and string type IDs are supported")
 		}
+		adds = append(adds, v)
 	}
-	if err := db.Insert(data...); err != nil {
+	if err := db.Insert(adds...); err != nil {
 		return self.Error("[Mongo.Save] save failed: ", err)
 	}
 	return nil
 }
 
 // 更新数据到mongo集合
-func (self *MGOManager) Update(data ...interface{}) error {
+func (self *MGOManager) Update(data ...sqlc.Object) error {
 	if data == nil || len(data) == 0 {
 		return self.Error("[Mongo.Update] data is nil")
 	}
@@ -271,14 +271,13 @@ func (self *MGOManager) Update(data ...interface{}) error {
 	if len(self.MGOSyncData) > 0 {
 		d = self.MGOSyncData[0].CacheModel
 	}
-	obk := reflect.TypeOf(d).String()
-	obv, ok := modelDrivers[obk]
+	obv, ok := modelDrivers[d.GetTable()]
 	if !ok {
-		return self.Error("[Mongo.Update] registration object type not found [", obk, "]")
+		return self.Error("[Mongo.Update] registration object type not found [", d.GetTable(), "]")
 	}
 	copySession := self.Session.Copy()
 	defer copySession.Close()
-	db, err := self.GetDatabase(copySession, obv.TabelName)
+	db, err := self.GetDatabase(copySession, d.GetTable())
 	if err != nil {
 		return self.Error(err)
 	}
@@ -315,7 +314,7 @@ func (self *MGOManager) Update(data ...interface{}) error {
 	return nil
 }
 
-func (self *MGOManager) Delete(data ...interface{}) error {
+func (self *MGOManager) Delete(data ...sqlc.Object) error {
 	if data == nil || len(data) == 0 {
 		return self.Error("[Mongo.Delete] data is nil")
 	}
@@ -326,14 +325,13 @@ func (self *MGOManager) Delete(data ...interface{}) error {
 	if len(self.MGOSyncData) > 0 {
 		d = self.MGOSyncData[0].CacheModel
 	}
-	obk := reflect.TypeOf(d).String()
-	obv, ok := modelDrivers[obk]
+	obv, ok := modelDrivers[d.GetTable()]
 	if !ok {
-		return self.Error("[Mongo.Delete] registration object type not found [", obk, "]")
+		return self.Error("[Mongo.Delete] registration object type not found [", d.GetTable(), "]")
 	}
 	copySession := self.Session.Copy()
 	defer copySession.Close()
-	db, err := self.GetDatabase(copySession, obv.TabelName)
+	db, err := self.GetDatabase(copySession, d.GetTable())
 	if err != nil {
 		return self.Error(err)
 	}
@@ -366,19 +364,13 @@ func (self *MGOManager) Delete(data ...interface{}) error {
 	return nil
 }
 
-// 统计数据
 func (self *MGOManager) Count(cnd *sqlc.Cnd) (int64, error) {
 	if cnd.Model == nil {
 		return 0, self.Error("[Mongo.Count] data model is nil")
 	}
-	obk := reflect.TypeOf(cnd.Model).String()
-	obv, ok := modelDrivers[obk]
-	if !ok {
-		return 0, self.Error(utils.AddStr("[Mongo.Count] registration object type not found [", obk, "]"))
-	}
 	copySession := self.Session.Copy()
 	defer copySession.Close()
-	db, err := self.GetDatabase(copySession, obv.TabelName)
+	db, err := self.GetDatabase(copySession, cnd.Model.GetTable())
 	if err != nil {
 		return 0, err
 	}
@@ -410,19 +402,13 @@ func (self *MGOManager) Count(cnd *sqlc.Cnd) (int64, error) {
 	return pageTotal, nil
 }
 
-// 查询单条数据
-func (self *MGOManager) FindOne(cnd *sqlc.Cnd, data interface{}) error {
+func (self *MGOManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
 	if data == nil {
 		return self.Error("[Mongo.FindOne] data is nil")
 	}
-	obk := reflect.TypeOf(data).String()
-	obv, ok := modelDrivers[obk]
-	if !ok {
-		return self.Error("[Mongo.FindOne] registration object type not found [", obk, "]")
-	}
 	copySession := self.Session.Copy()
 	defer copySession.Close()
-	db, err := self.GetDatabase(copySession, obv.TabelName)
+	db, err := self.GetDatabase(copySession, data.GetTable())
 	if err != nil {
 		return self.Error(err)
 	}
@@ -445,19 +431,12 @@ func (self *MGOManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	if data == nil {
 		return self.Error("[Mongo.FindList] data is nil")
 	}
-	obk := reflect.TypeOf(data).String()
-	if !strings.HasPrefix(obk, "*[]") {
-		return self.Error("[Mongo.FindList] the return parameter must be an array pointer type")
-	} else {
-		obk = utils.Substr(obk, 3, len(obk))
-	}
-	obv, ok := modelDrivers[obk]
-	if !ok {
-		return self.Error("[Mongo.FindList] registration object type not found [", obk, "]")
+	if cnd.Model == nil {
+		return self.Error("[Mongo.FindList] data model is nil")
 	}
 	copySession := self.Session.Copy()
 	defer copySession.Close()
-	db, err := self.GetDatabase(copySession, obv.TabelName)
+	db, err := self.GetDatabase(copySession, cnd.Model.GetTable())
 	if err != nil {
 		return self.Error(err)
 	}
@@ -480,14 +459,9 @@ func (self *MGOManager) UpdateByCnd(cnd *sqlc.Cnd) error {
 	if cnd.Model == nil {
 		return self.Error("[Mongo.UpdateByCnd] data model is nil")
 	}
-	obk := reflect.TypeOf(cnd.Model).String()
-	obv, ok := modelDrivers[obk]
-	if !ok {
-		return self.Error(utils.AddStr("[Mongo.UpdateByCnd] registration object type not found [", obk, "]"))
-	}
 	copySession := self.Session.Copy()
 	defer copySession.Close()
-	db, err := self.GetDatabase(copySession, obv.TabelName)
+	db, err := self.GetDatabase(copySession, cnd.Model.GetTable())
 	if err != nil {
 		return err
 	}

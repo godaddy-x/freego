@@ -24,15 +24,14 @@ type FieldElem struct {
 	FieldOffset   uintptr
 }
 
-type Hook struct {
-	NewObj    func() interface{}
-	NewObjArr func() interface{}
-}
+//type Hook struct {
+//	NewObj    func() interface{}
+//	NewObjArr func() interface{}
+//}
 
 type MdlDriver struct {
-	Hook       Hook
-	TabelName  string
-	ModelName  string
+	//Hook       Hook
+	TableName  string
 	ToMongo    bool
 	PkOffset   uintptr
 	PkKind     reflect.Kind
@@ -45,25 +44,30 @@ func Model(v interface{}) func() interface{} {
 	return func() interface{} { return v }
 }
 
-func NewHook(obj func() interface{}, objs func() interface{}) Hook {
-	return Hook{NewObj: obj, NewObjArr: objs}
-}
+//func NewHook(obj func() interface{}, objs func() interface{}) Hook {
+//	return Hook{NewObj: obj, NewObjArr: objs}
+//}
 
-func ModelDriver(hook ...Hook) error {
-	if hook == nil || len(hook) == 0 {
-		return utils.Error("hook is nil")
+func ModelDriver(objects ...sqlc.Object) error {
+	if objects == nil || len(objects) == 0 {
+		panic("objects is nil")
 	}
-	for _, v := range hook {
-		model := v.NewObj()
+	for _, v := range objects {
+		if v == nil {
+			panic("object is nil")
+		}
+		if len(v.GetTable()) == 0 {
+			panic("object table name is nil")
+		}
+		model := v.NewObject()
 		if model == nil {
-			return utils.Error("hook model is nil")
+			panic("NewObject value is nil")
 		}
 		if reflect.ValueOf(model).Kind() != reflect.Ptr {
-			return utils.Error("hook model must be a pointer type")
+			panic("NewObject value must be pointer")
 		}
-		v := &MdlDriver{
-			Hook:      v,
-			ModelName: reflect.TypeOf(model).String(),
+		md := &MdlDriver{
+			TableName: v.GetTable(),
 			FieldElem: []*FieldElem{},
 		}
 		tof := reflect.TypeOf(model).Elem()
@@ -74,21 +78,20 @@ func ModelDriver(hook ...Hook) error {
 			value := vof.Field(i)
 			f.FieldName = field.Name
 			f.FieldKind = value.Kind()
-			f.FieldDBType = field.Tag.Get(sqlc.Dtype)
+			//f.FieldDBType = field.Tag.Get(sqlc.Dtype)
 			f.FieldJsonName = field.Tag.Get(sqlc.Json)
 			f.FieldBsonName = field.Tag.Get(sqlc.Bson)
 			f.FieldOffset = field.Offset
 			f.FieldType = field.Type.String()
 			if field.Name == sqlc.Id {
 				f.Primary = true
-				v.TabelName = field.Tag.Get(sqlc.Table)
-				v.PkOffset = field.Offset
-				v.PkKind = value.Kind()
-				v.PkName = field.Tag.Get(sqlc.Json)
-				v.PkBsonName = field.Tag.Get(sqlc.Bson)
-				tomg := field.Tag.Get(sqlc.Mg)
-				if len(tomg) > 0 && tomg == sqlc.True {
-					v.ToMongo = true
+				md.PkOffset = field.Offset
+				md.PkKind = value.Kind()
+				md.PkName = field.Tag.Get(sqlc.Json)
+				md.PkBsonName = field.Tag.Get(sqlc.Bson)
+				mg := field.Tag.Get(sqlc.Mg)
+				if len(mg) > 0 && mg == sqlc.True {
+					md.ToMongo = true
 				}
 			}
 			ignore := field.Tag.Get(sqlc.Ignore)
@@ -99,9 +102,12 @@ func ModelDriver(hook ...Hook) error {
 			if len(isDate) > 0 && isDate == sqlc.True {
 				f.IsDate = true
 			}
-			v.FieldElem = append(v.FieldElem, f)
+			md.FieldElem = append(md.FieldElem, f)
 		}
-		modelDrivers[v.ModelName] = v
+		if _, b := modelDrivers[md.TableName]; b {
+			panic("table name: " + md.TableName + " exist")
+		}
+		modelDrivers[md.TableName] = md
 	}
 	return nil
 }

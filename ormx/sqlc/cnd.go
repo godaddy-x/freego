@@ -45,7 +45,6 @@ const DESC_ = 2
 const (
 	Id     = "Id"
 	Ignore = "ignore"
-	Table  = "tb"
 	Bson   = "bson"
 	Json   = "json"
 	Mg     = "mg"
@@ -88,7 +87,7 @@ type Cnd struct {
 	Orderbys     []Condition
 	Aggregates   []Condition
 	Upsets       map[string]interface{}
-	Model        interface{}
+	Model        Object
 	Pagination   dialect.Dialect
 	FromCond     *FromCond
 	JoinCond     []*JoinCond
@@ -106,7 +105,7 @@ type CacheConfig struct {
 }
 
 // args[0]=对象类型
-func M(model ...interface{}) *Cnd {
+func M(model ...Object) *Cnd {
 	c := &Cnd{}
 	if model != nil && len(model) > 0 {
 		c.Model = model[0]
