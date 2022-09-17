@@ -7,6 +7,7 @@ import (
 	"github.com/godaddy-x/freego/node/test"
 	"github.com/godaddy-x/freego/rpcx"
 	"github.com/godaddy-x/freego/utils"
+	_ "go.uber.org/automaxprocs"
 	"net/http"
 	_ "net/http/pprof"
 )
