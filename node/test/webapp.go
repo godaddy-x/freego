@@ -2,8 +2,6 @@ package http_web
 
 import (
 	"fmt"
-	"github.com/godaddy-x/freego/cache"
-	"github.com/godaddy-x/freego/cache/limiter"
 	"github.com/godaddy-x/freego/node"
 	"github.com/godaddy-x/freego/node/common"
 	"github.com/godaddy-x/freego/rpcx"
@@ -71,9 +69,6 @@ func (self *MyWebNode) pubkey(ctx *node.Context) error {
 	return self.Text(ctx, publicKey)
 }
 
-var local = new(cache.LocalMapManager).NewCache(30, 10)
-var limiter = rate.NewRateLimiter(rate.Option{Limit: 100, Bucket: 200, Expire: 30, Distributed: true})
-
 type NewPostFilter struct{}
 
 func (self *NewPostFilter) DoFilter(chain node.Filter, ctx *node.Context, args ...interface{}) error {
@@ -103,9 +98,7 @@ func NewHTTP() *MyWebNode {
 		TokenExp: jwt.TWO_WEEK,
 	})
 	//my.AddRSA(nil)
-	my.AddCache(func(ds ...string) (cache.Cache, error) {
-		return local, nil
-	})
+	//my.AddCache(nil)
 	my.AddFilter(&node.FilterObject{Name: "NewPostFilter", Order: 100, Filter: &NewPostFilter{}})
 	return my
 }

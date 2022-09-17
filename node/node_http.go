@@ -15,6 +15,7 @@ import (
 	"time"
 )
 
+var localCache cache.Cache
 var emptyMap = map[string]string{}
 var routerConfigs = make(map[string]*RouterConfig)
 var ctxPool = sync.Pool{New: func() interface{} {
@@ -68,36 +69,16 @@ func (self *HttpNode) StartServer(addr string) {
 	select {}
 }
 
-func (self *HttpNode) checkReady(path string, routerConfig *RouterConfig) {
-	if self.Context == nil {
-		self.Context = &Context{}
-	}
-	if self.Context.CacheAware == nil {
-		panic("cache service hasn't been initialized")
-	}
-	if self.Context.AcceptTimeout <= 0 {
-		self.Context.AcceptTimeout = 60
-	}
-	if self.Context.RSA == nil {
-		rsa := &gorsa.RsaObj{}
-		if err := rsa.CreateRsa2048(); err != nil {
-			panic("RSA certificate generation failed")
-		}
-		self.Context.RSA = rsa
-	}
-	if routerConfig == nil {
-		routerConfig = &RouterConfig{}
-	}
-	if _, b := routerConfigs[path]; !b {
-		routerConfigs[path] = routerConfig
-	}
-	if self.Context.router == nil {
-		self.Context.router = fasthttprouter.New()
-	}
+func (self *HttpNode) checkContextReady(path string, routerConfig *RouterConfig) {
+	self.readyContext()
+	self.AddCache(nil)
+	self.AddRSA(nil)
+	self.addRouterConfig(path, routerConfig)
+	self.newRouter()
 }
 
 func (self *HttpNode) addRouter(method, path string, handle PostHandle, routerConfig *RouterConfig) {
-	self.checkReady(path, routerConfig)
+	self.checkContextReady(path, routerConfig)
 	self.Context.router.Handle(method, path, fasthttp.TimeoutHandler(
 		func(ctx *fasthttp.RequestCtx) {
 			self.proxy(handle, ctx)
@@ -141,12 +122,51 @@ func (self *HttpNode) readyContext() {
 
 func (self *HttpNode) AddCache(aware CacheAware) {
 	self.readyContext()
-	self.Context.CacheAware = aware
+	if self.Context.CacheAware == nil {
+		if aware == nil {
+			if localCache == nil {
+				localCache = cache.NewLocalCache(30, 2)
+			}
+			aware = func(ds ...string) (cache.Cache, error) {
+				return localCache, nil
+			}
+		}
+		self.Context.CacheAware = aware
+	}
 }
 
 func (self *HttpNode) AddRSA(rsa gorsa.RSA) {
 	self.readyContext()
-	self.Context.RSA = rsa
+	if self.Context.RSA == nil {
+		if rsa == nil {
+			defaultRSA := &gorsa.RsaObj{}
+			if err := defaultRSA.CreateRsa2048(); err != nil {
+				panic("RSA certificate generation failed")
+			}
+			rsa = defaultRSA
+		}
+		self.Context.RSA = rsa
+	}
+}
+
+func (self *HttpNode) addRouterConfig(path string, routerConfig *RouterConfig) {
+	self.readyContext()
+	if routerConfig == nil {
+		routerConfig = &RouterConfig{}
+	}
+	if _, b := routerConfigs[path]; !b {
+		routerConfigs[path] = routerConfig
+	}
+}
+
+func (self *HttpNode) newRouter() {
+	self.readyContext()
+	if self.Context.AcceptTimeout <= 0 {
+		self.Context.AcceptTimeout = 60
+	}
+	if self.Context.router == nil {
+		self.Context.router = fasthttprouter.New()
+	}
 }
 
 func (self *HttpNode) AddJwtConfig(config jwt.JwtConfig) {

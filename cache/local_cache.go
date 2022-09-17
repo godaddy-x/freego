@@ -12,6 +12,7 @@ type LocalMapManager struct {
 	c *cache.Cache
 }
 
+// a默认缓存时间/分钟 b默认校验数据间隔时间/分钟
 func NewLocalCache(a, b int) Cache {
 	return new(LocalMapManager).NewCache(a, b)
 }
