@@ -17,11 +17,12 @@ func (self *PubWorker) GenerateId(ctx context.Context, req *pb.GenerateIdReq) (*
 }
 
 func (self *PubWorker) PublicKey(ctx context.Context, req *pb.PublicKeyReq) (*pb.PublicKeyRes, error) {
-	rsaObj, err := rpcx.GetAuthorizeTLS()
+	tls, err := rpcx.GetAuthorizeTLS()
 	if err != nil {
 		return nil, err
 	}
-	return &pb.PublicKeyRes{PublicKey: rsaObj.PubkeyBase64}, nil
+	_, publicKey := tls.GetPublicKey()
+	return &pb.PublicKeyRes{PublicKey: publicKey}, nil
 }
 
 func (self *PubWorker) Authorize(ctx context.Context, req *pb.AuthorizeReq) (*pb.AuthorizeRes, error) {

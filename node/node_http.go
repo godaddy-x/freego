@@ -24,6 +24,8 @@ var ctxPool = sync.Pool{New: func() interface{} {
 	return ctx
 }}
 
+type CacheAware func(ds ...string) (cache.Cache, error)
+
 type HttpNode struct {
 	HookNode
 }
@@ -52,7 +54,7 @@ func (self *HttpNode) StartServer(addr string) {
 		if self.Context.CacheAware != nil {
 			zlog.Printf("cache service has been started successful")
 		}
-		if self.Context.ServerTLS != nil {
+		if self.Context.RSA != nil {
 			zlog.Printf("RSA certificate service has been started successful")
 		}
 		if err := createFilterChain(); err != nil {
@@ -76,12 +78,12 @@ func (self *HttpNode) checkReady(path string, routerConfig *RouterConfig) {
 	if self.Context.AcceptTimeout <= 0 {
 		self.Context.AcceptTimeout = 60
 	}
-	if self.Context.ServerTLS == nil {
-		tls := &gorsa.RsaObj{}
-		if err := tls.CreateRsa2048(); err != nil {
+	if self.Context.RSA == nil {
+		rsa := &gorsa.RsaObj{}
+		if err := rsa.CreateRsa2048(); err != nil {
 			panic("RSA certificate generation failed")
 		}
-		self.Context.ServerTLS = tls
+		self.Context.RSA = rsa
 	}
 	if routerConfig == nil {
 		routerConfig = &RouterConfig{}
@@ -131,11 +133,20 @@ func (self *HttpNode) AddFilter(object *FilterObject) {
 	zlog.Printf("add filter [%s] successful", object.Name)
 }
 
-func (self *HttpNode) AddCacheAware(cacheAware func(ds ...string) (cache.Cache, error)) {
+func (self *HttpNode) readyContext() {
 	if self.Context == nil {
 		self.Context = &Context{}
 	}
-	self.Context.CacheAware = cacheAware
+}
+
+func (self *HttpNode) AddCache(aware CacheAware) {
+	self.readyContext()
+	self.Context.CacheAware = aware
+}
+
+func (self *HttpNode) AddRSA(rsa gorsa.RSA) {
+	self.readyContext()
+	self.Context.RSA = rsa
 }
 
 func (self *HttpNode) AddJwtConfig(config jwt.JwtConfig) {

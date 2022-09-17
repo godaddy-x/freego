@@ -67,7 +67,8 @@ func (self *MyWebNode) login(ctx *node.Context) error {
 
 func (self *MyWebNode) pubkey(ctx *node.Context) error {
 	testCallRPC()
-	return self.Text(ctx, ctx.ServerTLS.PubkeyBase64)
+	_, publicKey := ctx.RSA.GetPublicKey()
+	return self.Text(ctx, publicKey)
 }
 
 var local = new(cache.LocalMapManager).NewCache(30, 10)
@@ -101,7 +102,8 @@ func NewHTTP() *MyWebNode {
 		TokenKey: "123456" + utils.CreateLocalSecretKey(12, 45, 23, 60, 58, 30),
 		TokenExp: jwt.TWO_WEEK,
 	})
-	my.AddCacheAware(func(ds ...string) (cache.Cache, error) {
+	//my.AddRSA(nil)
+	my.AddCache(func(ds ...string) (cache.Cache, error) {
 		return local, nil
 	})
 	my.AddFilter(&node.FilterObject{Name: "NewPostFilter", Order: 100, Filter: &NewPostFilter{}})

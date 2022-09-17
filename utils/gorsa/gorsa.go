@@ -14,18 +14,27 @@ import (
 	"os"
 )
 
-const rsa_bits = 2048
+const bits = 2048
+
+type RSA interface {
+	GetPrivateKey() (interface{}, string)
+	GetPublicKey() (interface{}, string)
+	Encrypt(msg []byte) (string, error)
+	Decrypt(msg string) (string, error)
+	Sign(msg []byte) ([]byte, error)
+	Verify(msg []byte, sign string) error
+}
 
 type RsaObj struct {
-	prikey       *rsa.PrivateKey
-	pubkey       *rsa.PublicKey
-	PubkeyBase64 string
-	PrikeyBase64 string
+	privateKey       *rsa.PrivateKey
+	publicKey        *rsa.PublicKey
+	PrivateKeyBase64 string
+	PublicKeyBase64  string
 }
 
 func (self *RsaObj) CreateRsaFile(keyfile, pemfile string) error {
 	// 生成私钥文件
-	prikey, err := rsa.GenerateKey(rand.Reader, rsa_bits)
+	prikey, err := rsa.GenerateKey(rand.Reader, bits)
 	if err != nil {
 		return err
 	}
@@ -70,10 +79,10 @@ func (self *RsaObj) CreateRsa1024() error {
 	return self.CreateRsaFileBase64(1024)
 }
 
-func (self *RsaObj) CreateRsaFileBase64(bits ...int) error {
-	x := rsa_bits
-	if len(bits) > 0 {
-		x = bits[0]
+func (self *RsaObj) CreateRsaFileBase64(b ...int) error {
+	x := bits
+	if len(b) > 0 {
+		x = b[0]
 	}
 	// 生成私钥文件
 	prikey, err := rsa.GenerateKey(rand.Reader, x)
@@ -84,18 +93,18 @@ func (self *RsaObj) CreateRsaFileBase64(bits ...int) error {
 		Type:  "RSA PRIVATE KEY",
 		Bytes: x509.MarshalPKCS1PrivateKey(prikey),
 	}
-	prikeybase64 := base64.URLEncoding.EncodeToString(pem.EncodeToMemory(&block))
+	privateKeyBase64 := base64.URLEncoding.EncodeToString(pem.EncodeToMemory(&block))
 
 	// 生成公钥文件
 	block1 := pem.Block{
 		Type:  "RSA PUBLICK KEY",
 		Bytes: x509.MarshalPKCS1PublicKey(&prikey.PublicKey),
 	}
-	pubkeybase64 := base64.URLEncoding.EncodeToString(pem.EncodeToMemory(&block1))
-	self.prikey = prikey
-	self.pubkey = &prikey.PublicKey
-	self.PubkeyBase64 = pubkeybase64
-	self.PrikeyBase64 = prikeybase64
+	publicKeyBase64 := base64.URLEncoding.EncodeToString(pem.EncodeToMemory(&block1))
+	self.privateKey = prikey
+	self.publicKey = &prikey.PublicKey
+	self.PublicKeyBase64 = publicKeyBase64
+	self.PrivateKeyBase64 = privateKeyBase64
 	return nil
 }
 
@@ -124,10 +133,10 @@ func (self *RsaObj) LoadRsaFile(filePath string) error {
 		Type:  "RSA PUBLICK KEY",
 		Bytes: x509.MarshalPKCS1PublicKey(&prikey.PublicKey),
 	}
-	pubkeybase64 := base64.URLEncoding.EncodeToString(pem.EncodeToMemory(&block1))
-	self.prikey = prikey
-	self.pubkey = &prikey.PublicKey
-	self.PubkeyBase64 = pubkeybase64
+	publicKeyBase64 := base64.URLEncoding.EncodeToString(pem.EncodeToMemory(&block1))
+	self.privateKey = prikey
+	self.publicKey = &prikey.PublicKey
+	self.PublicKeyBase64 = publicKeyBase64
 	return nil
 }
 
@@ -144,8 +153,8 @@ func (self *RsaObj) LoadRsaKeyFileBase64(fileBase64 string) error {
 	if err != nil {
 		return err
 	}
-	self.prikey = prikey
-	self.pubkey = &prikey.PublicKey
+	self.privateKey = prikey
+	self.publicKey = &prikey.PublicKey
 	return nil
 }
 
@@ -158,7 +167,7 @@ func (self *RsaObj) LoadRsaPemFileByte(fileByte []byte) error {
 	if err != nil {
 		return err
 	}
-	self.pubkey = pubkey
+	self.publicKey = pubkey
 	return nil
 }
 
@@ -175,8 +184,8 @@ func (self *RsaObj) LoadRsaPemFileBase64(fileBase64 string) error {
 	if err != nil {
 		return err
 	}
-	self.pubkey = pubkey
-	self.PubkeyBase64 = fileBase64
+	self.publicKey = pubkey
+	self.PublicKeyBase64 = fileBase64
 	return nil
 }
 
@@ -198,65 +207,7 @@ func (self *RsaObj) LoadRsaPubkey(filePath string) error {
 	if err != nil {
 		return err
 	}
-	self.pubkey = pubkey
-	return nil
-}
-
-func (self *RsaObj) Encrypt(msg []byte) (string, error) {
-	partLen := self.pubkey.N.BitLen()/8 - 11
-	chunks := split(msg, partLen)
-	buffer := bytes.NewBufferString("")
-	for _, chunk := range chunks {
-		bytes, err := rsa.EncryptPKCS1v15(rand.Reader, self.pubkey, chunk)
-		if err != nil {
-			return "", err
-		}
-		buffer.Write(bytes)
-	}
-	return base64.URLEncoding.EncodeToString(buffer.Bytes()), nil
-}
-
-func (self *RsaObj) Decrypt(msg string) (string, error) {
-	partLen := self.pubkey.N.BitLen() / 8
-	raw, err := base64.URLEncoding.DecodeString(msg)
-	if err != nil {
-		return "", errors.New("msg base64 decode failed")
-	}
-	chunks := split(raw, partLen)
-	buffer := bytes.NewBufferString("")
-	for _, chunk := range chunks {
-		decrypted, err := rsa.DecryptPKCS1v15(rand.Reader, self.prikey, chunk)
-		if err != nil {
-			return "", err
-		}
-		buffer.Write(decrypted)
-	}
-	return buffer.String(), err
-}
-
-func (self *RsaObj) SignBySHA256(msg []byte) ([]byte, error) {
-	h := sha256.New()
-	h.Write(msg)
-	hased := h.Sum(nil)
-	res, err := rsa.SignPKCS1v15(rand.Reader, self.prikey, crypto.SHA256, hased)
-	if err != nil {
-		return nil, err
-	}
-	return res, nil
-}
-
-func (self *RsaObj) VerifyBySHA256(msg []byte, sign string) error {
-	bs, err := base64.URLEncoding.DecodeString(sign)
-	if err != nil {
-		return err
-	}
-	if bs == nil || len(bs) == 0 {
-		return errors.New("RSA sign invalid")
-	}
-	hased := sha256.Sum256(msg)
-	if err := rsa.VerifyPKCS1v15(self.pubkey, crypto.SHA256, hased[:], bs); err != nil {
-		return err
-	}
+	self.publicKey = pubkey
 	return nil
 }
 
@@ -271,4 +222,72 @@ func split(buf []byte, lim int) [][]byte {
 		chunks = append(chunks, buf[:])
 	}
 	return chunks
+}
+
+// ******************************************************* RSA Implement *******************************************************
+
+func (self *RsaObj) GetPrivateKey() (interface{}, string) {
+	return self.privateKey, self.PrivateKeyBase64
+}
+
+func (self *RsaObj) GetPublicKey() (interface{}, string) {
+	return self.publicKey, self.PublicKeyBase64
+}
+
+func (self *RsaObj) Encrypt(msg []byte) (string, error) {
+	partLen := self.publicKey.N.BitLen()/8 - 11
+	chunks := split(msg, partLen)
+	buffer := bytes.NewBufferString("")
+	for _, chunk := range chunks {
+		bytes, err := rsa.EncryptPKCS1v15(rand.Reader, self.publicKey, chunk)
+		if err != nil {
+			return "", err
+		}
+		buffer.Write(bytes)
+	}
+	return base64.URLEncoding.EncodeToString(buffer.Bytes()), nil
+}
+
+func (self *RsaObj) Decrypt(msg string) (string, error) {
+	partLen := self.publicKey.N.BitLen() / 8
+	raw, err := base64.URLEncoding.DecodeString(msg)
+	if err != nil {
+		return "", errors.New("msg base64 decode failed")
+	}
+	chunks := split(raw, partLen)
+	buffer := bytes.NewBufferString("")
+	for _, chunk := range chunks {
+		decrypted, err := rsa.DecryptPKCS1v15(rand.Reader, self.privateKey, chunk)
+		if err != nil {
+			return "", err
+		}
+		buffer.Write(decrypted)
+	}
+	return buffer.String(), err
+}
+
+func (self *RsaObj) Sign(msg []byte) ([]byte, error) {
+	h := sha256.New()
+	h.Write(msg)
+	hased := h.Sum(nil)
+	res, err := rsa.SignPKCS1v15(rand.Reader, self.privateKey, crypto.SHA256, hased)
+	if err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+func (self *RsaObj) Verify(msg []byte, sign string) error {
+	bs, err := base64.URLEncoding.DecodeString(sign)
+	if err != nil {
+		return err
+	}
+	if bs == nil || len(bs) == 0 {
+		return errors.New("RSA sign invalid")
+	}
+	hased := sha256.Sum256(msg)
+	if err := rsa.VerifyPKCS1v15(self.publicKey, crypto.SHA256, hased[:], bs); err != nil {
+		return err
+	}
+	return nil
 }

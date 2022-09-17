@@ -102,7 +102,7 @@ type Context struct {
 	Response      *Response
 	filterChain   *filterChain
 	RouterConfig  *RouterConfig
-	ServerTLS     *gorsa.RsaObj
+	RSA           gorsa.RSA
 	PermConfig    func(uid, url string, isRole ...bool) ([]int64, Permission, error)
 	Storage       map[string]interface{}
 	postCompleted bool
@@ -260,7 +260,7 @@ func (self *Context) validJsonBody(req *JsonBody) error {
 	}
 	var key string
 	if self.RouterConfig.Login {
-		key = self.ServerTLS.PubkeyBase64
+		_, key = self.RSA.GetPublicKey()
 	}
 	if self.GetHmac256Sign(d, req.Nonce, req.Time, req.Plan, key) != req.Sign {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature invalid"}
@@ -279,7 +279,7 @@ func (self *Context) validJsonBody(req *JsonBody) error {
 		if len(randomCode) == 0 {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "client random code invalid"}
 		}
-		code, err := self.ServerTLS.Decrypt(randomCode)
+		code, err := self.RSA.Decrypt(randomCode)
 		if err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "server private-key decrypt failed", Err: err}
 		}
@@ -320,7 +320,7 @@ func (self *Context) Handle() error {
 
 func (self *Context) reset(ctx *Context, handle PostHandle, request *fasthttp.RequestCtx) {
 	self.CacheAware = ctx.CacheAware
-	self.ServerTLS = ctx.ServerTLS
+	self.RSA = ctx.RSA
 	self.PermConfig = ctx.PermConfig
 	self.postHandle = handle
 	self.RequestCtx = request
