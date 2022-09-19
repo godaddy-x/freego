@@ -27,7 +27,7 @@ func TestConsulxRunGRPCServer(t *testing.T) {
 }
 
 func TestConsulxCallGRPC_GenID(t *testing.T) {
-	rpcx.RunClient(APPID)
+	rpcx.RunClient(appConfig.AppId)
 	conn, err := rpcx.NewClientConn(rpcx.GRPC{Service: "PubWorker", Cache: 30})
 	if err != nil {
 		panic(err)
@@ -41,7 +41,7 @@ func TestConsulxCallGRPC_GenID(t *testing.T) {
 }
 
 func TestGRPCClient(t *testing.T) {
-	rpcx.RunClient(APPID)
+	rpcx.RunClient(appConfig.AppId)
 	conn, err := rpcx.NewClientConn(rpcx.GRPC{Service: "PubWorker", Cache: 30})
 	if err != nil {
 		panic(err)
@@ -55,7 +55,7 @@ func TestGRPCClient(t *testing.T) {
 }
 
 func BenchmarkGRPCClient(b *testing.B) {
-	rpcx.RunClient(APPID)
+	rpcx.RunClient(appConfig.AppId)
 	b.StopTimer()
 	b.StartTimer()
 	for i := 0; i < b.N; i++ { //use b.N for looping

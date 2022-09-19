@@ -58,8 +58,8 @@ type TlsConfig struct {
 }
 
 type AppConfig struct {
-	Appid    string
-	Appkey   string
+	AppId    string
+	AppKey   string
 	Status   int64
 	LastTime int64
 }
@@ -75,7 +75,7 @@ type GRPC struct {
 }
 
 type AuthObject struct {
-	Appid     string
+	AppId     string
 	Nonce     string
 	Time      int64
 	Signature string
@@ -121,7 +121,7 @@ func (self *GRPCManager) CreateJwtConfig(tokenKey string, tokenExp ...int64) {
 	}
 }
 
-func (self *GRPCManager) CreateAppConfigCall(fun func(appid string) (AppConfig, error)) {
+func (self *GRPCManager) CreateAppConfigCall(fun func(appId string) (AppConfig, error)) {
 	if appConfigCall != nil {
 		return
 	}
@@ -357,8 +357,8 @@ func RunServer(consulDs string, authenticate bool, objects ...*GRPC) {
 // RunClient Important: ensure that the service starts only once
 // JWT Token expires in 1 hour
 // The remaining 1200s will be automatically renewed and detected every 15s
-func RunClient(appid string) {
-	if len(appid) == 0 {
+func RunClient(appId string) {
+	if len(appId) == 0 {
 		panic("appid is nil")
 	}
 	if len(clientOptions) == 0 {
@@ -386,7 +386,7 @@ func RunClient(appid string) {
 	var err error
 	var expired int64
 	for {
-		accessToken, expired, err = callLogin(appid)
+		accessToken, expired, err = callLogin(appId)
 		if err != nil {
 			zlog.Error("rpc login failed", 0, zlog.AddError(err))
 			time.Sleep(5 * time.Second)
@@ -394,23 +394,23 @@ func RunClient(appid string) {
 		}
 		break
 	}
-	go renewClientToken(appid, expired)
+	go renewClientToken(appId, expired)
 }
 
-func callLogin(appid string) (string, int64, error) {
-	appConfig, err := GetGRPCAppConfig(appid)
+func callLogin(appId string) (string, int64, error) {
+	appConfig, err := GetGRPCAppConfig(appId)
 	if err != nil {
 		return "", 0, err
 	}
-	if len(appConfig.Appkey) == 0 {
+	if len(appConfig.AppKey) == 0 {
 		return "", 0, utils.Error("rpc appConfig key is nil")
 	}
 	authObject := &AuthObject{
-		Appid: appid,
+		AppId: appId,
 		Nonce: utils.RandStr(16),
 		Time:  utils.UnixSecond(),
 	}
-	authObject.Signature = utils.HMAC_SHA256(utils.AddStr(authObject.Appid, authObject.Nonce, authObject.Time), appConfig.Appkey, true)
+	authObject.Signature = utils.HMAC_SHA256(utils.AddStr(authObject.AppId, authObject.Nonce, authObject.Time), appConfig.AppKey, true)
 	b64, err := utils.ToJsonBase64(authObject)
 	if err != nil {
 		return "", 0, err

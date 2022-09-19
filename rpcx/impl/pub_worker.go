@@ -41,7 +41,7 @@ func (self *PubWorker) Authorize(ctx context.Context, req *pb.AuthorizeReq) (*pb
 	if err := utils.ParseJsonBase64(dec, authObj); err != nil {
 		return nil, err
 	}
-	if len(authObj.Appid) != 32 {
+	if len(authObj.AppId) != 32 {
 		return nil, utils.Error("appid invalid")
 	}
 	if !utils.CheckLen(authObj.Nonce, 8, 16) {
@@ -50,11 +50,11 @@ func (self *PubWorker) Authorize(ctx context.Context, req *pb.AuthorizeReq) (*pb
 	if utils.MathAbs(utils.UnixSecond()-authObj.Time) > jwt.FIVE_MINUTES { // 判断绝对时间差超过5分钟
 		return nil, utils.Error("time invalid")
 	}
-	appConfig, err := rpcx.GetGRPCAppConfig(authObj.Appid)
+	appConfig, err := rpcx.GetGRPCAppConfig(authObj.AppId)
 	if err != nil {
 		return nil, err
 	}
-	if len(authObj.Signature) != 44 || utils.HMAC_SHA256(utils.AddStr(authObj.Appid, authObj.Nonce, authObj.Time), appConfig.Appkey, true) != authObj.Signature {
+	if len(authObj.Signature) != 44 || utils.HMAC_SHA256(utils.AddStr(authObj.AppId, authObj.Nonce, authObj.Time), appConfig.AppKey, true) != authObj.Signature {
 		return nil, utils.Error("signature invalid")
 	}
 	jwtConfig, err := rpcx.GetGRPCJwtConfig()
@@ -62,7 +62,7 @@ func (self *PubWorker) Authorize(ctx context.Context, req *pb.AuthorizeReq) (*pb
 		return nil, err
 	}
 	subject := &jwt.Subject{}
-	subject.Create(authObj.Appid).Dev("GRPC").Expired(jwtConfig.TokenExp)
+	subject.Create(authObj.AppId).Dev("GRPC").Expired(jwtConfig.TokenExp)
 	token := subject.Generate(jwt.JwtConfig{TokenTyp: jwtConfig.TokenTyp, TokenAlg: jwtConfig.TokenAlg, TokenKey: jwtConfig.TokenKey})
 	return &pb.AuthorizeRes{Token: token, Expired: subject.Payload.Exp}, nil
 }

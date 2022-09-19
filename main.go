@@ -32,17 +32,19 @@ func initRedis() {
 	new(cache.RedisManager).InitConfig(conf)
 }
 
-var APPID = utils.MD5("123456")
-var APPKEY = utils.MD5("123456")
+var appConfig = rpcx.AppConfig{}
 
 func initGRPC() {
+	if err := utils.ReadLocalJsonConfig("resource/app.json", &appConfig); err != nil {
+		panic(err)
+	}
 	client := &rpcx.GRPCManager{}
-	client.CreateJwtConfig(APPKEY)
-	client.CreateAppConfigCall(func(appid string) (rpcx.AppConfig, error) {
-		if appid == APPKEY {
-			return rpcx.AppConfig{Appid: APPID, Appkey: APPKEY}, nil
+	client.CreateJwtConfig(appConfig.AppKey)
+	client.CreateAppConfigCall(func(appId string) (rpcx.AppConfig, error) {
+		if appId == appConfig.AppId {
+			return appConfig, nil
 		}
-		return rpcx.AppConfig{}, utils.Error("appid invalid")
+		return rpcx.AppConfig{}, utils.Error("appId invalid")
 	})
 	client.CreateRateLimiterCall(func(method string) (rate.Option, error) {
 		return rate.Option{}, nil
@@ -74,7 +76,7 @@ func main() {
 	go func() {
 		_ = http.ListenAndServe(":8849", nil)
 	}()
-	rpcx.RunClient(APPID)
+	rpcx.RunClient(appConfig.AppId)
 	http_test()
 	//router := fasthttprouter.New()
 	//router.GET("/pubkey", func(ctx *fasthttp.RequestCtx) {
