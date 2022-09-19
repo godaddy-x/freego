@@ -45,12 +45,12 @@ func testCallRPC() {
 		return
 	}
 	defer conn.Close()
-	_, err = pb.NewPubWorkerClient(conn.Value()).GenerateId(conn.Context(), &pb.GenerateIdReq{})
+	res, err := pb.NewPubWorkerClient(conn.Value()).GenerateId(conn.Context(), &pb.GenerateIdReq{})
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
-	//fmt.Println("call rpc:", res)
+	fmt.Println("call rpc:", res)
 }
 
 func (self *MyWebNode) login(ctx *node.Context) error {

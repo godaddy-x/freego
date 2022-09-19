@@ -21,7 +21,7 @@ func GC(limit int, percent int) {
 		debug.SetGCPercent(percent)
 	}
 	if limit <= 0 {
-		limit = 256 * MB
+		limit = 128 * MB
 	}
 	fmt.Println(fmt.Sprintf("GC setting limit:%dMB, percent:%d%s, trigger:%dMB", limit/MB, percent, "%", limit/MB*percent/100*2))
 	go func() {

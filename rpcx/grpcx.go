@@ -7,6 +7,7 @@ import (
 	"github.com/godaddy-x/freego/cache/limiter"
 	"github.com/godaddy-x/freego/rpcx/pb"
 	"github.com/godaddy-x/freego/utils"
+	"github.com/godaddy-x/freego/utils/concurrent"
 	"github.com/godaddy-x/freego/utils/gorsa"
 	"github.com/godaddy-x/freego/utils/jwt"
 	"github.com/godaddy-x/freego/zlog"
@@ -19,7 +20,6 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
-	"sync"
 	"time"
 )
 
@@ -37,7 +37,7 @@ var (
 )
 
 type ClientConnPool struct {
-	mu    sync.Mutex
+	once  concurrent.Once
 	pools map[string]pool.Pool
 }
 
@@ -490,23 +490,19 @@ func NewClientConn(object GRPC) (pool.Conn, error) {
 	return clientConnPools.getClientConn(utils.AddStr(service.Address, ":", service.Port), timeout)
 }
 
-func (self *ClientConnPool) getClientConn(host string, timeout int) (pool.Conn, error) {
-	conn, err := self.readyClientConn(host, timeout)
-	if err != nil {
-		return nil, err
-	}
-	if conn != nil {
-		return conn, nil
-	}
-	return self.readyPool(host, timeout)
-}
-
-func (self *ClientConnPool) readyClientConn(host string, timeout int) (pool.Conn, error) {
+func (self *ClientConnPool) getClientConn(host string, timeout int) (conn pool.Conn, err error) {
 	p, b := self.pools[host]
 	if !b || p == nil {
-		return nil, nil
+		zlog.Warn("client pool host is nil", 0, zlog.String("host", host))
+		p, err = self.readyPool(host)
+		if err != nil {
+			return nil, err
+		}
+		if p == nil {
+			return nil, utils.Error("init client pool failed")
+		}
 	}
-	conn, err := p.Get()
+	conn, err = p.Get()
 	if err != nil {
 		return nil, err
 	}
@@ -514,16 +510,18 @@ func (self *ClientConnPool) readyClientConn(host string, timeout int) (pool.Conn
 	return conn, nil
 }
 
-func (self *ClientConnPool) readyPool(host string, timeout int) (pool.Conn, error) {
-	self.mu.Lock()
-	defer self.mu.Unlock()
-	if conn, err := self.readyClientConn(host, timeout); err == nil && conn != nil {
-		return conn, nil
-	}
-	pool, err := pool.NewPool(pool.DefaultOptions, pool.ConnConfig{Address: host, Timeout: 10, Opts: clientOptions})
+func (self *ClientConnPool) readyPool(host string) (pool.Pool, error) {
+	val, err := self.once.Do(func() (interface{}, error) {
+		pool, err := pool.NewPool(pool.DefaultOptions, pool.ConnConfig{Address: host, Timeout: 10, Opts: clientOptions})
+		if err != nil {
+			return nil, err
+		}
+		self.pools[host] = pool
+		return pool, nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	self.pools[host] = pool
-	return self.readyClientConn(host, timeout)
+	p, _ := val.(pool.Pool)
+	return p, nil
 }

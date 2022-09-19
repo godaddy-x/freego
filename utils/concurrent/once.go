@@ -10,19 +10,19 @@ type Once struct {
 	m    sync.Mutex
 }
 
-func (o *Once) Do(f func() error) error {
+func (o *Once) Do(f func() (interface{}, error)) (interface{}, error) {
 	if atomic.LoadUint32(&o.done) == 0 {
 		return o.doSlow(f)
 	}
-	return nil
+	return nil, nil
 }
 
-func (o *Once) doSlow(f func() error) error {
+func (o *Once) doSlow(f func() (interface{}, error)) (interface{}, error) {
 	o.m.Lock()
 	defer o.m.Unlock()
 	if o.done == 0 {
 		defer atomic.StoreUint32(&o.done, 1)
 		return f()
 	}
-	return nil
+	return nil, nil
 }
