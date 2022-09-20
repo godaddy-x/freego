@@ -200,12 +200,13 @@ func (self *PublishManager) listen(pub *PublishMQ) {
 	}(closeChan)
 }
 
-func (self *PublishManager) Publish(exchange, queue string, content interface{}) error {
+func (self *PublishManager) Publish(exchange, queue string, dataType int64, content interface{}) error {
 	msg := &MsgData{
 		Option: Option{
 			Exchange: exchange,
 			Queue:    queue,
 		},
+		Type:    dataType,
 		Content: content,
 	}
 	return self.PublishMsgData(msg)
