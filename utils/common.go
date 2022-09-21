@@ -785,3 +785,27 @@ func MatchFilterURL(requestPath string, matchPattern []string) bool {
 	}
 	return false
 }
+
+func FmtDiv(v string, d int64) string {
+	if len(v) == 0 {
+		return "0"
+	}
+	if d == 0 {
+		return v
+	}
+	x, err := decimal.NewFromString(v)
+	if err != nil {
+		return "0"
+	}
+	return x.Shift(-int32(d)).String()
+}
+
+func FmtZero(r string) string {
+	if len(r) == 0 {
+		return "0"
+	}
+	a := decimal.New(0, 0)
+	b, _ := decimal.NewFromString(r)
+	a = a.Add(b)
+	return a.String()
+}
