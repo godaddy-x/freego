@@ -133,6 +133,30 @@ func (self *ConsulManager) GetJsonValue(key string, result interface{}) error {
 	return nil
 }
 
+// 通过Consul中心获取指定加密JSON配置数据
+func (self *ConsulManager) GetAesJsonValue(key, encKey string, result interface{}) error {
+	client := self.Consulx
+	kv := client.KV()
+	if kv == nil {
+		return utils.Error("consul node [", key, "] not found...")
+	}
+	k, _, err := kv.Get(key, nil)
+	if err != nil {
+		return utils.Error("consul node [", key, "] read failed...")
+	}
+	if k == nil || k.Value == nil || len(k.Value) == 0 {
+		return utils.Error("consul node [", key, "] read is nil...")
+	}
+	val, err := utils.AesDecrypt(utils.Bytes2Str(k.Value), encKey, encKey)
+	if err != nil {
+		return err
+	}
+	if err := utils.JsonUnmarshal(utils.Str2Bytes(val), result); err != nil {
+		return utils.Error("consul node [", key, "] parse failed...")
+	}
+	return nil
+}
+
 func (self *ConsulManager) GetTextValue(key string) ([]byte, error) {
 	client := self.Consulx
 	kv := client.KV()

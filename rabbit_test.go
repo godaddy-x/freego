@@ -45,7 +45,7 @@ func TestMQPublish(t *testing.T) {
 	cli, _ := mq.Client()
 	content := map[string]interface{}{"test": 1234}
 	for {
-		err := cli.Publish(exchange, queue, content)
+		err := cli.Publish(exchange, queue, 1, content)
 		if err != nil {
 			fmt.Println("send msg failed: ", err)
 		} else {
