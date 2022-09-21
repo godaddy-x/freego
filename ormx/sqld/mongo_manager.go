@@ -178,7 +178,7 @@ func (self *MGOManager) buildByConfig(manager cache.Cache, input ...MGOConfig) e
 		mgoSessions[mgo.DsName] = mgo
 		// init zlog
 		mgo.initSlowLog()
-		zlog.Printf("mongodb service【%s】has been started successful", v.DsName)
+		zlog.Printf("mongodb service【%s】has been started successful", mgo.DsName)
 	}
 	if len(mgoSessions) == 0 {
 		return utils.Error("mongo init failed: sessions is nil")
