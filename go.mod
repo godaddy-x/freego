@@ -14,7 +14,6 @@ require (
 	github.com/hashicorp/consul/api v1.13.1
 	github.com/json-iterator/go v1.1.12
 	github.com/patrickmn/go-cache v2.1.0+incompatible
-	github.com/shimingyah/pool v1.0.0
 	github.com/streadway/amqp v1.0.0
 	github.com/valyala/fasthttp v1.39.0
 	github.com/valyala/fastjson v1.6.3
@@ -25,8 +24,6 @@ require (
 	google.golang.org/protobuf v1.28.1
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0
 )
-
-replace github.com/shimingyah/pool v1.0.0 => github.com/godaddy-x/pool v1.0.8
 
 require (
 	github.com/andybalholm/brotli v1.0.4 // indirect
