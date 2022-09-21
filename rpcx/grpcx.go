@@ -68,6 +68,7 @@ type GRPC struct {
 	Ds      string                    // consul数据源ds
 	Tags    []string                  // 服务标签名称
 	Address string                    // 服务地址,为空时自动填充内网IP
+	RpcPort int                       // 服务地址端口
 	Service string                    // 服务名称
 	Cache   int                       // 服务缓存时间/秒
 	Timeout int                       // context timeout/毫秒
@@ -305,6 +306,9 @@ func RunServer(consulDs string, authenticate bool, objects ...*GRPC) {
 	for _, object := range objects {
 		address := utils.GetLocalIP()
 		port := self.consul.Config.RpcPort
+		if object.RpcPort > 0 {
+			port = object.RpcPort
+		}
 		if len(address) == 0 {
 			panic("local address reading failed")
 		}
@@ -357,10 +361,7 @@ func RunServer(consulDs string, authenticate bool, objects ...*GRPC) {
 // RunClient Important: ensure that the service starts only once
 // JWT Token expires in 1 hour
 // The remaining 1200s will be automatically renewed and detected every 15s
-func RunClient(appId string) {
-	if len(appId) == 0 {
-		panic("appid is nil")
-	}
+func RunClient(appId ...string) {
 	if len(clientOptions) == 0 {
 		c, err := NewConsul()
 		if err != nil {
@@ -383,10 +384,13 @@ func RunClient(appId string) {
 			clientOptions = append(clientOptions, grpc.WithTransportCredentials(insecure.NewCredentials()))
 		}
 	}
+	if len(appId) == 0 || len(appId[0]) == 0 {
+		return
+	}
 	var err error
 	var expired int64
 	for {
-		accessToken, expired, err = callLogin(appId)
+		accessToken, expired, err = callLogin(appId[0])
 		if err != nil {
 			zlog.Error("rpc login failed", 0, zlog.AddError(err))
 			time.Sleep(5 * time.Second)
@@ -394,7 +398,7 @@ func RunClient(appId string) {
 		}
 		break
 	}
-	go renewClientToken(appId, expired)
+	go renewClientToken(appId[0], expired)
 }
 
 func callLogin(appId string) (string, int64, error) {
