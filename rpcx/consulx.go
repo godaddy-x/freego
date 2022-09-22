@@ -40,6 +40,7 @@ type ConsulConfig struct {
 	Interval     string // 健康监测时间, 5s
 	DestroyAfter string // 销毁服务时间, 600s
 	CheckPath    string // 健康检测path /xxx/check
+	LogPath      string // 日志输出路径
 	SlowQuery    int64  // 0.不开启筛选 >0开启筛选查询 毫秒
 	SlowLogPath  string // 慢查询写入地址
 }
