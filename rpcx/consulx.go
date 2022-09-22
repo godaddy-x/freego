@@ -22,6 +22,10 @@ var (
 	}
 )
 
+const (
+	DefaultConsulHost = "consulx.com:8500"
+)
+
 type ConsulManager struct {
 	Host    string
 	Token   string
@@ -73,6 +77,13 @@ func (self *ConsulManager) InitConfig(input ...ConsulConfig) (*ConsulManager, er
 		zlog.Printf("consul init failed: sessions is nil")
 	}
 	return self, nil
+}
+
+func InitDefaultConsul() {
+	config := ConsulConfig{Host: DefaultConsulHost}
+	if _, err := new(ConsulManager).InitConfig(config); err != nil {
+		panic(err)
+	}
 }
 
 func NewConsul(ds ...string) (*ConsulManager, error) {
