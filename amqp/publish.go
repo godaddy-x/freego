@@ -239,8 +239,6 @@ func (self *PublishManager) PublishMsgData(data *MsgData) error {
 			return utils.Error("rabbitmq publish content aes encrypt failed: ", err)
 		}
 		content = aesContent
-	} else {
-		return utils.Error("rabbitmq publish signature type invalid")
 	}
 	data.Content = content
 	data.Signature = utils.HMAC_SHA256(utils.AddStr(content, data.Nonce), sigKey, true)

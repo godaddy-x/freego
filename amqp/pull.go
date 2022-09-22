@@ -242,9 +242,6 @@ func (self *PullReceiver) OnReceive(b []byte) bool {
 			return true
 		}
 		v = aesContent
-	} else {
-		zlog.Error("rabbitmq pull signature type invalid", 0, zlog.Any("option", self.Config.Option), zlog.Any("message", msg))
-		return true
 	}
 	btv := utils.Base64URLDecode(v)
 	if btv == nil || len(btv) == 0 {
