@@ -208,8 +208,8 @@ func (self *PullReceiver) OnReceive(b []byte) bool {
 	if zlog.IsDebug() {
 		defer zlog.Debug("rabbitmq pull consumption data monitoring", utils.UnixMilli(), zlog.String("message", utils.Bytes2Str(b)))
 	}
-	msg := MsgData{}
-	if err := utils.JsonUnmarshal(b, &msg); err != nil {
+	msg := &MsgData{}
+	if err := utils.JsonUnmarshal(b, msg); err != nil {
 		zlog.Error("rabbitmq pull consumption data parsing failed", 0, zlog.Any("option", self.Config.Option), zlog.Any("message", msg), zlog.AddError(err))
 	}
 	if msg.Content == nil {
@@ -257,14 +257,14 @@ func (self *PullReceiver) OnReceive(b []byte) bool {
 		msg.Content = content
 	} else {
 		content := self.ContentInter(msg.Type)
-		if err := utils.JsonUnmarshal(btv, &content); err != nil {
+		if err := utils.JsonUnmarshal(btv, content); err != nil {
 			zlog.Error("rabbitmq pull consumption data conversion type(ContentInter) failed", 0, zlog.Any("option", self.Config.Option), zlog.Any("message", msg), zlog.AddError(err))
 			return true
 		}
 		msg.Content = content
 	}
 
-	if err := self.Callback(&msg); err != nil {
+	if err := self.Callback(msg); err != nil {
 		zlog.Error("rabbitmq pull consumption data processing failed", 0, zlog.Any("option", self.Config.Option), zlog.Any("message", msg), zlog.AddError(err))
 		if self.Config.IsNack {
 			return false
