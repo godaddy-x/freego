@@ -197,7 +197,7 @@ func (self *PullReceiver) OnError(err error) {
 type PullReceiver struct {
 	channel      *amqp.Channel
 	Config       *Config
-	ContentInter func() interface{}
+	ContentInter func(typ int64) interface{}
 	Callback     func(msg *MsgData) error
 }
 
@@ -256,7 +256,7 @@ func (self *PullReceiver) OnReceive(b []byte) bool {
 		}
 		msg.Content = content
 	} else {
-		content := self.ContentInter()
+		content := self.ContentInter(msg.Type)
 		if err := utils.JsonUnmarshal(btv, &content); err != nil {
 			zlog.Error("rabbitmq pull consumption data conversion type(ContentInter) failed", 0, zlog.Any("option", self.Config.Option), zlog.Any("message", msg), zlog.AddError(err))
 			return true
