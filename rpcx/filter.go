@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"github.com/godaddy-x/freego/cache/limiter"
+	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/jwt"
 	"github.com/godaddy-x/freego/zlog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -94,9 +96,13 @@ func (self *GRPCManager) ServerInterceptor(ctx context.Context, req interface{},
 	//	return nil, err
 	//}
 	if err := self.checkToken(ctx, info.FullMethod); err != nil {
-		return nil, err
+		return nil, status.Error(ex.BIZ, err.Error())
 	}
-	return handler(ctx, req)
+	res, err := handler(ctx, req)
+	if err != nil {
+		return nil, status.Error(ex.GRPC, err.Error())
+	}
+	return res, nil
 }
 
 func (self *GRPCManager) ClientInterceptor(ctx context.Context, method string, req, reply interface{}, conn *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) (err error) {
@@ -109,8 +115,9 @@ func (self *GRPCManager) ClientInterceptor(ctx context.Context, method string, r
 	}
 	start := utils.UnixMilli()
 	if err := invoker(ctx, method, req, reply, conn, opts...); err != nil {
-		zlog.Error("grpc call failed", start, zlog.String("service", method), zlog.AddError(err))
-		return err
+		rpcErr := status.Convert(err)
+		zlog.Error("grpc call failed", start, zlog.String("service", method), zlog.AddError(rpcErr.Err()))
+		return utils.Error(status.Convert(err).Message())
 	}
 	cost := utils.UnixMilli() - start
 	if self.consul != nil && self.consul.Config.SlowQuery > 0 && cost > self.consul.Config.SlowQuery {
