@@ -134,6 +134,25 @@ func TestMongoUpdateByCnd(t *testing.T) {
 	fmt.Println("cost: ", utils.UnixMilli()-l)
 }
 
+func TestMongoTx(t *testing.T) {
+	err := sqld.UseTransaction(func(self *sqld.MGOManager) error {
+		o := OwWallet{
+			AppID:    utils.NextSID(),
+			WalletID: utils.NextSID(),
+		}
+		if err := self.Save(&o); err != nil {
+			return err
+		}
+		if err := self.Update(&o); err != nil { // 抛出异常,没有查询到数据
+			return err
+		}
+		return utils.Error("test save error")
+	})
+	if err != nil {
+		panic(err)
+	}
+}
+
 func TestRedis(t *testing.T) {
 	client, err := new(cache.RedisManager).Client()
 	if err != nil {

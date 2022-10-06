@@ -62,7 +62,28 @@ func (self *MGOManager) Get(option ...Option) (*MGOManager, error) {
 }
 
 func NewMongo(option ...Option) (*MGOManager, error) {
-	return new(MGOManager).Get(option...)
+	manager := &MGOManager{}
+	return manager.Get(option...)
+}
+
+func UseTransaction(fn func(self *MGOManager) error, option ...Option) error {
+	self, err := NewMongo(option...)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
+	defer cancel()
+	return self.Session.UseSession(ctx, func(sessionContext mongo.SessionContext) error {
+		self.SessionContext = sessionContext
+		if err := self.SessionContext.StartTransaction(); err != nil {
+			return err
+		}
+		if err := fn(self); err != nil {
+			self.SessionContext.AbortTransaction(self.SessionContext)
+			return err
+		}
+		return self.SessionContext.CommitTransaction(self.SessionContext)
+	})
 }
 
 // 获取mongo的数据库连接
