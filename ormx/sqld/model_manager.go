@@ -40,10 +40,6 @@ type MdlDriver struct {
 	FieldElem  []*FieldElem
 }
 
-func Model(v interface{}) func() interface{} {
-	return func() interface{} { return v }
-}
-
 //func NewHook(obj func() interface{}, objs func() interface{}) Hook {
 //	return Hook{NewObj: obj, NewObjArr: objs}
 //}

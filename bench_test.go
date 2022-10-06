@@ -35,6 +35,30 @@ func (o *OwWallet) NewObject() sqlc.Object {
 	return &OwWallet{}
 }
 
+type OwBlock struct {
+	Id                int64  `json:"id" bson:"_id"`
+	Hash              string `json:"hash" bson:"hash"`
+	Confirmations     string `json:"confirmations" bson:"confirmations"`
+	Merkleroot        string `json:"merkleroot" bson:"merkleroot"`
+	Previousblockhash string `json:"previousblockhash" bson:"previousblockhash"`
+	Height            int64  `json:"height" bson:"height"`
+	Version           int64  `json:"version" bson:"version"`
+	Time              int64  `json:"time" bson:"time"`
+	Fork              string `json:"fork" bson:"fork"`
+	Symbol            string `json:"symbol" bson:"symbol"`
+	Ctime             int64  `json:"ctime" bson:"ctime"`
+	Utime             int64  `json:"utime" bson:"utime"`
+	State             int64  `json:"state" bson:"state"`
+}
+
+func (o *OwBlock) GetTable() string {
+	return "ow_block"
+}
+
+func (o *OwBlock) NewObject() sqlc.Object {
+	return &OwBlock{}
+}
+
 // go build -gcflags=-m main.go
 // go tool pprof -http=":8081" .\cpuprofile.out
 // go test bench_test.go -bench .  -benchmem -count=5 -cpuprofile cpuprofile.out -memprofile memprofile.out
@@ -60,6 +84,7 @@ func initMongoDB() {
 func initDriver() {
 	sqld.ModelDriver(
 		&OwWallet{},
+		&OwBlock{},
 	)
 }
 

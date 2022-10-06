@@ -6,10 +6,10 @@
   "Direct": false,
   "ConnectTimeout": 5,
   "SocketTimeout": 5,
-  "Database": "test",
+  "Database": "openserver",
   "Username": "",
   "Password": "",
   "PoolLimit": 4096,
   "Debug": true,
-  "ConnectionURI": "mongodb://root:123456@127.0.0.1:27017/test"
+  "ConnectionURI": "mongodb://127.0.0.1:27017"
 }

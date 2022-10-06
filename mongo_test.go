@@ -15,8 +15,12 @@ import (
 	"time"
 )
 
+func init() {
+	initMongoDB()
+}
+
 func TestMongoSave(t *testing.T) {
-	db, err := new(sqld.MGOManager).Get(sqld.Option{OpenTx: true})
+	db, err := sqld.NewMongo(sqld.Option{OpenTx: true})
 	if err != nil {
 		panic(err)
 	}
@@ -32,24 +36,25 @@ func TestMongoSave(t *testing.T) {
 }
 
 func TestMongoUpdate(t *testing.T) {
-	db, err := new(sqld.MGOManager).Get(sqld.Option{OpenTx: true})
+	db, err := sqld.NewMongo(sqld.Option{OpenTx: true})
 	if err != nil {
 		panic(err)
 	}
 	defer db.Close()
-	//wallet := OwWallet{
-	//	Id: 1110012978914131972,
-	//	// AppID:        map[string]interface{}{"test": 1},
-	//	WalletID:     "1110012978914131972",
-	//	PasswordType: 1,
-	//	Password:     "123456",
-	//	RootPath:     "m/44'/88'/01'",
-	//	Alias:        "hello_qtum",
-	//	IsTrust:      0,
-	//	AuthKey:      "",
-	//}
+	if err := db.Update(&OwWallet{Id: 1577924742445268992, WalletID: "aaaa"}); err != nil {
+		panic(err)
+	}
+
+}
+
+func TestMongoUpdateByCnd1(t *testing.T) {
+	db, err := sqld.NewMongo(sqld.Option{OpenTx: true})
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
 	l := utils.UnixMilli()
-	if err := db.UpdateByCnd(sqlc.M(&OwWallet{}).Or(sqlc.M().Eq("id", 1110012978914131972), sqlc.M().Eq("id", 1110012978914131973)).Upset([]string{"appID", "ctime"}, "test1test1", 1)); err != nil {
+	if err := db.UpdateByCnd(sqlc.M(&OwWallet{}).Or(sqlc.M().In("id", 1577924742445268992), sqlc.M().Eq("id", 1577932141914750978)).Upset([]string{"appID", "ctime"}, "test1test1", 123)); err != nil {
 		fmt.Println(err)
 	}
 	//fmt.Println(wallet.Id)
@@ -57,35 +62,18 @@ func TestMongoUpdate(t *testing.T) {
 }
 
 func TestMongoDelete(t *testing.T) {
-	db, err := new(sqld.MGOManager).Get(sqld.Option{OpenTx: true, Timeout: 3000})
+	db, err := sqld.NewMongo(sqld.Option{OpenTx: true, Timeout: 3000})
 	if err != nil {
 		panic(err)
 	}
 	defer db.Close()
-	var vs []sqlc.Object
-	for i := 0; i < 1; i++ {
-		wallet := OwWallet{
-			Id: 1136806872108498948,
-			// AppID:        map[string]interface{}{"test": 1},
-			WalletID:     utils.NextSID(),
-			PasswordType: 1,
-			Password:     "123456",
-			RootPath:     "m/44'/88'/0'",
-			Alias:        "hello_qtum",
-			IsTrust:      0,
-			AuthKey:      "",
-		}
-		vs = append(vs, &wallet)
-	}
-	l := utils.UnixMilli()
-	if err := db.Delete(vs...); err != nil {
+	if err := db.Delete(&OwWallet{Id: 1577899616857227264}); err != nil {
 		fmt.Println(err)
 	}
-	fmt.Println("cost: ", utils.UnixMilli()-l)
 }
 
 func TestMongoAgg(t *testing.T) {
-	db, err := new(sqld.MGOManager).Get(sqld.Option{OpenTx: false})
+	db, err := sqld.NewMongo(sqld.Option{OpenTx: false})
 	if err != nil {
 		panic(err)
 	}
@@ -95,51 +83,47 @@ func TestMongoAgg(t *testing.T) {
 }
 
 func TestMongoCount(t *testing.T) {
-	db, err := new(sqld.MGOManager).Get(sqld.Option{OpenTx: false})
+	db, err := sqld.NewMongo(sqld.Option{OpenTx: false})
 	if err != nil {
 		panic(err)
 	}
 	defer db.Close()
-	l := utils.UnixMilli()
-	if c, err := db.Count(sqlc.M(&OwWallet{}).Eq("_id", 1110012978914131972).Orderby("_id", sqlc.DESC_).Limit(1, 30)); err != nil {
+	if c, err := db.Count(sqlc.M(&OwWallet{})); err != nil {
 		fmt.Println(err)
 	} else {
 		fmt.Println(c)
 	}
-	fmt.Println("cost: ", utils.UnixMilli()-l)
 }
 
 func TestMongoFindList(t *testing.T) {
-	db, err := new(sqld.MGOManager).Get(sqld.Option{OpenTx: true})
+	db, err := sqld.NewMongo(sqld.Option{OpenTx: true})
 	if err != nil {
 		panic(err)
 	}
 	defer db.Close()
 	l := utils.UnixMilli()
-	o := []*OwWallet{}
-	if err := db.FindList(sqlc.M().Eq("id", 1194915104647282690).Groupby("appID"), &o); err != nil {
+	var o []*OwWallet
+	if err := db.FindList(sqlc.M(&OwWallet{}).Eq("id", 1).Orderby("id", sqlc.DESC_).Limit(0, 3), &o); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println("cost: ", utils.UnixMilli()-l)
 }
 
 func TestMongoFindOne(t *testing.T) {
-	l := utils.UnixMilli()
-	db, err := new(sqld.MGOManager).Get()
+	db, err := sqld.NewMongo()
 	if err != nil {
 		panic(err)
 	}
 	defer db.Close()
 	o := &OwWallet{}
-	if err := db.FindOne(sqlc.M().Fields("password").Eq("id", 1182663723102240768), o); err != nil {
+	if err := db.FindOne(sqlc.M().Fields("id", "appID").Orderby("id", sqlc.DESC_), o); err != nil {
 		fmt.Println(err)
 	}
-	fmt.Println("cost: ", utils.UnixMilli()-l)
 }
 
 func TestMongoUpdateByCnd(t *testing.T) {
 	l := utils.UnixMilli()
-	db, err := new(sqld.MGOManager).Get()
+	db, err := sqld.NewMongo()
 	if err != nil {
 		panic(err)
 	}
