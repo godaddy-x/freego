@@ -156,14 +156,12 @@ func (self *MGOManager) buildByConfig(manager cache.Cache, input ...MGOConfig) e
 		}
 		opts := options.Client()
 		if len(v.ConnectionURI) == 0 {
-			cred := options.Credential{}
 			if len(v.Username) > 0 {
-				cred.Username = v.Username
-			}
-			if len(v.Password) > 0 {
+				cred := options.Credential{}
 				cred.Password = v.Password
+				cred.Username = v.Username
+				opts.SetAuth(cred)
 			}
-			opts.SetAuth(cred)
 			opts.SetHosts(v.Addrs)
 		} else {
 			opts = options.Client().ApplyURI(v.ConnectionURI)
