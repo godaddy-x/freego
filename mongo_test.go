@@ -10,6 +10,7 @@ import (
 	"github.com/godaddy-x/freego/utils/concurrent"
 	"github.com/godaddy-x/freego/utils/gauth"
 	"github.com/gorilla/websocket"
+	"log"
 	"net/url"
 	"testing"
 	"time"
@@ -20,7 +21,7 @@ func init() {
 }
 
 func TestMongoSave(t *testing.T) {
-	db, err := sqld.NewMongo(sqld.Option{OpenTx: true})
+	db, err := sqld.NewMongo()
 	if err != nil {
 		panic(err)
 	}
@@ -36,7 +37,7 @@ func TestMongoSave(t *testing.T) {
 }
 
 func TestMongoUpdate(t *testing.T) {
-	db, err := sqld.NewMongo(sqld.Option{OpenTx: true})
+	db, err := sqld.NewMongo()
 	if err != nil {
 		panic(err)
 	}
@@ -48,7 +49,7 @@ func TestMongoUpdate(t *testing.T) {
 }
 
 func TestMongoUpdateByCnd1(t *testing.T) {
-	db, err := sqld.NewMongo(sqld.Option{OpenTx: true})
+	db, err := sqld.NewMongo()
 	if err != nil {
 		panic(err)
 	}
@@ -96,7 +97,7 @@ func TestMongoCount(t *testing.T) {
 }
 
 func TestMongoFindList(t *testing.T) {
-	db, err := sqld.NewMongo(sqld.Option{OpenTx: true})
+	db, err := sqld.NewMongo()
 	if err != nil {
 		panic(err)
 	}
@@ -149,7 +150,7 @@ func TestMongoTx(t *testing.T) {
 		return utils.Error("test save error")
 	})
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 }
 

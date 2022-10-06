@@ -47,11 +47,17 @@ type MGOConfig struct {
 	ConnectionURI  string
 }
 
+type PackContext struct {
+	SessionContext mongo.SessionContext
+	Context        context.Context
+	CancelFunc     context.CancelFunc
+}
+
 // 数据库管理器
 type MGOManager struct {
 	DBManager
-	Session        *mongo.Client
-	SessionContext mongo.SessionContext
+	Session     *mongo.Client
+	PackContext *PackContext
 }
 
 func (self *MGOManager) Get(option ...Option) (*MGOManager, error) {
@@ -71,18 +77,17 @@ func UseTransaction(fn func(self *MGOManager) error, option ...Option) error {
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
-	defer cancel()
-	return self.Session.UseSession(ctx, func(sessionContext mongo.SessionContext) error {
-		self.SessionContext = sessionContext
-		if err := self.SessionContext.StartTransaction(); err != nil {
+	defer self.Close()
+	return self.Session.UseSession(self.PackContext.Context, func(sessionContext mongo.SessionContext) error {
+		self.PackContext.SessionContext = sessionContext
+		if err := self.PackContext.SessionContext.StartTransaction(); err != nil {
 			return err
 		}
 		if err := fn(self); err != nil {
-			self.SessionContext.AbortTransaction(self.SessionContext)
+			self.PackContext.SessionContext.AbortTransaction(self.PackContext.SessionContext)
 			return err
 		}
-		return self.SessionContext.CommitTransaction(self.SessionContext)
+		return self.PackContext.SessionContext.CommitTransaction(self.PackContext.SessionContext)
 	})
 }
 
@@ -131,7 +136,16 @@ func (self *MGOManager) GetDB(options ...Option) error {
 			self.Database = option.Database
 		}
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
+	self.PackContext = &PackContext{Context: ctx, CancelFunc: cancel}
 	return nil
+}
+
+func (self *MGOManager) GetSessionContext() context.Context {
+	if self.PackContext.SessionContext == nil {
+		return self.PackContext.Context
+	}
+	return self.PackContext.SessionContext
 }
 
 func (self *MGOManager) InitConfig(input ...MGOConfig) error {
@@ -265,7 +279,7 @@ func (self *MGOManager) Save(data ...sqlc.Object) error {
 		}
 		adds = append(adds, v)
 	}
-	res, err := db.InsertMany(self.SessionContext, adds)
+	res, err := db.InsertMany(self.GetSessionContext(), adds)
 	if err != nil {
 		return self.Error("[Mongo.Save] save failed: ", err)
 	}
@@ -314,7 +328,7 @@ func (self *MGOManager) Update(data ...sqlc.Object) error {
 		} else {
 			return self.Error("only Int64 and string type IDs are supported")
 		}
-		res, err := db.ReplaceOne(self.SessionContext, bson.M{"_id": lastInsertId}, v)
+		res, err := db.ReplaceOne(self.GetSessionContext(), bson.M{"_id": lastInsertId}, v)
 		if err != nil {
 			return self.Error("[Mongo.Update] update failed: ", err)
 		}
@@ -342,7 +356,7 @@ func (self *MGOManager) UpdateByCnd(cnd *sqlc.Cnd) error {
 		return self.Error("pipe upset is nil")
 	}
 	defer self.writeLog("[Mongo.UpdateByCnd]", utils.UnixMilli(), map[string]interface{}{"match": match, "upset": upset}, nil)
-	res, err := db.UpdateMany(self.SessionContext, match, upset)
+	res, err := db.UpdateMany(self.GetSessionContext(), match, upset)
 	if err != nil {
 		return self.Error("[Mongo.UpdateByCnd] update failed: ", err)
 	}
@@ -393,7 +407,7 @@ func (self *MGOManager) Delete(data ...sqlc.Object) error {
 		}
 	}
 	if len(delIds) > 0 {
-		if _, err := db.DeleteMany(self.SessionContext, bson.M{"_id": bson.M{"$in": delIds}}); err != nil {
+		if _, err := db.DeleteMany(self.GetSessionContext(), bson.M{"_id": bson.M{"$in": delIds}}); err != nil {
 			return self.Error("[Mongo.Delete] delete failed: ", err)
 		}
 	}
@@ -410,7 +424,7 @@ func (self *MGOManager) Count(cnd *sqlc.Cnd) (int64, error) {
 	}
 	pipe := buildMongoMatch(cnd)
 	defer self.writeLog("[Mongo.Count]", utils.UnixMilli(), pipe, nil)
-	pageTotal, err := db.CountDocuments(self.SessionContext, pipe)
+	pageTotal, err := db.CountDocuments(self.GetSessionContext(), pipe)
 	if err != nil {
 		return 0, self.Error("[Mongo.Count] count failed: ", err)
 	}
@@ -440,7 +454,7 @@ func (self *MGOManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
 	pipe := buildMongoMatch(cnd)
 	opts := buildQueryOneOptions(cnd)
 	defer self.writeLog("[Mongo.FindOne]", utils.UnixMilli(), pipe, opts)
-	cur := db.FindOne(self.SessionContext, pipe, opts)
+	cur := db.FindOne(self.GetSessionContext(), pipe, opts)
 	if err := cur.Decode(data); err != nil {
 		if err == mongo.ErrNoDocuments {
 			return nil
@@ -464,11 +478,11 @@ func (self *MGOManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	pipe := buildMongoMatch(cnd)
 	opts := buildQueryOptions(cnd)
 	defer self.writeLog("[Mongo.FindList]", utils.UnixMilli(), pipe, opts)
-	cur, err := db.Find(self.SessionContext, pipe, opts)
+	cur, err := db.Find(self.GetSessionContext(), pipe, opts)
 	if err != nil {
 		return self.Error("[Mongo.FindList] query failed: ", err)
 	}
-	if err := cur.All(self.SessionContext, data); err != nil {
+	if err := cur.All(self.GetSessionContext(), data); err != nil {
 		if err == mongo.ErrNoDocuments {
 			return nil
 		}
@@ -478,6 +492,9 @@ func (self *MGOManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 }
 
 func (self *MGOManager) Close() error {
+	if self.PackContext.Context != nil && self.PackContext.CancelFunc != nil {
+		self.PackContext.CancelFunc()
+	}
 	return nil
 }
 
