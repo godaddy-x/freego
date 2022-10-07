@@ -72,7 +72,7 @@ func NewMongo(option ...Option) (*MGOManager, error) {
 	return manager.Get(option...)
 }
 
-func UseTransaction(fn func(self *MGOManager) error, option ...Option) error {
+func UseTransaction(fn func(mgo *MGOManager) error, option ...Option) error {
 	self, err := NewMongo(option...)
 	if err != nil {
 		return err
