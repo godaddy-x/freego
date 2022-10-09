@@ -2,6 +2,7 @@ package http_web
 
 import (
 	"fmt"
+	"github.com/godaddy-x/freego/geetest"
 	"github.com/godaddy-x/freego/node"
 	"github.com/godaddy-x/freego/node/common"
 	"github.com/godaddy-x/freego/rpcx"
@@ -69,6 +70,14 @@ func (self *MyWebNode) pubkey(ctx *node.Context) error {
 	return self.Text(ctx, publicKey)
 }
 
+func (self *MyWebNode) FirstRegister(ctx *node.Context) error {
+	return self.Json(ctx, geetest.FirstRegister("test", ctx.RequestCtx.LocalAddr().String()))
+}
+
+func (self *MyWebNode) SecondValidate(ctx *node.Context) error {
+	return self.Json(ctx, geetest.SecondValidate(ctx, "test"))
+}
+
 type NewPostFilter struct{}
 
 func (self *NewPostFilter) DoFilter(chain node.Filter, ctx *node.Context, args ...interface{}) error {
@@ -89,6 +98,19 @@ func (self *NewPostFilter) DoFilter(chain node.Filter, ctx *node.Context, args .
 	return nil
 }
 
+type GeetestFilter struct{}
+
+func (self *GeetestFilter) DoFilter(chain node.Filter, ctx *node.Context, args ...interface{}) error {
+	filterObject := "test" // TODO 读取自定义需要拦截的方法名+手机号码或账号
+	if !geetest.ValidSuccess(filterObject) {
+		return utils.Error("geetest invalid")
+	}
+	if err := chain.DoFilter(chain, ctx, args...); err != nil {
+		return err
+	}
+	return geetest.CleanStatus(filterObject)
+}
+
 func NewHTTP() *MyWebNode {
 	var my = &MyWebNode{}
 	my.AddJwtConfig(jwt.JwtConfig{
@@ -100,14 +122,19 @@ func NewHTTP() *MyWebNode {
 	//my.AddRSA(nil)
 	//my.AddCache(nil)
 	my.AddFilter(&node.FilterObject{Name: "NewPostFilter", Order: 100, Filter: &NewPostFilter{}})
+	my.AddFilter(&node.FilterObject{Name: "GeetestFilter", Order: 101, MatchPattern: []string{"/TestGeetest"}, Filter: &GeetestFilter{}})
 	return my
 }
 
 func StartHttpNode() {
+	go geetest.CheckServerStatus("appID", "appKey")
 	my := NewHTTP()
 	my.POST("/test1", my.test, nil)
 	my.POST("/test2", my.getUser, &node.RouterConfig{})
 	my.GET("/pubkey", my.pubkey, &node.RouterConfig{Guest: true})
 	my.POST("/login", my.login, &node.RouterConfig{Login: true})
+
+	my.GET("/geetest/register", my.FirstRegister, &node.RouterConfig{Guest: true})
+	my.POST("/geetest/validate", my.SecondValidate, &node.RouterConfig{Guest: true})
 	my.StartServer(":8090")
 }

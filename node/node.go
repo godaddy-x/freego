@@ -208,7 +208,7 @@ func (self *Context) readParams() error {
 	} else {
 		self.Device = WEB
 	}
-	if self.Method != POST {
+	if self.Method != POST || self.RouterConfig.Guest {
 		return nil
 	}
 	self.Token = utils.Bytes2Str(self.RequestCtx.Request.Header.Peek(Authorization))
