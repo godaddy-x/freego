@@ -192,7 +192,11 @@ func GetFilterObject(ctx *node.Context) (string, error) {
 	if len(filterMethod) == 0 || len(filterObject) == 0 {
 		return "", utils.Error("filterMethod or filterObject is nil")
 	}
-	return utils.MD5(utils.AddStr(filterMethod, filterObject)), nil
+	return CreateFilterObject(filterMethod, filterObject), nil
+}
+
+func CreateFilterObject(filterMethod, filterObject string) string {
+	return utils.AddStr(filterMethod, filterObject)
 }
 
 // 验证状态码

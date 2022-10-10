@@ -109,7 +109,9 @@ func (self *NewPostFilter) DoFilter(chain node.Filter, ctx *node.Context, args .
 type GeetestFilter struct{}
 
 func (self *GeetestFilter) DoFilter(chain node.Filter, ctx *node.Context, args ...interface{}) error {
-	filterObject := "test" // TODO 读取自定义需要拦截的方法名+手机号码或账号
+	// TODO 读取自定义需要拦截的方法名+手机号码或账号
+	username := utils.GetJsonString(ctx.JsonBody.RawData(), "username")
+	filterObject := geetest.CreateFilterObject(ctx.Method, username)
 	if !geetest.ValidSuccess(filterObject) {
 		return utils.Error("geetest invalid")
 	}
