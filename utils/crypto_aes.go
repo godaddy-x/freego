@@ -30,20 +30,20 @@ func AesEncrypt(plantText []byte, key, iv string) (string, error) {
 	return Base64URLEncode(ciphertext), nil
 }
 
-func AesDecrypt(msg, key, iv string) (string, error) {
+func AesDecrypt(msg, key, iv string) ([]byte, error) {
 	block, err := aes.NewCipher(GetAesKey(key)) //选择加密算法
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	ciphertext := Base64URLDecode(msg)
 	if ciphertext == nil || len(ciphertext) == 0 {
-		return "", err
+		return nil, err
 	}
 	blockModel := cipher.NewCBCDecrypter(block, GetAesIV(iv))
 	plantText := make([]byte, len(ciphertext))
 	blockModel.CryptBlocks(plantText, ciphertext)
 	plantText = PKCS7UnPadding(plantText, block.BlockSize())
-	return Bytes2Str(plantText), nil
+	return plantText, nil
 }
 
 func GetAesKey(key string) []byte {

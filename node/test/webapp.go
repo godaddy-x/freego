@@ -140,7 +140,7 @@ func StartHttpNode() {
 	go geetest.CheckServerStatus("", "")
 	my := NewHTTP()
 	my.POST("/test1", my.test, nil)
-	my.POST("/test2", my.getUser, &node.RouterConfig{})
+	my.POST("/getUser", my.getUser, &node.RouterConfig{AesResponse: true})
 	my.GET("/pubkey", my.pubkey, &node.RouterConfig{Guest: true})
 	my.POST("/login", my.login, &node.RouterConfig{UseRSA: true})
 

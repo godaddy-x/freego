@@ -247,51 +247,47 @@ func (self *Context) readParams() error {
 	return nil
 }
 
-func (self *Context) validJsonBody(req *JsonBody) error {
-	d, b := req.Data.(string)
+func (self *Context) validJsonBody(body *JsonBody) error {
+	d, b := body.Data.(string)
 	if !b || len(d) == 0 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request data is nil"}
 	}
-	if !utils.CheckInt64(req.Plan, 0, 1, 2) {
+	if !utils.CheckInt64(body.Plan, 0, 1, 2) {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request plan invalid"}
 	}
-	if !utils.CheckLen(req.Nonce, 8, 32) {
+	if !utils.CheckLen(body.Nonce, 8, 32) {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request nonce invalid"}
 	}
-	if req.Time <= 0 {
+	if body.Time <= 0 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request time must be > 0"}
 	}
-	if utils.MathAbs(utils.UnixSecond()-req.Time) > jwt.FIVE_MINUTES { // 判断绝对时间差超过5分钟
+	if utils.MathAbs(utils.UnixSecond()-body.Time) > jwt.FIVE_MINUTES { // 判断绝对时间差超过5分钟
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request time invalid"}
 	}
-	if self.RouterConfig.AesRequest && req.Plan != 1 {
+	if self.RouterConfig.AesRequest && body.Plan != 1 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters must use AES encryption"}
 	}
-	if self.RouterConfig.UseRSA && req.Plan != 2 {
+	if self.RouterConfig.UseRSA && body.Plan != 2 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters must use RSA encryption"}
 	}
-	if !utils.CheckStrLen(req.Sign, 32, 64) {
+	if !utils.CheckStrLen(body.Sign, 32, 64) {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature length invalid"}
 	}
 	var key string
 	if self.RouterConfig.UseRSA {
 		_, key = self.RSA.GetPublicKey()
 	}
-	if self.GetHmac256Sign(d, req.Nonce, req.Time, req.Plan, key) != req.Sign {
+	if self.GetHmac256Sign(d, body.Nonce, body.Time, body.Plan, key) != body.Sign {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature invalid"}
 	}
-	//data := make(map[string]interface{}, 0)
 	var rawData []byte
-	if req.Plan == 1 && !self.RouterConfig.UseRSA { // AES
-		dec, err := utils.AesDecrypt(d, self.GetTokenSecret(), utils.AddStr(req.Nonce, req.Time))
+	var err error
+	if body.Plan == 1 && !self.RouterConfig.UseRSA { // AES
+		rawData, err = utils.AesDecrypt(d, self.GetTokenSecret(), utils.AddStr(body.Nonce, body.Time))
 		if err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "AES failed to parse data", Err: err}
 		}
-		//if err := utils.JsonUnmarshal(utils.Str2Bytes(dec), &data); err != nil {
-		//	return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter JSON parsing failed"}
-		//}
-		rawData = utils.Str2Bytes(dec)
-	} else if req.Plan == 2 && self.RouterConfig.UseRSA { // RSA
+	} else if body.Plan == 2 && self.RouterConfig.UseRSA { // RSA
 		randomCode := utils.Bytes2Str(self.RequestCtx.Request.Header.Peek(RandomCode))
 		if len(randomCode) == 0 {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "client random code invalid"}
@@ -303,28 +299,21 @@ func (self *Context) validJsonBody(req *JsonBody) error {
 		if len(code) == 0 {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "server private-key decrypt data is nil", Err: err}
 		}
-		dec, err := utils.AesDecrypt(d, code, code)
+		rawData, err = utils.AesDecrypt(d, code, code)
 		if err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "AES failed to parse data", Err: err}
 		}
-		//if err := utils.JsonUnmarshal(utils.Str2Bytes(dec), &data); err != nil {
-		//	return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter JSON parsing failed"}
-		//}
-		rawData = utils.Str2Bytes(dec)
 		self.AddStorage(RandomCode, code)
-	} else if req.Plan == 0 && !self.RouterConfig.UseRSA && !self.RouterConfig.AesRequest {
-		//if err := utils.ParseJsonBase64(d, &data); err != nil {
-		//	return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter JSON parsing failed"}
-		//}
+	} else if body.Plan == 0 && !self.RouterConfig.UseRSA && !self.RouterConfig.AesRequest {
 		rawData = utils.Base64URLDecode(d)
-		if len(rawData) == 0 {
+		if rawData == nil || len(rawData) == 0 {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter Base64 parsing failed"}
 		}
 	} else {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters plan invalid"}
 	}
-	req.Data = rawData
-	self.JsonBody = req
+	body.Data = rawData
+	self.JsonBody = body
 	return nil
 }
 

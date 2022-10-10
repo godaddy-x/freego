@@ -135,15 +135,14 @@ func ToPostBy(path string, req *node.JsonBody) {
 			if err != nil {
 				panic(err)
 			}
-			respData.Data = dec
-			output("AES数据明文: ", respData.Data)
+			output("AES数据明文: ", utils.Bytes2Str(dec))
 		}
 		if respData.Plan == 2 {
 			dec, err := utils.AesDecrypt(respData.Data.(string), pubkey, pubkey)
 			if err != nil {
 				panic(err)
 			}
-			output("LOGIN数据明文: ", dec)
+			output("Plain2数据明文: ", utils.Bytes2Str(dec))
 		}
 	}
 }
@@ -192,7 +191,7 @@ func TestGeetestValidate(t *testing.T) {
 
 func TestGetUser(t *testing.T) {
 	data, _ := utils.JsonMarshal(map[string]interface{}{"uid": 123, "name": "我爱中国/+_=/1df", "limit": 20, "offset": 5})
-	path := "/test2"
+	path := "/getUser"
 	req := &node.JsonBody{
 		Data:  data,
 		Time:  utils.UnixSecond(),

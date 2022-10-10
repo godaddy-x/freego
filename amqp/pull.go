@@ -241,7 +241,7 @@ func (self *PullReceiver) OnReceive(b []byte) bool {
 			zlog.Error("rabbitmq consumption data aes decrypt failed", 0, zlog.Any("option", self.Config.Option), zlog.Any("message", msg))
 			return true
 		}
-		v = aesContent
+		v = utils.Bytes2Str(aesContent)
 	}
 	btv := utils.Base64URLDecode(v)
 	if btv == nil || len(btv) == 0 {

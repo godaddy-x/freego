@@ -159,11 +159,11 @@ func (self *ConsulManager) GetAesJsonValue(key, encKey string, result interface{
 	if k == nil || k.Value == nil || len(k.Value) == 0 {
 		return utils.Error("consul node [", key, "] read is nil...")
 	}
-	val, err := utils.AesDecrypt(utils.Bytes2Str(k.Value), encKey, encKey)
+	bts, err := utils.AesDecrypt(utils.Bytes2Str(k.Value), encKey, encKey)
 	if err != nil {
 		return err
 	}
-	if err := utils.JsonUnmarshal(utils.Str2Bytes(val), result); err != nil {
+	if err := utils.JsonUnmarshal(bts, result); err != nil {
 		return utils.Error("consul node [", key, "] parse failed...")
 	}
 	return nil
