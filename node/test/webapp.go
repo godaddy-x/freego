@@ -136,13 +136,8 @@ func NewHTTP() *MyWebNode {
 	return my
 }
 
-const (
-	appid  = ""
-	appkey = ""
-)
-
 func StartHttpNode() {
-	go geetest.CheckServerStatus(appid, appkey)
+	go geetest.CheckServerStatus("", "")
 	my := NewHTTP()
 	my.POST("/test1", my.test, nil)
 	my.POST("/test2", my.getUser, &node.RouterConfig{})

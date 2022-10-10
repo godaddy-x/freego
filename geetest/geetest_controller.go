@@ -17,9 +17,13 @@ import (
 )
 
 var (
-	appID_  = ""
-	appKey_ = ""
+	config = Config{}
 )
+
+type Config struct {
+	GeetestID  string
+	GeetestKey string
+}
 
 // 发送GET请求
 func httpGet(getURL string, params map[string]string) (string, error) {
@@ -51,13 +55,13 @@ func httpGet(getURL string, params map[string]string) (string, error) {
 }
 
 // 从geetest获取bypass状态
-func CheckServerStatus(appID, appKey string) {
-	appID_ = appID
-	appKey_ = appKey
+func CheckServerStatus(geetestID, geetestKey string) {
+	config.GeetestID = geetestID
+	config.GeetestKey = geetestKey
 	redisStatus := "fail"
 	for true {
 		params := make(map[string]string)
-		params["gt"] = appID_
+		params["gt"] = config.GeetestID
 		resBody, err := httpGet(BYPASS_URL, params)
 		if resBody == "" {
 			redisStatus = "fail"
@@ -123,7 +127,7 @@ func FirstRegister(ctx *node.Context) (sdk.GeetestLibResultData, error) {
 		"client_type": "web",
 		"ip_address":  ctx.RequestCtx.LocalAddr().String(),
 	}
-	gtLib := sdk.NewGeetestLib(appID_, appKey_)
+	gtLib := sdk.NewGeetestLib(config.GeetestID, config.GeetestKey)
 	var result *sdk.GeetestLibResult
 	if GetBypassCache() == "success" {
 		result = gtLib.Register(digestmod, params)
@@ -165,7 +169,7 @@ func SecondValidate(ctx *node.Context) (map[string]string, error) {
 	if len(challenge) == 0 || len(validate) == 0 || len(seccode) == 0 {
 		return nil, ex.Throw{Msg: "challenge/validate/seccode parameters is nil"}
 	}
-	gtLib := sdk.NewGeetestLib(appID_, appKey_)
+	gtLib := sdk.NewGeetestLib(config.GeetestID, config.GeetestKey)
 	bypassStatus := GetBypassCache()
 	var result *sdk.GeetestLibResult
 	if bypassStatus == "success" {
