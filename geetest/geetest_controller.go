@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/godaddy-x/freego/cache"
+	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/geetest/sdk"
 	"github.com/godaddy-x/freego/node"
 	"github.com/godaddy-x/freego/utils"
@@ -102,7 +103,7 @@ func GetBypassCache() (status string) {
 }
 
 // 验证初始化接口，GET请求
-func FirstRegister(filterObject, ipAddress string) sdk.GeetestLibResultData {
+func FirstRegister(ctx *node.Context) (sdk.GeetestLibResultData, error) {
 	/*
 		   必传参数
 		       digestmod 此版本sdk可支持md5、sha256、hmac-sha256，md5之外的算法需特殊配置的账号，联系极验客服
@@ -111,12 +112,16 @@ func FirstRegister(filterObject, ipAddress string) sdk.GeetestLibResultData {
 			   client_type 客户端类型，web：电脑上的浏览器；h5：手机上的浏览器，包括移动应用内完全内置的web_view；native：通过原生sdk植入app应用的方式；unknown：未知
 			   ip_address 客户端请求sdk服务器的ip地址
 	*/
+	filterObject, err := GetFilterObject(ctx)
+	if err != nil {
+		return sdk.GeetestLibResultData{}, ex.Throw{Msg: err.Error()}
+	}
 	digestmod := "hmac-sha256"
 	params := map[string]string{
 		"digestmod":   digestmod,
 		"user_id":     filterObject,
 		"client_type": "web",
-		"ip_address":  ipAddress,
+		"ip_address":  ctx.RequestCtx.LocalAddr().String(),
 	}
 	gtLib := sdk.NewGeetestLib(appID_, appKey_)
 	var result *sdk.GeetestLibResult
@@ -127,10 +132,10 @@ func FirstRegister(filterObject, ipAddress string) sdk.GeetestLibResultData {
 	}
 	client, err := cache.NewRedis()
 	if err != nil {
-		return sdk.GeetestLibResultData{}
+		return sdk.GeetestLibResultData{}, ex.Throw{Msg: err.Error()}
 	}
 	if err := client.Put(utils.AddStr("geetest.", filterObject), 1, 1800); err != nil {
-		return sdk.GeetestLibResultData{}
+		return sdk.GeetestLibResultData{}, ex.Throw{Msg: err.Error()}
 	}
 	bs := utils.Str2Bytes(result.Data)
 	return sdk.GeetestLibResultData{
@@ -138,24 +143,28 @@ func FirstRegister(filterObject, ipAddress string) sdk.GeetestLibResultData {
 		Gt:         utils.GetJsonString(bs, "gt"),
 		NewCaptcha: utils.GetJsonBool(bs, "new_captcha"),
 		Success:    utils.GetJsonInt(bs, "success"),
-	}
+	}, nil
 }
 
 // 二次验证接口，POST请求
-func SecondValidate(ctx *node.Context, filterObject string) map[string]string {
+func SecondValidate(ctx *node.Context) (map[string]string, error) {
+	filterObject, err := GetFilterObject(ctx)
+	if err != nil {
+		return nil, ex.Throw{Msg: err.Error()}
+	}
 	b, status := ValidStatusCode(filterObject, 1)
 	if !b {
-		return map[string]string{"result": "fail", "msg": "validator not initialized"}
+		return nil, ex.Throw{Msg: "validator not initialized"}
 	}
 	if status == 2 {
-		return map[string]string{"result": "success"}
+		return map[string]string{"result": "success"}, nil
 	}
-	if "application/x-www-form-urlencoded" != utils.Bytes2Str(ctx.RequestCtx.Request.Header.ContentType()) {
-		return map[string]string{"result": "fail", "msg": "only form submission parameters are allowed"}
+	challenge := utils.GetJsonString(ctx.JsonBody.RawData(), "geetest_challenge")
+	validate := utils.GetJsonString(ctx.JsonBody.RawData(), "geetest_validate")
+	seccode := utils.GetJsonString(ctx.JsonBody.RawData(), "geetest_seccode")
+	if len(challenge) == 0 || len(validate) == 0 || len(seccode) == 0 {
+		return nil, ex.Throw{Msg: "challenge/validate/seccode parameters is nil"}
 	}
-	challenge := utils.Bytes2Str(ctx.RequestCtx.FormValue("geetest_challenge"))
-	validate := utils.Bytes2Str(ctx.RequestCtx.FormValue("geetest_validate"))
-	seccode := utils.Bytes2Str(ctx.RequestCtx.FormValue("geetest_seccode"))
 	gtLib := sdk.NewGeetestLib(appID_, appKey_)
 	bypassStatus := GetBypassCache()
 	var result *sdk.GeetestLibResult
@@ -165,16 +174,25 @@ func SecondValidate(ctx *node.Context, filterObject string) map[string]string {
 		result = gtLib.FailValidate(challenge, validate, seccode)
 	}
 	if result.Status != 1 {
-		return map[string]string{"result": "fail", "msg": result.Msg}
+		return nil, ex.Throw{Msg: result.Msg}
 	}
 	client, err := cache.NewRedis()
 	if err != nil {
-		return map[string]string{"result": "fail", "msg": "cache client failed"}
+		return nil, ex.Throw{Msg: err.Error()}
 	}
 	if err := client.Put(utils.AddStr("geetest.", filterObject), 2, 30); err != nil { // 设置验证成功状态
-		return map[string]string{"result": "fail", "msg": "cache client put value failed"}
+		return nil, ex.Throw{Msg: err.Error()}
 	}
-	return map[string]string{"result": "success"}
+	return map[string]string{"result": "success"}, nil
+}
+
+func GetFilterObject(ctx *node.Context) (string, error) {
+	filterMethod := utils.GetJsonString(ctx.JsonBody.RawData(), "filterMethod")
+	filterObject := utils.GetJsonString(ctx.JsonBody.RawData(), "filterObject")
+	if len(filterMethod) == 0 || len(filterObject) == 0 {
+		return "", utils.Error("filterMethod or filterObject is nil")
+	}
+	return utils.MD5(utils.AddStr(filterMethod, filterObject)), nil
 }
 
 // 验证状态码
@@ -206,7 +224,10 @@ func ValidSuccess(filterObject string) bool {
 func CleanStatus(filterObject string) error {
 	client, err := cache.NewRedis()
 	if err != nil {
-		return err
+		return ex.Throw{Msg: err.Error()}
 	}
-	return client.Del(utils.AddStr("geetest.", filterObject))
+	if err := client.Del(utils.AddStr("geetest.", filterObject)); err != nil {
+		return ex.Throw{Msg: err.Error()}
+	}
+	return nil
 }

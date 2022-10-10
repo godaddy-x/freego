@@ -71,11 +71,19 @@ func (self *MyWebNode) pubkey(ctx *node.Context) error {
 }
 
 func (self *MyWebNode) FirstRegister(ctx *node.Context) error {
-	return self.Json(ctx, geetest.FirstRegister("test", ctx.RequestCtx.LocalAddr().String()))
+	res, err := geetest.FirstRegister(ctx)
+	if err != nil {
+		return err
+	}
+	return self.Json(ctx, res)
 }
 
 func (self *MyWebNode) SecondValidate(ctx *node.Context) error {
-	return self.Json(ctx, geetest.SecondValidate(ctx, "test"))
+	res, err := geetest.SecondValidate(ctx)
+	if err != nil {
+		return err
+	}
+	return self.Json(ctx, res)
 }
 
 type NewPostFilter struct{}
@@ -126,15 +134,20 @@ func NewHTTP() *MyWebNode {
 	return my
 }
 
+const (
+	appid  = ""
+	appkey = ""
+)
+
 func StartHttpNode() {
-	go geetest.CheckServerStatus("appID", "appKey")
+	go geetest.CheckServerStatus(appid, appkey)
 	my := NewHTTP()
 	my.POST("/test1", my.test, nil)
 	my.POST("/test2", my.getUser, &node.RouterConfig{})
 	my.GET("/pubkey", my.pubkey, &node.RouterConfig{Guest: true})
-	my.POST("/login", my.login, &node.RouterConfig{Login: true})
+	my.POST("/login", my.login, &node.RouterConfig{UseRSA: true})
 
-	my.GET("/geetest/register", my.FirstRegister, &node.RouterConfig{Guest: true})
-	my.POST("/geetest/validate", my.SecondValidate, &node.RouterConfig{Guest: true})
+	my.POST("/geetest/register", my.FirstRegister, &node.RouterConfig{UseRSA: true})
+	my.POST("/geetest/validate", my.SecondValidate, &node.RouterConfig{UseRSA: true})
 	my.StartServer(":8090")
 }

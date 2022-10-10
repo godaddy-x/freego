@@ -47,8 +47,8 @@ type HookNode struct {
 }
 
 type RouterConfig struct {
-	Guest bool // 游客模式 false.否 true.是
-	Login bool // 是否登录请求 false.否 true.是
+	Guest  bool // 游客模式 false.否 true.是
+	UseRSA bool // 使用RSA模式请求 false.否 true.是
 	//Original    bool // 是否原始方式 false.否 true.是
 	AesRequest  bool // 请求是否必须AES加密 false.否 true.是
 	AesResponse bool // 响应是否必须AES加密 false.否 true.是
@@ -66,7 +66,7 @@ type JsonBody struct {
 	Data  interface{} `json:"d"`
 	Time  int64       `json:"t"`
 	Nonce string      `json:"n"`
-	Plan  int64       `json:"p"` // 0.默认 1.AES 2.RSA登录
+	Plan  int64       `json:"p"` // 0.默认 1.AES 2.RSA模式
 	Sign  string      `json:"s"`
 }
 
@@ -116,6 +116,22 @@ type Response struct {
 	// response result
 	StatusCode        int
 	ContentEntityByte []byte
+}
+
+func (self *JsonBody) ParseData(dst interface{}) error {
+	raw, b := self.Data.([]byte)
+	if !b {
+		return utils.Error("jsonBody data not string")
+	}
+	return utils.JsonUnmarshal(raw, dst)
+}
+
+func (self *JsonBody) RawData() []byte {
+	raw, b := self.Data.([]byte)
+	if !b {
+		return nil
+	}
+	return raw
 }
 
 func (self *Context) GetTokenSecret() string {
@@ -170,11 +186,11 @@ func (self *Context) Authenticated() bool {
 	return true
 }
 
-func (self *Context) Parser(v interface{}) error {
+func (self *Context) Parser(dst interface{}) error {
 	if self.JsonBody == nil || self.JsonBody.Data == nil {
 		return nil
 	}
-	if err := utils.JsonToAny(self.JsonBody.Data, v); err != nil {
+	if err := self.JsonBody.ParseData(dst); err != nil {
 		msg := "JSON parameter parsing failed"
 		zlog.Error(msg, 0, zlog.String("path", self.Path), zlog.String("device", self.Device), zlog.Any("data", self.JsonBody))
 		return ex.Throw{Msg: msg}
@@ -191,11 +207,10 @@ func (self *Context) Parser(v interface{}) error {
 	context := common.Context{
 		UserId: userId,
 	}
-	src := utils.GetPtr(v, 0)
+	src := utils.GetPtr(dst, 0)
 	req := common.GetBaseReq(src)
-	dst := common.BaseReq{Context: context, Offset: req.Offset, Limit: req.Limit}
-	*((*common.BaseReq)(unsafe.Pointer(src))) = dst
-	self.JsonBody.Data = v
+	base := common.BaseReq{Context: context, Offset: req.Offset, Limit: req.Limit}
+	*((*common.BaseReq)(unsafe.Pointer(src))) = base
 	return nil
 }
 
@@ -252,29 +267,31 @@ func (self *Context) validJsonBody(req *JsonBody) error {
 	if self.RouterConfig.AesRequest && req.Plan != 1 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters must use AES encryption"}
 	}
-	if self.RouterConfig.Login && req.Plan != 2 {
+	if self.RouterConfig.UseRSA && req.Plan != 2 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters must use RSA encryption"}
 	}
 	if !utils.CheckStrLen(req.Sign, 32, 64) {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature length invalid"}
 	}
 	var key string
-	if self.RouterConfig.Login {
+	if self.RouterConfig.UseRSA {
 		_, key = self.RSA.GetPublicKey()
 	}
 	if self.GetHmac256Sign(d, req.Nonce, req.Time, req.Plan, key) != req.Sign {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature invalid"}
 	}
-	data := make(map[string]interface{}, 0)
-	if req.Plan == 1 && !self.RouterConfig.Login { // AES
+	//data := make(map[string]interface{}, 0)
+	var rawData []byte
+	if req.Plan == 1 && !self.RouterConfig.UseRSA { // AES
 		dec, err := utils.AesDecrypt(d, self.GetTokenSecret(), utils.AddStr(req.Nonce, req.Time))
 		if err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "AES failed to parse data", Err: err}
 		}
-		if err := utils.JsonUnmarshal(utils.Str2Bytes(dec), &data); err != nil {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter JSON parsing failed"}
-		}
-	} else if req.Plan == 2 && self.RouterConfig.Login { // RSA
+		//if err := utils.JsonUnmarshal(utils.Str2Bytes(dec), &data); err != nil {
+		//	return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter JSON parsing failed"}
+		//}
+		rawData = utils.Str2Bytes(dec)
+	} else if req.Plan == 2 && self.RouterConfig.UseRSA { // RSA
 		randomCode := utils.Bytes2Str(self.RequestCtx.Request.Header.Peek(RandomCode))
 		if len(randomCode) == 0 {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "client random code invalid"}
@@ -290,18 +307,23 @@ func (self *Context) validJsonBody(req *JsonBody) error {
 		if err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "AES failed to parse data", Err: err}
 		}
-		if err := utils.JsonUnmarshal(utils.Str2Bytes(dec), &data); err != nil {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter JSON parsing failed"}
-		}
+		//if err := utils.JsonUnmarshal(utils.Str2Bytes(dec), &data); err != nil {
+		//	return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter JSON parsing failed"}
+		//}
+		rawData = utils.Str2Bytes(dec)
 		self.AddStorage(RandomCode, code)
-	} else if req.Plan == 0 && !self.RouterConfig.Login && !self.RouterConfig.AesRequest {
-		if err := utils.ParseJsonBase64(d, &data); err != nil {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter JSON parsing failed"}
+	} else if req.Plan == 0 && !self.RouterConfig.UseRSA && !self.RouterConfig.AesRequest {
+		//if err := utils.ParseJsonBase64(d, &data); err != nil {
+		//	return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter JSON parsing failed"}
+		//}
+		rawData = utils.Base64URLDecode(d)
+		if len(rawData) == 0 {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter Base64 parsing failed"}
 		}
 	} else {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters plan invalid"}
 	}
-	req.Data = data
+	req.Data = rawData
 	self.JsonBody = req
 	return nil
 }

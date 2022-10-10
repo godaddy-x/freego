@@ -275,7 +275,7 @@ func defaultRenderPre(ctx *Context) error {
 			resp.Nonce = ctx.JsonBody.Nonce
 		}
 		var key string
-		if routerConfig.Login {
+		if routerConfig.UseRSA {
 			v := ctx.GetStorage(RandomCode)
 			if v == nil {
 				return ex.Throw{Msg: "encryption random code is nil"}

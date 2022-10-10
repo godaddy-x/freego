@@ -14,8 +14,8 @@ import (
 
 const domain = "http://localhost:8090"
 
-const access_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxNTY5MTAzNzEzMzA0MzEzODU3IiwiYXVkIjoiIiwiaXNzIjoiIiwiaWF0IjowLCJleHAiOjE2NjQxNDgwNTIsImRldiI6IkFQUCIsImp0aSI6IkpWd0FkOXJLUHo0dXBhWnVOMmx2VkE9PSIsImV4dCI6IiJ9.lasAJWo1Z+wTpGhlZvCgUmWuVlmYclkwKkoZwCiQRUs="
-const token_secret = "K4juPXhv9hMN5fSHy*kT^j#lKBDg43cWEx3idkQO#lK!ZC@diQ3CIESnhevjMHk="
+const access_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxNTc5MjcxODA2MjczOTc4MzY5IiwiYXVkIjoiIiwiaXNzIjoiIiwiaWF0IjowLCJleHAiOjE2NjY1NzIzMTQsImRldiI6IkFQUCIsImp0aSI6Ild1WUVaaDBGVDlSUXVJVWdldkw3dFE9PSIsImV4dCI6IiJ9.HyS0aGor8nkFFEbg7UVNYs/Xo3jlJ8On8UN5W/SH0QM="
+const token_secret = "kdXYjuhYNk/arEgHy*kT^j#lKwY+TI/9rG1gDuYW#lK!ZC@diQhTKljulBIOg78="
 
 //const access_token = ""
 //const token_secret = ""
@@ -103,7 +103,7 @@ func ToPostBy(path string, req *node.JsonBody) {
 	respcli := fasthttp.AcquireResponse()
 	defer fasthttp.ReleaseResponse(respcli)
 
-	if err := fasthttp.DoTimeout(reqcli, respcli, 5*time.Second); err != nil {
+	if err := fasthttp.DoTimeout(reqcli, respcli, 30*time.Second); err != nil {
 		panic(err)
 	}
 
@@ -160,6 +160,36 @@ func TestRSALogin(t *testing.T) {
 	ToPostBy(path, req)
 }
 
+func TestGeetestRegister(t *testing.T) {
+	data, _ := utils.JsonMarshal(map[string]string{"filterObject": "123456", "filterMethod": "/test"})
+	path := "/geetest/register"
+	req := &node.JsonBody{
+		Data:  data,
+		Time:  utils.UnixSecond(),
+		Nonce: utils.RandNonce(),
+		Plan:  int64(2),
+	}
+	ToPostBy(path, req)
+}
+
+func TestGeetestValidate(t *testing.T) {
+	data, _ := utils.JsonMarshal(map[string]string{
+		"filterObject":      "123456",
+		"filterMethod":      "/test",
+		"geetest_challenge": "123",
+		"geetest_validate":  "123",
+		"geetest_seccode":   "123",
+	})
+	path := "/geetest/validate"
+	req := &node.JsonBody{
+		Data:  data,
+		Time:  utils.UnixSecond(),
+		Nonce: utils.RandNonce(),
+		Plan:  int64(2),
+	}
+	ToPostBy(path, req)
+}
+
 func TestGetUser(t *testing.T) {
 	data, _ := utils.JsonMarshal(map[string]interface{}{"uid": 123, "name": "我爱中国/+_=/1df", "limit": 20, "offset": 5})
 	path := "/test2"
@@ -167,7 +197,7 @@ func TestGetUser(t *testing.T) {
 		Data:  data,
 		Time:  utils.UnixSecond(),
 		Nonce: utils.RandNonce(),
-		Plan:  int64(1),
+		Plan:  int64(0),
 	}
 	ToPostBy(path, req)
 }

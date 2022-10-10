@@ -76,7 +76,7 @@ func main() {
 	go func() {
 		_ = http.ListenAndServe(":8849", nil)
 	}()
-	rpcx.RunClient(appConfig.AppId)
+	//rpcx.RunClient(appConfig.AppId)
 	http_test()
 	//router := fasthttprouter.New()
 	//router.GET("/pubkey", func(ctx *fasthttp.RequestCtx) {
