@@ -12,6 +12,7 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/gob"
 	"encoding/hex"
 	"errors"
 	"github.com/godaddy-x/freego/utils/decimal"
@@ -808,4 +809,16 @@ func FmtZero(r string) string {
 	b, _ := decimal.NewFromString(r)
 	a = a.Add(b)
 	return a.String()
+}
+
+// 深度复制对象
+func DeepCopy(dst, src interface{}) error {
+	var buf bytes.Buffer
+	if err := gob.NewEncoder(&buf).Encode(src); err != nil {
+		return Error("深度复制对象序列化异常: ", err.Error())
+	}
+	if err := gob.NewDecoder(bytes.NewBuffer(buf.Bytes())).Decode(dst); err != nil {
+		return Error("深度复制对象反序列异常: ", err.Error())
+	}
+	return nil
 }

@@ -63,7 +63,7 @@ func TestMongoUpdateByCnd1(t *testing.T) {
 }
 
 func TestMongoDelete(t *testing.T) {
-	db, err := sqld.NewMongo(sqld.Option{OpenTx: true, Timeout: 3000})
+	db, err := sqld.NewMongo()
 	if err != nil {
 		panic(err)
 	}
@@ -74,7 +74,7 @@ func TestMongoDelete(t *testing.T) {
 }
 
 func TestMongoAgg(t *testing.T) {
-	db, err := sqld.NewMongo(sqld.Option{OpenTx: false})
+	db, err := sqld.NewMongo()
 	if err != nil {
 		panic(err)
 	}
@@ -84,7 +84,7 @@ func TestMongoAgg(t *testing.T) {
 }
 
 func TestMongoCount(t *testing.T) {
-	db, err := sqld.NewMongo(sqld.Option{OpenTx: false})
+	db, err := sqld.NewMongo()
 	if err != nil {
 		panic(err)
 	}
@@ -104,9 +104,11 @@ func TestMongoFindList(t *testing.T) {
 	defer db.Close()
 	l := utils.UnixMilli()
 	var o []*OwWallet
-	if err := db.FindList(sqlc.M(&OwWallet{}).Eq("id", 1).Orderby("id", sqlc.DESC_).Limit(0, 3), &o); err != nil {
+	sql := sqlc.M(&OwWallet{}).Orderby("id", sqlc.DESC_).Limit(0, 2)
+	if err := db.FindList(sql, &o); err != nil {
 		fmt.Println(err)
 	}
+	fmt.Println(sql.Pagination)
 	fmt.Println("cost: ", utils.UnixMilli()-l)
 }
 

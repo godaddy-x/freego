@@ -488,6 +488,20 @@ func (self *MGOManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 		}
 		return self.Error(err)
 	}
+	if !cnd.Pagination.IsOffset && cnd.Pagination.IsPage {
+		pageTotal, err := self.Count(cnd)
+		if err != nil {
+			return err
+		}
+		var pageCount int64
+		if pageTotal%cnd.Pagination.PageSize == 0 {
+			pageCount = pageTotal / cnd.Pagination.PageSize
+		} else {
+			pageCount = pageTotal/cnd.Pagination.PageSize + 1
+		}
+		cnd.Pagination.PageTotal = pageTotal
+		cnd.Pagination.PageCount = pageCount
+	}
 	return nil
 }
 

@@ -285,10 +285,10 @@ func (self *Cnd) Limit(pageNo int64, pageSize int64) *Cnd {
 	if pageNo <= 0 {
 		pageNo = 1
 	}
-	if pageSize <= 0 || pageSize > 2000 {
-		pageSize = 200
+	if pageSize <= 0 || pageSize > 200 {
+		pageSize = 50
 	}
-	self.Pagination = dialect.Dialect{pageNo, pageSize, 0, 0, true, false, true}
+	self.Pagination = dialect.Dialect{PageNo: pageNo, PageSize: pageSize, Spilled: true, IsPage: true}
 	return self
 }
 
@@ -297,10 +297,10 @@ func (self *Cnd) Offset(offset int64, limit int64) *Cnd {
 	if offset <= 0 {
 		offset = 0
 	}
-	if limit <= 0 || limit > 2000 {
-		limit = 200
+	if limit <= 0 || limit > 200 {
+		limit = 50
 	}
-	self.Pagination = dialect.Dialect{offset, limit, 0, 0, true, true, true}
+	self.Pagination = dialect.Dialect{PageNo: offset, PageSize: limit, Spilled: true, IsOffset: true, IsPage: true}
 	return self
 }
 
