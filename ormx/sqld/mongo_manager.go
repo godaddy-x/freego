@@ -2,6 +2,7 @@ package sqld
 
 import (
 	"context"
+	"fmt"
 	"github.com/godaddy-x/freego/cache"
 	DIC "github.com/godaddy-x/freego/common"
 	"github.com/godaddy-x/freego/ormx/sqlc"
@@ -36,6 +37,7 @@ const (
 // 数据库配置
 type MGOConfig struct {
 	DBConfig
+	AuthMechanism  string
 	Addrs          []string
 	Direct         bool
 	ConnectTimeout int64
@@ -170,13 +172,16 @@ func (self *MGOManager) buildByConfig(manager cache.Cache, input ...MGOConfig) e
 		}
 		opts := options.Client()
 		if len(v.ConnectionURI) == 0 {
-			if len(v.Username) > 0 {
-				cred := options.Credential{}
-				cred.Password = v.Password
-				cred.Username = v.Username
-				opts.SetAuth(cred)
+			if len(v.AuthMechanism) == 0 {
+				v.AuthMechanism = "SCRAM-SHA-1"
 			}
-			opts.SetHosts(v.Addrs)
+			credential := options.Credential{
+				AuthMechanism: v.AuthMechanism,
+				Username:      v.Username,
+				Password:      v.Password,
+				AuthSource:    v.Database,
+			}
+			opts = options.Client().ApplyURI(fmt.Sprintf("mongodb://%s", v.Addrs[0])).SetAuth(credential)
 		} else {
 			opts = options.Client().ApplyURI(v.ConnectionURI)
 		}
