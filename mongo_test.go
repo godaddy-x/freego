@@ -10,6 +10,7 @@ import (
 	"github.com/godaddy-x/freego/utils/concurrent"
 	"github.com/godaddy-x/freego/utils/gauth"
 	"github.com/gorilla/websocket"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"log"
 	"net/url"
 	"testing"
@@ -27,7 +28,7 @@ func TestMongoSave(t *testing.T) {
 	}
 	defer db.Close()
 	//l := utils.UnixMilli()
-	o := OwWallet{
+	o := OwWallet2{
 		AppID:    utils.NextSID(),
 		WalletID: utils.NextSID(),
 	}
@@ -42,7 +43,11 @@ func TestMongoUpdate(t *testing.T) {
 		panic(err)
 	}
 	defer db.Close()
-	if err := db.Update(&OwWallet{Id: 1577924742445268992, WalletID: "aaaa"}); err != nil {
+	objectID, err := primitive.ObjectIDFromHex("63462950d9180b6c9c0731f3")
+	if err != nil {
+		panic(err)
+	}
+	if err := db.Update(&OwWallet2{Id: objectID, WalletID: "aaaa"}); err != nil {
 		panic(err)
 	}
 
@@ -118,10 +123,11 @@ func TestMongoFindOne(t *testing.T) {
 		panic(err)
 	}
 	defer db.Close()
-	o := &OwWallet{}
+	o := &OwWallet2{}
 	if err := db.FindOne(sqlc.M().Fields("id", "appID").Orderby("id", sqlc.DESC_), o); err != nil {
 		fmt.Println(err)
 	}
+	fmt.Println(o.Id.Hex())
 }
 
 func TestMongoUpdateByCnd(t *testing.T) {
@@ -131,7 +137,11 @@ func TestMongoUpdateByCnd(t *testing.T) {
 		panic(err)
 	}
 	defer db.Close()
-	if err := db.UpdateByCnd(sqlc.M(&OwWallet{}).Eq("id", 1182663723102240768).Upset([]string{"password", "rootPath"}, "123456test", "/test/123")); err != nil {
+	objectID, err := primitive.ObjectIDFromHex("63462950d9180b6c9c0731f3")
+	if err != nil {
+		panic(err)
+	}
+	if err := db.UpdateByCnd(sqlc.M(&OwWallet2{}).Eq("id", objectID).Upset([]string{"password", "rootPath"}, "123456test", "/test/123")); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println("cost: ", utils.UnixMilli()-l)

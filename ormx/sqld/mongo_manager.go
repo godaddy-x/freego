@@ -9,6 +9,7 @@ import (
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/zlog"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
@@ -53,6 +54,10 @@ type PackContext struct {
 	SessionContext mongo.SessionContext
 	Context        context.Context
 	CancelFunc     context.CancelFunc
+}
+
+func IsNullObjectID(target primitive.ObjectID) bool {
+	return target.Hex() == "000000000000000000000000"
 }
 
 // 数据库管理器
@@ -279,8 +284,14 @@ func (self *MGOManager) Save(data ...sqlc.Object) error {
 				lastInsertId = utils.NextSID()
 				utils.SetString(utils.GetPtr(v, obv.PkOffset), lastInsertId)
 			}
+		} else if obv.PkType == "primitive.ObjectID" {
+			lastInsertId := utils.GetObjectID(utils.GetPtr(v, obv.PkOffset))
+			if IsNullObjectID(lastInsertId) {
+				lastInsertId = primitive.NewObjectID()
+				utils.SetObjectID(utils.GetPtr(v, obv.PkOffset), lastInsertId)
+			}
 		} else {
-			return self.Error("only Int64 and string type IDs are supported")
+			return self.Error("only Int64 and string and ObjectID type IDs are supported")
 		}
 		adds = append(adds, v)
 	}
@@ -330,8 +341,14 @@ func (self *MGOManager) Update(data ...sqlc.Object) error {
 				return self.Error("[Mongo.Update] data object id is nil")
 			}
 			lastInsertId = pk
+		} else if obv.PkType == "primitive.ObjectID" {
+			pk := utils.GetObjectID(utils.GetPtr(v, obv.PkOffset))
+			if IsNullObjectID(pk) {
+				return self.Error("[Mongo.Update] data object id is nil")
+			}
+			lastInsertId = pk
 		} else {
-			return self.Error("only Int64 and string type IDs are supported")
+			return self.Error("only Int64 and string and ObjectID type IDs are supported")
 		}
 		res, err := db.ReplaceOne(self.GetSessionContext(), bson.M{"_id": lastInsertId}, v)
 		if err != nil {
@@ -407,8 +424,14 @@ func (self *MGOManager) Delete(data ...sqlc.Object) error {
 				return self.Error("[Mongo.Delete] data object id is nil")
 			}
 			delIds = append(delIds, lastInsertId)
+		} else if obv.PkType == "primitive.ObjectID" {
+			lastInsertId := utils.GetObjectID(utils.GetPtr(v, obv.PkOffset))
+			if IsNullObjectID(lastInsertId) {
+				return self.Error("[Mongo.Update] data object id is nil")
+			}
+			delIds = append(delIds, lastInsertId)
 		} else {
-			return self.Error("only Int64 and string type IDs are supported")
+			return self.Error("only Int64 and string and ObjectID type IDs are supported")
 		}
 	}
 	if len(delIds) > 0 {

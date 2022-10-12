@@ -196,16 +196,12 @@ func (self *Context) Parser(dst interface{}) error {
 		return ex.Throw{Msg: msg}
 	}
 	// TODO 备注: 已有会话状态时,指针填充context值,不能随意修改指针偏移值
-	userId := int64(0)
+	identify := &common.Identify{}
 	if self.Authenticated() {
-		v, err := utils.StrToInt64(self.Subject.Sub)
-		if err != nil {
-			return ex.Throw{Msg: "userId invalid"}
-		}
-		userId = v
+		identify.ID = self.Subject.Sub
 	}
 	context := common.Context{
-		UserId: userId,
+		Identify: identify,
 	}
 	src := utils.GetPtr(dst, 0)
 	req := common.GetBaseReq(src)

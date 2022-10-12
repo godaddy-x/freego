@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"unsafe"
 )
 
@@ -349,4 +350,14 @@ func GetUint64Arr(ptr uintptr) []uint64 {
 // set []uint64 value
 func SetUint64Arr(ptr uintptr, v []uint64) {
 	*((*[]uint64)(unsafe.Pointer(ptr))) = v
+}
+
+// set ObjectID value
+func SetObjectID(ptr uintptr, v primitive.ObjectID) {
+	*((*primitive.ObjectID)(unsafe.Pointer(ptr))) = v
+}
+
+// get ObjectID value
+func GetObjectID(ptr uintptr) primitive.ObjectID {
+	return *((*primitive.ObjectID)(unsafe.Pointer(ptr)))
 }

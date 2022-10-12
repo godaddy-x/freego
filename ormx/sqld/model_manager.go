@@ -37,6 +37,7 @@ type MdlDriver struct {
 	PkKind     reflect.Kind
 	PkName     string
 	PkBsonName string
+	PkType     string
 	FieldElem  []*FieldElem
 }
 
@@ -83,6 +84,7 @@ func ModelDriver(objects ...sqlc.Object) error {
 				f.Primary = true
 				md.PkOffset = field.Offset
 				md.PkKind = value.Kind()
+				md.PkType = field.Type.String()
 				md.PkName = field.Tag.Get(sqlc.Json)
 				md.PkBsonName = field.Tag.Get(sqlc.Bson)
 				mg := field.Tag.Get(sqlc.Mg)
