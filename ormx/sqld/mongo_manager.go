@@ -57,7 +57,8 @@ type PackContext struct {
 }
 
 func IsNullObjectID(target primitive.ObjectID) bool {
-	return target.Hex() == "000000000000000000000000"
+	// return target.Hex() == "000000000000000000000000"
+	return target.IsZero()
 }
 
 // 数据库管理器
