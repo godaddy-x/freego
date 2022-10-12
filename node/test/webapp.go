@@ -36,7 +36,6 @@ func (self *MyWebNode) getUser(ctx *node.Context) error {
 	if err := ctx.Parser(req); err != nil {
 		return err
 	}
-	fmt.Println(req.Context.Identify.)
 	return self.Json(ctx, map[string]interface{}{"test": "我爱中国+-/+_=/1df"})
 }
 
