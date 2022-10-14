@@ -187,7 +187,10 @@ func (self *MGOManager) buildByConfig(manager cache.Cache, input ...MGOConfig) e
 				Password:      v.Password,
 				AuthSource:    v.Database,
 			}
-			opts = options.Client().ApplyURI(fmt.Sprintf("mongodb://%s", v.Addrs[0])).SetAuth(credential)
+			opts = options.Client().ApplyURI(fmt.Sprintf("mongodb://%s", v.Addrs[0]))
+			if len(v.Username) > 0 && len(v.Password) > 0 {
+				opts.SetAuth(credential)
+			}
 		} else {
 			opts = options.Client().ApplyURI(v.ConnectionURI)
 		}
