@@ -147,6 +147,8 @@ func AddStr(input ...interface{}) string {
 	for _, vs := range input {
 		if v, b := vs.(string); b {
 			rstr.WriteString(v)
+		} else if v, b := vs.([]byte); b {
+			rstr.WriteString(Bytes2Str(v))
 		} else if v, b := vs.(error); b {
 			rstr.WriteString(v.Error())
 		} else {
