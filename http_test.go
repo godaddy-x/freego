@@ -179,7 +179,7 @@ func TestRSALogin(t *testing.T) {
 		Nonce: utils.RandNonce(),
 		Plan:  int64(2),
 	}
-	PostByTokenSecret(path, req)
+	PostByRSA(path, req)
 }
 
 func TestGeetestRegister(t *testing.T) {
