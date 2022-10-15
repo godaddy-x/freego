@@ -160,7 +160,7 @@ func PostByRSA(path string, req *node.JsonBody) {
 		Sign:  utils.GetJsonString(respBytes, "s"),
 	}
 	if respData.Code == 200 {
-		s := utils.HMAC_SHA256(utils.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan), serverPublicKey, true)
+		s := utils.HMAC_SHA256(utils.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan), clientSecretKey, true)
 		output("****************** Response Signature Verify:", s == respData.Sign, "******************")
 		dec, err := utils.AesDecrypt(respData.Data.(string), clientSecretKey, clientSecretKey)
 		if err != nil {

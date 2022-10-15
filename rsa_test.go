@@ -89,10 +89,21 @@ func TestRsaLoadFile(t *testing.T) {
 		panic(err)
 	}
 	//a, _ := obj2.Encrypt([]byte("123465"))
-	a := "AbtUy25Ppaw6bzLcuk7vF1AEl+mra/v2qsi1fxjbvqpKKUOBiiG0iPlYST3IZym+Wn9hkgSngSWF67XFhQxHFJaTnG3qA3beAXf5mYydhLeMyQ8KaEPhkOPVIvGAssG7akhIMGwZRd4T8qLUlVz7zLQcgSBlKlxLzl7oeWZGCBY="
-	fmt.Println("加密结果", a)
-	b, _ := obj.Decrypt(a)
-	fmt.Println("解密结果: ", b)
+	a := "pqjt7N+hBaWr7pKjDj77e2KnVfOkUlyud13yaGh1fCX23433bkkPrHL40yH+CDrl+ahnntsSQpCJq596Yd+A1tEffuVuIcMF6EiVdIxnt51Cd8auRNiZvynSLMRuWdRejGZGxzNjpVjN6hPi2FxPOZZmukSoPihLbwlKR+9Rg78="
+	//p, _ := obj.GetPrivateKey()
+	//a1, err := base64.StdEncoding.DecodeString(a)
+	//if err != nil {
+	//	panic(err)
+	//}
+	//b, err := rsa.DecryptPKCS1v15(rand.Reader, p.(*rsa.PrivateKey), a1)
+	//if err != nil {
+	//	panic(err)
+	//}
+	b, err := obj.Decrypt(a)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("Go解密结果: ", string(b))
 }
 
 func TestRsaLoadFileBase64(t *testing.T) {
