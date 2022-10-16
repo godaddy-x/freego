@@ -89,31 +89,12 @@ func TestRsaLoadFile(t *testing.T) {
 		panic(err)
 	}
 	//a, _ := obj2.Encrypt([]byte("123465"))
-	a := "pqjt7N+hBaWr7pKjDj77e2KnVfOkUlyud13yaGh1fCX23433bkkPrHL40yH+CDrl+ahnntsSQpCJq596Yd+A1tEffuVuIcMF6EiVdIxnt51Cd8auRNiZvynSLMRuWdRejGZGxzNjpVjN6hPi2FxPOZZmukSoPihLbwlKR+9Rg78="
-	//p, _ := obj.GetPrivateKey()
-	//a1, err := base64.StdEncoding.DecodeString(a)
-	//if err != nil {
-	//	panic(err)
-	//}
-	//b, err := rsa.DecryptPKCS1v15(rand.Reader, p.(*rsa.PrivateKey), a1)
-	//if err != nil {
-	//	panic(err)
-	//}
+	a := "lQhuSr4Ocj0537i338VEgl8g2iI0EsnSWXIJYuF4EsgMLPmOeFT0mzw4fNY1JN2lo++b/AA5wld4WAConPQV5jQewBevdcw9du4y6pbDC98ZEgUQkqhnCuZPjO06VVaBQpxN01NUPVpdBW3j6wnG885h+S1cbIbAGlu07vvSrlsY7kFN/nCLQoki+MaBdOZ0UcnR/wgyNG+bucTlcpywwn3L0gIWAQfHIBx/LFEAUHe0afUqEallZNoLG/yEk6Jqnz0PtpsR07PfMK7FcjWePHnswNa07F9RiKKTKjJO5QK+oKFW5gvyA8DjYemcFciGwu+NIGHsTFIgVU86Tx7cFw=="
 	b, err := obj.Decrypt(a)
 	if err != nil {
 		panic(err)
 	}
 	fmt.Println("Go解密结果: ", string(b))
-}
-
-func TestRsaLoadFileBase64(t *testing.T) {
-	obj := &gorsa.RsaObj{}
-	if err := obj.LoadRsaKeyFileBase64(prikeybase64); err != nil {
-		panic(err)
-	}
-	sig, err := obj.Sign([]byte(testmsg))
-	fmt.Println(sig, err)
-	fmt.Println(obj.Verify([]byte(testmsg), base64.URLEncoding.EncodeToString(sig)))
 }
 
 func TestRsaPubkeyEncrypt(t *testing.T) {
@@ -145,7 +126,7 @@ func TestRsaPrikeyDecrypt(t *testing.T) {
 	fmt.Println("RSA私钥解密结果: ", string(res2))
 }
 
-func TestRsaSign(t *testing.T) {
+func TestRsaSignAndVerify(t *testing.T) {
 	obj := &gorsa.RsaObj{}
 	if err := obj.LoadRsaFile(keyfile); err != nil {
 		panic(err)
@@ -154,19 +135,8 @@ func TestRsaSign(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println("RSA私钥签名结果: ", res)
-}
-
-func TestRsaVerify(t *testing.T) {
-	obj := &gorsa.RsaObj{}
-	if err := obj.LoadRsaFile(keyfile); err != nil {
-		panic(err)
-	}
-	res, err := obj.Sign([]byte(testmsg))
-	if err != nil {
-		panic(err)
-	}
-	if err := obj.Verify([]byte(testmsg), base64.URLEncoding.EncodeToString(res)); err == nil {
+	fmt.Println("RSA私钥签名结果: ", base64.StdEncoding.EncodeToString(res))
+	if err := obj.Verify([]byte(testmsg), res); err == nil {
 		fmt.Println("RSA公钥验签结果: ", err == nil)
 	} else {
 		panic(err)

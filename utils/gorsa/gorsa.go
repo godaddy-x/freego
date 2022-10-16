@@ -10,11 +10,10 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"errors"
-	"fmt"
 	"os"
 )
 
-const bits = 1024
+const bits = 2048
 
 type RSA interface {
 	GetPrivateKey() (interface{}, string)
@@ -22,7 +21,7 @@ type RSA interface {
 	Encrypt(msg []byte) (string, error)
 	Decrypt(msg string) (string, error)
 	Sign(msg []byte) ([]byte, error)
-	Verify(msg []byte, sign string) error
+	Verify(msg, sign []byte) error
 }
 
 type RsaObj struct {
@@ -50,9 +49,8 @@ func (self *RsaObj) CreateRsaFile(keyfile, pemfile string) error {
 		return err
 	}
 	if err := file.Close(); err != nil {
-		fmt.Println(err)
+		return err
 	}
-
 	// 将publicKey转换为PKIX, ASN.1 DER格式
 	derPkix, err := x509.MarshalPKIXPublicKey(&prikey.PublicKey)
 	if err != nil {
@@ -63,49 +61,33 @@ func (self *RsaObj) CreateRsaFile(keyfile, pemfile string) error {
 		Type:  "PUBLIC KEY",
 		Bytes: derPkix,
 	}
-	// 将publicKey以字符串形式返回给javascript
-	//publicKeyString := string(pem.EncodeToMemory(&block))
-	//fmt.Println(publicKeyString)
-
-	// 生成公钥文件
-	//block1 := pem.Block{
-	//	Type:  "PUBLIC KEY",
-	//	Bytes: x509.MarshalPKCS1PublicKey(&prikey.PublicKey),
-	//}
 	file, err = os.Create(pemfile)
 	if err != nil {
 		return err
 	}
 	if err := pem.Encode(file, &block1); err != nil {
-		fmt.Println(err)
+		return err
 	}
 	if err := file.Close(); err != nil {
-		fmt.Println(err)
+		return err
 	}
 	return nil
 }
 
 func (self *RsaObj) CreateRsaPemFile(pemfile string) error {
-	// 生成公钥文件
-	//block1 := pem.Block{
-	//	Type:  "PUBLIC KEY",
-	//	Bytes: x509.MarshalPKCS1PublicKey(self.publicKey),
-	//}
-
 	block1, _ := pem.Decode([]byte(self.PublicKeyBase64))
 	if block1 == nil {
 		return errors.New("RSA block invalid")
 	}
-
 	file, err := os.Create(pemfile)
 	if err != nil {
 		return err
 	}
 	if err := pem.Encode(file, block1); err != nil {
-		fmt.Println(err)
+		return err
 	}
 	if err := file.Close(); err != nil {
-		fmt.Println(err)
+		return err
 	}
 	return nil
 }
@@ -133,14 +115,6 @@ func (self *RsaObj) CreateRsaFileBase64(b ...int) error {
 		Bytes: x509.MarshalPKCS1PrivateKey(prikey),
 	}
 	privateKeyBase64 := base64.URLEncoding.EncodeToString(pem.EncodeToMemory(&block))
-
-	// 生成公钥文件
-	//block1 := pem.Block{
-	//	Type:  "PUBLIC KEY",
-	//	Bytes: x509.MarshalPKCS1PublicKey(&prikey.PublicKey),
-	//}
-	//publicKeyBase64 := base64.URLEncoding.EncodeToString(pem.EncodeToMemory(&block1))
-
 	// 将publicKey转换为PKIX, ASN.1 DER格式
 	derPkix, err := x509.MarshalPKIXPublicKey(&prikey.PublicKey)
 	if err != nil {
@@ -151,11 +125,9 @@ func (self *RsaObj) CreateRsaFileBase64(b ...int) error {
 		Type:  "PUBLIC KEY",
 		Bytes: derPkix,
 	}
-	publicKeyBase64 := string(pem.EncodeToMemory(block1))
-
 	self.privateKey = prikey
 	self.publicKey = &prikey.PublicKey
-	self.PublicKeyBase64 = publicKeyBase64
+	self.PublicKeyBase64 = string(pem.EncodeToMemory(block1))
 	self.PrivateKeyBase64 = privateKeyBase64
 	return nil
 }
@@ -168,10 +140,10 @@ func (self *RsaObj) LoadRsaFile(filePath string) error {
 	stat, _ := file.Stat()
 	content := make([]byte, stat.Size())
 	if _, err := file.Read(content); err != nil {
-		fmt.Println(err)
+		return err
 	}
 	if err := file.Close(); err != nil {
-		fmt.Println(err)
+		return err
 	}
 	block, _ := pem.Decode(content)
 	if block == nil {
@@ -181,25 +153,18 @@ func (self *RsaObj) LoadRsaFile(filePath string) error {
 	if err != nil {
 		return err
 	}
-
-	//fmt.Println(string(pem.EncodeToMemory(block)))
-
 	// 将publicKey转换为PKIX, ASN.1 DER格式
-	if derPkix, err := x509.MarshalPKIXPublicKey(&prikey.PublicKey); err != nil {
+	derPkix, err := x509.MarshalPKIXPublicKey(&prikey.PublicKey)
+	if err != nil {
 		return err
-	} else {
-		// 设置PEM编码结构
-		block := pem.Block{
-			Type:  "PUBLIC KEY",
-			Bytes: derPkix,
-		}
-		// 将publicKey以字符串形式返回给javascript
-		publicKeyString := string(pem.EncodeToMemory(&block))
-		//fmt.Println(publicKeyString)
-		self.PublicKeyBase64 = publicKeyString
 	}
-
-	//fmt.Println(string(pem.EncodeToMemory(&block1)))
+	// 设置PEM编码结构
+	block1 := pem.Block{
+		Type:  "PUBLIC KEY",
+		Bytes: derPkix,
+	}
+	self.PublicKeyBase64 = string(pem.EncodeToMemory(&block1))
+	self.PrivateKeyBase64 = base64.URLEncoding.EncodeToString(pem.EncodeToMemory(block))
 	self.privateKey = prikey
 	self.publicKey = &prikey.PublicKey
 	return nil
@@ -218,6 +183,18 @@ func (self *RsaObj) LoadRsaKeyFileBase64(fileBase64 string) error {
 	if err != nil {
 		return err
 	}
+	// 将publicKey转换为PKIX, ASN.1 DER格式
+	derPkix, err := x509.MarshalPKIXPublicKey(&prikey.PublicKey)
+	if err != nil {
+		return err
+	}
+	// 设置PEM编码结构
+	block1 := pem.Block{
+		Type:  "PUBLIC KEY",
+		Bytes: derPkix,
+	}
+	self.PublicKeyBase64 = string(pem.EncodeToMemory(&block1))
+	self.PrivateKeyBase64 = fileBase64
 	self.privateKey = prikey
 	self.publicKey = &prikey.PublicKey
 	return nil
@@ -231,10 +208,10 @@ func (self *RsaObj) LoadRsaPemFile(filePath string) error {
 	stat, _ := file.Stat()
 	content := make([]byte, stat.Size())
 	if _, err := file.Read(content); err != nil {
-		fmt.Println(err)
+		return err
 	}
 	if err := file.Close(); err != nil {
-		fmt.Println(err)
+		return err
 	}
 	block, _ := pem.Decode(content)
 	if block == nil {
@@ -248,10 +225,7 @@ func (self *RsaObj) LoadRsaPemFile(filePath string) error {
 	if !b {
 		return errors.New("RSA pub key invalid")
 	}
-	//pubkey, err := x509.ParsePKCS1PublicKey(block.Bytes)
-	//if err != nil {
-	//	return err
-	//}
+	self.PublicKeyBase64 = string(pem.EncodeToMemory(block))
 	self.publicKey = pub
 	return nil
 }
@@ -271,28 +245,6 @@ func (self *RsaObj) LoadRsaPemFileBase64(fileBase64 string) error {
 	}
 	self.publicKey = pub
 	self.PublicKeyBase64 = fileBase64
-	return nil
-}
-
-func (self *RsaObj) LoadRsaPubkey(filePath string) error {
-	file, err := os.Open(filePath)
-	if err != nil {
-		return err
-	}
-	stat, _ := file.Stat()
-	content := make([]byte, stat.Size())
-	if _, err := file.Read(content); err != nil {
-		fmt.Println(err)
-	}
-	if err := file.Close(); err != nil {
-		fmt.Println(err)
-	}
-	block, _ := pem.Decode(content)
-	pubkey, err := x509.ParsePKCS1PublicKey(block.Bytes)
-	if err != nil {
-		return err
-	}
-	self.publicKey = pubkey
 	return nil
 }
 
@@ -354,24 +306,23 @@ func (self *RsaObj) Decrypt(msg string) (string, error) {
 func (self *RsaObj) Sign(msg []byte) ([]byte, error) {
 	h := sha256.New()
 	h.Write(msg)
-	hased := h.Sum(nil)
-	res, err := rsa.SignPKCS1v15(rand.Reader, self.privateKey, crypto.SHA256, hased)
+	has := h.Sum(nil)
+	res, err := rsa.SignPKCS1v15(rand.Reader, self.privateKey, crypto.SHA256, has)
 	if err != nil {
 		return nil, err
 	}
 	return res, nil
 }
 
-func (self *RsaObj) Verify(msg []byte, sign string) error {
-	bs, err := base64.URLEncoding.DecodeString(sign)
-	if err != nil {
-		return err
+func (self *RsaObj) Verify(msg, sign []byte) error {
+	if msg == nil || len(msg) == 0 {
+		return errors.New("RSA msg invalid")
 	}
-	if bs == nil || len(bs) == 0 {
+	if sign == nil || len(sign) == 0 {
 		return errors.New("RSA sign invalid")
 	}
-	hased := sha256.Sum256(msg)
-	if err := rsa.VerifyPKCS1v15(self.publicKey, crypto.SHA256, hased[:], bs); err != nil {
+	has := sha256.Sum256(msg)
+	if err := rsa.VerifyPKCS1v15(self.publicKey, crypto.SHA256, has[:], sign); err != nil {
 		return err
 	}
 	return nil
