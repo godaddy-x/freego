@@ -219,12 +219,20 @@ func (self *Context) readParams() error {
 	} else {
 		self.Device = WEB
 	}
-	if self.Method != POST || self.RouterConfig.Guest {
+	if self.Method != POST {
 		return nil
 	}
-	self.Token = utils.Bytes2Str(self.RequestCtx.Request.Header.Peek(Authorization))
 	body := self.RequestCtx.PostBody()
-	if len(body) == 0 {
+	// 原始请求模式
+	if self.RouterConfig.Guest {
+		if body != nil && len(body) > 0 {
+			self.JsonBody = &JsonBody{Data: body}
+		}
+		return nil
+	}
+	// 安全请求模式
+	self.Token = utils.Bytes2Str(self.RequestCtx.Request.Header.Peek(Authorization))
+	if body == nil || len(body) == 0 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters is nil"}
 	}
 	if len(body) > (MAX_VALUE_LEN * 5) {

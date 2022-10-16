@@ -64,10 +64,15 @@ func (self *MyWebNode) login(ctx *node.Context) error {
 	//return self.Html(ctx, "/web/index.html", map[string]interface{}{"tewt": 1})
 }
 
-func (self *MyWebNode) pubkey(ctx *node.Context) error {
+func (self *MyWebNode) publicKey(ctx *node.Context) error {
 	testCallRPC()
 	_, publicKey := ctx.RSA.GetPublicKey()
 	return self.Text(ctx, publicKey)
+}
+
+func (self *MyWebNode) testGuestPost(ctx *node.Context) error {
+	fmt.Println(string(ctx.JsonBody.RawData()))
+	return self.Json(ctx, map[string]string{"res": "中文测试下Guest响应"})
 }
 
 func (self *MyWebNode) FirstRegister(ctx *node.Context) error {
@@ -141,7 +146,8 @@ func StartHttpNode() {
 	my := NewHTTP()
 	my.POST("/test1", my.test, nil)
 	my.POST("/getUser", my.getUser, &node.RouterConfig{AesResponse: true})
-	my.GET("/pubkey", my.pubkey, &node.RouterConfig{Guest: true})
+	my.GET("/publicKey", my.publicKey, &node.RouterConfig{Guest: true})
+	my.POST("/testGuestPost", my.testGuestPost, &node.RouterConfig{Guest: true})
 	my.POST("/login", my.login, &node.RouterConfig{UseRSA: true})
 
 	my.POST("/geetest/register", my.FirstRegister, &node.RouterConfig{UseRSA: true})

@@ -33,14 +33,14 @@ func output(a ...interface{}) {
 func getServerPublicKey() string {
 	request := fasthttp.AcquireRequest()
 	request.Header.SetMethod("GET")
-	request.SetRequestURI(domain + "/pubkey")
+	request.SetRequestURI(domain + "/publicKey")
 	defer fasthttp.ReleaseRequest(request)
 	response := fasthttp.AcquireResponse()
 	defer fasthttp.ReleaseResponse(response)
-	if _, b, err := fasthttp.Get(nil, domain+"/pubkey"); err != nil {
+	if _, b, err := fasthttp.Get(nil, domain+"/publicKey"); err != nil {
 		panic(err)
 	} else {
-		//output(string(respBytes))
+		//output(utils.Bytes2Str(b))
 		return utils.Bytes2Str(b)
 	}
 }
@@ -228,6 +228,26 @@ func TestPubkey(t *testing.T) {
 	getServerPublicKey()
 }
 
+func TestGuestPost(t *testing.T) {
+	guestBody, _ := utils.JsonMarshal(map[string]string{"test": "shabi", "name": "unknown"})
+	output("请求示例: ")
+	output(utils.Bytes2Str(guestBody))
+	request := fasthttp.AcquireRequest()
+	request.Header.SetContentType("application/json;charset=UTF-8")
+	request.Header.SetMethod("POST")
+	request.SetRequestURI(domain + "/testGuestPost")
+	request.SetBody(guestBody)
+	defer fasthttp.ReleaseRequest(request)
+	response := fasthttp.AcquireResponse()
+	defer fasthttp.ReleaseResponse(response)
+	if err := fasthttp.DoTimeout(request, response, 30*time.Second); err != nil {
+		panic(err)
+	}
+	respBytes := response.Body()
+	output("响应示例: ")
+	output(utils.Bytes2Str(respBytes))
+}
+
 func BenchmarkRSALogin(b *testing.B) {
 	b.StopTimer()
 	b.StartTimer()
@@ -262,7 +282,7 @@ func BenchmarkGetUser(b *testing.B) {
 
 // go test http_test.go -bench=BenchmarkPubkey  -benchmem -count=10 -cpuprofile cpuprofile.out -memprofile memprofile.out
 // go test http_test.go -bench=BenchmarkPubkey  -benchmem -count=10
-func BenchmarkPubkey(b *testing.B) {
+func BenchmarkPublicKey(b *testing.B) {
 	b.StopTimer()
 	b.StartTimer()
 	for i := 0; i < b.N; i++ { //use b.N for looping
