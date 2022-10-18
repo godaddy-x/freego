@@ -75,6 +75,11 @@ func (self *MyWebNode) testGuestPost(ctx *node.Context) error {
 	return self.Json(ctx, map[string]string{"res": "中文测试下Guest响应"})
 }
 
+func (self *MyWebNode) testHAX(ctx *node.Context) error {
+	fmt.Println(string(ctx.JsonBody.RawData()))
+	return self.Json(ctx, map[string]string{"res": "中文测试下HAX响应"})
+}
+
 func (self *MyWebNode) FirstRegister(ctx *node.Context) error {
 	res, err := geetest.FirstRegister(ctx)
 	if err != nil {
@@ -148,6 +153,7 @@ func StartHttpNode() {
 	my.POST("/getUser", my.getUser, &node.RouterConfig{AesResponse: true})
 	my.GET("/publicKey", my.publicKey, &node.RouterConfig{Guest: true})
 	my.POST("/testGuestPost", my.testGuestPost, &node.RouterConfig{Guest: true})
+	my.POST("/testHAX", my.testHAX, &node.RouterConfig{UseHAX: true})
 	my.POST("/login", my.login, &node.RouterConfig{UseRSA: true})
 
 	my.POST("/geetest/register", my.FirstRegister, &node.RouterConfig{UseRSA: true})

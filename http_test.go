@@ -106,6 +106,55 @@ func PostByTokenSecret(path string, req *node.JsonBody) {
 	}
 }
 
+// 非登录状态使用公钥验签模式交互
+func PostByPublicKeyHAX(path string, req *node.JsonBody) {
+	if req.Plan != 3 {
+		panic("plan invalid")
+	}
+	serverPublicKey := getServerPublicKey()
+	d := utils.Base64URLEncode(req.Data.([]byte))
+	req.Data = d
+	output("请求数据Base64结果: ", req.Data)
+	req.Sign = utils.HMAC_SHA256(utils.AddStr(path, req.Data, req.Nonce, req.Time, req.Plan), serverPublicKey, true)
+	bytesData, err := utils.JsonMarshal(req)
+	if err != nil {
+		panic(err)
+	}
+	output("请求示例: ")
+	output(utils.Bytes2Str(bytesData))
+	request := fasthttp.AcquireRequest()
+	request.Header.SetContentType("application/json;charset=UTF-8")
+	request.Header.Set("Authorization", access_token)
+	request.Header.SetMethod("POST")
+	request.SetRequestURI(domain + path)
+	request.SetBody(bytesData)
+	defer fasthttp.ReleaseRequest(request)
+	response := fasthttp.AcquireResponse()
+	defer fasthttp.ReleaseResponse(response)
+	if err := fasthttp.DoTimeout(request, response, 30*time.Second); err != nil {
+		panic(err)
+	}
+	respBytes := response.Body()
+	output("响应示例: ")
+	output(utils.Bytes2Str(respBytes))
+	respData := &node.JsonResp{
+		Code:  utils.GetJsonInt(respBytes, "c"),
+		Data:  utils.GetJsonString(respBytes, "d"),
+		Nonce: utils.GetJsonString(respBytes, "n"),
+		Time:  int64(utils.GetJsonInt(respBytes, "t")),
+		Plan:  int64(utils.GetJsonInt(respBytes, "p")),
+		Sign:  utils.GetJsonString(respBytes, "s"),
+	}
+	if respData.Code == 200 {
+		s := utils.HMAC_SHA256(utils.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan), serverPublicKey, true)
+		output("****************** Response Signature Verify:", s == respData.Sign, "******************")
+		if respData.Plan == 0 {
+			dec := utils.Base64URLDecode(respData.Data)
+			output("响应数据Base64明文: ", string(dec))
+		}
+	}
+}
+
 // 非登录状态使用RSA+AES模式交互
 func PostByRSA(path string, req *node.JsonBody) {
 	if req.Plan != 2 {
@@ -219,9 +268,21 @@ func TestGetUser(t *testing.T) {
 		Data:  data,
 		Time:  utils.UnixSecond(),
 		Nonce: utils.RandNonce(),
-		Plan:  int64(1),
+		Plan:  int64(2),
 	}
 	PostByTokenSecret(path, req)
+}
+
+func TestHAX(t *testing.T) {
+	data, _ := utils.JsonMarshal(map[string]interface{}{"uid": 123, "name": "我爱中国/+_=/1df", "limit": 20, "offset": 5})
+	path := "/testHAX"
+	req := &node.JsonBody{
+		Data:  data,
+		Time:  utils.UnixSecond(),
+		Nonce: utils.RandNonce(),
+		Plan:  int64(3),
+	}
+	PostByPublicKeyHAX(path, req)
 }
 
 func TestPubkey(t *testing.T) {

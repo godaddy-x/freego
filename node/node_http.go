@@ -296,6 +296,9 @@ func defaultRenderPre(ctx *Context) error {
 			resp.Data = data
 			resp.Plan = 1
 		} else {
+			if routerConfig.UseHAX {
+				_, key = ctx.RSA.GetPublicKey()
+			}
 			resp.Data = utils.Base64URLEncode(data)
 		}
 		resp.Sign = ctx.GetHmac256Sign(resp.Data.(string), resp.Nonce, resp.Time, resp.Plan, key)

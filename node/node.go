@@ -47,9 +47,9 @@ type HookNode struct {
 }
 
 type RouterConfig struct {
-	Guest  bool // 游客模式 false.否 true.是
-	UseRSA bool // 使用RSA模式请求 false.否 true.是
-	//Original    bool // 是否原始方式 false.否 true.是
+	Guest       bool // 游客模式,原始请求 false.否 true.是
+	UseRSA      bool // 非登录状态使用RSA模式请求 false.否 true.是
+	UseHAX      bool // 非登录状态,判定公钥哈希验签 false.否 true.是
 	AesRequest  bool // 请求是否必须AES加密 false.否 true.是
 	AesResponse bool // 响应是否必须AES加密 false.否 true.是
 }
@@ -66,7 +66,7 @@ type JsonBody struct {
 	Data  interface{} `json:"d"`
 	Time  int64       `json:"t"`
 	Nonce string      `json:"n"`
-	Plan  int64       `json:"p"` // 0.默认 1.AES 2.RSA模式
+	Plan  int64       `json:"p"` // 0.默认 1.AES 2.RSA模式 3.独立验签模式
 	Sign  string      `json:"s"`
 }
 
@@ -256,7 +256,7 @@ func (self *Context) validJsonBody(body *JsonBody) error {
 	if !b || len(d) == 0 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request data is nil"}
 	}
-	if !utils.CheckInt64(body.Plan, 0, 1, 2) {
+	if !utils.CheckInt64(body.Plan, 0, 1, 2, 3) {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request plan invalid"}
 	}
 	if !utils.CheckLen(body.Nonce, 8, 32) {
@@ -274,11 +274,14 @@ func (self *Context) validJsonBody(body *JsonBody) error {
 	if self.RouterConfig.UseRSA && body.Plan != 2 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters must use RSA encryption"}
 	}
+	if self.RouterConfig.UseHAX && body.Plan != 3 {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters must use HAX signature"}
+	}
 	if !utils.CheckStrLen(body.Sign, 32, 64) {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature length invalid"}
 	}
 	var key string
-	if self.RouterConfig.UseRSA {
+	if self.RouterConfig.UseRSA || self.RouterConfig.UseHAX {
 		_, key = self.RSA.GetPublicKey()
 	}
 	if self.GetHmac256Sign(d, body.Nonce, body.Time, body.Plan, key) != body.Sign {
@@ -309,6 +312,11 @@ func (self *Context) validJsonBody(body *JsonBody) error {
 		}
 		self.AddStorage(RandomCode, code)
 	} else if body.Plan == 0 && !self.RouterConfig.UseRSA && !self.RouterConfig.AesRequest {
+		rawData = utils.Base64URLDecode(d)
+		if rawData == nil || len(rawData) == 0 {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter Base64 parsing failed"}
+		}
+	} else if body.Plan == 3 && self.RouterConfig.UseHAX && !self.RouterConfig.UseRSA && !self.RouterConfig.AesRequest {
 		rawData = utils.Base64URLDecode(d)
 		if rawData == nil || len(rawData) == 0 {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter Base64 parsing failed"}
