@@ -9,7 +9,22 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
+func readyCollection(object sqlc.Object) {
+	db, err := NewMongo()
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+	if err := db.Save(object); err != nil {
+		panic(err)
+	}
+	if err := db.Delete(object); err != nil {
+		panic(err)
+	}
+}
+
 func dropIndex(object sqlc.Object) error {
+	readyCollection(object)
 	db, err := NewMongo()
 	if err != nil {
 		panic(err)
