@@ -10,7 +10,7 @@ import (
 )
 
 func readyCollection(object sqlc.Object) {
-	db, err := NewMongo()
+	db, err := NewMongo(Option{Timeout: 120000})
 	if err != nil {
 		panic(err)
 	}
@@ -25,7 +25,7 @@ func readyCollection(object sqlc.Object) {
 
 func dropIndex(object sqlc.Object) error {
 	readyCollection(object)
-	db, err := NewMongo()
+	db, err := NewMongo(Option{Timeout: 120000})
 	if err != nil {
 		panic(err)
 	}
@@ -41,7 +41,7 @@ func dropIndex(object sqlc.Object) error {
 }
 
 func addIndex(object sqlc.Object, index sqlc.Index) error {
-	db, err := NewMongo()
+	db, err := NewMongo(Option{Timeout: 120000})
 	if err != nil {
 		panic(err)
 	}
