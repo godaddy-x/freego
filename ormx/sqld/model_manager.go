@@ -24,13 +24,7 @@ type FieldElem struct {
 	FieldOffset   uintptr
 }
 
-//type Hook struct {
-//	NewObj    func() interface{}
-//	NewObjArr func() interface{}
-//}
-
 type MdlDriver struct {
-	//Hook       Hook
 	TableName  string
 	ToMongo    bool
 	PkOffset   uintptr
@@ -39,6 +33,7 @@ type MdlDriver struct {
 	PkBsonName string
 	PkType     string
 	FieldElem  []*FieldElem
+	Object     sqlc.Object
 }
 
 //func NewHook(obj func() interface{}, objs func() interface{}) Hook {
@@ -64,6 +59,7 @@ func ModelDriver(objects ...sqlc.Object) error {
 			panic("NewObject value must be pointer")
 		}
 		md := &MdlDriver{
+			Object:    v,
 			TableName: v.GetTable(),
 			FieldElem: []*FieldElem{},
 		}
@@ -107,6 +103,10 @@ func ModelDriver(objects ...sqlc.Object) error {
 		}
 		modelDrivers[md.TableName] = md
 	}
+	return nil
+}
+
+func CreateMongoDBIndex() error {
 	return nil
 }
 

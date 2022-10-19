@@ -36,6 +36,10 @@ func (o *OwWallet) NewObject() sqlc.Object {
 	return &OwWallet{}
 }
 
+func (o *OwWallet) NewIndex() []sqlc.Index {
+	return nil
+}
+
 type OwWallet2 struct {
 	Id           primitive.ObjectID `json:"id" bson:"_id"`
 	AppID        string             `json:"appID" bson:"appID"`
@@ -64,6 +68,10 @@ func (o *OwWallet2) NewObject() sqlc.Object {
 	return &OwWallet2{}
 }
 
+func (o *OwWallet2) NewIndex() []sqlc.Index {
+	return nil
+}
+
 type OwBlock struct {
 	Id                int64  `json:"id" bson:"_id"`
 	Hash              string `json:"hash" bson:"hash"`
@@ -86,6 +94,10 @@ func (o *OwBlock) GetTable() string {
 
 func (o *OwBlock) NewObject() sqlc.Object {
 	return &OwBlock{}
+}
+
+func (o *OwBlock) NewIndex() []sqlc.Index {
+	return nil
 }
 
 // go build -gcflags=-m main.go
@@ -115,6 +127,7 @@ func initDriver() {
 		&OwWallet{},
 		&OwWallet2{},
 		&OwBlock{},
+		&OwContract{},
 	)
 }
 
