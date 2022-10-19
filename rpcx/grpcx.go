@@ -500,6 +500,7 @@ func (self *ClientConnPool) getClientConn(host string, timeout int) (conn pool.C
 		zlog.Warn("client pool host is nil", 0, zlog.String("host", host))
 		p, err = self.readyPool(host)
 		if err != nil {
+			zlog.Error("client pool ready failed", 0, zlog.AddError(err))
 			return nil, err
 		}
 		if p == nil {
