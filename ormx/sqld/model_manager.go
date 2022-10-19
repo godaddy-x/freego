@@ -36,10 +36,6 @@ type MdlDriver struct {
 	Object     sqlc.Object
 }
 
-//func NewHook(obj func() interface{}, objs func() interface{}) Hook {
-//	return Hook{NewObj: obj, NewObjArr: objs}
-//}
-
 func ModelDriver(objects ...sqlc.Object) error {
 	if objects == nil || len(objects) == 0 {
 		panic("objects is nil")
@@ -103,10 +99,6 @@ func ModelDriver(objects ...sqlc.Object) error {
 		}
 		modelDrivers[md.TableName] = md
 	}
-	return nil
-}
-
-func CreateMongoDBIndex() error {
 	return nil
 }
 

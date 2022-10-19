@@ -1,11 +1,9 @@
 package sqlc
 
 type Index struct {
-	Name   string         `bson:"name"`
-	Key    map[string]int `bson:"key"`
-	Unique bool           `bson:"unique"`
-	V      int            `bson:"v"`
-	NS     string         `bson:"ns"`
+	Name   string
+	Key    []string
+	Unique bool
 }
 
 type Object interface {

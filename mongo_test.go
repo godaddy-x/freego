@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/goquery"
@@ -47,29 +46,35 @@ func (o *OwContract) NewObject() sqlc.Object {
 }
 
 func (o *OwContract) NewIndex() []sqlc.Index {
-	return nil
+	symbol := sqlc.Index{Name: "symbol", Key: []string{"symbol"}}
+	address := sqlc.Index{Name: "address", Key: []string{"address"}}
+	contractID := sqlc.Index{Name: "contractID", Key: []string{"contractID"}, Unique: true}
+	many := sqlc.Index{Name: "many", Key: []string{"symbol", "address", "contractID"}, Unique: true}
+	return []sqlc.Index{symbol, address, contractID, many}
 }
 
 func TestMongoIndex(t *testing.T) {
-	db, err := sqld.NewMongo()
-	if err != nil {
-		panic(err)
-	}
-	defer db.Close()
-	coll, err := db.GetDatabase(new(OwContract).GetTable())
-	if err != nil {
-		panic(err)
-	}
-	cur, err := coll.Indexes().List(context.Background())
-	if err != nil {
-		panic(err)
-	}
-	var index []sqlc.Index
-	if err := cur.All(context.Background(), &index); err != nil {
-		panic(err)
-	}
-	a, _ := utils.JsonMarshal(index)
-	fmt.Println(string(a))
+	//db, err := sqld.NewMongo()
+	//if err != nil {
+	//	panic(err)
+	//}
+	//defer db.Close()
+	//coll, err := db.GetDatabase(new(OwContract).GetTable())
+	//if err != nil {
+	//	panic(err)
+	//}
+	//cur, err := coll.Indexes().List(context.Background())
+	//if err != nil {
+	//	panic(err)
+	//}
+	//var index []sqlc.Index
+	//if err := cur.All(context.Background(), &index); err != nil {
+	//	panic(err)
+	//}
+	//a, _ := utils.JsonMarshal(index)
+	//fmt.Println(string(a))
+
+	sqld.RebuildMongoDBIndex()
 }
 
 func TestMongoSave(t *testing.T) {
