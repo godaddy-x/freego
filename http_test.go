@@ -48,7 +48,7 @@ func getServerPublicKey() string {
 // 登录状态使用Token+Secret模式交互
 func PostByTokenSecret(path string, req *node.JsonBody) {
 	if req.Plan == 0 || req.Plan == 2 {
-		d := utils.Base64URLEncode(req.Data.([]byte))
+		d := utils.Base64Encode(req.Data.([]byte))
 		req.Data = d
 		output("请求数据Base64结果: ", req.Data)
 	} else if req.Plan == 1 {
@@ -112,7 +112,7 @@ func PostByPublicKeyHAX(path string, req *node.JsonBody) {
 		panic("plan invalid")
 	}
 	serverPublicKey := getServerPublicKey()
-	d := utils.Base64URLEncode(req.Data.([]byte))
+	d := utils.Base64Encode(req.Data.([]byte))
 	req.Data = d
 	output("请求数据Base64结果: ", req.Data)
 	req.Sign = utils.HMAC_SHA256(utils.AddStr(path, req.Data, req.Nonce, req.Time, req.Plan), serverPublicKey, true)
@@ -268,7 +268,7 @@ func TestGetUser(t *testing.T) {
 		Data:  data,
 		Time:  utils.UnixSecond(),
 		Nonce: utils.RandNonce(),
-		Plan:  int64(2),
+		Plan:  int64(0),
 	}
 	PostByTokenSecret(path, req)
 }

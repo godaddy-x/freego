@@ -27,7 +27,7 @@ func AesEncrypt(plantText []byte, key, iv string) (string, error) {
 	blockModel := cipher.NewCBCEncrypter(block, GetAesIV(iv))
 	ciphertext := make([]byte, len(plantText))
 	blockModel.CryptBlocks(ciphertext, plantText)
-	return Base64URLEncode(ciphertext), nil
+	return Base64Encode(ciphertext), nil
 }
 
 func AesDecrypt(msg, key, iv string) ([]byte, error) {
@@ -35,7 +35,7 @@ func AesDecrypt(msg, key, iv string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	ciphertext := Base64URLDecode(msg)
+	ciphertext := Base64Decode(msg)
 	if ciphertext == nil || len(ciphertext) == 0 {
 		return nil, err
 	}
