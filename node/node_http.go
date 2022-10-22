@@ -299,7 +299,7 @@ func defaultRenderPre(ctx *Context) error {
 			if routerConfig.UseHAX {
 				_, key = ctx.RSA.GetPublicKey()
 			}
-			resp.Data = utils.Base64URLEncode(data)
+			resp.Data = utils.Base64Encode(data)
 		}
 		resp.Sign = ctx.GetHmac256Sign(resp.Data.(string), resp.Nonce, resp.Time, resp.Plan, key)
 		if result, err := utils.JsonMarshal(resp); err != nil {

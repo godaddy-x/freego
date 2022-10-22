@@ -509,11 +509,11 @@ func ToJsonBase64(input interface{}) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return Base64URLEncode(b), nil
+	return Base64Encode(b), nil
 }
 
 func ParseJsonBase64(input interface{}, ouput interface{}) error {
-	b := Base64URLDecode(input)
+	b := Base64Decode(input)
 	if b == nil || len(b) == 0 {
 		return Error("base64 data decode failed")
 	}
