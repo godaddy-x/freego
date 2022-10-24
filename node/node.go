@@ -312,12 +312,12 @@ func (self *Context) validJsonBody(body *JsonBody) error {
 		}
 		self.AddStorage(RandomCode, code)
 	} else if body.Plan == 0 && !self.RouterConfig.UseRSA && !self.RouterConfig.AesRequest {
-		rawData = utils.Base64URLDecode(d)
+		rawData = utils.Base64Decode(d)
 		if rawData == nil || len(rawData) == 0 {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter Base64 parsing failed"}
 		}
 	} else if body.Plan == 3 && self.RouterConfig.UseHAX && !self.RouterConfig.UseRSA && !self.RouterConfig.AesRequest {
-		rawData = utils.Base64URLDecode(d)
+		rawData = utils.Base64Decode(d)
 		if rawData == nil || len(rawData) == 0 {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter Base64 parsing failed"}
 		}

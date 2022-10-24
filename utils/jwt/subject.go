@@ -134,7 +134,7 @@ func (self *Subject) Verify(token, key string, decode bool) error {
 	if self.Signature(utils.AddStr(part0, ".", part1), key) != part2 {
 		return utils.Error("token signature invalid")
 	}
-	b64 := utils.Base64URLDecode(part1)
+	b64 := utils.Base64Decode(part1)
 	if b64 == nil || len(b64) == 0 {
 		return utils.Error("token part base64 data decode failed")
 	}

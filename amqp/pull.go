@@ -243,7 +243,7 @@ func (self *PullReceiver) OnReceive(b []byte) bool {
 		}
 		v = utils.Bytes2Str(aesContent)
 	}
-	btv := utils.Base64URLDecode(v)
+	btv := utils.Base64Decode(v)
 	if btv == nil || len(btv) == 0 {
 		zlog.Error("rabbitmq pull consumption data Base64 parsing failed", 0, zlog.Any("option", self.Config.Option), zlog.Any("message", msg))
 		return true

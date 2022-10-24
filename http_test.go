@@ -14,8 +14,8 @@ import (
 
 const domain = "http://localhost:8090"
 
-const access_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxNTc5MjcxODA2MjczOTc4MzY5IiwiYXVkIjoiIiwiaXNzIjoiIiwiaWF0IjowLCJleHAiOjE2NjY1NzIzMTQsImRldiI6IkFQUCIsImp0aSI6Ild1WUVaaDBGVDlSUXVJVWdldkw3dFE9PSIsImV4dCI6IiJ9.HyS0aGor8nkFFEbg7UVNYs/Xo3jlJ8On8UN5W/SH0QM="
-const token_secret = "kdXYjuhYNk/arEgHy*kT^j#lKwY+TI/9rG1gDuYW#lK!ZC@diQhTKljulBIOg78="
+const access_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxNTg0Mzg5ODk1OTE1MzA3MDA5IiwiYXVkIjoiIiwiaXNzIjoiIiwiaWF0IjowLCJleHAiOjE2Njc3OTI1NjIsImRldiI6IkFQUCIsImp0aSI6IndPN2EvY2RtejBGQXc5N0tOaXUzY1E9PSIsImV4dCI6IiJ9.othDSAkDqQm5moJiOBlNXd2AWP/TqEmSU56MKnlEUEc="
+const token_secret = "PA1MXGJNYdlXFOtHy*kT^j#lKWz+KNgPuknZyQ9k#lK!ZC@diQUImd+W4AhTtRY="
 
 //const access_token = ""
 //const token_secret = ""
@@ -93,7 +93,7 @@ func PostByTokenSecret(path string, req *node.JsonBody) {
 		s := utils.HMAC_SHA256(utils.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan), token_secret, true)
 		output("****************** Response Signature Verify:", s == respData.Sign, "******************")
 		if respData.Plan == 0 {
-			dec := utils.Base64URLDecode(respData.Data)
+			dec := utils.Base64Decode(respData.Data)
 			output("响应数据Base64明文: ", string(dec))
 		}
 		if respData.Plan == 1 {
@@ -149,7 +149,7 @@ func PostByPublicKeyHAX(path string, req *node.JsonBody) {
 		s := utils.HMAC_SHA256(utils.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan), serverPublicKey, true)
 		output("****************** Response Signature Verify:", s == respData.Sign, "******************")
 		if respData.Plan == 0 {
-			dec := utils.Base64URLDecode(respData.Data)
+			dec := utils.Base64Decode(respData.Data)
 			output("响应数据Base64明文: ", string(dec))
 		}
 	}

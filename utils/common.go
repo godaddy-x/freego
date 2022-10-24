@@ -446,20 +446,20 @@ func Base64Encode(input interface{}) string {
 }
 
 // url base64 - 正向
-func Base64URLEncode(input interface{}) string {
-	var dataByte []byte
-	if v, b := input.(string); b {
-		dataByte = Str2Bytes(v)
-	} else if v, b := input.([]byte); b {
-		dataByte = v
-	} else {
-		return ""
-	}
-	if dataByte == nil || len(dataByte) == 0 {
-		return ""
-	}
-	return base64.URLEncoding.EncodeToString(dataByte)
-}
+//func Base64URLEncode(input interface{}) string {
+//	var dataByte []byte
+//	if v, b := input.(string); b {
+//		dataByte = Str2Bytes(v)
+//	} else if v, b := input.([]byte); b {
+//		dataByte = v
+//	} else {
+//		return ""
+//	}
+//	if dataByte == nil || len(dataByte) == 0 {
+//		return ""
+//	}
+//	return base64.URLEncoding.EncodeToString(dataByte)
+//}
 
 // default base64 - 逆向
 func Base64Decode(input interface{}) []byte {
@@ -482,24 +482,24 @@ func Base64Decode(input interface{}) []byte {
 }
 
 // url base64 - 逆向
-func Base64URLDecode(input interface{}) []byte {
-	dataStr := ""
-	if v, b := input.(string); b {
-		dataStr = v
-	} else if v, b := input.([]byte); b {
-		dataStr = Bytes2Str(v)
-	} else {
-		return nil
-	}
-	if len(dataStr) == 0 {
-		return nil
-	}
-	if r, err := base64.URLEncoding.DecodeString(dataStr); err != nil {
-		return nil
-	} else {
-		return r
-	}
-}
+//func Base64URLDecode(input interface{}) []byte {
+//	dataStr := ""
+//	if v, b := input.(string); b {
+//		dataStr = v
+//	} else if v, b := input.([]byte); b {
+//		dataStr = Bytes2Str(v)
+//	} else {
+//		return nil
+//	}
+//	if len(dataStr) == 0 {
+//		return nil
+//	}
+//	if r, err := base64.URLEncoding.DecodeString(dataStr); err != nil {
+//		return nil
+//	} else {
+//		return r
+//	}
+//}
 
 func ToJsonBase64(input interface{}) (string, error) {
 	if input == nil {
