@@ -289,12 +289,17 @@ func (self *Context) validJsonBody(body *JsonBody) error {
 	}
 	var rawData []byte
 	var err error
-	if body.Plan == 1 && !self.RouterConfig.UseRSA { // AES
+	if body.Plan == 0 && !self.RouterConfig.UseHAX && !self.RouterConfig.UseRSA && !self.RouterConfig.AesRequest { // 登录状态 P0 Base64
+		rawData = utils.Base64Decode(d)
+		if rawData == nil || len(rawData) == 0 {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter Base64 parsing failed"}
+		}
+	} else if body.Plan == 1 && !self.RouterConfig.UseHAX && !self.RouterConfig.UseRSA { // 登录状态 P1 AES
 		rawData, err = utils.AesDecrypt(d, self.GetTokenSecret(), utils.AddStr(body.Nonce, body.Time))
 		if err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "AES failed to parse data", Err: err}
 		}
-	} else if body.Plan == 2 && self.RouterConfig.UseRSA { // RSA
+	} else if body.Plan == 2 && self.RouterConfig.UseRSA { // 非登录状态 P2 RSA+AES
 		randomCode := utils.Bytes2Str(self.RequestCtx.Request.Header.Peek(RandomCode))
 		if len(randomCode) == 0 {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "client random code invalid"}
@@ -311,12 +316,7 @@ func (self *Context) validJsonBody(body *JsonBody) error {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "AES failed to parse data", Err: err}
 		}
 		self.AddStorage(RandomCode, code)
-	} else if body.Plan == 0 && !self.RouterConfig.UseRSA && !self.RouterConfig.AesRequest {
-		rawData = utils.Base64Decode(d)
-		if rawData == nil || len(rawData) == 0 {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter Base64 parsing failed"}
-		}
-	} else if body.Plan == 3 && self.RouterConfig.UseHAX && !self.RouterConfig.UseRSA && !self.RouterConfig.AesRequest {
+	} else if body.Plan == 3 && self.RouterConfig.UseHAX && !self.RouterConfig.UseRSA && !self.RouterConfig.AesRequest { // 非登录状态 P3 Base64
 		rawData = utils.Base64Decode(d)
 		if rawData == nil || len(rawData) == 0 {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter Base64 parsing failed"}
