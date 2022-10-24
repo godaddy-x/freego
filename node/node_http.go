@@ -298,6 +298,7 @@ func defaultRenderPre(ctx *Context) error {
 		} else {
 			if routerConfig.UseHAX {
 				_, key = ctx.RSA.GetPublicKey()
+				resp.Plan = 3
 			}
 			resp.Data = utils.Base64Encode(data)
 		}
