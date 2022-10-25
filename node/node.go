@@ -280,6 +280,9 @@ func (self *Context) validJsonBody(body *JsonBody) error {
 	if !utils.CheckStrLen(body.Sign, 32, 64) {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature length invalid"}
 	}
+	if utils.CheckInt64(body.Plan, 0, 1) && len(self.Token) == 0 {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "request header token is nil"}
+	}
 	var key string
 	if self.RouterConfig.UseRSA || self.RouterConfig.UseHAX {
 		_, key = self.RSA.GetPublicKey()
