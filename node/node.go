@@ -283,6 +283,9 @@ func (self *Context) validJsonBody(body *JsonBody) error {
 	if utils.CheckInt64(body.Plan, 0, 1) && len(self.Token) == 0 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request header token is nil"}
 	}
+	if utils.CheckInt64(body.Plan, 2, 3) { // reset token
+		self.Token = ""
+	}
 	var key string
 	if self.RouterConfig.UseRSA || self.RouterConfig.UseHAX {
 		_, key = self.RSA.GetPublicKey()
