@@ -271,12 +271,6 @@ func (self *Context) validJsonBody(body *JsonBody) error {
 	if self.RouterConfig.AesRequest && body.Plan != 1 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters must use AES encryption"}
 	}
-	if self.RouterConfig.UseRSA && body.Plan != 2 {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters must use RSA encryption"}
-	}
-	if self.RouterConfig.UseHAX && body.Plan != 3 {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters must use HAX signature"}
-	}
 	if !utils.CheckStrLen(body.Sign, 32, 64) {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature length invalid"}
 	}
@@ -284,28 +278,36 @@ func (self *Context) validJsonBody(body *JsonBody) error {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request header token is nil"}
 	}
 	if utils.CheckInt64(body.Plan, 2, 3) { // reset token
+		if self.RouterConfig.UseRSA && !self.RouterConfig.UseHAX && body.Plan != 2 {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters must use RSA encryption"}
+		}
+		if self.RouterConfig.UseHAX && !self.RouterConfig.UseRSA && body.Plan != 3 {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters must use HAX signature"}
+		}
 		self.Token = ""
 	}
 	var key string
+	var anonymous bool // true.匿名状态
 	if self.RouterConfig.UseRSA || self.RouterConfig.UseHAX {
 		_, key = self.RSA.GetPublicKey()
+		anonymous = true
 	}
 	if self.GetHmac256Sign(d, body.Nonce, body.Time, body.Plan, key) != body.Sign {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature invalid"}
 	}
 	var rawData []byte
 	var err error
-	if body.Plan == 0 && !self.RouterConfig.UseHAX && !self.RouterConfig.UseRSA && !self.RouterConfig.AesRequest { // 登录状态 P0 Base64
+	if body.Plan == 0 && !anonymous { // 登录状态 P0 Base64
 		rawData = utils.Base64Decode(d)
 		if rawData == nil || len(rawData) == 0 {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter Base64 parsing failed"}
 		}
-	} else if body.Plan == 1 && !self.RouterConfig.UseHAX && !self.RouterConfig.UseRSA { // 登录状态 P1 AES
+	} else if body.Plan == 1 && !anonymous { // 登录状态 P1 AES
 		rawData, err = utils.AesDecrypt(d, self.GetTokenSecret(), utils.AddStr(body.Nonce, body.Time))
 		if err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "AES failed to parse data", Err: err}
 		}
-	} else if body.Plan == 2 && self.RouterConfig.UseRSA { // 非登录状态 P2 RSA+AES
+	} else if body.Plan == 2 && self.RouterConfig.UseRSA && anonymous { // 非登录状态 P2 RSA+AES
 		randomCode := utils.Bytes2Str(self.RequestCtx.Request.Header.Peek(RandomCode))
 		if len(randomCode) == 0 {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "client random code invalid"}
@@ -322,7 +324,7 @@ func (self *Context) validJsonBody(body *JsonBody) error {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "AES failed to parse data", Err: err}
 		}
 		self.AddStorage(RandomCode, code)
-	} else if body.Plan == 3 && self.RouterConfig.UseHAX && !self.RouterConfig.UseRSA && !self.RouterConfig.AesRequest { // 非登录状态 P3 Base64
+	} else if body.Plan == 3 && self.RouterConfig.UseHAX && anonymous { // 非登录状态 P3 Base64
 		rawData = utils.Base64Decode(d)
 		if rawData == nil || len(rawData) == 0 {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter Base64 parsing failed"}

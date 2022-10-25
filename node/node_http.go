@@ -275,19 +275,27 @@ func defaultRenderPre(ctx *Context) error {
 			resp.Nonce = ctx.JsonBody.Nonce
 		}
 		var key string
-		if routerConfig.UseRSA {
-			v := ctx.GetStorage(RandomCode)
-			if v == nil {
-				return ex.Throw{Msg: "encryption random code is nil"}
+		if routerConfig.UseRSA || routerConfig.UseHAX { // 非登录状态响应
+			if ctx.JsonBody.Plan == 2 {
+				v := ctx.GetStorage(RandomCode)
+				if v == nil {
+					return ex.Throw{Msg: "encryption random code is nil"}
+				}
+				key, _ = v.(string)
+				data, err := utils.AesEncrypt(data, key, key)
+				if err != nil {
+					return ex.Throw{Code: http.StatusInternalServerError, Msg: "AES encryption response data failed", Err: err}
+				}
+				resp.Data = data
+				resp.Plan = 2
+				ctx.DelStorage(RandomCode)
+			} else if ctx.JsonBody.Plan == 3 {
+				resp.Data = utils.Base64Encode(data)
+				_, key = ctx.RSA.GetPublicKey()
+				resp.Plan = 3
+			} else {
+				return ex.Throw{Msg: "anonymous response plan invalid"}
 			}
-			key, _ = v.(string)
-			data, err := utils.AesEncrypt(data, key, key)
-			if err != nil {
-				return ex.Throw{Code: http.StatusInternalServerError, Msg: "AES encryption response data failed", Err: err}
-			}
-			resp.Data = data
-			resp.Plan = 2
-			ctx.DelStorage(RandomCode)
 		} else if routerConfig.AesResponse {
 			data, err := utils.AesEncrypt(data, ctx.GetTokenSecret(), utils.AddStr(resp.Nonce, resp.Time))
 			if err != nil {
@@ -296,10 +304,6 @@ func defaultRenderPre(ctx *Context) error {
 			resp.Data = data
 			resp.Plan = 1
 		} else {
-			if routerConfig.UseHAX {
-				_, key = ctx.RSA.GetPublicKey()
-				resp.Plan = 3
-			}
 			resp.Data = utils.Base64Encode(data)
 		}
 		resp.Sign = ctx.GetHmac256Sign(resp.Data.(string), resp.Nonce, resp.Time, resp.Plan, key)

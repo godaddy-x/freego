@@ -134,7 +134,7 @@ func (self *ParameterFilter) DoFilter(chain Filter, ctx *Context, args ...interf
 }
 
 func (self *SessionFilter) DoFilter(chain Filter, ctx *Context, args ...interface{}) error {
-	if ctx.RouterConfig.UseRSA || ctx.RouterConfig.Guest { // 登录接口和游客模式跳过会话认证
+	if ctx.RouterConfig.UseRSA || ctx.RouterConfig.UseHAX || ctx.RouterConfig.Guest { // 登录接口和游客模式跳过会话认证
 		return chain.DoFilter(chain, ctx, args...)
 	}
 	if len(ctx.Token) == 0 {
