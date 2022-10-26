@@ -115,8 +115,8 @@ func (self *GRPCManager) ClientInterceptor(ctx context.Context, method string, r
 	}
 	start := utils.UnixMilli()
 	if err := invoker(ctx, method, req, reply, conn, opts...); err != nil {
-		rpcErr := status.Convert(err)
-		zlog.Error("grpc call failed", start, zlog.String("service", method), zlog.AddError(rpcErr.Err()))
+		//rpcErr := status.Convert(err)
+		//zlog.Error("grpc call failed", start, zlog.String("service", method), zlog.AddError(rpcErr.Err()))
 		return utils.Error(status.Convert(err).Message())
 	}
 	cost := utils.UnixMilli() - start
