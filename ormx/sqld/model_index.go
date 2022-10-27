@@ -23,7 +23,7 @@ func readyCollection(object sqlc.Object) {
 	}
 }
 
-func dropIndex(object sqlc.Object) error {
+func dropIndex(object sqlc.Object, index []sqlc.Index) bool {
 	readyCollection(object)
 	db, err := NewMongo(Option{Timeout: 120000})
 	if err != nil {
@@ -34,10 +34,33 @@ func dropIndex(object sqlc.Object) error {
 	if err != nil {
 		panic(err)
 	}
+	cur, err := coll.Indexes().List(context.Background())
+	if err != nil {
+		panic(err)
+	}
+	var list []map[string]interface{}
+	if err := cur.All(context.Background(), &list); err != nil {
+		panic(err)
+	}
+	oldKey := ""
+	for _, v := range list {
+		key := v["name"].(string)
+		if key == "_id_" {
+			continue
+		}
+		oldKey += key
+	}
+	newKey := ""
+	for _, v := range index {
+		newKey += v.Name
+	}
+	if oldKey == newKey {
+		return false
+	}
 	if _, err := coll.Indexes().DropAll(context.Background()); err != nil {
 		panic(err)
 	}
-	return nil
+	return true
 }
 
 func addIndex(object sqlc.Object, index sqlc.Index) error {
@@ -70,7 +93,10 @@ func RebuildMongoDBIndex() error {
 		if index == nil {
 			continue
 		}
-		dropIndex(model.Object)
+		if !dropIndex(model.Object, index) {
+			fmt.Println(fmt.Sprintf("********* [%s] index consistent, skipping *********", model.Object.GetTable()))
+			continue
+		}
 		fmt.Println(fmt.Sprintf("********* [%s] delete all index *********", model.Object.GetTable()))
 		for _, v := range index {
 			addIndex(model.Object, v)
