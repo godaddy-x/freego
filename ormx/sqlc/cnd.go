@@ -407,10 +407,10 @@ func (self *Cnd) Sample(size int64) *Cnd {
 // 固定截取结果集数量
 func (self *Cnd) ResultSize(size int64) *Cnd {
 	if size <= 0 {
-		return self
+		size = 20
 	}
 	if size > 2000 {
-		size = 10
+		size = 20
 	}
 	self.LimitSize = size
 	return self
