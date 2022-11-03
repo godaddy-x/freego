@@ -192,7 +192,7 @@ func (self *Context) Parser(dst interface{}) error {
 	}
 	if err := self.JsonBody.ParseData(dst); err != nil {
 		msg := "JSON parameter parsing failed"
-		zlog.Error(msg, 0, zlog.String("path", self.Path), zlog.String("device", self.Device), zlog.Any("data", self.JsonBody))
+		zlog.Error(msg, 0, zlog.String("path", self.Path), zlog.String("device", self.Device), zlog.Any("data", self.JsonBody), zlog.AddError(err))
 		return ex.Throw{Msg: msg}
 	}
 	// TODO 备注: 已有会话状态时,指针填充context值,不能随意修改指针偏移值
