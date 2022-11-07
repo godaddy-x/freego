@@ -507,20 +507,7 @@ func (self *MGOManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	if err != nil {
 		return self.Error(err)
 	}
-	pipe := buildMongoMatch(cnd)
-	opts := buildQueryOptions(cnd)
-	defer self.writeLog("[Mongo.FindList]", utils.UnixMilli(), pipe, opts)
-	cur, err := db.Find(self.GetSessionContext(), pipe, opts)
-	if err != nil {
-		return self.Error("[Mongo.FindList] query failed: ", err)
-	}
-	if err := cur.All(self.GetSessionContext(), data); err != nil {
-		if err == mongo.ErrNoDocuments {
-			return nil
-		}
-		return self.Error(err)
-	}
-	if !cnd.Pagination.IsOffset && cnd.Pagination.IsPage {
+	if cnd.Pagination.IsFastPage { // 快速分页
 		pageTotal, err := self.Count(cnd)
 		if err != nil {
 			return err
@@ -533,6 +520,57 @@ func (self *MGOManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 		}
 		cnd.Pagination.PageTotal = pageTotal
 		cnd.Pagination.PageCount = pageCount
+		key := cnd.Pagination.FastPageKey
+		sort := cnd.Pagination.FastPageSort
+		prevID := cnd.Pagination.FastPageParam[0]
+		lastID := cnd.Pagination.FastPageParam[1]
+		if prevID == 0 && lastID == 0 {
+			cnd.Orderby(key, sort)
+		}
+		if sort == sqlc.DESC_ {
+			if prevID > 0 {
+				cnd.Gt(key, prevID).Orderby(key, sqlc.ASC_)
+			}
+			if lastID > 0 {
+				cnd.Lt(key, lastID).Orderby(key, sqlc.DESC_)
+			}
+		} else if sort == sqlc.ASC_ {
+			if prevID > 0 {
+				cnd.Lt(key, prevID).Orderby(key, sqlc.DESC_)
+			}
+			if lastID > 0 {
+				cnd.Gt(key, lastID).Orderby(key, sqlc.ASC_)
+			}
+		} else {
+			panic("sort value invalid")
+		}
+	}
+	if !cnd.Pagination.IsOffset && cnd.Pagination.IsPage { // 常规分页
+		pageTotal, err := self.Count(cnd)
+		if err != nil {
+			return err
+		}
+		var pageCount int64
+		if pageTotal%cnd.Pagination.PageSize == 0 {
+			pageCount = pageTotal / cnd.Pagination.PageSize
+		} else {
+			pageCount = pageTotal/cnd.Pagination.PageSize + 1
+		}
+		cnd.Pagination.PageTotal = pageTotal
+		cnd.Pagination.PageCount = pageCount
+	}
+	pipe := buildMongoMatch(cnd)
+	opts := buildQueryOptions(cnd)
+	defer self.writeLog("[Mongo.FindList]", utils.UnixMilli(), pipe, opts)
+	cur, err := db.Find(self.GetSessionContext(), pipe, opts)
+	if err != nil {
+		return self.Error("[Mongo.FindList] query failed: ", err)
+	}
+	if err := cur.All(self.GetSessionContext(), data); err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil
+		}
+		return self.Error(err)
 	}
 	return nil
 }
@@ -824,22 +862,32 @@ func buildMongoSortBy(cnd *sqlc.Cnd) bson.M {
 		return nil
 	}
 	sortBy := bson.M{}
+	if cnd.Pagination.IsFastPage {
+		if cnd.Pagination.FastPageSort == sqlc.DESC_ {
+			sortBy[getKey(cnd.Pagination.FastPageKey)] = -1
+		} else if cnd.Pagination.FastPageSort == sqlc.ASC_ {
+			sortBy[getKey(cnd.Pagination.FastPageKey)] = 1
+		}
+	}
 	for _, v := range cnd.Orderbys {
+		key := getKey(v.Key)
+		if key == getKey(cnd.Pagination.FastPageKey) {
+			continue
+		}
 		if v.Value == sqlc.DESC_ {
-			if v.Key == JID {
-				sortBy[BID] = -1
-			} else {
-				sortBy[v.Key] = -1
-			}
+			sortBy[key] = -1
 		} else if v.Value == sqlc.ASC_ {
-			if v.Key == JID {
-				sortBy[BID] = 1
-			} else {
-				sortBy[v.Key] = 1
-			}
+			sortBy[key] = 1
 		}
 	}
 	return sortBy
+}
+
+func getKey(key string) string {
+	if key == JID {
+		return BID
+	}
+	return key
 }
 
 // 构建mongo随机选取命令

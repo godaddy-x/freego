@@ -11,13 +11,24 @@ import (
 
 // 方言分页对象
 type Dialect struct {
-	PageNo    int64 // 页码索引
-	PageSize  int64 // 每页条数
-	PageTotal int64 // 总条数
-	PageCount int64 // 总页数
-	Spilled   bool  // 分页类型
-	IsOffset  bool  // 是否按下标分页
-	IsPage    bool  // 是否分页
+	PageNo        int64   // 页码索引
+	PageSize      int64   // 每页条数
+	PageTotal     int64   // 总条数
+	PageCount     int64   // 总页数
+	Spilled       bool    // 分页类型
+	IsOffset      bool    // 是否按下标分页
+	IsPage        bool    // 是否分页
+	IsFastPage    bool    // 是否快速分页
+	FastPageKey   string  // 快速分页索引
+	FastPageSort  int     // 快速分页正反序
+	FastPageParam []int64 // 快速分页下标值
+}
+
+type PageResult struct {
+	PageNo    int64 `json:"pageNo"`    // 当前索引
+	PageSize  int64 `json:"pageSize"`  // 分页截取数量
+	PageTotal int64 `json:"pageTotal"` // 总数据量
+	PageCount int64 `json:"pageCount"` // 总页数 pageTotal/pageSize
 }
 
 // 方言分页接口
@@ -28,6 +39,8 @@ type IDialect interface {
 	GetCountSql(sql string) (string, error)
 	// 获取分页语句
 	GetLimitSql(sql string) (string, error)
+	// 分页结果
+	GetResult() PageResult
 }
 
 func (self *Dialect) Support() (bool, error) {
@@ -40,6 +53,10 @@ func (self *Dialect) GetCountSql(sql string) (string, error) {
 
 func (self *Dialect) GetLimitSql(sql string) (string, error) {
 	return "", errors.New("No implementation method [GetLimitSql] was found")
+}
+
+func (self *Dialect) GetResult() PageResult {
+	return PageResult{PageNo: self.PageNo, PageSize: self.PageSize, PageTotal: self.PageTotal, PageCount: self.PageCount}
 }
 
 // 字节数组转字符串

@@ -409,10 +409,27 @@ func (self *Cnd) ResultSize(size int64) *Cnd {
 	if size <= 0 {
 		size = 20
 	}
-	if size > 2000 {
+	if size > 200 {
 		size = 20
 	}
 	self.LimitSize = size
+	return self
+}
+
+func (self *Cnd) FastPage(key string, sort int, prevID, lastID, pageSize int64) *Cnd {
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+	if pageSize > 200 {
+		pageSize = 20
+	}
+	if len(key) == 0 {
+		panic("fast limit key is nil")
+	}
+	self.Pagination.FastPageKey = key
+	self.Pagination.FastPageSort = sort
+	self.Pagination.FastPageParam = []int64{prevID, lastID}
+	self.Pagination.PageSize = pageSize
 	return self
 }
 
