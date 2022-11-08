@@ -205,7 +205,7 @@ func (self *Context) Parser(dst interface{}) error {
 	}
 	src := utils.GetPtr(dst, 0)
 	req := common.GetBaseReq(src)
-	base := common.BaseReq{Context: context, Offset: req.Offset, Limit: req.Limit, PrevID: req.PrevID, LastID: req.LastID}
+	base := common.BaseReq{Context: context, Offset: req.Offset, Limit: req.Limit, PrevID: req.PrevID, LastID: req.LastID, CountQ: req.CountQ}
 	*((*common.BaseReq)(unsafe.Pointer(src))) = base
 	return nil
 }
