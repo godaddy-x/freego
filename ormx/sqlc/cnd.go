@@ -457,3 +457,7 @@ func (self *Cnd) Upset(keys []string, values ...interface{}) *Cnd {
 	}
 	return self
 }
+
+func (self *Cnd) GetPageResult() dialect.PageResult {
+	return self.Pagination.GetResult()
+}
