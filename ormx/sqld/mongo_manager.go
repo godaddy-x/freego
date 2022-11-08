@@ -508,25 +508,18 @@ func (self *MGOManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 		return self.Error(err)
 	}
 	if cnd.Pagination.IsFastPage { // 快速分页
-		pageTotal, err := self.Count(cnd)
-		if err != nil {
+		if _, err := self.Count(cnd); err != nil {
 			return err
 		}
-		var pageCount int64
-		if pageTotal%cnd.Pagination.PageSize == 0 {
-			pageCount = pageTotal / cnd.Pagination.PageSize
-		} else {
-			pageCount = pageTotal/cnd.Pagination.PageSize + 1
-		}
-		cnd.Pagination.PageTotal = pageTotal
-		cnd.Pagination.PageCount = pageCount
 		key := cnd.Pagination.FastPageKey
 		sort := cnd.Pagination.FastPageSort
+		size := cnd.Pagination.PageSize
 		prevID := cnd.Pagination.FastPageParam[0]
 		lastID := cnd.Pagination.FastPageParam[1]
 		if prevID == 0 && lastID == 0 {
 			cnd.Orderby(key, sort)
 		}
+		cnd.ResultSize(size)
 		if sort == sqlc.DESC_ {
 			if prevID > 0 {
 				cnd.Gt(key, prevID).Orderby(key, sqlc.ASC_)
@@ -546,18 +539,9 @@ func (self *MGOManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 		}
 	}
 	if !cnd.Pagination.IsOffset && cnd.Pagination.IsPage { // 常规分页
-		pageTotal, err := self.Count(cnd)
-		if err != nil {
+		if _, err := self.Count(cnd); err != nil {
 			return err
 		}
-		var pageCount int64
-		if pageTotal%cnd.Pagination.PageSize == 0 {
-			pageCount = pageTotal / cnd.Pagination.PageSize
-		} else {
-			pageCount = pageTotal/cnd.Pagination.PageSize + 1
-		}
-		cnd.Pagination.PageTotal = pageTotal
-		cnd.Pagination.PageCount = pageCount
 	}
 	pipe := buildMongoMatch(cnd)
 	opts := buildQueryOptions(cnd)
