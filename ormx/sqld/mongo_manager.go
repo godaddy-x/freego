@@ -509,8 +509,10 @@ func (self *MGOManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 		return self.Error(err)
 	}
 	if cnd.Pagination.IsFastPage { // 快速分页
-		if _, err := self.Count(cnd); err != nil {
-			return err
+		if cnd.Pagination.FastPageSortCountQ { // 执行总条数统计
+			if _, err := self.Count(cnd); err != nil {
+				return err
+			}
 		}
 		key := cnd.Pagination.FastPageKey
 		sort := cnd.Pagination.FastPageSort

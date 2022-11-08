@@ -62,6 +62,7 @@ type BaseReq struct {
 	Context Context `json:"-"`
 	PrevID  int64   `json:"prevID"`
 	LastID  int64   `json:"lastID"`
+	CountQ  bool    `json:"countQ"`
 	Offset  int64   `json:"offset"`
 	Limit   int64   `json:"limit"`
 }
