@@ -23,8 +23,9 @@ var (
 	mgoSlowlog  *zap.Logger
 )
 
-type CountResult struct {
-	Total int64 `bson:"COUNT_BY"`
+type SortBy struct {
+	Key  string
+	Sort int
 }
 
 const (
@@ -516,23 +517,27 @@ func (self *MGOManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 		size := cnd.Pagination.PageSize
 		prevID := cnd.Pagination.FastPageParam[0]
 		lastID := cnd.Pagination.FastPageParam[1]
-		if prevID == 0 && lastID == 0 {
-			cnd.Orderby(key, sort)
-		}
 		cnd.ResultSize(size)
+		if prevID == 0 && lastID == 0 {
+			cnd.Orderby(key, sqlc.DESC_)
+		}
 		if sort == sqlc.DESC_ {
 			if prevID > 0 {
-				cnd.Gt(key, prevID).Orderby(key, sqlc.ASC_)
+				cnd.Gt(key, prevID)
+				cnd.Pagination.FastPageSortParam = sqlc.ASC_
 			}
 			if lastID > 0 {
-				cnd.Lt(key, lastID).Orderby(key, sqlc.DESC_)
+				cnd.Lt(key, lastID)
+				cnd.Pagination.FastPageSortParam = sqlc.DESC_
 			}
 		} else if sort == sqlc.ASC_ {
 			if prevID > 0 {
-				cnd.Lt(key, prevID).Orderby(key, sqlc.DESC_)
+				cnd.Lt(key, prevID)
+				cnd.Pagination.FastPageSortParam = sqlc.DESC_
 			}
 			if lastID > 0 {
-				cnd.Gt(key, lastID).Orderby(key, sqlc.ASC_)
+				cnd.Gt(key, lastID)
+				cnd.Pagination.FastPageSortParam = sqlc.ASC_
 			}
 		} else {
 			panic("sort value invalid")
@@ -567,36 +572,44 @@ func (self *MGOManager) Close() error {
 }
 
 func buildQueryOneOptions(cnd *sqlc.Cnd) *options.FindOneOptions {
-	opts := &options.FindOneOptions{}
+	defaultOpts := &options.FindOneOptions{}
 	project := buildMongoProject(cnd)
 	if project != nil && len(project) > 0 {
-		opts.SetProjection(project)
+		defaultOpts.SetProjection(project)
 	}
 	sortBy := buildMongoSortBy(cnd)
 	if sortBy != nil && len(sortBy) > 0 {
-		opts.SetSort(sortBy)
+		d := bson.D{}
+		for _, v := range sortBy {
+			d = append(d, bson.E{Key: v.Key, Value: v.Sort})
+		}
+		defaultOpts.SetSort(d)
 	}
-	return opts
+	return defaultOpts
 }
 
 func buildQueryOptions(cnd *sqlc.Cnd) *options.FindOptions {
-	opts := &options.FindOptions{}
+	defaultOpts := &options.FindOptions{}
 	project := buildMongoProject(cnd)
 	if project != nil && len(project) > 0 {
-		opts.SetProjection(project)
+		defaultOpts.SetProjection(project)
 	}
 	sortBy := buildMongoSortBy(cnd)
 	if sortBy != nil && len(sortBy) > 0 {
-		opts.SetSort(sortBy)
+		d := bson.D{}
+		for _, v := range sortBy {
+			d = append(d, bson.E{Key: v.Key, Value: v.Sort})
+		}
+		defaultOpts.SetSort(bson.D{{"_id", 1}, {"name", 1}})
 	}
 	offset, limit := buildMongoLimit(cnd)
 	if offset > 0 {
-		opts.SetSkip(offset)
+		defaultOpts.SetSkip(offset)
 	}
 	if limit > 0 {
-		opts.SetLimit(limit)
+		defaultOpts.SetLimit(limit)
 	}
-	return opts
+	return defaultOpts
 }
 
 // 获取最终pipe条件集合,包含$match $project $sort $skip $limit
@@ -841,16 +854,18 @@ func buildMongoUpset(cnd *sqlc.Cnd) bson.M {
 }
 
 // 构建mongo排序命令
-func buildMongoSortBy(cnd *sqlc.Cnd) bson.M {
-	if len(cnd.Orderbys) == 0 {
-		return nil
-	}
-	sortBy := bson.M{}
+func buildMongoSortBy(cnd *sqlc.Cnd) []SortBy {
+	var sortBys []SortBy
+	//if len(cnd.Orderbys) == 0 && !cnd.Pagination.IsFastPage {
+	//	return nil
+	//}
+	//sortBy := bson.M{}
 	if cnd.Pagination.IsFastPage {
-		if cnd.Pagination.FastPageSort == sqlc.DESC_ {
-			sortBy[getKey(cnd.Pagination.FastPageKey)] = -1
-		} else if cnd.Pagination.FastPageSort == sqlc.ASC_ {
-			sortBy[getKey(cnd.Pagination.FastPageKey)] = 1
+		//sortBy[getKey(cnd.Pagination.FastPageKey)] = cnd.Pagination.FastPageSortParam
+		if cnd.Pagination.FastPageSortParam == sqlc.DESC_ {
+			sortBys = append(sortBys, SortBy{Key: getKey(cnd.Pagination.FastPageKey), Sort: -1})
+		} else {
+			sortBys = append(sortBys, SortBy{Key: getKey(cnd.Pagination.FastPageKey), Sort: 1})
 		}
 	}
 	for _, v := range cnd.Orderbys {
@@ -859,12 +874,14 @@ func buildMongoSortBy(cnd *sqlc.Cnd) bson.M {
 			continue
 		}
 		if v.Value == sqlc.DESC_ {
-			sortBy[key] = -1
-		} else if v.Value == sqlc.ASC_ {
-			sortBy[key] = 1
+			//sortBy[key] = -1
+			sortBys = append(sortBys, SortBy{Key: key, Sort: -1})
+		} else {
+			//sortBy[key] = 1
+			sortBys = append(sortBys, SortBy{Key: key, Sort: 1})
 		}
 	}
-	return sortBy
+	return sortBys
 }
 
 func getKey(key string) string {
