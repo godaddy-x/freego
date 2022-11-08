@@ -127,7 +127,7 @@ func (self *MGOManager) GetDB(options ...Option) error {
 	self.Session = mgo.Session
 	self.DsName = mgo.DsName
 	self.Database = mgo.Database
-	self.Timeout = 10000
+	self.Timeout = 60000
 	self.SlowQuery = mgo.SlowQuery
 	self.SlowLogPath = mgo.SlowLogPath
 	self.CacheManager = mgo.CacheManager
