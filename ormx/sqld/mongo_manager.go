@@ -457,10 +457,16 @@ func (self *MGOManager) Count(cnd *sqlc.Cnd) (int64, error) {
 	}
 	pipe := buildMongoMatch(cnd)
 	defer self.writeLog("[Mongo.Count]", utils.UnixMilli(), pipe, nil)
-	pageTotal, err := db.CountDocuments(self.GetSessionContext(), pipe)
+	var pageTotal int64
+	if pipe == nil || len(pipe) == 0 {
+		pageTotal, err = db.EstimatedDocumentCount(self.GetSessionContext())
+	} else {
+		pageTotal, err = db.CountDocuments(self.GetSessionContext(), pipe)
+	}
 	if err != nil {
 		return 0, self.Error("[Mongo.Count] count failed: ", err)
 	}
+	//pageTotal, err = db.EstimatedDocumentCount(self.GetSessionContext(), pipe)
 	if pageTotal > 0 && cnd.Pagination.PageSize > 0 {
 		var pageCount int64
 		if pageTotal%cnd.Pagination.PageSize == 0 {
