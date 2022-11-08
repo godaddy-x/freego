@@ -600,7 +600,7 @@ func buildQueryOptions(cnd *sqlc.Cnd) *options.FindOptions {
 		for _, v := range sortBy {
 			d = append(d, bson.E{Key: v.Key, Value: v.Sort})
 		}
-		defaultOpts.SetSort(bson.D{{"_id", 1}, {"name", 1}})
+		defaultOpts.SetSort(d)
 	}
 	offset, limit := buildMongoLimit(cnd)
 	if offset > 0 {
