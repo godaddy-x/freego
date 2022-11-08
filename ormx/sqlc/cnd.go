@@ -341,6 +341,9 @@ func (self *Cnd) Agg(logic int, key string, alias ...string) *Cnd {
 
 // 按字段排序
 func (self *Cnd) Orderby(key string, sortby int) *Cnd {
+	if !(sortby == ASC_ || sortby == DESC_) {
+		panic("order by sort value invalid")
+	}
 	condit := Condition{ORDER_BY_, key, sortby, nil, ""}
 	self.Orderbys = append(self.Orderbys, condit)
 	return self

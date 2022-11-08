@@ -487,7 +487,7 @@ func (self *MGOManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
 	pipe := buildMongoMatch(cnd)
 	opts := buildQueryOneOptions(cnd)
 	defer self.writeLog("[Mongo.FindOne]", utils.UnixMilli(), pipe, opts)
-	cur := db.FindOne(self.GetSessionContext(), pipe, opts)
+	cur := db.FindOne(self.GetSessionContext(), pipe, opts...)
 	if err := cur.Decode(data); err != nil {
 		if err == mongo.ErrNoDocuments {
 			return nil
@@ -519,7 +519,8 @@ func (self *MGOManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 		lastID := cnd.Pagination.FastPageParam[1]
 		cnd.ResultSize(size)
 		if prevID == 0 && lastID == 0 {
-			cnd.Orderby(key, sqlc.DESC_)
+			cnd.Orderby(key, sort)
+			cnd.Pagination.FastPageSortParam = sort
 		}
 		if sort == sqlc.DESC_ {
 			if prevID > 0 {
@@ -551,7 +552,7 @@ func (self *MGOManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	pipe := buildMongoMatch(cnd)
 	opts := buildQueryOptions(cnd)
 	defer self.writeLog("[Mongo.FindList]", utils.UnixMilli(), pipe, opts)
-	cur, err := db.Find(self.GetSessionContext(), pipe, opts)
+	cur, err := db.Find(self.GetSessionContext(), pipe, opts...)
 	if err != nil {
 		return self.Error("[Mongo.FindList] query failed: ", err)
 	}
@@ -571,11 +572,13 @@ func (self *MGOManager) Close() error {
 	return nil
 }
 
-func buildQueryOneOptions(cnd *sqlc.Cnd) *options.FindOneOptions {
-	defaultOpts := &options.FindOneOptions{}
+func buildQueryOneOptions(cnd *sqlc.Cnd) []*options.FindOneOptions {
+	var optsArr []*options.FindOneOptions
 	project := buildMongoProject(cnd)
 	if project != nil && len(project) > 0 {
-		defaultOpts.SetProjection(project)
+		projectOpts := &options.FindOneOptions{}
+		projectOpts.SetProjection(project)
+		optsArr = append(optsArr, projectOpts)
 	}
 	sortBy := buildMongoSortBy(cnd)
 	if sortBy != nil && len(sortBy) > 0 {
@@ -583,16 +586,20 @@ func buildQueryOneOptions(cnd *sqlc.Cnd) *options.FindOneOptions {
 		for _, v := range sortBy {
 			d = append(d, bson.E{Key: v.Key, Value: v.Sort})
 		}
-		defaultOpts.SetSort(d)
+		sortByOpts := &options.FindOneOptions{}
+		sortByOpts.SetSort(d)
+		optsArr = append(optsArr, sortByOpts)
 	}
-	return defaultOpts
+	return optsArr
 }
 
-func buildQueryOptions(cnd *sqlc.Cnd) *options.FindOptions {
-	defaultOpts := &options.FindOptions{}
+func buildQueryOptions(cnd *sqlc.Cnd) []*options.FindOptions {
+	var optsArr []*options.FindOptions
 	project := buildMongoProject(cnd)
 	if project != nil && len(project) > 0 {
-		defaultOpts.SetProjection(project)
+		projectOpts := &options.FindOptions{}
+		projectOpts.SetProjection(project)
+		optsArr = append(optsArr, projectOpts)
 	}
 	sortBy := buildMongoSortBy(cnd)
 	if sortBy != nil && len(sortBy) > 0 {
@@ -600,16 +607,22 @@ func buildQueryOptions(cnd *sqlc.Cnd) *options.FindOptions {
 		for _, v := range sortBy {
 			d = append(d, bson.E{Key: v.Key, Value: v.Sort})
 		}
-		defaultOpts.SetSort(d)
+		sortByOpts := &options.FindOptions{}
+		sortByOpts.SetSort(d)
+		optsArr = append(optsArr, sortByOpts)
 	}
 	offset, limit := buildMongoLimit(cnd)
-	if offset > 0 {
-		defaultOpts.SetSkip(offset)
+	if offset > 0 || limit > 0 {
+		pageOpts := &options.FindOptions{}
+		if offset > 0 {
+			pageOpts.SetSkip(offset)
+		}
+		if limit > 0 {
+			pageOpts.SetLimit(limit)
+		}
+		optsArr = append(optsArr, pageOpts)
 	}
-	if limit > 0 {
-		defaultOpts.SetLimit(limit)
-	}
-	return defaultOpts
+	return optsArr
 }
 
 // 获取最终pipe条件集合,包含$match $project $sort $skip $limit
@@ -856,12 +869,7 @@ func buildMongoUpset(cnd *sqlc.Cnd) bson.M {
 // 构建mongo排序命令
 func buildMongoSortBy(cnd *sqlc.Cnd) []SortBy {
 	var sortBys []SortBy
-	//if len(cnd.Orderbys) == 0 && !cnd.Pagination.IsFastPage {
-	//	return nil
-	//}
-	//sortBy := bson.M{}
 	if cnd.Pagination.IsFastPage {
-		//sortBy[getKey(cnd.Pagination.FastPageKey)] = cnd.Pagination.FastPageSortParam
 		if cnd.Pagination.FastPageSortParam == sqlc.DESC_ {
 			sortBys = append(sortBys, SortBy{Key: getKey(cnd.Pagination.FastPageKey), Sort: -1})
 		} else {
@@ -874,10 +882,8 @@ func buildMongoSortBy(cnd *sqlc.Cnd) []SortBy {
 			continue
 		}
 		if v.Value == sqlc.DESC_ {
-			//sortBy[key] = -1
 			sortBys = append(sortBys, SortBy{Key: key, Sort: -1})
 		} else {
-			//sortBy[key] = 1
 			sortBys = append(sortBys, SortBy{Key: key, Sort: 1})
 		}
 	}
