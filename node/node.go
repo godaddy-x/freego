@@ -32,7 +32,7 @@ const (
 	HEAD    = "HEAD"
 	OPTIONS = "OPTIONS"
 
-	MAX_VALUE_LEN = 4000 // 最大参数值长度
+	MAX_VALUE_LEN = 200000 // 最大参数值长度
 
 	Authorization = "Authorization"
 	RandomCode    = "RandomCode"
@@ -235,7 +235,7 @@ func (self *Context) readParams() error {
 	if body == nil || len(body) == 0 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters is nil"}
 	}
-	if len(body) > (MAX_VALUE_LEN * 5) {
+	if len(body) > (MAX_VALUE_LEN) {
 		return ex.Throw{Code: http.StatusLengthRequired, Msg: "body parameters length is too long"}
 	}
 	req := &JsonBody{
