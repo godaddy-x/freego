@@ -162,7 +162,11 @@ func (self *PullManager) listen(receiver *PullReceiver) {
 			select {
 			case d := <-msgs:
 				for !receiver.OnReceive(d.Body) {
-					time.Sleep(2 * time.Second)
+					delay := receiver.Delay
+					if delay == 0 {
+						delay = 5
+					}
+					time.Sleep(time.Duration(delay) * time.Second)
 				}
 				if err := d.Ack(false); err != nil {
 					zlog.Error("rabbitmq pull received ack failed", 0, zlog.AddError(err))
@@ -199,13 +203,15 @@ type PullReceiver struct {
 	Config       *Config
 	ContentInter func(typ int64) interface{}
 	Callback     func(msg *MsgData) error
+	Debug        bool // 是否打印具体pull数据实体
+	Delay        int  // pull失败重试间隔
 }
 
 func (self *PullReceiver) OnReceive(b []byte) bool {
 	if b == nil || len(b) == 0 || string(b) == "{}" || string(b) == "[]" {
 		return true
 	}
-	if zlog.IsDebug() {
+	if self.Debug {
 		defer zlog.Debug("rabbitmq pull consumption data monitoring", utils.UnixMilli(), zlog.String("message", utils.Bytes2Str(b)))
 	}
 	msg := &MsgData{}
@@ -265,7 +271,11 @@ func (self *PullReceiver) OnReceive(b []byte) bool {
 	}
 
 	if err := self.Callback(msg); err != nil {
-		zlog.Error("rabbitmq pull consumption data processing failed", 0, zlog.Any("option", self.Config.Option), zlog.Any("message", msg), zlog.AddError(err))
+		if self.Debug {
+			zlog.Error("rabbitmq pull consumption data processing failed", 0, zlog.Any("option", self.Config.Option), zlog.Any("message", msg), zlog.AddError(err))
+		} else {
+			zlog.Error("rabbitmq pull consumption data processing failed", 0, zlog.Any("option", self.Config.Option), zlog.AddError(err))
+		}
 		if self.Config.IsNack {
 			return false
 		}
