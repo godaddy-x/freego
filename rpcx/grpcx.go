@@ -20,6 +20,7 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -37,6 +38,7 @@ var (
 )
 
 type ClientConnPool struct {
+	m     sync.Mutex
 	once  concurrent.Once
 	pools map[string]pool.Pool
 }
@@ -494,10 +496,18 @@ func NewClientConn(object GRPC) (pool.Conn, error) {
 	return clientConnPools.getClientConn(utils.AddStr(service.Address, ":", service.Port), timeout)
 }
 
+//func AddClientPool(host string) error {
+//	_, err := clientConnPools.readyPool(host)
+//	if err != nil {
+//		return err
+//	}
+//	return nil
+//}
+
 func (self *ClientConnPool) getClientConn(host string, timeout int) (conn pool.Conn, err error) {
 	p, b := self.pools[host]
 	if !b || p == nil {
-		zlog.Warn("client pool host is nil", 0, zlog.String("host", host))
+		zlog.Warn("client pool host creating", 0, zlog.String("host", host))
 		p, err = self.readyPool(host)
 		if err != nil {
 			zlog.Error("client pool ready failed", 0, zlog.AddError(err))
@@ -516,17 +526,24 @@ func (self *ClientConnPool) getClientConn(host string, timeout int) (conn pool.C
 }
 
 func (self *ClientConnPool) readyPool(host string) (pool.Pool, error) {
-	val, err := self.once.Do(func() (interface{}, error) {
+	self.m.Lock()
+	defer self.m.Unlock()
+	_, err := self.once.Do(func() (interface{}, error) {
 		pool, err := pool.NewPool(pool.DefaultOptions, pool.ConnConfig{Address: host, Timeout: 10, Opts: clientOptions})
 		if err != nil {
 			return nil, err
 		}
 		self.pools[host] = pool
+		zlog.Info("client connection pool create successful", 0, zlog.String("host", host))
 		return pool, nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	p, _ := val.(pool.Pool)
+	p, b := self.pools[host]
+	if !b || p == nil {
+		return nil, utils.Error("pool connection not found")
+		//panic("pool connection not found")
+	}
 	return p, nil
 }
