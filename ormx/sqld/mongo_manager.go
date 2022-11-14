@@ -580,6 +580,17 @@ func (self *MGOManager) Close() error {
 	return nil
 }
 
+func (self *MGOManager) GetCollectionObject(o sqlc.Object) (*mongo.Collection, error) {
+	if o == nil {
+		return nil, self.Error("[Mongo.GetDBObject] model is nil")
+	}
+	db, err := self.GetDatabase(o.GetTable())
+	if err != nil {
+		return nil, self.Error(err)
+	}
+	return db, nil
+}
+
 func buildQueryOneOptions(cnd *sqlc.Cnd) []*options.FindOneOptions {
 	var optsArr []*options.FindOneOptions
 	project := buildMongoProject(cnd)
