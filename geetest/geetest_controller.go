@@ -23,6 +23,7 @@ var (
 type Config struct {
 	GeetestID  string
 	GeetestKey string
+	Debug      bool
 }
 
 // 发送GET请求
@@ -55,9 +56,10 @@ func httpGet(getURL string, params map[string]string) (string, error) {
 }
 
 // 从geetest获取bypass状态
-func CheckServerStatus(geetestID, geetestKey string) {
+func CheckServerStatus(geetestID, geetestKey string, debug bool) {
 	config.GeetestID = geetestID
 	config.GeetestKey = geetestKey
+	config.Debug = debug
 	redisStatus := "fail"
 	for true {
 		params := make(map[string]string)
@@ -86,7 +88,9 @@ func CheckServerStatus(geetestID, geetestKey string) {
 			fmt.Println(err)
 			return
 		}
-		//fmt.Println("bypass状态已经获取并存入redis,当前状态为-", redisStatus)
+		if debug {
+			fmt.Println("bypass状态已经获取并存入redis,当前状态为-", redisStatus)
+		}
 		time.Sleep(time.Duration(CYCLE_TIME) * time.Second)
 	}
 }
@@ -127,7 +131,7 @@ func FirstRegister(ctx *node.Context) (sdk.GeetestLibResultData, error) {
 		"client_type": "web",
 		"ip_address":  ctx.RequestCtx.LocalAddr().String(),
 	}
-	gtLib := sdk.NewGeetestLib(config.GeetestID, config.GeetestKey)
+	gtLib := sdk.NewGeetestLib(config.GeetestID, config.GeetestKey, config.Debug)
 	var result *sdk.GeetestLibResult
 	if GetBypassCache() == "success" {
 		result = gtLib.Register(digestmod, params)
@@ -169,7 +173,7 @@ func SecondValidate(ctx *node.Context) (map[string]string, error) {
 	if len(challenge) == 0 || len(validate) == 0 || len(seccode) == 0 {
 		return nil, ex.Throw{Msg: "challenge/validate/seccode parameters is nil"}
 	}
-	gtLib := sdk.NewGeetestLib(config.GeetestID, config.GeetestKey)
+	gtLib := sdk.NewGeetestLib(config.GeetestID, config.GeetestKey, config.Debug)
 	bypassStatus := GetBypassCache()
 	var result *sdk.GeetestLibResult
 	if bypassStatus == "success" {
@@ -184,7 +188,7 @@ func SecondValidate(ctx *node.Context) (map[string]string, error) {
 	if err != nil {
 		return nil, ex.Throw{Msg: err.Error()}
 	}
-	if err := client.Put(utils.AddStr("geetest.", filterObject), 2, 30); err != nil { // 设置验证成功状态
+	if err := client.Put(utils.AddStr("geetest.", filterObject), 2, 1800); err != nil { // 设置验证成功状态
 		return nil, ex.Throw{Msg: err.Error()}
 	}
 	return map[string]string{"result": "success"}, nil
@@ -200,7 +204,7 @@ func GetFilterObject(ctx *node.Context) (string, error) {
 }
 
 func CreateFilterObject(filterMethod, filterObject string) string {
-	return utils.AddStr(filterMethod, filterObject)
+	return utils.MD5(utils.AddStr(filterMethod, filterObject))
 }
 
 // 验证状态码

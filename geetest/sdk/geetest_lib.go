@@ -37,15 +37,16 @@ const (
 type GeetestLib struct {
 	geetest_id  string // 公钥
 	geetest_key string // 私钥
+	debug       bool
 	libResult   *GeetestLibResult
 }
 
-func NewGeetestLib(geetest_id string, geetest_key string) *GeetestLib {
-	return &GeetestLib{geetest_id, geetest_key, NewGeetestLibResult()}
+func NewGeetestLib(geetest_id, geetest_key string, debug bool) *GeetestLib {
+	return &GeetestLib{geetest_id, geetest_key, debug, NewGeetestLibResult()}
 }
 
 func (g *GeetestLib) gtlog(msg string) {
-	if IS_DEBUG {
+	if g.debug {
 		fmt.Println("gtlog: " + msg)
 	}
 }
