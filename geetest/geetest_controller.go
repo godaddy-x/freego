@@ -21,9 +21,9 @@ var (
 )
 
 type Config struct {
-	GeetestID  string
-	GeetestKey string
-	Debug      bool
+	GeetestID  string `json:"geetestID"`
+	GeetestKey string `json:"geetestKey"`
+	Debug      bool   `json:"debug"`
 }
 
 // 发送GET请求

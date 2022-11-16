@@ -3,13 +3,12 @@
   "Addrs": [
     "127.0.0.1:27017"
   ],
-  "Direct": false,
+  "Direct": true,
   "ConnectTimeout": 5,
   "SocketTimeout": 5,
   "Database": "openserver",
   "Username": "",
   "Password": "",
   "PoolLimit": 4096,
-  "Debug": true,
-  "ConnectionURI": "mongodb://127.0.0.1:27017"
+  "Debug": false
 }
