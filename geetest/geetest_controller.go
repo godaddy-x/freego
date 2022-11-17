@@ -111,10 +111,6 @@ func GetBypassCache() (status string) {
 
 // 验证初始化接口，GET请求
 func FirstRegister(ctx *node.Context) (sdk.GeetestLibResultData, error) {
-	// 判定是否触发验证机制, 1-100范围,命中数值>Boundary则不触发验证
-	if utils.CheckRangeInt(config.Boundary, 1, 100) && utils.ModRand(100) > config.Boundary {
-		return sdk.GeetestLibResultData{Status: 1}, nil
-	}
 	/*
 		   必传参数
 		       digestmod 此版本sdk可支持md5、sha256、hmac-sha256，md5之外的算法需特殊配置的账号，联系极验客服
@@ -126,6 +122,18 @@ func FirstRegister(ctx *node.Context) (sdk.GeetestLibResultData, error) {
 	filterObject, err := GetFilterObject(ctx)
 	if err != nil {
 		return sdk.GeetestLibResultData{}, ex.Throw{Msg: err.Error()}
+	}
+	client, err := cache.NewRedis()
+	if err != nil {
+		return sdk.GeetestLibResultData{}, ex.Throw{Msg: err.Error()}
+	}
+	// 判定是否触发验证机制, 如已经有触发验证则不能跳过, 1-100范围,命中数值>Boundary则不触发验证
+	_, status := ValidStatusCode(filterObject, 1)
+	if status != 1 && utils.CheckRangeInt(config.Boundary, 1, 100) && utils.ModRand(100) > config.Boundary {
+		if err := client.Put(utils.AddStr("geetest.", filterObject), 2, 1800); err != nil {
+			return sdk.GeetestLibResultData{}, ex.Throw{Msg: err.Error()}
+		}
+		return sdk.GeetestLibResultData{Status: 1}, nil
 	}
 	digestmod := "hmac-sha256"
 	params := map[string]string{
@@ -140,10 +148,6 @@ func FirstRegister(ctx *node.Context) (sdk.GeetestLibResultData, error) {
 		result = gtLib.Register(digestmod, params)
 	} else {
 		result = gtLib.LocalRegister()
-	}
-	client, err := cache.NewRedis()
-	if err != nil {
-		return sdk.GeetestLibResultData{}, ex.Throw{Msg: err.Error()}
 	}
 	if err := client.Put(utils.AddStr("geetest.", filterObject), 1, 1800); err != nil {
 		return sdk.GeetestLibResultData{}, ex.Throw{Msg: err.Error()}
