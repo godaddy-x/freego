@@ -585,6 +585,22 @@ func CheckInt64(c int64, vs ...int64) bool {
 	return false
 }
 
+// 检测int64数值是否在区间
+func CheckRangeInt64(c, min, max int64) bool {
+	if c >= min && c <= max {
+		return true
+	}
+	return false
+}
+
+// 检测int数值是否在区间
+func CheckRangeInt(c, min, max int) bool {
+	if c >= min && c <= max {
+		return true
+	}
+	return false
+}
+
 // 检测string数值是否在区间
 func CheckStr(c string, vs ...string) bool {
 	for _, v := range vs {

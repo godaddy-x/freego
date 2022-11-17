@@ -24,6 +24,7 @@ type Config struct {
 	GeetestID  string `json:"geetestID"`
 	GeetestKey string `json:"geetestKey"`
 	Debug      bool   `json:"debug"`
+	Boundary   int    `json:"boundary"` // 界限值0 - 100
 }
 
 // 发送GET请求
@@ -56,10 +57,8 @@ func httpGet(getURL string, params map[string]string) (string, error) {
 }
 
 // 从geetest获取bypass状态
-func CheckServerStatus(geetestID, geetestKey string, debug bool) {
-	config.GeetestID = geetestID
-	config.GeetestKey = geetestKey
-	config.Debug = debug
+func CheckServerStatus(conf Config) {
+	config = conf
 	redisStatus := "fail"
 	for true {
 		params := make(map[string]string)
@@ -88,7 +87,7 @@ func CheckServerStatus(geetestID, geetestKey string, debug bool) {
 			fmt.Println(err)
 			return
 		}
-		if debug {
+		if config.Debug {
 			fmt.Println("bypass状态已经获取并存入redis,当前状态为-", redisStatus)
 		}
 		time.Sleep(time.Duration(CYCLE_TIME) * time.Second)
@@ -112,6 +111,10 @@ func GetBypassCache() (status string) {
 
 // 验证初始化接口，GET请求
 func FirstRegister(ctx *node.Context) (sdk.GeetestLibResultData, error) {
+	// 判定是否触发验证机制, 1-100范围,命中数值>Boundary则不触发验证
+	if utils.CheckRangeInt(config.Boundary, 1, 100) && utils.ModRand(100) > config.Boundary {
+		return sdk.GeetestLibResultData{Status: 1}, nil
+	}
 	/*
 		   必传参数
 		       digestmod 此版本sdk可支持md5、sha256、hmac-sha256，md5之外的算法需特殊配置的账号，联系极验客服

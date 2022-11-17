@@ -13,13 +13,12 @@ type GeetestLibResult struct {
 	Msg    string
 }
 
-// {"challenge":"2da832fdc9278ac41ed2e27d3935d1f38686f7ce7f7975bdd25e551c1c8998e2","gt":"acb094181b827c093e49fae01bd1a1b0","new_captcha":true,"success":1}
-
 type GeetestLibResultData struct {
 	Challenge  string `json:"challenge"`
 	Gt         string `json:"gt"`
 	NewCaptcha bool   `json:"new_captcha"`
 	Success    int    `json:"success"`
+	Status     int    `json:"status"` // 0.需要认证 1.跳过认证
 }
 
 func NewGeetestLibResult() *GeetestLibResult {
