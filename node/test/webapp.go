@@ -147,7 +147,7 @@ func NewHTTP() *MyWebNode {
 }
 
 func StartHttpNode() {
-	go geetest.CheckServerStatus("", "", true)
+	go geetest.CheckServerStatus(geetest.Config{})
 	my := NewHTTP()
 	my.POST("/test1", my.test, nil)
 	my.POST("/getUser", my.getUser, nil)
