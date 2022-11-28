@@ -412,7 +412,7 @@ func (self *Cnd) ResultSize(size int64) *Cnd {
 	if size <= 0 {
 		size = 50
 	}
-	if size > 200 {
+	if size > 5000 {
 		size = 50
 	}
 	self.LimitSize = size
