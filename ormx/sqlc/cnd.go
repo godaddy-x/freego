@@ -285,7 +285,7 @@ func (self *Cnd) Limit(pageNo int64, pageSize int64) *Cnd {
 	if pageNo <= 0 {
 		pageNo = 1
 	}
-	if pageSize <= 0 || pageSize > 200 {
+	if pageSize <= 0 || pageSize > 5000 {
 		pageSize = 50
 	}
 	self.Pagination = dialect.Dialect{PageNo: pageNo, PageSize: pageSize, Spilled: true, IsPage: true}
@@ -297,7 +297,7 @@ func (self *Cnd) Offset(offset int64, limit int64) *Cnd {
 	if offset <= 0 {
 		offset = 0
 	}
-	if limit <= 0 || limit > 200 {
+	if limit <= 0 || limit > 5000 {
 		limit = 50
 	}
 	self.Pagination = dialect.Dialect{PageNo: offset, PageSize: limit, Spilled: true, IsOffset: true, IsPage: true}
@@ -410,10 +410,10 @@ func (self *Cnd) Sample(size int64) *Cnd {
 // 固定截取结果集数量
 func (self *Cnd) ResultSize(size int64) *Cnd {
 	if size <= 0 {
-		size = 20
+		size = 50
 	}
 	if size > 200 {
-		size = 20
+		size = 50
 	}
 	self.LimitSize = size
 	return self
@@ -421,10 +421,10 @@ func (self *Cnd) ResultSize(size int64) *Cnd {
 
 func (self *Cnd) FastPage(key string, sort int, prevID, lastID, pageSize int64, countQ ...bool) *Cnd {
 	if pageSize <= 0 {
-		pageSize = 20
+		pageSize = 50
 	}
-	if pageSize > 200 {
-		pageSize = 20
+	if pageSize > 5000 {
+		pageSize = 50
 	}
 	if len(key) == 0 {
 		panic("fast limit key is nil")
