@@ -58,6 +58,9 @@ func httpGet(getURL string, params map[string]string) (string, error) {
 
 // 从geetest获取bypass状态
 func CheckServerStatus(conf Config) {
+	if len(conf.GeetestID) == 0 || len(conf.GeetestKey) == 0 {
+		return
+	}
 	config = conf
 	redisStatus := "fail"
 	for true {
@@ -129,7 +132,7 @@ func FirstRegister(ctx *node.Context) (sdk.GeetestLibResultData, error) {
 	}
 	// 判定是否触发验证机制, 如已经有触发验证则不能跳过, 1-100范围,命中数值>Boundary则不触发验证
 	_, status := ValidStatusCode(filterObject, 1)
-	if status != 1 && utils.CheckRangeInt(config.Boundary, 1, 100) && utils.ModRand(100) > config.Boundary {
+	if (len(config.GeetestID) == 0 && len(config.GeetestKey) == 0) || (status != 1 && utils.CheckRangeInt(config.Boundary, 1, 100) && utils.ModRand(100) > config.Boundary) {
 		if err := client.Put(utils.AddStr("geetest.", filterObject), 2, 1800); err != nil {
 			return sdk.GeetestLibResultData{}, ex.Throw{Msg: err.Error()}
 		}
