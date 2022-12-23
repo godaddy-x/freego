@@ -8,7 +8,6 @@ import (
 	"github.com/godaddy-x/freego/rpcx/pb"
 	"github.com/godaddy-x/freego/rpcx/pool"
 	"github.com/godaddy-x/freego/utils"
-	"github.com/godaddy-x/freego/utils/concurrent"
 	"github.com/godaddy-x/freego/utils/gorsa"
 	"github.com/godaddy-x/freego/utils/jwt"
 	"github.com/godaddy-x/freego/zlog"
@@ -38,8 +37,8 @@ var (
 )
 
 type ClientConnPool struct {
-	m     sync.Mutex
-	once  concurrent.Once
+	m sync.Mutex
+	//once  concurrent.Once
 	pools map[string]pool.Pool
 }
 
@@ -528,7 +527,8 @@ func (self *ClientConnPool) getClientConn(host string, timeout int) (conn pool.C
 func (self *ClientConnPool) readyPool(host string) (pool.Pool, error) {
 	self.m.Lock()
 	defer self.m.Unlock()
-	_, err := self.once.Do(func() (interface{}, error) {
+	p, b := self.pools[host]
+	if !b || p == nil {
 		pool, err := pool.NewPool(pool.DefaultOptions, pool.ConnConfig{Address: host, Timeout: 10, Opts: clientOptions})
 		if err != nil {
 			return nil, err
@@ -536,13 +536,22 @@ func (self *ClientConnPool) readyPool(host string) (pool.Pool, error) {
 		self.pools[host] = pool
 		zlog.Info("client connection pool create successful", 0, zlog.String("host", host))
 		return pool, nil
-	})
-	if err != nil {
-		return nil, err
 	}
-	p, b := self.pools[host]
+	//_, err := self.once.Do(func() (interface{}, error) {
+	//	pool, err := pool.NewPool(pool.DefaultOptions, pool.ConnConfig{Address: host, Timeout: 10, Opts: clientOptions})
+	//	if err != nil {
+	//		return nil, err
+	//	}
+	//	self.pools[host] = pool
+	//	zlog.Info("client connection pool create successful", 0, zlog.String("host", host))
+	//	return pool, nil
+	//})
+	//if err != nil {
+	//	return nil, err
+	//}
+	p, b = self.pools[host]
 	if !b || p == nil {
-		return nil, utils.Error("pool connection not found")
+		return nil, utils.Error("pool connection create failed")
 		//panic("pool connection not found")
 	}
 	return p, nil
