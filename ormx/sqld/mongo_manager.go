@@ -606,6 +606,19 @@ func buildQueryOneOptions(cnd *sqlc.Cnd) []*options.FindOneOptions {
 			d = append(d, bson.E{Key: v.Key, Value: v.Sort})
 		}
 		sortByOpts := &options.FindOneOptions{}
+		if cnd.CollationConfig != nil {
+			sortByOpts.SetCollation(&options.Collation{
+				Locale:          cnd.CollationConfig.Locale,
+				CaseLevel:       cnd.CollationConfig.CaseLevel,
+				CaseFirst:       cnd.CollationConfig.CaseFirst,
+				Strength:        cnd.CollationConfig.Strength,
+				NumericOrdering: cnd.CollationConfig.NumericOrdering,
+				Alternate:       cnd.CollationConfig.Alternate,
+				MaxVariable:     cnd.CollationConfig.MaxVariable,
+				Normalization:   cnd.CollationConfig.Normalization,
+				Backwards:       cnd.CollationConfig.Backwards,
+			})
+		}
 		sortByOpts.SetSort(d)
 		optsArr = append(optsArr, sortByOpts)
 	}
@@ -627,6 +640,19 @@ func buildQueryOptions(cnd *sqlc.Cnd) []*options.FindOptions {
 			d = append(d, bson.E{Key: v.Key, Value: v.Sort})
 		}
 		sortByOpts := &options.FindOptions{}
+		if cnd.CollationConfig != nil {
+			sortByOpts.SetCollation(&options.Collation{
+				Locale:          cnd.CollationConfig.Locale,
+				CaseLevel:       cnd.CollationConfig.CaseLevel,
+				CaseFirst:       cnd.CollationConfig.CaseFirst,
+				Strength:        cnd.CollationConfig.Strength,
+				NumericOrdering: cnd.CollationConfig.NumericOrdering,
+				Alternate:       cnd.CollationConfig.Alternate,
+				MaxVariable:     cnd.CollationConfig.MaxVariable,
+				Normalization:   cnd.CollationConfig.Normalization,
+				Backwards:       cnd.CollationConfig.Backwards,
+			})
+		}
 		sortByOpts.SetSort(d)
 		optsArr = append(optsArr, sortByOpts)
 	}

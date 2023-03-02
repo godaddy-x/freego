@@ -62,6 +62,18 @@ type Condition struct {
 	Alias  string
 }
 
+type Collation struct {
+	Locale          string `bson:",omitempty"` // The locale
+	CaseLevel       bool   `bson:",omitempty"` // The case level
+	CaseFirst       string `bson:",omitempty"` // The case ordering
+	Strength        int    `bson:",omitempty"` // The number of comparison levels to use
+	NumericOrdering bool   `bson:",omitempty"` // Whether to order numbers based on numerical order and not collation order
+	Alternate       string `bson:",omitempty"` // Whether spaces and punctuation are considered base characters
+	MaxVariable     string `bson:",omitempty"` // Which characters are affected by alternate: "shifted"
+	Normalization   bool   `bson:",omitempty"` // Causes text to be normalized into Unicode NFD
+	Backwards       bool   `bson:",omitempty"` // Causes secondary differences to be considered in reverse order, as it is done in the French language
+}
+
 // 连接表条件对象
 type JoinCond struct {
 	Type  int
@@ -78,22 +90,23 @@ type FromCond struct {
 
 // 数据库操作汇总逻辑条件对象
 type Cnd struct {
-	ConditPart   []string
-	Conditions   []Condition
-	AnyFields    []string
-	AnyNotFields []string
-	Distincts    []string
-	Groupbys     []string
-	Orderbys     []Condition
-	Aggregates   []Condition
-	Upsets       map[string]interface{}
-	Model        Object
-	Pagination   dialect.Dialect
-	FromCond     *FromCond
-	JoinCond     []*JoinCond
-	SampleSize   int64
-	LimitSize    int64 // 固定截取结果集数量
-	CacheConfig  CacheConfig
+	ConditPart      []string
+	Conditions      []Condition
+	AnyFields       []string
+	AnyNotFields    []string
+	Distincts       []string
+	Groupbys        []string
+	Orderbys        []Condition
+	Aggregates      []Condition
+	Upsets          map[string]interface{}
+	Model           Object
+	CollationConfig *Collation
+	Pagination      dialect.Dialect
+	FromCond        *FromCond
+	JoinCond        []*JoinCond
+	SampleSize      int64
+	LimitSize       int64 // 固定截取结果集数量
+	CacheConfig     CacheConfig
 }
 
 // 缓存结果集参数
@@ -277,6 +290,17 @@ func (self *Cnd) Join(join int, table string, on string) *Cnd {
 		return self
 	}
 	self.JoinCond = append(self.JoinCond, &JoinCond{join, table, "", on})
+	return self
+}
+
+func (self *Cnd) Collation(collation *Collation) *Cnd {
+	if collation == nil {
+		return self
+	}
+	if len(collation.Locale) == 0 {
+		collation.Locale = "zh"
+	}
+	self.CollationConfig = collation
 	return self
 }
 
