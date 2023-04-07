@@ -271,6 +271,9 @@ func init() {
     sqld.ModelDriver(
         sqld.NewHooK(func() interface{} { return &OwWallet{} }, func() interface{} { return &[]*OwWallet{} }),
     )
+    sqld.ModelDriver(
+	&OwWallet{},
+    )
     initMongoDB()
     initMysqlDB()
 }
