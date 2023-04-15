@@ -1,8 +1,8 @@
 package main
 
 import (
+	"encoding/base64"
 	"fmt"
-	ecc "github.com/godaddy-x/eccrypto"
 	"github.com/godaddy-x/freego/node"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/crypto"
@@ -165,11 +165,15 @@ func PostByRSA(path string, req *node.JsonBody, useECC bool) {
 	var randomCode string
 	serverPublicKey := getServerPublicKey()
 	if useECC {
-		prk, err := ecc.LoadBase64Key("", serverPublicKey)
+		pub, err := crypto.LoadBase64PublicKey(serverPublicKey)
 		if err != nil {
 			panic(err)
 		}
-		randomCode, err = ecc.Encrypt(&prk.PublicKey, utils.Str2Bytes(clientSecretKey))
+		r, err := crypto.ECCEncrypt(pub.SerializeUncompressed(), utils.Str2Bytes(clientSecretKey))
+		if err != nil {
+			panic(err)
+		}
+		randomCode = base64.StdEncoding.EncodeToString(r)
 	} else {
 		newRsa := &crypto.RsaObj{}
 		if err := newRsa.LoadRsaPemFileBase64(serverPublicKey); err != nil {

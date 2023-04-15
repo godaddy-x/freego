@@ -1,32 +1,33 @@
 package crypto
 
 import (
-	"crypto/elliptic"
-	"crypto/rand"
 	"encoding/base64"
-	ecc "github.com/godaddy-x/eccrypto"
-	"github.com/godaddy-x/eccrypto/crypto"
-	"github.com/godaddy-x/eccrypto/crypto/ecies"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"github.com/btcsuite/btcd/btcec/v2"
+	"unsafe"
 )
 
 type EccObj struct {
-	privateKey       *ecies.PrivateKey
-	publicKey        ecies.PublicKey
+	privateKey       *btcec.PrivateKey
+	publicKey        *btcec.PublicKey
 	PrivateKeyBase64 string
 	PublicKeyBase64  string
 }
 
 func (self *EccObj) CreateS256ECC() error {
-	prk, err := ecies.GenerateKey(rand.Reader, crypto.S256(), nil)
+	prk, _, err := CreateECC()
 	if err != nil {
 		return err
 	}
-	prkBs := prk.D.Bytes()
-	pubBs := elliptic.Marshal(prk.Curve, prk.PublicKey.X, prk.PublicKey.Y)
+	prkBs := prk.Serialize()
+	pubBs := prk.PubKey().SerializeUncompressed()
 	self.privateKey = prk
-	self.publicKey = prk.PublicKey
+	self.publicKey = prk.PubKey()
 	self.PrivateKeyBase64 = base64.StdEncoding.EncodeToString(prkBs)
 	self.PublicKeyBase64 = base64.StdEncoding.EncodeToString(pubBs)
+	fmt.Println("--", hex.EncodeToString(pubBs))
 	return nil
 }
 
@@ -45,7 +46,15 @@ func (self *EccObj) Encrypt(msg []byte) (string, error) {
 }
 
 func (self *EccObj) Decrypt(msg string) (string, error) {
-	return ecc.Decrypt(self.privateKey, msg)
+	bs, err := base64.StdEncoding.DecodeString(msg)
+	if err != nil {
+		return "", errors.New("base64 parse failed")
+	}
+	r, err := ECCDecrypt(self.privateKey, bs)
+	if err != nil {
+		return "", err
+	}
+	return *(*string)(unsafe.Pointer(&r)), nil
 }
 
 func (self *EccObj) Sign(msg []byte) ([]byte, error) {

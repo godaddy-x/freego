@@ -5,10 +5,10 @@ go 1.18
 require (
 	github.com/Shopify/sarama v1.35.0
 	github.com/andybalholm/cascadia v1.3.1
+	github.com/btcsuite/btcd/btcec/v2 v2.3.2
 	github.com/buaazp/fasthttprouter v0.1.1
 	github.com/garyburd/redigo v1.6.3
 	github.com/go-sql-driver/mysql v1.6.0
-	github.com/godaddy-x/eccrypto v1.0.3
 	github.com/google/uuid v1.3.0
 	github.com/gorilla/websocket v1.5.0
 	github.com/hashicorp/consul/api v1.13.1
@@ -30,6 +30,7 @@ require (
 	github.com/andybalholm/brotli v1.0.4 // indirect
 	github.com/armon/go-metrics v0.0.0-20180917152333-f0300d1749da // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.0.1 // indirect
 	github.com/eapache/go-resiliency v1.3.0 // indirect
 	github.com/eapache/go-xerial-snappy v0.0.0-20180814174437-776d5712da21 // indirect
 	github.com/eapache/queue v1.1.0 // indirect
