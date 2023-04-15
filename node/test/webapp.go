@@ -133,6 +133,7 @@ func (self *GeetestFilter) DoFilter(chain node.Filter, ctx *node.Context, args .
 
 func NewHTTP() *MyWebNode {
 	var my = &MyWebNode{}
+	my.EnableECC(true)
 	my.AddJwtConfig(jwt.JwtConfig{
 		TokenTyp: jwt.JWT,
 		TokenAlg: jwt.HS256,
@@ -154,7 +155,7 @@ func StartHttpNode() {
 	my.GET("/publicKey", my.publicKey, &node.RouterConfig{Guest: true})
 	my.POST("/testGuestPost", my.testGuestPost, &node.RouterConfig{Guest: true})
 	my.POST("/testHAX", my.testHAX, &node.RouterConfig{UseHAX: true, UseRSA: true})
-	my.POST("/login", my.login, &node.RouterConfig{UseHAX: true})
+	my.POST("/login", my.login, &node.RouterConfig{UseRSA: true})
 
 	my.POST("/geetest/register", my.FirstRegister, &node.RouterConfig{UseRSA: true})
 	my.POST("/geetest/validate", my.SecondValidate, &node.RouterConfig{UseRSA: true})

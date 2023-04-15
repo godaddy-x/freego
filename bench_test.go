@@ -19,7 +19,7 @@ type OwWallet struct {
 	AuthKey      string `json:"authKey" bson:"authKey"`
 	RootPath     string `json:"rootPath" bson:"rootPath"`
 	AccountIndex int64  `json:"accountIndex" bson:"accountIndex"`
-	Keystore     string `json:"keystore" bson:"keystore"`
+	Keystore     string `json:"keyJson" bson:"keyJson"`
 	Applytime    int64  `json:"applytime" bson:"applytime"`
 	Succtime     int64  `json:"succtime" bson:"succtime"`
 	Dealstate    int64  `json:"dealstate" bson:"dealstate"`

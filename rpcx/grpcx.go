@@ -8,7 +8,7 @@ import (
 	"github.com/godaddy-x/freego/rpcx/pb"
 	"github.com/godaddy-x/freego/rpcx/pool"
 	"github.com/godaddy-x/freego/utils"
-	"github.com/godaddy-x/freego/utils/gorsa"
+	"github.com/godaddy-x/freego/utils/crypto"
 	"github.com/godaddy-x/freego/utils/jwt"
 	"github.com/godaddy-x/freego/zlog"
 	consulapi "github.com/hashicorp/consul/api"
@@ -30,7 +30,7 @@ var (
 	rateLimiterCall func(string) (rate.Option, error)
 	selectionCall   func([]*consulapi.ServiceEntry, GRPC) *consulapi.ServiceEntry
 	appConfigCall   func(string) (AppConfig, error)
-	authorizeTLS    *gorsa.RsaObj
+	authorizeTLS    *crypto.RsaObj
 	accessToken     = ""
 	clientOptions   []grpc.DialOption
 	clientConnPools = ClientConnPool{pools: make(map[string]pool.Pool, 0)}
@@ -90,7 +90,7 @@ func GetGRPCJwtConfig() (*jwt.JwtConfig, error) {
 	return jwtConfig, nil
 }
 
-func GetAuthorizeTLS() (*gorsa.RsaObj, error) {
+func GetAuthorizeTLS() (*crypto.RsaObj, error) {
 	if authorizeTLS == nil {
 		return nil, utils.Error("authorize tls is nil")
 	}
@@ -153,7 +153,7 @@ func (self *GRPCManager) CreateAuthorizeTLS(keyPath string) {
 	if len(keyPath) == 0 {
 		panic("authorize tls key path is nil")
 	}
-	obj := &gorsa.RsaObj{}
+	obj := &crypto.RsaObj{}
 	if err := obj.LoadRsaFile(keyPath); err != nil {
 		panic(err)
 	}
@@ -431,7 +431,7 @@ func callLogin(appId string) (string, int64, error) {
 	if err != nil {
 		return "", 0, err
 	}
-	rsaObj := &gorsa.RsaObj{}
+	rsaObj := &crypto.RsaObj{}
 	if err := rsaObj.LoadRsaPemFileBase64(pub.PublicKey); err != nil {
 		return "", 0, err
 	}

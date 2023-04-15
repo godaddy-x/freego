@@ -1,4 +1,4 @@
-package gorsa
+package crypto
 
 import (
 	"bytes"
@@ -15,7 +15,7 @@ import (
 
 const bits = 2048
 
-type RSA interface {
+type Cipher interface {
 	GetPrivateKey() (interface{}, string)
 	GetPublicKey() (interface{}, string)
 	Encrypt(msg []byte) (string, error)

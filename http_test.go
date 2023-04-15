@@ -2,9 +2,10 @@ package main
 
 import (
 	"fmt"
+	ecc "github.com/godaddy-x/eccrypto"
 	"github.com/godaddy-x/freego/node"
 	"github.com/godaddy-x/freego/utils"
-	"github.com/godaddy-x/freego/utils/gorsa"
+	"github.com/godaddy-x/freego/utils/crypto"
 	"github.com/valyala/fasthttp"
 	"testing"
 	"time"
@@ -156,16 +157,26 @@ func PostByPublicKeyHAX(path string, req *node.JsonBody) {
 }
 
 // 非登录状态使用RSA+AES模式交互
-func PostByRSA(path string, req *node.JsonBody) {
+func PostByRSA(path string, req *node.JsonBody, useECC bool) {
 	if req.Plan != 2 {
 		panic("plan invalid")
 	}
+	var err error
+	var randomCode string
 	serverPublicKey := getServerPublicKey()
-	newRsa := &gorsa.RsaObj{}
-	if err := newRsa.LoadRsaPemFileBase64(serverPublicKey); err != nil {
-		panic(err)
+	if useECC {
+		prk, err := ecc.LoadBase64Key("", serverPublicKey)
+		if err != nil {
+			panic(err)
+		}
+		randomCode, err = ecc.Encrypt(&prk.PublicKey, utils.Str2Bytes(clientSecretKey))
+	} else {
+		newRsa := &crypto.RsaObj{}
+		if err := newRsa.LoadRsaPemFileBase64(serverPublicKey); err != nil {
+			panic(err)
+		}
+		randomCode, err = newRsa.Encrypt(utils.Str2Bytes(clientSecretKey))
 	}
-	randomCode, err := newRsa.Encrypt(utils.Str2Bytes(clientSecretKey))
 	if err != nil {
 		panic(err)
 	}
@@ -228,7 +239,7 @@ func TestRSALogin(t *testing.T) {
 		Nonce: utils.RandNonce(),
 		Plan:  int64(2),
 	}
-	PostByRSA(path, req)
+	PostByRSA(path, req, true)
 }
 
 func TestGeetestRegister(t *testing.T) {
@@ -240,7 +251,7 @@ func TestGeetestRegister(t *testing.T) {
 		Nonce: utils.RandNonce(),
 		Plan:  int64(2),
 	}
-	PostByRSA(path, req)
+	PostByRSA(path, req, true)
 }
 
 func TestGeetestValidate(t *testing.T) {
@@ -321,7 +332,7 @@ func BenchmarkRSALogin(b *testing.B) {
 			Nonce: utils.RandNonce(),
 			Plan:  int64(2),
 		}
-		PostByRSA(path, req)
+		PostByRSA(path, req, true)
 	}
 }
 

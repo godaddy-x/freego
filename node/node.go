@@ -6,7 +6,7 @@ import (
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/node/common"
 	"github.com/godaddy-x/freego/utils"
-	"github.com/godaddy-x/freego/utils/gorsa"
+	"github.com/godaddy-x/freego/utils/crypto"
 	"github.com/godaddy-x/freego/utils/jwt"
 	"github.com/godaddy-x/freego/zlog"
 	"github.com/valyala/fasthttp"
@@ -102,7 +102,8 @@ type Context struct {
 	Response      *Response
 	filterChain   *filterChain
 	RouterConfig  *RouterConfig
-	RSA           gorsa.RSA
+	RSA           crypto.Cipher
+	EnableECC     bool
 	PermConfig    func(uid, url string, isRole ...bool) ([]int64, Permission, error)
 	Storage       map[string]interface{}
 	postCompleted bool

@@ -6,7 +6,7 @@ import (
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/utils"
-	"github.com/godaddy-x/freego/utils/gorsa"
+	"github.com/godaddy-x/freego/utils/crypto"
 	"github.com/godaddy-x/freego/utils/jwt"
 	"github.com/godaddy-x/freego/zlog"
 	"github.com/valyala/fasthttp"
@@ -56,7 +56,11 @@ func (self *HttpNode) StartServer(addr string) {
 			zlog.Printf("cache service has been started successful")
 		}
 		if self.Context.RSA != nil {
-			zlog.Printf("RSA certificate service has been started successful")
+			if self.Context.EnableECC {
+				zlog.Printf("ECC certificate service has been started successful")
+			} else {
+				zlog.Printf("RSA certificate service has been started successful")
+			}
 		}
 		if err := createFilterChain(); err != nil {
 			panic("http service create filter chain failed")
@@ -72,7 +76,7 @@ func (self *HttpNode) StartServer(addr string) {
 func (self *HttpNode) checkContextReady(path string, routerConfig *RouterConfig) {
 	self.readyContext()
 	self.AddCache(nil)
-	self.AddRSA(nil)
+	self.AddCipher(nil)
 	self.addRouterConfig(path, routerConfig)
 	self.newRouter()
 }
@@ -135,17 +139,25 @@ func (self *HttpNode) AddCache(aware CacheAware) {
 	}
 }
 
-func (self *HttpNode) AddRSA(rsa gorsa.RSA) {
+func (self *HttpNode) AddCipher(cipher crypto.Cipher) {
 	self.readyContext()
 	if self.Context.RSA == nil {
-		if rsa == nil {
-			defaultRSA := &gorsa.RsaObj{}
-			if err := defaultRSA.CreateRsa2048(); err != nil {
-				panic("RSA certificate generation failed")
+		if cipher == nil {
+			if self.Context.EnableECC {
+				defaultECC := &crypto.EccObj{}
+				if err := defaultECC.CreateS256ECC(); err != nil {
+					panic("ECC certificate generation failed")
+				}
+				cipher = defaultECC
+			} else {
+				defaultRSA := &crypto.RsaObj{}
+				if err := defaultRSA.CreateRsa2048(); err != nil {
+					panic("RSA certificate generation failed")
+				}
+				cipher = defaultRSA
 			}
-			rsa = defaultRSA
 		}
-		self.Context.RSA = rsa
+		self.Context.RSA = cipher
 	}
 }
 
@@ -180,6 +192,11 @@ func (self *HttpNode) AddJwtConfig(config jwt.JwtConfig) {
 	jwtConfig.TokenTyp = config.TokenTyp
 	jwtConfig.TokenKey = config.TokenKey
 	jwtConfig.TokenExp = config.TokenExp
+}
+
+func (self *HttpNode) EnableECC(enable bool) {
+	self.readyContext()
+	self.Context.EnableECC = enable
 }
 
 func (self *HttpNode) ClearFilterChain() {

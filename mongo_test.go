@@ -171,11 +171,14 @@ func TestMongoFindList(t *testing.T) {
 	defer db.Close()
 	l := utils.UnixMilli()
 	var o []*OwWallet
-	sql := sqlc.M(&OwWallet{}).Orderby("id", sqlc.DESC_).Limit(0, 2)
+	sql := sqlc.M(&OwWallet{}).Collation(&sqlc.Collation{NumericOrdering: true}).Orderby("keyJson", sqlc.ASC_).Limit(0, 3)
 	if err := db.FindList(sql, &o); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println(sql.Pagination)
+	for _, v := range o {
+		fmt.Println("result: ", v.Id, v.Keystore)
+	}
 	fmt.Println("cost: ", utils.UnixMilli()-l)
 }
 
