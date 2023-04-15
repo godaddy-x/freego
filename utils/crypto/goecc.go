@@ -2,9 +2,7 @@ package crypto
 
 import (
 	"encoding/base64"
-	"encoding/hex"
 	"errors"
-	"fmt"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"unsafe"
 )
@@ -27,7 +25,6 @@ func (self *EccObj) CreateS256ECC() error {
 	self.publicKey = prk.PubKey()
 	self.PrivateKeyBase64 = base64.StdEncoding.EncodeToString(prkBs)
 	self.PublicKeyBase64 = base64.StdEncoding.EncodeToString(pubBs)
-	fmt.Println("--", hex.EncodeToString(pubBs))
 	return nil
 }
 
