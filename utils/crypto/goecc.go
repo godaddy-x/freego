@@ -1,29 +1,29 @@
 package crypto
 
 import (
+	"crypto/ecdsa"
 	"encoding/base64"
 	"errors"
-	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/godaddy-x/freego/utils/ecc"
 	"unsafe"
 )
 
 type EccObj struct {
-	privateKey       *btcec.PrivateKey
-	publicKey        *btcec.PublicKey
+	privateKey       *ecdsa.PrivateKey
+	publicKey        *ecdsa.PublicKey
 	PrivateKeyBase64 string
 	PublicKeyBase64  string
 }
 
 func (self *EccObj) CreateS256ECC() error {
-	prk, _, err := CreateECC()
+	prk, err := ecc.CreateECDSA()
 	if err != nil {
 		return err
 	}
-	prkBs := prk.Serialize()
-	pubBs := prk.PubKey().SerializeUncompressed()
+	_, pubBs, err := ecc.GetKeyBytes(nil, &prk.PublicKey)
 	self.privateKey = prk
-	self.publicKey = prk.PubKey()
-	self.PrivateKeyBase64 = base64.StdEncoding.EncodeToString(prkBs)
+	self.publicKey = &prk.PublicKey
+	//self.PrivateKeyBase64 = base64.StdEncoding.EncodeToString(prkBs)
 	self.PublicKeyBase64 = base64.StdEncoding.EncodeToString(pubBs)
 	return nil
 }
@@ -47,7 +47,7 @@ func (self *EccObj) Decrypt(msg string) (string, error) {
 	if err != nil {
 		return "", errors.New("base64 parse failed")
 	}
-	r, err := ECCDecrypt(self.privateKey, bs)
+	r, err := ecc.Decrypt(self.privateKey, bs)
 	if err != nil {
 		return "", err
 	}

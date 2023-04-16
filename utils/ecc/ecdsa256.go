@@ -1,16 +1,19 @@
-package crypto
+package ecc
 
 import (
 	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/sha512"
+	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
-	"github.com/btcsuite/btcd/btcec/v2"
 	"io"
 )
 
@@ -23,42 +26,22 @@ const (
 	secLen = 81
 )
 
-func loadPublicKey(b []byte) (*btcec.PublicKey, error) {
-	if len(b) != pLen {
-		return nil, errors.New("publicKey invalid")
-	}
-	pub, err := btcec.ParsePubKey(b)
-	if err != nil {
-		return nil, errors.New("bad publicKey")
-	}
-	return pub, nil
-}
-
-func LoadBase64PublicKey(b string) (*btcec.PublicKey, error) {
-	bs, err := base64.StdEncoding.DecodeString(b)
-	if err != nil {
-		return nil, err
-	}
-	return loadPublicKey(bs)
-}
-
-func loadPrivateKey(b []byte) (*btcec.PrivateKey, error) {
-	prk, _ := btcec.PrivKeyFromBytes(b)
-	return prk, nil
-}
-
-func LoadBase64PrivateKey(b string) (*btcec.PrivateKey, error) {
-	bs, err := base64.StdEncoding.DecodeString(b)
-	if err != nil {
-		return nil, err
-	}
-	return loadPrivateKey(bs)
-}
+var (
+	defaultCurve = elliptic.P256()
+)
 
 func hmac256(key, msg []byte) []byte {
 	h := hmac.New(sha256.New, key)
 	h.Write(msg)
 	return h.Sum(nil)
+}
+
+func hash512(msg []byte) []byte {
+	h := sha512.New()
+	h.Write(msg)
+	r := h.Sum(nil)
+	h.Reset()
+	return r
 }
 
 func concat(iv, pub, text []byte) []byte {
@@ -69,7 +52,7 @@ func concat(iv, pub, text []byte) []byte {
 	return ct
 }
 
-func concatResult(pub, iv, mac, text []byte) []byte {
+func concatKDF(pub, iv, mac, text []byte) []byte {
 	ct := make([]byte, len(pub)+len(iv)+len(mac)+len(text))
 	copy(ct, pub)
 	copy(ct[len(pub):], iv)
@@ -124,33 +107,100 @@ func aes256CbcEncrypt(iv, key, plaintext []byte) ([]byte, error) {
 	return ciphertext, nil
 }
 
-func CreateECC() (*btcec.PrivateKey, *btcec.PublicKey, error) {
-	prk, err := btcec.NewPrivateKey()
+func aes256CtrEncrypt(iv, key, plaintext []byte) (ct []byte, err error) {
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, err
+	}
+	stream := cipher.NewCTR(block, iv)
+	dst := make([]byte, len(plaintext))
+	stream.XORKeyStream(dst, plaintext)
+	return dst, nil
+}
+
+func aes256CtrDecrypt(iv, key, ciphertext []byte) (m []byte, err error) {
+	return aes256CtrEncrypt(iv, key, ciphertext)
+}
+
+func CreateECDSA() (*ecdsa.PrivateKey, error) {
+	prk, err := ecdsa.GenerateKey(defaultCurve, rand.Reader)
+	if err != nil {
+		return nil, err
+	}
+	return prk, nil
+}
+
+func loadPrivateKey(h string) (*ecdsa.PrivateKey, error) {
+	b, err := hex.DecodeString(h)
+	if err != nil {
+		return nil, errors.New("bad private key")
+	}
+	prk, err := x509.ParseECPrivateKey(b)
+	if err != nil {
+		return nil, errors.New("parse private key failed")
+	}
+	return prk, nil
+}
+
+func LoadPublicKey(h []byte) (*ecdsa.PublicKey, error) {
+	if len(h) != pLen {
+		return nil, errors.New("publicKey invalid")
+	}
+	x, y := elliptic.Unmarshal(defaultCurve, h)
+	if x == nil || y == nil {
+		return nil, errors.New("bad point format")
+	}
+	return &ecdsa.PublicKey{Curve: defaultCurve, X: x, Y: y}, nil
+}
+
+func LoadBase64PublicKey(b64 string) (*ecdsa.PublicKey, []byte, error) {
+	b, err := base64.StdEncoding.DecodeString(b64)
 	if err != nil {
 		return nil, nil, err
 	}
-	return prk, prk.PubKey(), nil
+	pub, err := LoadPublicKey(b)
+	if err != nil {
+		return nil, nil, err
+	}
+	pubBs := elliptic.Marshal(defaultCurve, pub.X, pub.Y)
+	return pub, pubBs, nil
 }
 
-func ECCEncrypt(publicTo, message []byte) ([]byte, error) {
+func GetKeyBytes(prk *ecdsa.PrivateKey, pub *ecdsa.PublicKey) ([]byte, []byte, error) {
+	var err error
+	var prkBs, pubBs []byte
+	if prk != nil {
+		prkBs, err = x509.MarshalECPrivateKey(prk)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	if pub != nil {
+		pubBs = elliptic.Marshal(defaultCurve, pub.X, pub.Y)
+	}
+	return prkBs, pubBs, nil
+}
+
+func Encrypt(publicTo, message []byte) ([]byte, error) {
 	if len(publicTo) != pLen {
 		return nil, errors.New("bad public key")
 	}
-	pub, err := loadPublicKey(publicTo)
+	pub, err := LoadPublicKey(publicTo)
 	if err != nil {
 		return nil, errors.New("public key invalid")
 	}
 	// temp private key
-	prv, err := btcec.NewPrivateKey()
+	prk, err := CreateECDSA()
 	if err != nil {
 		return nil, err
 	}
-	sharedKey := btcec.GenerateSharedSecret(prv, pub)
-	if sharedKey == nil || len(sharedKey) == 0 {
+
+	sharedKey, _ := defaultCurve.ScalarMult(pub.X, pub.Y, prk.D.Bytes())
+	if sharedKey == nil || len(sharedKey.Bytes()) == 0 {
 		return nil, errors.New("shared failed")
 	}
 
-	sharedKeyHash := sha512.Sum512(sharedKey)
+	sharedKeyHash := hash512(sharedKey.Bytes())
 	macKey := sharedKeyHash[mLen:]
 	encryptionKey := sharedKeyHash[0:mLen]
 
@@ -164,35 +214,40 @@ func ECCEncrypt(publicTo, message []byte) ([]byte, error) {
 		return nil, errors.New("encrypt failed")
 	}
 
-	ephemPublicKey := prv.PubKey().SerializeUncompressed()
+	_, ephemPublicKey, err := GetKeyBytes(nil, &prk.PublicKey)
+	if err != nil {
+		return nil, errors.New("temp public key invalid")
+	}
 	hashData := concat(iv, ephemPublicKey, ciphertext)
 	realMac := hmac256(macKey, hashData)
 
-	return concatResult(ephemPublicKey, iv, realMac, ciphertext), nil
+	return concatKDF(ephemPublicKey, iv, realMac, ciphertext), nil
 }
 
-func ECCDecrypt(privateKey *btcec.PrivateKey, bs []byte) ([]byte, error) {
-	if len(bs) <= minLen {
-		return nil, errors.New("message invalid")
+func Decrypt(privateKey *ecdsa.PrivateKey, msg []byte) ([]byte, error) {
+	if len(msg) <= minLen {
+		return nil, errors.New("bad msg data")
 	}
-	ephemPublicKey := bs[0:pLen]
-	clientPublicKey, err := loadPublicKey(ephemPublicKey)
+
+	ephemPublicKey := msg[0:pLen]
+	pub, err := LoadPublicKey(ephemPublicKey)
 	if err != nil {
 		return nil, errors.New("bad public key")
 	}
 
-	sharedKey := btcec.GenerateSharedSecret(privateKey, clientPublicKey)
-	if sharedKey == nil || len(sharedKey) == 0 {
+	sharedKey, _ := defaultCurve.ScalarMult(pub.X, pub.Y, privateKey.D.Bytes())
+	if sharedKey == nil || len(sharedKey.Bytes()) == 0 {
 		return nil, errors.New("shared failed")
 	}
 
-	sharedKeyHash := sha512.Sum512(sharedKey)
+	sharedKeyHash := hash512(sharedKey.Bytes())
+
 	macKey := sharedKeyHash[mLen:]
 	encryptionKey := sharedKeyHash[0:mLen]
 
-	iv := bs[pLen:secLen]
-	mac := bs[secLen:minLen]
-	ciphertext := bs[minLen:]
+	iv := msg[pLen:secLen]
+	mac := msg[secLen:minLen]
+	ciphertext := msg[minLen:]
 
 	hashData := concat(iv, ephemPublicKey, ciphertext)
 

@@ -27,6 +27,7 @@ func NewHTTP() *MyWebNode {
 
 func main()  {
 	my := NewHTTP()
+	my.EnableECC(true) // use ecc, default rsa
 	my.GET("/pubkey", my.pubkey, &node.RouterConfig{Guest: true})
 	my.StartServer(":8090")
 }
@@ -98,152 +99,17 @@ BenchmarkPubkey-8          14887             79710 ns/op             517 B/op   
 BenchmarkPubkey-8          15061             79666 ns/op             516 B/op          1 allocs/op
 ```
 
-#### 3. Create JWT&RSA login demo
+#### 3. Create JWT&ECC login demo
 
-```
-func (self *MyWebNode) login(ctx *node.Context) error {
-	subject := &jwt.Subject{}
-	config := ctx.GetJwtConfig()
-	token := subject.Create(utils.GetSnowFlakeStrID()).Dev("APP").Generate(config)
-	secret := jwt.GetTokenSecret(token, config.TokenKey)
-	return self.Json(ctx, map[string]interface{}{"token": token, "secret": secret})
-}
-
-// client request demo
-func getServerPubkey() string {
-	reqcli := fasthttp.AcquireRequest()
-	reqcli.Header.SetMethod("GET")
-	reqcli.SetRequestURI(domain + "/pubkey")
-	defer fasthttp.ReleaseRequest(reqcli)
-	respcli := fasthttp.AcquireResponse()
-	defer fasthttp.ReleaseResponse(respcli)
-	if _, b, err := fasthttp.Get(nil, domain+"/pubkey"); err != nil {
-		panic(err)
-	} else {
-		return utils.Bytes2Str(b)
-	}
-}
-
-func ToPostBy(path string, req *node.JsonBody) {
-	if len(srvPubkeyBase64) == 0 {
-		srvPubkeyBase64 = getServerPubkey()
-	}
-	if req.Plan == 0 {
-		d := utils.Base64URLEncode(req.Data.([]byte))
-		req.Data = d
-		output("Base64数据: ", req.Data)
-	} else if req.Plan == 1 {
-		d, err := utils.AesEncrypt(req.Data.([]byte), token_secret, utils.AddStr(req.Nonce, req.Time))
-		if err != nil {
-			panic(err)
-		}
-		req.Data = d
-		output("AES加密数据: ", req.Data)
-	} else if req.Plan == 2 {
-		newRsa := &gorsa.RsaObj{}
-		if err := newRsa.LoadRsaPemFileBase64(srvPubkeyBase64); err != nil {
-			panic(err)
-		}
-		rsaData, err := newRsa.Encrypt(req.Data.([]byte))
-		if err != nil {
-			panic(err)
-		}
-		req.Data = rsaData
-		output("RSA加密数据: ", req.Data)
-	}
-	secret := token_secret
-	if req.Plan == 2 {
-		secret = srvPubkeyBase64
-		output("nonce secret:", pubkey)
-	}
-	req.Sign = utils.HMAC_SHA256(utils.AddStr(path, req.Data.(string), req.Nonce, req.Time, req.Plan), secret, true)
-	bytesData, err := utils.JsonMarshal(req)
-	if err != nil {
-		panic(err)
-	}
-	output("请求示例: ")
-	output(utils.Bytes2Str(bytesData))
-
-	reqcli := fasthttp.AcquireRequest()
-	reqcli.Header.SetContentType("application/json;charset=UTF-8")
-	reqcli.Header.Set("Authorization", access_token)
-	reqcli.Header.SetMethod("POST")
-	reqcli.SetRequestURI(domain + path)
-	reqcli.SetBody(bytesData)
-	defer fasthttp.ReleaseRequest(reqcli)
-
-	respcli := fasthttp.AcquireResponse()
-	defer fasthttp.ReleaseResponse(respcli)
-
-	if err := fasthttp.DoTimeout(reqcli, respcli, 5*time.Second); err != nil {
-		panic(err)
-	}
-
-	respBytes := respcli.Body()
-
-	output("响应示例: ")
-	output(utils.Bytes2Str(respBytes))
-	respData := &node.JsonResp{}
-	if err := utils.JsonUnmarshal(respBytes, &respData); err != nil {
-		panic(err)
-	}
-	if respData.Code == 200 {
-		key := token_secret
-		if respData.Plan == 2 {
-			key = pubkey
-		}
-		s := utils.HMAC_SHA256(utils.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan), key, true)
-		output("****************** Response Signature Verify:", s == respData.Sign, "******************")
-		if respData.Plan == 0 {
-			dec := utils.Base64URLDecode(respData.Data)
-			output("Base64数据明文: ", string(dec))
-		}
-		if respData.Plan == 1 {
-			dec, err := utils.AesDecrypt(respData.Data.(string), key, utils.AddStr(respData.Nonce, respData.Time))
-			if err != nil {
-				panic(err)
-			}
-			respData.Data = dec
-			output("AES数据明文: ", respData.Data)
-		}
-		if respData.Plan == 2 {
-			dec, err := utils.AesDecrypt(respData.Data.(string), pubkey, pubkey)
-			if err != nil {
-				panic(err)
-			}
-			output("LOGIN数据明文: ", dec)
-		}
-	}
-}
-
-// go test
-func TestRSALogin(t *testing.T) {
-	data, _ := utils.JsonMarshal(map[string]string{"username": "1234567890123456", "password": "1234567890123456", "pubkey": pubkey})
-	path := "/login"
-	req := &node.JsonBody{
-		Data:  data,
-		Time:  utils.TimeSecond(),
-		Nonce: utils.RandNonce(),
-		Plan:  int64(2),
-	}
-	ToPostBy(path, req)
-}
-
+``` see @http_test.go
 // Benchmark test 
-goos: darwin
+goos: windows
 goarch: amd64
-cpu: Intel(R) Core(TM) i7-6820HQ CPU @ 2.70GHz
+pkg: github.com/godaddy-x/freego
+cpu: 12th Gen Intel(R) Core(TM) i5-12400F
 BenchmarkRSALogin
-BenchmarkRSALogin-8         2408            524652 ns/op            1018 B/op         15 allocs/op
-BenchmarkRSALogin-8         2397            495642 ns/op            1016 B/op         15 allocs/op
-BenchmarkRSALogin-8         2090            498629 ns/op            1011 B/op         15 allocs/op
-BenchmarkRSALogin-8         2053            500789 ns/op            1015 B/op         15 allocs/op
-BenchmarkRSALogin-8         2094            499364 ns/op            1017 B/op         15 allocs/op
-BenchmarkRSALogin-8         2409            495365 ns/op            1016 B/op         15 allocs/op
-BenchmarkRSALogin-8         2028            505224 ns/op            1017 B/op         15 allocs/op
-BenchmarkRSALogin-8         2079            501502 ns/op            1017 B/op         15 allocs/op
-BenchmarkRSALogin-8         2150            496770 ns/op            1013 B/op         15 allocs/op
-BenchmarkRSALogin-8         2020            500296 ns/op            1019 B/op         15 allocs/op
+BenchmarkRSALogin-12                4058            293012 ns/op
+PASS
 ```
 
 #### 4. Create simple ORM demo

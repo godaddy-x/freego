@@ -2,10 +2,10 @@ package main
 
 import (
 	"encoding/base64"
-	"fmt"
 	"github.com/godaddy-x/freego/node"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/crypto"
+	"github.com/godaddy-x/freego/utils/ecc"
 	"github.com/valyala/fasthttp"
 	"testing"
 	"time"
@@ -28,7 +28,7 @@ var clientSecretKey = utils.MD5(utils.RandStr(16), true)
 var serverPublicKey string
 
 func output(a ...interface{}) {
-	fmt.Println(a...)
+	//fmt.Println(a...)
 }
 
 func getServerPublicKey() string {
@@ -165,11 +165,11 @@ func PostByRSA(path string, req *node.JsonBody, useECC bool) {
 	var randomCode string
 	serverPublicKey := getServerPublicKey()
 	if useECC {
-		pub, err := crypto.LoadBase64PublicKey(serverPublicKey)
+		_, pubBs, err := ecc.LoadBase64PublicKey(serverPublicKey)
 		if err != nil {
 			panic(err)
 		}
-		r, err := crypto.ECCEncrypt(pub.SerializeUncompressed(), utils.Str2Bytes(clientSecretKey))
+		r, err := ecc.Encrypt(pubBs, utils.Str2Bytes(clientSecretKey))
 		if err != nil {
 			panic(err)
 		}
