@@ -89,7 +89,7 @@ const derivePublic = function (curve, publicKey) {
  * @param {Buffer} msg
  * @returns String(base64)
  */
-export const EciesEncrypt = async function (pub, msg) {
+export const encrypt = async function (pub, msg) {
     const EC = elliptic.ec
     const curve = new EC('p256')
     const publicKey = curve.keyFromPublic(pub, 'hex')
@@ -111,4 +111,24 @@ export const EciesEncrypt = async function (pub, msg) {
 
     const response = Buffer.concat([ephemPublicKey, iv, realMac, ciphertext]).toString('base64')
     return response
+}
+
+/**
+ * @param {String} data
+ * @param {Base64} publicKey
+ * @returns String(base64)
+ */
+export const encryptByBase64Public = async function (publicKey, data) {
+    const result = await encrypt(Buffer.from(publicKey, 'base64').toString('hex'), Buffer.from(data))
+    return result
+}
+
+/**
+ * @param {String} data
+ * @param {Hex} publicKey
+ * @returns String(base64)
+ */
+export const encryptByHexPublic = async function (publicKey, data) {
+    const result = await encrypt(publicKey, Buffer.from(data))
+    return result
 }
