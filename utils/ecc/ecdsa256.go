@@ -15,6 +15,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"unsafe"
 )
 
 const (
@@ -181,6 +182,22 @@ func GetKeyBytes(prk *ecdsa.PrivateKey, pub *ecdsa.PublicKey) ([]byte, []byte, e
 	return prkBs, pubBs, nil
 }
 
+func hexToBytes(s string) []byte {
+	x := (*[2]uintptr)(unsafe.Pointer(&s))
+	h := [3]uintptr{x[0], x[1], x[1]}
+	return *(*[]byte)(unsafe.Pointer(&h))
+}
+
+func fillSharedKeyHex(b []byte) []byte {
+	sharedKeyHex := hex.EncodeToString(b)
+	if len(sharedKeyHex) < 64 {
+		for i := 0; i < 64-len(sharedKeyHex); i++ {
+			sharedKeyHex = `0` + sharedKeyHex
+		}
+	}
+	return hexToBytes(sharedKeyHex)
+}
+
 func Encrypt(publicTo, message []byte) ([]byte, error) {
 	if len(publicTo) != pLen {
 		return nil, errors.New("bad public key")
@@ -200,7 +217,8 @@ func Encrypt(publicTo, message []byte) ([]byte, error) {
 		return nil, errors.New("shared failed")
 	}
 
-	sharedKeyHash := hash512(sharedKey.Bytes())
+	sharedKeyHex := fillSharedKeyHex(sharedKey.Bytes())
+	sharedKeyHash := hash512(sharedKeyHex)
 	macKey := sharedKeyHash[mLen:]
 	encryptionKey := sharedKeyHash[0:mLen]
 
@@ -240,7 +258,8 @@ func Decrypt(privateKey *ecdsa.PrivateKey, msg []byte) ([]byte, error) {
 		return nil, errors.New("shared failed")
 	}
 
-	sharedKeyHash := hash512(sharedKey.Bytes())
+	sharedKeyHex := fillSharedKeyHex(sharedKey.Bytes())
+	sharedKeyHash := hash512(sharedKeyHex)
 
 	macKey := sharedKeyHash[mLen:]
 	encryptionKey := sharedKeyHash[0:mLen]
