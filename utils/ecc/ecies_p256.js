@@ -1,16 +1,27 @@
 /**
+ * @author JQ
+ * @elliptic 6.5.4
  * @ecies AES-CBC
  * @curve P256
- * @elliptic 6.5.4
  */
 import * as elliptic from 'elliptic'
 
+/**
+ * @param {int} len
+ * @returns Buffer
+ */
 const randomBytes = async function (len) {
     const bytes = new Uint8Array(len)
     await window.crypto.getRandomValues(bytes)
     return Buffer.from(bytes)
 }
 
+/**
+ * @param {Buffer} iv
+ * @param {Buffer} key
+ * @param {Buffer} plaintext
+ * @returns Buffer
+ */
 const aes256CbcEncrypt = async function (iv, key, plaintext) {
     const algorithm = { name: 'AES-CBC', iv: iv }
     const keyObj = await window.crypto.subtle.importKey('raw', key, algorithm, false, ['encrypt'])
@@ -21,6 +32,10 @@ const aes256CbcEncrypt = async function (iv, key, plaintext) {
     return Buffer.from(encryptedData, 'hex')
 }
 
+/**
+ * @param {Hex} data
+ * @returns Buffer
+ */
 const sha512 = async function (data) {
     const hashBuffer = await window.crypto.subtle.digest('SHA-512', Buffer.from(data, 'hex'))
     const hashArray = Array.from(new Uint8Array(hashBuffer))
@@ -28,6 +43,11 @@ const sha512 = async function (data) {
     return Buffer.from(hashValue, 'hex')
 }
 
+/**
+ * @param {Buffer} data
+ * @param {Buffer} key
+ * @returns Buffer
+ */
 const hmac256 = async function (data, key) {
     const keyImported = await window.crypto.subtle.importKey(
         'raw',
@@ -46,6 +66,11 @@ const hmac256 = async function (data, key) {
     return Buffer.from(hmacValue, 'hex')
 }
 
+/**
+ * @param {Buffer} pub
+ * @param {Buffer} msg
+ * @returns String(base64)
+ */
 export const EciesEncrypt = async function (pub, msg) {
     const EC = elliptic.ec
     const curve = new EC('p256')
