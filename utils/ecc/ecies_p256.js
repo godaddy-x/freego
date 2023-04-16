@@ -67,7 +67,7 @@ const hmac256 = async function (data, key) {
 }
 
 /**
- * @param {Buffer} pub
+ * @param {Hex} pub
  * @param {Buffer} msg
  * @returns String(base64)
  */
