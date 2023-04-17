@@ -2,10 +2,11 @@ package main
 
 import (
 	"encoding/base64"
+	"fmt"
+	"github.com/godaddy-x/eccrypto"
 	"github.com/godaddy-x/freego/node"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/crypto"
-	"github.com/godaddy-x/freego/utils/ecc"
 	"github.com/valyala/fasthttp"
 	"testing"
 	"time"
@@ -28,7 +29,7 @@ var clientSecretKey = utils.MD5(utils.RandStr(16), true)
 var serverPublicKey string
 
 func output(a ...interface{}) {
-	//fmt.Println(a...)
+	fmt.Println(a...)
 }
 
 func getServerPublicKey() string {

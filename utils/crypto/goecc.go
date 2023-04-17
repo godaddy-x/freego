@@ -4,7 +4,7 @@ import (
 	"crypto/ecdsa"
 	"encoding/base64"
 	"errors"
-	"github.com/godaddy-x/freego/utils/ecc"
+	"github.com/godaddy-x/eccrypto"
 	"unsafe"
 )
 
@@ -20,7 +20,7 @@ func (self *EccObj) CreateS256ECC() error {
 	if err != nil {
 		return err
 	}
-	_, pubBs, err := ecc.GetKeyBytes(nil, &prk.PublicKey)
+	_, pubBs, err := ecc.GetObjectBytes(nil, &prk.PublicKey)
 	self.privateKey = prk
 	self.publicKey = &prk.PublicKey
 	//self.PrivateKeyBase64 = base64.StdEncoding.EncodeToString(prkBs)

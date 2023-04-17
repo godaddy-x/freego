@@ -3,6 +3,7 @@ module github.com/godaddy-x/freego
 go 1.18
 
 require (
+	github.com/godaddy-x/eccrypto v1.1.0
 	github.com/Shopify/sarama v1.35.0
 	github.com/andybalholm/cascadia v1.3.1
 	github.com/buaazp/fasthttprouter v0.1.1
@@ -33,6 +34,7 @@ require (
 	github.com/eapache/go-xerial-snappy v0.0.0-20180814174437-776d5712da21 // indirect
 	github.com/eapache/queue v1.1.0 // indirect
 	github.com/fatih/color v1.9.0 // indirect
+	github.com/godaddy-x/eccrypto v1.1.0 // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/hashicorp/errwrap v1.0.0 // indirect
