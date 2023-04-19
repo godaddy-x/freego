@@ -44,7 +44,7 @@ type Cache interface {
 	// 发送队列数据
 	Rpush(key string, val interface{}) error
 	// 发送订阅数据
-	Publish(key string, val interface{}) error
+	Publish(key string, val interface{}, try ...int) (bool, error)
 	// 监听订阅数据
 	Subscribe(key string, timeout int, call func(msg string) (bool, error)) error
 	// 发送lua脚本
@@ -125,8 +125,8 @@ func (self *CacheManager) Rpush(key string, val interface{}) error {
 	return utils.Error("No implementation method [Rpush] was found")
 }
 
-func (self *CacheManager) Publish(key string, val interface{}) error {
-	return utils.Error("No implementation method [Publish] was found")
+func (self *CacheManager) Publish(key string, val interface{}, try ...int) (bool, error) {
+	return false, utils.Error("No implementation method [Publish] was found")
 }
 
 // exp second
