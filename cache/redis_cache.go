@@ -281,17 +281,27 @@ func (self *RedisManager) Rpush(key string, val interface{}) error {
 	return nil
 }
 
-func (self *RedisManager) Publish(key string, val interface{}) error {
+func (self *RedisManager) Publish(key string, val interface{}, try ...int) (bool, error) {
 	if val == nil || len(key) == 0 {
-		return nil
+		return false, nil
 	}
 	client := self.Pool.Get()
 	defer self.Close(client)
-	_, err := client.Do("PUBLISH", key, utils.AnyToStr(val))
-	if err != nil {
-		return err
+	trySend := 5
+	if try != nil && try[0] > 0 {
+		trySend = try[0]
 	}
-	return nil
+	for i := 0; i < trySend; i++ {
+		reply, err := client.Do("PUBLISH", key, utils.AnyToStr(val))
+		if err != nil {
+			return false, err
+		}
+		if r, b := reply.(int64); b && r > 0 {
+			return true, nil
+		}
+		time.Sleep(time.Duration(100*i) * time.Millisecond)
+	}
+	return false, nil
 }
 
 func (self *RedisManager) Subscribe(key string, expSecond int, call func(msg string) (bool, error)) error {

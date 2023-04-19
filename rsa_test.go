@@ -18,26 +18,26 @@ const testmsg = "ABCDEFGdsfdfgfg中阿斯蒂芬阿斯顿发的方式噶地方官
 const prikeybase64 = "LS0tLS1CRUdJTiBSU0EgUFJJVkFURSBLRVktLS0tLQpNSUlDWEFJQkFBS0JnUUMyY05IUHlqSDdPUFM2WjJIcHQ2YmZ5UEFKejZ3aXh5Ykxxbm5EVWU5NVBWd2FHdTFWClhLc0EyOU95L1R4ZG1BbmRaSkFySFJLYlNnNURvTEVQY3BYVEpGSitFaGJtME1ZeWV2THVZYzVSWGQ3TkltbUYKWEpSMFlZcHZPZmhEZE5FbXNWS3R4UXVoazBsREhmOWJvREFKTWVPb2hwdlBWanBnQmVZQW9aK1VCd0lEQVFBQgpBb0dBZjZ0M3gvZHcvcU1lNzRzRlErN1hBbWUxUXNoblozY0NPU2cxU1cvL0sxSzdMekdFd0dXMjdVVG9ZcXRBCklTY1NVREhkaWE0d3BTY3YwRGVWY0gvNVE3Y3A0U2t0RFRUNG1CWE5haGtpL3I5UDExSXI4MnEvemVDRXRTb2oKN0xFNWpVSG1jVXdvZ1B3MEdTRUhiNVQ0ZlJlV1M0QlpBUm5JWkY3M0xTVlVnNEVDUVFESW1nSTJNc1V1NU1QWQpmS2V4S0hIWjlISDdleHliaUt1ZkN3VjNaWHlldmJIRU9UcTJHSnpMbjMxK0l6VTlWc3hwU1VqL0RSeko3NFd4Cmo5LzdpWExuQWtFQTZOTGllNmdxOUQvSXBhczZLVGt4WThzbVBDaHhDNE9HWmtxa25JM1pTS1pub2d2SE1wTVIKeXdvdjl6bkhSR2QzSzZjZHhUbGY2SUpleFV1cWs0WFI0UUpBWTRXVXgxTFU1UGoxK1BlUE1xTkFLTVBQc05aWgpVUWl6TElxSlFiMEY0TE4zK0VQMFR0ZFRJdXFUbGZyZHRQclZHdjhTeWdhMVc3SUxnQlpESjBYL3pRSkJBTnJUCm90VXdxVGFxWUk3OWtZdS9XcUYrQmZEUzNmVkJhR2ZxVGk5cXowZU9SNmN4eE1iUEhoRWxBUkl2dHcrZTQ0NGUKNDBkRWR0VlUrM2dhZHpkeXRtRUNRRjF5ODNZWnkzdm9RNGtCNjFDcjJLUGxLQzJuenptYmFqVmRodWNZNVRnYwpUcVJEQjh4WXNXOHdjQ1Biek51em50cXYraEhnYkhsc3grMUpBNGxrS1lrPQotLS0tLUVORCBSU0EgUFJJVkFURSBLRVktLS0tLQo="
 const pubkeybase64 = "LS0tLS1CRUdJTiBSU0EgUFVCTElDSyBLRVktLS0tLQpNSUdKQW9HQkFMWncwYy9LTWZzNDlMcG5ZZW0zcHQvSThBblByQ0xISnN1cWVjTlI3M2s5WEJvYTdWVmNxd0RiCjA3TDlQRjJZQ2Qxa2tDc2RFcHRLRGtPZ3NROXlsZE1rVW40U0Z1YlF4ako2OHU1aHpsRmQzczBpYVlWY2xIUmgKaW04NStFTjAwU2F4VXEzRkM2R1RTVU1kLzF1Z01Ba3g0NmlHbTg5V09tQUY1Z0NobjVRSEFnTUJBQUU9Ci0tLS0tRU5EIFJTQSBQVUJMSUNLIEtFWS0tLS0tCg=="
 
-func getobj() *crypto.RsaObj {
-	obj := &crypto.RsaObj{}
-	if err := obj.LoadRsaFile(keyfile); err != nil {
-		panic(err)
-	}
-	return obj
-}
-
-var (
-	obj = getobj()
-)
+//func getobj() *crypto.RsaObj {
+//	obj := &crypto.RsaObj{}
+//	if err := obj.LoadRsaFile(keyfile); err != nil {
+//		panic(err)
+//	}
+//	return obj
+//}
+//
+//var (
+//	obj = getobj()
+//)
 
 func BenchmarkRSA(b *testing.B) {
 	b.StopTimer()
 	b.StartTimer()
 	for i := 0; i < b.N; i++ { //use b.N for looping
-		//obj := &gorsa.RsaObj{}
-		//if err := obj.LoadRsaKeyFileBase64(prikeybase64); err != nil {
-		//	panic(err)
-		//}
+		obj := &crypto.RsaObj{}
+		if err := obj.LoadRsaKeyFileBase64(prikeybase64); err != nil {
+			panic(err)
+		}
 		res, err := obj.Encrypt([]byte(testmsg))
 		if err != nil {
 			panic(err)

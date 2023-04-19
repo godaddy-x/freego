@@ -18,7 +18,7 @@ import (
 )
 
 func init() {
-	initMongoDB()
+	//initMongoDB()
 }
 
 // 智能合约

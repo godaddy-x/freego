@@ -22,14 +22,30 @@ func expectPushed(t *testing.T, c redis.PubSubConn, message string, expected int
 	}
 }
 
-func TestRedisSubscribe(t *testing.T) {
-	mgr, err := new(cache.RedisManager).Client()
+func TestRedisPublish(t *testing.T) {
+	mgr, err := cache.NewRedis()
 	if err != nil {
 		panic(err)
 	}
-	mgr.Subscribe(subkey, 0, func(msg string) (bool, error) {
-		fmt.Println("subscribe:", msg)
-		return false, nil
+	b, err := mgr.Publish("test_123456_uid", "uid_orderNo_success")
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("send success: ", b)
+}
+
+func TestRedisSubscribe(t *testing.T) {
+	mgr, err := cache.NewRedis()
+	if err != nil {
+		panic(err)
+	}
+	mgr.Subscribe("test_123456_uid", 5, func(msg string) (bool, error) {
+		if err != nil {
+			fmt.Println("read error: ", err)
+			return false, err
+		}
+		fmt.Println("read msg:", msg)
+		return true, nil
 	})
 }
 
@@ -42,16 +58,6 @@ func TestRedisSubscribe2(t *testing.T) {
 		fmt.Println("subscribe:", msg)
 		return false, nil
 	})
-}
-
-func TestRedisPublish(t *testing.T) {
-	mgr, err := new(cache.RedisManager).Client()
-	if err != nil {
-		panic(err)
-	}
-	if err := mgr.Publish(subkey, "objk111"); err != nil {
-		panic(err)
-	}
 }
 
 func TestRedisSpinLocker(t *testing.T) {
