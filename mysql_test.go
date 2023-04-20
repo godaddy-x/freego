@@ -20,16 +20,9 @@ func TestMysqlSave(t *testing.T) {
 	}
 	defer db.Close()
 	var vs []sqlc.Object
-	for i := 0; i < 20; i++ {
-		wallet := OwWallet{
-			AppID:        utils.MD5(utils.NextSID(), true),
-			WalletID:     utils.NextSID(),
-			PasswordType: 1,
-			Password:     "123456",
-			RootPath:     utils.AddStr("m/44'/88'/", i, "'"),
-			Alias:        utils.AddStr("hello_qtum_", i),
-			IsTrust:      0,
-			AuthKey:      "",
+	for i := 0; i < 1; i++ {
+		wallet := OwAuth{
+			Ctime: utils.UnixMilli(),
 		}
 		vs = append(vs, &wallet)
 	}
@@ -48,17 +41,12 @@ func TestMysqlUpdate(t *testing.T) {
 	}
 	defer db.Close()
 	var vs []sqlc.Object
-	for i := 0; i < 10; i++ {
-		wallet := OwWallet{
-			Id:           1570732354786295848,
-			AppID:        "123456",
-			WalletID:     utils.NextSID(),
-			PasswordType: 1,
-			Password:     "123456",
-			RootPath:     "m/44'/88'/0'",
-			Alias:        "hello_qtum111333",
-			IsTrust:      0,
-			AuthKey:      "",
+	for i := 0; i < 1; i++ {
+		wallet := OwAuth{
+			Id:     1649040212178763776,
+			Secret: "1111122",
+			Ctime:  utils.UnixMilli(),
+			Seed:   "3321",
 		}
 		vs = append(vs, &wallet)
 	}
@@ -77,7 +65,7 @@ func TestMysqlUpdateByCnd(t *testing.T) {
 	}
 	defer db.Close()
 	l := utils.UnixMilli()
-	if err := db.UpdateByCnd(sqlc.M(&OwWallet{}).Upset([]string{"password"}, "1111").Eq("id", 1570732354786295848)); err != nil {
+	if err := db.UpdateByCnd(sqlc.M(&OwAuth{}).Upset([]string{"seed", "cTime"}, "123456789", utils.Time2Str(utils.UnixMilli())).Eq("id", 1649040212178763776)); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println("cost: ", utils.UnixMilli()-l)
@@ -142,8 +130,8 @@ func TestMysqlFindList(t *testing.T) {
 	}
 	defer db.Close()
 	l := utils.UnixMilli()
-	var result []*OwWallet
-	if err := db.FindList(sqlc.M(&OwWallet{}).Orderby("id", sqlc.DESC_).Limit(1, 5), &result); err != nil {
+	var result []*OwAuth
+	if err := db.FindList(sqlc.M(&OwAuth{}).Orderby("id", sqlc.DESC_).Limit(1, 5), &result); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println("cost: ", utils.UnixMilli()-l)

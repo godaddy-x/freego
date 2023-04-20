@@ -11,6 +11,7 @@ var (
 )
 
 type FieldElem struct {
+	AutoId        bool
 	Primary       bool
 	Ignore        bool
 	IsDate        bool
@@ -31,6 +32,7 @@ type MdlDriver struct {
 	PkKind     reflect.Kind
 	PkName     string
 	PkBsonName string
+	AutoId     bool
 	PkType     string
 	FieldElem  []*FieldElem
 	Object     sqlc.Object
@@ -83,6 +85,10 @@ func ModelDriver(objects ...sqlc.Object) error {
 				if len(mg) > 0 && mg == sqlc.True {
 					md.ToMongo = true
 				}
+				auto := field.Tag.Get(sqlc.Auto)
+				if len(auto) > 0 && auto == sqlc.True {
+					md.AutoId = true
+				}
 			}
 			ignore := field.Tag.Get(sqlc.Ignore)
 			if len(ignore) > 0 && ignore == sqlc.True {
@@ -132,8 +138,8 @@ func GetValue(obj interface{}, elem *FieldElem) (interface{}, error) {
 	case reflect.Int64:
 		ret := utils.GetInt64(ptr)
 		if elem.IsDate {
-			if ret < 0 {
-				ret = 0
+			if ret <= 0 {
+				return "", nil
 			}
 			return utils.Time2Str(ret), nil
 		}

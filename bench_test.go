@@ -100,6 +100,27 @@ func (o *OwBlock) NewIndex() []sqlc.Index {
 	return nil
 }
 
+type OwAuth struct {
+	Id     int64  `json:"id" bson:"_id" auto:"true"`
+	Secret string `json:"secret" bson:"secret"`
+	Seed   string `json:"seed" bson:"seed"`
+	Ctime  int64  `json:"cTime" bson:"cTime" date:"true"`
+	Utime  int64  `json:"uTime" bson:"uTime" date:"true"`
+	State  int64  `json:"state" bson:"state"`
+}
+
+func (o *OwAuth) GetTable() string {
+	return "admin_auth_test"
+}
+
+func (o *OwAuth) NewObject() sqlc.Object {
+	return &OwAuth{}
+}
+
+func (o *OwAuth) NewIndex() []sqlc.Index {
+	return nil
+}
+
 // go build -gcflags=-m main.go
 // go tool pprof -http=":8081" .\cpuprofile.out
 // go test bench_test.go -bench .  -benchmem -count=5 -cpuprofile cpuprofile.out -memprofile memprofile.out
@@ -128,6 +149,7 @@ func initDriver() {
 		&OwWallet2{},
 		&OwBlock{},
 		&OwContract{},
+		&OwAuth{},
 	)
 }
 
