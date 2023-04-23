@@ -346,6 +346,9 @@ func (self *RDBManager) Save(data ...sqlc.Object) error {
 	} else {
 		stmt, err = self.Db.PrepareContext(ctx, prepare)
 	}
+	fpart.Reset()
+	vpart.Reset()
+	sqlbuf.Reset()
 	if err != nil {
 		return self.Error("[Mysql.Save] [ ", prepare, " ] prepare failed: ", err)
 	}
@@ -362,118 +365,6 @@ func (self *RDBManager) Save(data ...sqlc.Object) error {
 	}
 	return nil
 }
-
-//func (self *RDBManager) Update(data ...sqlc.Object) error {
-//	if data == nil || len(data) == 0 {
-//		return self.Error("[Mysql.Update] data is nil")
-//	}
-//	if len(data) > 2000 {
-//		return self.Error("[Mysql.Update] data length > 2000")
-//	}
-//	obv, ok := modelDrivers[data[0].GetTable()]
-//	if !ok {
-//		return self.Error("[Mysql.Update] registration object type not found [", data[0].GetTable(), "]")
-//	}
-//	parameter := make([]interface{}, 0, len(obv.FieldElem)*len(data))
-//	fpart := bytes.NewBuffer(make([]byte, 0, 45*len(data)*len(obv.FieldElem)))
-//	vpart := bytes.NewBuffer(make([]byte, 0, 32*len(data)))
-//	for _, vv := range obv.FieldElem { // 遍历对象字段
-//		if vv.Ignore {
-//			continue
-//		}
-//		fpart.WriteString(" ")
-//		fpart.WriteString(vv.FieldJsonName)
-//		fpart.WriteString("=case ")
-//		fpart.WriteString(obv.PkName)
-//		for _, v := range data {
-//			if vv.Primary {
-//				if vv.FieldKind == reflect.Int64 {
-//					lastInsertId := utils.GetInt64(utils.GetPtr(v, obv.PkOffset))
-//					if lastInsertId == 0 {
-//						return self.Error("[Mysql.Update] data object id is nil")
-//					}
-//					vpart.WriteString(strconv.FormatInt(lastInsertId, 10))
-//				} else if vv.FieldKind == reflect.String {
-//					lastInsertId := utils.GetString(utils.GetPtr(v, obv.PkOffset))
-//					if len(lastInsertId) == 0 {
-//						return self.Error("[Mysql.Update] data object id is nil")
-//					}
-//					vpart.WriteString("'")
-//					vpart.WriteString(lastInsertId)
-//					vpart.WriteString("'")
-//				} else {
-//					return utils.Error("only Int64 and string type IDs are supported")
-//				}
-//				vpart.WriteString(",")
-//			}
-//			if val, err := GetValue(v, vv); err != nil {
-//				zlog.Error("[Mysql.Update] parameter value acquisition failed", 0, zlog.String("field", vv.FieldName), zlog.AddError(err))
-//				return err
-//			} else {
-//				if vv.IsDate && val == "" {
-//					continue
-//				}
-//				parameter = append(parameter, val)
-//			}
-//			fpart.WriteString(" when ")
-//			if obv.PkKind == reflect.Int64 {
-//				fpart.WriteString(utils.AnyToStr(utils.GetInt64(utils.GetPtr(v, obv.PkOffset))))
-//			} else {
-//				fpart.WriteString("'")
-//				idstr := utils.GetString(utils.GetPtr(v, obv.PkOffset))
-//				if !utils.IsInt(idstr) {
-//					return utils.Error("id value invalid: ", idstr)
-//				}
-//				fpart.WriteString(idstr)
-//				fpart.WriteString("'")
-//			}
-//			fpart.WriteString(" then ? ")
-//		}
-//		fpart.WriteString("end,")
-//	}
-//	str1 := utils.Bytes2Str(fpart.Bytes())
-//	str2 := utils.Bytes2Str(vpart.Bytes())
-//	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str1)+len(str2)+64))
-//	sqlbuf.WriteString("update ")
-//	sqlbuf.WriteString(obv.TableName)
-//	sqlbuf.WriteString(" set ")
-//	sqlbuf.WriteString(utils.Substr(str1, 0, len(str1)-1))
-//	sqlbuf.WriteString(" where ")
-//	sqlbuf.WriteString(obv.PkName)
-//	sqlbuf.WriteString(" in (")
-//	sqlbuf.WriteString(utils.Substr(str2, 0, len(str2)-1))
-//	sqlbuf.WriteString(")")
-//
-//	prepare := utils.Bytes2Str(sqlbuf.Bytes())
-//	if zlog.IsDebug() {
-//		defer zlog.Debug("[Mysql.Update] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
-//	}
-//	var err error
-//	var stmt *sql.Stmt
-//	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
-//	defer cancel()
-//	if self.OpenTx {
-//		stmt, err = self.Tx.PrepareContext(ctx, prepare)
-//	} else {
-//		stmt, err = self.Db.PrepareContext(ctx, prepare)
-//	}
-//	if err != nil {
-//		return self.Error("[Mysql.Update] [ ", prepare, " ] prepare failed: ", err)
-//	}
-//	defer stmt.Close()
-//	if ret, err := stmt.ExecContext(ctx, parameter...); err != nil {
-//		return self.Error("[Mysql.Update] update failed: ", err)
-//	} else if rowsAffected, err := ret.RowsAffected(); err != nil {
-//		return self.Error("[Mysql.Update] affected rows failed: ", err)
-//	} else if rowsAffected <= 0 {
-//		zlog.Warn(utils.AddStr("[Mysql.Update] affected rows <= 0: ", rowsAffected), 0, zlog.String("sql", prepare))
-//		return nil
-//	}
-//	if self.MongoSync && obv.ToMongo {
-//		self.MGOSyncData = append(self.MGOSyncData, &MGOSyncData{UPDATE, data[0], nil, data})
-//	}
-//	return nil
-//}
 
 func (self *RDBManager) Update(data ...sqlc.Object) error {
 	if data == nil || len(data) == 0 {
@@ -548,6 +439,8 @@ func (self *RDBManager) Update(data ...sqlc.Object) error {
 	} else {
 		stmt, err = self.Db.PrepareContext(ctx, prepare)
 	}
+	fpart.Reset()
+	sqlbuf.Reset()
 	if err != nil {
 		return self.Error("[Mysql.Update] [ ", prepare, " ] prepare failed: ", err)
 	}
@@ -619,6 +512,9 @@ func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) error {
 	} else {
 		stmt, err = self.Db.PrepareContext(ctx, prepare)
 	}
+	fpart.Reset()
+	vpart.Reset()
+	sqlbuf.Reset()
 	if err != nil {
 		return self.Error("[Mysql.UpdateByCnd] [ ", prepare, " ] prepare failed: ", err)
 	}
@@ -689,6 +585,8 @@ func (self *RDBManager) Delete(data ...sqlc.Object) error {
 	} else {
 		stmt, err = self.Db.PrepareContext(ctx, prepare)
 	}
+	vpart.Reset()
+	sqlbuf.Reset()
 	if err != nil {
 		return self.Error("[Mysql.Delete] [ ", prepare, " ] prepare failed: ", err)
 	}
@@ -761,6 +659,8 @@ func (self *RDBManager) FindById(data sqlc.Object) error {
 	} else {
 		stmt, err = self.Db.PrepareContext(ctx, prepare)
 	}
+	fpart.Reset()
+	sqlbuf.Reset()
 	if err != nil {
 		return self.Error("[Mysql.FindById] [", prepare, "] prepare failed: ", err)
 	}
@@ -857,6 +757,9 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
 	} else {
 		stmt, err = self.Db.PrepareContext(ctx, prepare)
 	}
+	fpart.Reset()
+	vpart.Reset()
+	sqlbuf.Reset()
 	if err != nil {
 		return self.Error("[Mysql.FindOne] [ ", prepare, " ] prepare failed: ", err)
 	}
@@ -958,6 +861,9 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	} else {
 		stmt, err = self.Db.PrepareContext(ctx, prepare)
 	}
+	fpart.Reset()
+	vpart.Reset()
+	sqlbuf.Reset()
 	if err != nil {
 		return self.Error("[Mysql.FindList] [ ", prepare, " ] prepare failed: ", err)
 	}
@@ -1051,6 +957,9 @@ func (self *RDBManager) Count(cnd *sqlc.Cnd) (int64, error) {
 	} else {
 		stmt, err = self.Db.PrepareContext(ctx, prepare)
 	}
+	fpart.Reset()
+	vpart.Reset()
+	sqlbuf.Reset()
 	if err != nil {
 		return 0, self.Error("[Mysql.Count] [ ", prepare, " ] prepare failed: ", err)
 	}
@@ -1179,6 +1088,9 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 	} else {
 		stmt, err = self.Db.PrepareContext(ctx, prepare)
 	}
+	fpart.Reset()
+	vpart.Reset()
+	sqlbuf.Reset()
 	if err != nil {
 		return self.Error("[Mysql.FindListComplex] [ ", prepare, " ] prepare failed: ", err)
 	}
@@ -1317,6 +1229,9 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data sqlc.Object) error {
 	} else {
 		stmt, err = self.Db.PrepareContext(ctx, prepare)
 	}
+	fpart.Reset()
+	vpart.Reset()
+	sqlbuf.Reset()
 	if err != nil {
 		return self.Error("[Mysql.FindOneComplex] [ ", prepare, " ] prepare failed: ", err)
 	}

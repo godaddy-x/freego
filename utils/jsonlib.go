@@ -17,14 +17,27 @@ func JsonMarshal(v interface{}) ([]byte, error) {
 	return json.Marshal(v)
 }
 
+// 校验JSON格式是否合法
+func JsonValid(b []byte) bool {
+	return json.Valid(b)
+}
+
 // JSON字符串转对象
 func JsonUnmarshal(data []byte, v interface{}) error {
 	if data == nil || len(data) == 0 {
 		return nil
 	}
-	d := json.NewDecoder(bytes.NewBuffer(data))
+	if !JsonValid(data) {
+		return errors.New("JSON format invalid")
+	}
+	buf := bytes.NewBuffer(data)
+	d := json.NewDecoder(buf)
 	d.UseNumber()
-	return d.Decode(v)
+	if err := d.Decode(v); err != nil {
+		return err
+	}
+	buf.Reset()
+	return nil
 }
 
 func GetJsonString(b []byte, k string) string {

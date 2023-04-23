@@ -18,7 +18,7 @@ var input = rabbitmq.AmqpConfig{
 
 // 单元测试
 func TestMQPull(t *testing.T) {
-	mq, err := new(rabbitmq.PullManager).InitConfig(input)
+	mq, err := rabbitmq.NewPull()
 	if err != nil {
 		panic(err)
 	}
@@ -38,7 +38,7 @@ func TestMQPull(t *testing.T) {
 }
 
 func TestMQPublish(t *testing.T) {
-	mq, err := new(rabbitmq.PublishManager).InitConfig(input)
+	mq, err := rabbitmq.NewPublish()
 	if err != nil {
 		panic(err)
 	}
