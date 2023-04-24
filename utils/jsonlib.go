@@ -19,7 +19,19 @@ func JsonMarshal(v interface{}) ([]byte, error) {
 
 // 校验JSON格式是否合法
 func JsonValid(b []byte) bool {
-	return json.Valid(b)
+	//return json.Valid(b) // fastjson > default json 2倍
+	if err := fastjson.ValidateBytes(b); err != nil {
+		return false
+	}
+	return true
+}
+
+// 校验JSON格式是否合法
+func JsonValidString(s string) bool {
+	if err := fastjson.Validate(s); err != nil {
+		return false
+	}
+	return true
 }
 
 // JSON字符串转对象
