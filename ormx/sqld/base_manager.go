@@ -346,9 +346,6 @@ func (self *RDBManager) Save(data ...sqlc.Object) error {
 	} else {
 		stmt, err = self.Db.PrepareContext(ctx, prepare)
 	}
-	fpart.Reset()
-	vpart.Reset()
-	sqlbuf.Reset()
 	if err != nil {
 		return self.Error("[Mysql.Save] [ ", prepare, " ] prepare failed: ", err)
 	}
@@ -439,8 +436,6 @@ func (self *RDBManager) Update(data ...sqlc.Object) error {
 	} else {
 		stmt, err = self.Db.PrepareContext(ctx, prepare)
 	}
-	fpart.Reset()
-	sqlbuf.Reset()
 	if err != nil {
 		return self.Error("[Mysql.Update] [ ", prepare, " ] prepare failed: ", err)
 	}
@@ -512,9 +507,6 @@ func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) error {
 	} else {
 		stmt, err = self.Db.PrepareContext(ctx, prepare)
 	}
-	fpart.Reset()
-	vpart.Reset()
-	sqlbuf.Reset()
 	if err != nil {
 		return self.Error("[Mysql.UpdateByCnd] [ ", prepare, " ] prepare failed: ", err)
 	}
@@ -585,8 +577,6 @@ func (self *RDBManager) Delete(data ...sqlc.Object) error {
 	} else {
 		stmt, err = self.Db.PrepareContext(ctx, prepare)
 	}
-	vpart.Reset()
-	sqlbuf.Reset()
 	if err != nil {
 		return self.Error("[Mysql.Delete] [ ", prepare, " ] prepare failed: ", err)
 	}
@@ -659,8 +649,6 @@ func (self *RDBManager) FindById(data sqlc.Object) error {
 	} else {
 		stmt, err = self.Db.PrepareContext(ctx, prepare)
 	}
-	fpart.Reset()
-	sqlbuf.Reset()
 	if err != nil {
 		return self.Error("[Mysql.FindById] [", prepare, "] prepare failed: ", err)
 	}
@@ -757,9 +745,6 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
 	} else {
 		stmt, err = self.Db.PrepareContext(ctx, prepare)
 	}
-	fpart.Reset()
-	vpart.Reset()
-	sqlbuf.Reset()
 	if err != nil {
 		return self.Error("[Mysql.FindOne] [ ", prepare, " ] prepare failed: ", err)
 	}
@@ -861,9 +846,6 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	} else {
 		stmt, err = self.Db.PrepareContext(ctx, prepare)
 	}
-	fpart.Reset()
-	vpart.Reset()
-	sqlbuf.Reset()
 	if err != nil {
 		return self.Error("[Mysql.FindList] [ ", prepare, " ] prepare failed: ", err)
 	}
@@ -957,9 +939,6 @@ func (self *RDBManager) Count(cnd *sqlc.Cnd) (int64, error) {
 	} else {
 		stmt, err = self.Db.PrepareContext(ctx, prepare)
 	}
-	fpart.Reset()
-	vpart.Reset()
-	sqlbuf.Reset()
 	if err != nil {
 		return 0, self.Error("[Mysql.Count] [ ", prepare, " ] prepare failed: ", err)
 	}
@@ -1088,9 +1067,6 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 	} else {
 		stmt, err = self.Db.PrepareContext(ctx, prepare)
 	}
-	fpart.Reset()
-	vpart.Reset()
-	sqlbuf.Reset()
 	if err != nil {
 		return self.Error("[Mysql.FindListComplex] [ ", prepare, " ] prepare failed: ", err)
 	}
@@ -1229,9 +1205,6 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data sqlc.Object) error {
 	} else {
 		stmt, err = self.Db.PrepareContext(ctx, prepare)
 	}
-	fpart.Reset()
-	vpart.Reset()
-	sqlbuf.Reset()
 	if err != nil {
 		return self.Error("[Mysql.FindOneComplex] [ ", prepare, " ] prepare failed: ", err)
 	}
