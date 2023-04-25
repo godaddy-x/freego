@@ -8,7 +8,7 @@ require (
 	github.com/buaazp/fasthttprouter v0.1.1
 	github.com/garyburd/redigo v1.6.3
 	github.com/go-sql-driver/mysql v1.6.0
-	github.com/godaddy-x/eccrypto v1.1.0
+	github.com/godaddy-x/eccrypto v1.1.2
 	github.com/google/uuid v1.3.0
 	github.com/gorilla/websocket v1.5.0
 	github.com/hashicorp/consul/api v1.13.1
