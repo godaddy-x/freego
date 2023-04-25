@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
+	"errors"
 )
 
 func PKCS7Padding(ciphertext []byte, blockSize int) []byte {
@@ -13,8 +14,14 @@ func PKCS7Padding(ciphertext []byte, blockSize int) []byte {
 }
 
 func PKCS7UnPadding(plantText []byte, blockSize int) []byte {
+	if plantText == nil || len(plantText) == 0 {
+		return nil
+	}
 	length := len(plantText)
 	unpadding := int(plantText[length-1])
+	if length-unpadding <= 0 {
+		return nil
+	}
 	return plantText[:(length - unpadding)]
 }
 
@@ -43,6 +50,9 @@ func AesDecrypt(msg, key, iv string) ([]byte, error) {
 	plantText := make([]byte, len(ciphertext))
 	blockModel.CryptBlocks(plantText, ciphertext)
 	plantText = PKCS7UnPadding(plantText, block.BlockSize())
+	if plantText == nil {
+		return nil, errors.New("unPadding data failed")
+	}
 	return plantText, nil
 }
 
