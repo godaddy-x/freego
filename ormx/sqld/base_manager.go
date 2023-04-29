@@ -331,8 +331,9 @@ func (self *RDBManager) Save(data ...sqlc.Object) error {
 	sqlbuf.WriteString(utils.Substr(str1, 0, len(str1)-1))
 	sqlbuf.WriteString(")")
 	sqlbuf.WriteString(" values ")
-	sqlbuf.WriteString(utils.Substr(str2, 0, len(str2)-1))
-
+	if len(str2) > 0 {
+		sqlbuf.WriteString(utils.Substr(str2, 0, len(str2)-1))
+	}
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
 		defer zlog.Debug("[Mysql.Save] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
@@ -492,8 +493,9 @@ func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) error {
 	sqlbuf.WriteString(" set ")
 	sqlbuf.WriteString(utils.Substr(str1, 0, len(str1)-1))
 	sqlbuf.WriteString(" ")
-	sqlbuf.WriteString(utils.Substr(str2, 0, len(str2)-1))
-
+	if len(str2) > 0 {
+		sqlbuf.WriteString(utils.Substr(str2, 0, len(str2)-1))
+	}
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
 		defer zlog.Debug("[Mysql.UpdateByCnd] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
@@ -555,6 +557,9 @@ func (self *RDBManager) Delete(data ...sqlc.Object) error {
 		vpart.WriteString("?,")
 	}
 	str2 := utils.Bytes2Str(vpart.Bytes())
+	if len(str2) == 0 {
+		return self.Error("where case is nil")
+	}
 	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str2)+64))
 	sqlbuf.WriteString("delete from ")
 	sqlbuf.WriteString(obv.TableName)
@@ -721,7 +726,9 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
 	sqlbuf.WriteString(" from ")
 	sqlbuf.WriteString(obv.TableName)
 	sqlbuf.WriteString(" ")
-	sqlbuf.WriteString(utils.Substr(str2, 0, len(str2)-1))
+	if len(str2) > 0 {
+		sqlbuf.WriteString(utils.Substr(str2, 0, len(str2)-1))
+	}
 	if len(sortby) > 0 {
 		sqlbuf.WriteString(sortby)
 	}
