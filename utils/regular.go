@@ -18,6 +18,7 @@ const (
 	NUMBER   = "(^[1-9]([0-9]{0,29})$)|(^(0){1}$)"
 	MONEY    = "(^[1-9]([0-9]{0,10})$)"
 	MONEY2   = "(^[1-9]([0-9]{0,12})?(\\.[0-9]{1,2})?$)|(^(0){1}$)|(^[0-9]\\.[0-9]([0-9])?$)"
+	MONEY3   = "(^(-)?[1-9]([0-9]{0,12})?(\\.[0-9]{1,2})?$)|(^(0){1}$)|(^(-)?[0-9]\\.[0-9]([0-9])?$)"
 )
 
 func IsPKNO(s string) bool {
@@ -36,6 +37,10 @@ func IsMoney(s string) bool {
 // 常规浮点格式
 func IsMoney2(s string) bool {
 	return ValidPattern(s, MONEY2)
+}
+
+func IsMoney3(s string) bool {
+	return ValidPattern(s, MONEY3)
 }
 
 func IsMobil(s string) bool {
