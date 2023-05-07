@@ -122,7 +122,7 @@ func TestMongoUpdateByCnd1(t *testing.T) {
 	}
 	defer db.Close()
 	l := utils.UnixMilli()
-	if err := db.UpdateByCnd(sqlc.M(&OwWallet{}).Or(sqlc.M().In("id", 1577924742445268992), sqlc.M().Eq("id", 1577932141914750978)).Upset([]string{"appID", "ctime"}, "test1test1", 123)); err != nil {
+	if _, err := db.UpdateByCnd(sqlc.M(&OwWallet{}).Or(sqlc.M().In("id", 1577924742445268992), sqlc.M().Eq("id", 1577932141914750978)).Upset([]string{"appID", "ctime"}, "test1test1", 123)); err != nil {
 		fmt.Println(err)
 	}
 	//fmt.Println(wallet.Id)
@@ -206,7 +206,7 @@ func TestMongoUpdateByCnd(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	if err := db.UpdateByCnd(sqlc.M(&OwWallet2{}).Eq("id", objectID).Upset([]string{"password", "rootPath"}, "123456test", "/test/123")); err != nil {
+	if _, err := db.UpdateByCnd(sqlc.M(&OwWallet2{}).Eq("id", objectID).Upset([]string{"password", "rootPath"}, "123456test", "/test/123")); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println("cost: ", utils.UnixMilli()-l)

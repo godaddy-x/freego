@@ -65,7 +65,7 @@ func TestMysqlUpdateByCnd(t *testing.T) {
 	}
 	defer db.Close()
 	l := utils.UnixMilli()
-	if err := db.UpdateByCnd(sqlc.M(&OwAuth{}).Upset([]string{"seed", "cTime"}, "123456789", utils.Time2Str(utils.UnixMilli())).Eq("id", 1649040212178763776)); err != nil {
+	if _, err := db.UpdateByCnd(sqlc.M(&OwAuth{}).Upset([]string{"seed", "cTime"}, "123456789", utils.Time2Str(utils.UnixMilli())).Eq("id", 1649040212178763776)); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println("cost: ", utils.UnixMilli()-l)

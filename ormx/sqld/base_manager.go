@@ -80,7 +80,7 @@ type IDBase interface {
 	// 更新数据
 	Update(datas ...sqlc.Object) error
 	// 按条件更新数据
-	UpdateByCnd(cnd *sqlc.Cnd) error
+	UpdateByCnd(cnd *sqlc.Cnd) (int64, error)
 	// 删除数据
 	Delete(datas ...sqlc.Object) error
 	// 统计数据
@@ -125,8 +125,8 @@ func (self *DBManager) Update(datas ...sqlc.Object) error {
 	return utils.Error("No implementation method [Update] was found")
 }
 
-func (self *DBManager) UpdateByCnd(cnd *sqlc.Cnd) error {
-	return utils.Error("No implementation method [UpdateByCnd] was found")
+func (self *DBManager) UpdateByCnd(cnd *sqlc.Cnd) (int64, error) {
+	return 0, utils.Error("No implementation method [UpdateByCnd] was found")
 }
 
 func (self *DBManager) Delete(datas ...sqlc.Object) error {
@@ -455,20 +455,20 @@ func (self *RDBManager) Update(data ...sqlc.Object) error {
 	return nil
 }
 
-func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) error {
+func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) (int64, error) {
 	if cnd.Model == nil {
-		return self.Error("[Mysql.UpdateByCnd] data is nil")
+		return 0, self.Error("[Mysql.UpdateByCnd] data is nil")
 	}
 	if cnd.Upsets == nil || len(cnd.Upsets) == 0 {
-		return self.Error("[Mysql.UpdateByCnd] upset fields is nil")
+		return 0, self.Error("[Mysql.UpdateByCnd] upset fields is nil")
 	}
 	obv, ok := modelDrivers[cnd.Model.GetTable()]
 	if !ok {
-		return self.Error("[Mysql.UpdateByCnd] registration object type not found [", cnd.Model.GetTable(), "]")
+		return 0, self.Error("[Mysql.UpdateByCnd] registration object type not found [", cnd.Model.GetTable(), "]")
 	}
 	case_part, case_arg := self.BuildWhereCase(cnd)
 	if case_part.Len() == 0 || len(case_arg) == 0 {
-		return self.Error("[Mysql.UpdateByCnd] update WhereCase is nil")
+		return 0, self.Error("[Mysql.UpdateByCnd] update WhereCase is nil")
 	}
 	parameter := make([]interface{}, 0, len(cnd.Upsets)+len(case_arg))
 	fpart := bytes.NewBuffer(make([]byte, 0, 64))
@@ -510,21 +510,25 @@ func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) error {
 		stmt, err = self.Db.PrepareContext(ctx, prepare)
 	}
 	if err != nil {
-		return self.Error("[Mysql.UpdateByCnd] [ ", prepare, " ] prepare failed: ", err)
+		return 0, self.Error("[Mysql.UpdateByCnd] [ ", prepare, " ] prepare failed: ", err)
 	}
 	defer stmt.Close()
-	if ret, err := stmt.ExecContext(ctx, parameter...); err != nil {
-		return self.Error("[Mysql.UpdateByCnd] update failed: ", err)
-	} else if rowsAffected, err := ret.RowsAffected(); err != nil {
-		return self.Error("[Mysql.UpdateByCnd] affected rows failed: ", err)
-	} else if rowsAffected <= 0 {
+	ret, err := stmt.ExecContext(ctx, parameter...)
+	if err != nil {
+		return 0, self.Error("[Mysql.UpdateByCnd] update failed: ", err)
+	}
+	rowsAffected, err := ret.RowsAffected()
+	if err != nil {
+		return 0, self.Error("[Mysql.UpdateByCnd] affected rows failed: ", err)
+	}
+	if rowsAffected <= 0 {
 		zlog.Warn(utils.AddStr("[Mysql.UpdateByCnd] affected rows <= 0 -> ", rowsAffected), 0, zlog.String("sql", prepare))
-		return nil
+		return 0, nil
 	}
 	if self.MongoSync && obv.ToMongo {
 		self.MGOSyncData = append(self.MGOSyncData, &MGOSyncData{UPDATE_BY_CND, cnd.Model, cnd, nil})
 	}
-	return nil
+	return rowsAffected, nil
 }
 
 func (self *RDBManager) Delete(data ...sqlc.Object) error {
@@ -1296,7 +1300,11 @@ func (self *RDBManager) mongoSyncData(option int, model sqlc.Object, cnd *sqlc.C
 		if cnd == nil {
 			return utils.Error("synchronization condition object is nil")
 		}
-		return mongo.UpdateByCnd(cnd)
+		_, err = mongo.UpdateByCnd(cnd)
+		if err != nil {
+			return err
+		}
+		return nil
 	}
 	return nil
 }

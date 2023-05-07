@@ -366,31 +366,31 @@ func (self *MGOManager) Update(data ...sqlc.Object) error {
 	return nil
 }
 
-func (self *MGOManager) UpdateByCnd(cnd *sqlc.Cnd) error {
+func (self *MGOManager) UpdateByCnd(cnd *sqlc.Cnd) (int64, error) {
 	if cnd.Model == nil {
-		return self.Error("[Mongo.UpdateByCnd] data model is nil")
+		return 0, self.Error("[Mongo.UpdateByCnd] data model is nil")
 	}
 	db, err := self.GetDatabase(cnd.Model.GetTable())
 	if err != nil {
-		return err
+		return 0, err
 	}
 	match := buildMongoMatch(cnd)
 	upset := buildMongoUpset(cnd)
 	if match == nil || len(match) == 0 {
-		return self.Error("pipe math is nil")
+		return 0, self.Error("pipe math is nil")
 	}
 	if upset == nil || len(upset) == 0 {
-		return self.Error("pipe upset is nil")
+		return 0, self.Error("pipe upset is nil")
 	}
 	defer self.writeLog("[Mongo.UpdateByCnd]", utils.UnixMilli(), map[string]interface{}{"match": match, "upset": upset}, nil)
 	res, err := db.UpdateMany(self.GetSessionContext(), match, upset)
 	if err != nil {
-		return self.Error("[Mongo.UpdateByCnd] update failed: ", err)
+		return 0, self.Error("[Mongo.UpdateByCnd] update failed: ", err)
 	}
 	if res.ModifiedCount == 0 {
-		return self.Error("[Mongo.Update] update failed: ModifiedCount = 0")
+		return 0, self.Error("[Mongo.Update] update failed: ModifiedCount = 0")
 	}
-	return nil
+	return res.ModifiedCount, nil
 }
 
 func (self *MGOManager) Delete(data ...sqlc.Object) error {
