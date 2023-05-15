@@ -117,7 +117,13 @@ func (self *Subject) Signature(text, key string) string {
 func (self *Subject) GetTokenSecret(token, secret string) string {
 	key := utils.GetLocalTokenSecretKey()
 	key2 := utils.HMAC_SHA256(utils.AddStr(utils.SHA256(token, true), utils.MD5(utils.GetLocalSecretKey()), true), secret, true)
-	return key2[0:15] + key[3:13] + key2[15:30] + key[10:20] + key2[30:]
+	secBs := make([]byte, 64)
+	copy(secBs, key2[0:15])
+	copy(secBs[15:], key[3:13])
+	copy(secBs[25:], key2[15:30])
+	copy(secBs[40:], key[10:20])
+	copy(secBs[50:], key2[30:])
+	return utils.Bytes2Str(secBs)
 }
 
 func (self *Subject) Verify(token, key string, decode bool) error {

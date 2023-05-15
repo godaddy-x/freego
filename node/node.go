@@ -139,14 +139,11 @@ func (self *Context) GetTokenSecret() string {
 	return jwt.GetTokenSecret(self.Token, jwtConfig.TokenKey)
 }
 
-func (self *Context) GetHmac256Sign(d, n string, t, p int64, key ...string) string {
-	var secret string
-	if len(key) > 0 && len(key[0]) > 0 {
-		secret = key[0]
-	} else {
-		secret = self.GetTokenSecret()
+func (self *Context) GetHmac256Sign(d, n string, t, p int64, key string) string {
+	if len(key) > 0 {
+		return utils.HMAC_SHA256(utils.AddStr(self.Path, d, n, t, p), key, true)
 	}
-	return utils.HMAC_SHA256(utils.AddStr(self.Path, d, n, t, p), secret, true)
+	return utils.HMAC_SHA256(utils.AddStr(self.Path, d, n, t, p), self.GetTokenSecret(), true)
 }
 
 func (self *Context) AddStorage(k string, v interface{}) {
