@@ -28,6 +28,19 @@ func (self *EccObj) CreateS256ECC() error {
 	return nil
 }
 
+func (self *EccObj) LoadS256ECC(b64 string) error {
+	prk, err := ecc.LoadBase64PrivateKey(b64)
+	if err != nil {
+		return err
+	}
+	_, pubBs, err := ecc.GetObjectBytes(nil, &prk.PublicKey)
+	self.privateKey = prk
+	self.publicKey = &prk.PublicKey
+	//self.PrivateKeyBase64 = base64.StdEncoding.EncodeToString(prkBs)
+	self.PublicKeyBase64 = base64.StdEncoding.EncodeToString(pubBs)
+	return nil
+}
+
 // ******************************************************* ECC Implement *******************************************************
 
 func (self *EccObj) GetPrivateKey() (interface{}, string) {

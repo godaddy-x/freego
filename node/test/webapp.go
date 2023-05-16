@@ -8,6 +8,7 @@ import (
 	"github.com/godaddy-x/freego/rpcx"
 	"github.com/godaddy-x/freego/rpcx/pb"
 	"github.com/godaddy-x/freego/utils"
+	"github.com/godaddy-x/freego/utils/crypto"
 	"github.com/godaddy-x/freego/utils/jwt"
 )
 
@@ -131,6 +132,10 @@ func (self *GeetestFilter) DoFilter(chain node.Filter, ctx *node.Context, args .
 	return geetest.CleanStatus(filterObject)
 }
 
+const (
+	privateKey = "MHcCAQEEIEpXwxicdbb4DM+EW/cJVvoTSubRHIKB6kai/1qgaWnNoAoGCCqGSM49AwEHoUQDQgAEo2hpVqkCUrLC/mxd9qD8sdryanqx0YVfpAfN9ciMGiOSgJ8KBmDpE8FfAtRSk8PM4Le6EMLrQQLPaLURshOwZg=="
+)
+
 func NewHTTP() *MyWebNode {
 	var my = &MyWebNode{}
 	my.EnableECC(true)
@@ -140,7 +145,11 @@ func NewHTTP() *MyWebNode {
 		TokenKey: "123456" + utils.CreateLocalSecretKey(12, 45, 23, 60, 58, 30),
 		TokenExp: jwt.TWO_WEEK,
 	})
-	//my.AddRSA(nil)
+	cipher := &crypto.EccObj{}
+	if err := cipher.LoadS256ECC(privateKey); err != nil {
+		panic("ECC certificate generation failed")
+	}
+	my.AddCipher(cipher)
 	//my.AddCache(nil)
 	my.AddFilter(&node.FilterObject{Name: "NewPostFilter", Order: 100, Filter: &NewPostFilter{}})
 	my.AddFilter(&node.FilterObject{Name: "GeetestFilter", Order: 101, MatchPattern: []string{"/TestGeetest"}, Filter: &GeetestFilter{}})
