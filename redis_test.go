@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/garyburd/redigo/redis"
 	"github.com/godaddy-x/freego/cache"
+	"github.com/godaddy-x/freego/utils"
 	"reflect"
 	"testing"
 	"time"
@@ -124,5 +125,69 @@ func TestRedisTryLocker2(t *testing.T) {
 		return nil
 	}); err != nil {
 		fmt.Println(err)
+	}
+}
+
+func TestRedisGetAndSet(t *testing.T) {
+	rds, err := cache.NewRedis()
+	if err != nil {
+		panic(err)
+	}
+	key := utils.MD5("123456")
+	if err := rds.Put(key, 1, 30); err != nil {
+		panic(err)
+	}
+	value, err := rds.Exists(key + "111")
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("---", value)
+}
+
+func TestLocalCacheGetAndSet(t *testing.T) {
+	rds := cache.NewLocalCache(10, 10)
+	key := utils.MD5("123456")
+	if err := rds.Put(key, 1, 30); err != nil {
+		panic(err)
+	}
+	value, err := rds.Exists(key)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println("---", value)
+}
+
+func BenchmarkRedisGetAndSet(b *testing.B) {
+	b.StopTimer()
+	b.StartTimer()
+	rds, err := cache.NewRedis()
+	if err != nil {
+		panic(err)
+	}
+	for i := 0; i < b.N; i++ { //use b.N for looping
+		key := utils.MD5(utils.NextSID())
+		if err := rds.Put(key, 1, 30); err != nil {
+			panic(err)
+		}
+		_, err := rds.Exists(key)
+		if err != nil {
+			panic(err)
+		}
+	}
+}
+
+func BenchmarkLocalCacheGetAndSet(b *testing.B) {
+	b.StopTimer()
+	b.StartTimer()
+	rds := cache.NewLocalCache(10, 10)
+	for i := 0; i < b.N; i++ { //use b.N for looping
+		key := utils.MD5(utils.NextSID())
+		if err := rds.Put(key, 1, 30); err != nil {
+			panic(err)
+		}
+		_, err := rds.Exists(key)
+		if err != nil {
+			panic(err)
+		}
 	}
 }

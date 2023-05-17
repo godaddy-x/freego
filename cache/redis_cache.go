@@ -375,6 +375,17 @@ func (self *RedisManager) Values(pattern ...string) ([]interface{}, error) {
 	return nil, utils.Error("No implementation method [Values] was found")
 }
 
+func (self *RedisManager) Exists(key string) (bool, error) {
+	client := self.Pool.Get()
+	defer self.Close(client)
+	ret, err := client.Do("EXISTS", key)
+	if err != nil {
+		return false, err
+	}
+	b, err := redis.Int(ret, err)
+	return b == 1, err
+}
+
 func (self *RedisManager) Flush() error {
 	return utils.Error("No implementation method [Flush] was found")
 }

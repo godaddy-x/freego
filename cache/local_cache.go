@@ -92,6 +92,11 @@ func (self *LocalMapManager) Del(key ...string) error {
 	return nil
 }
 
+func (self *LocalMapManager) Exists(key string) (bool, error) {
+	_, b := self.c.Get(key)
+	return b, nil
+}
+
 // 数据量大时请慎用
 func (self *LocalMapManager) Size(pattern ...string) (int, error) {
 	return self.c.ItemCount(), nil

@@ -35,6 +35,8 @@ type Cache interface {
 	Keys(pattern ...string) ([]string, error)
 	// 查询全部key
 	Values(pattern ...string) ([]interface{}, error)
+	// 查询key是否存在
+	Exists(key string) (bool, error)
 	// 查询队列数据
 	Brpop(key string, expire int64, result interface{}) error
 	BrpopString(key string, expire int64) (string, error)
@@ -95,6 +97,10 @@ func (self *CacheManager) Keys(pattern ...string) ([]string, error) {
 
 func (self *CacheManager) Values(pattern ...string) ([]interface{}, error) {
 	return nil, utils.Error("No implementation method [Values] was found")
+}
+
+func (self *CacheManager) Exists(key string) (bool, error) {
+	return false, utils.Error("No implementation method [Exists] was found")
 }
 
 func (self *CacheManager) Flush() error {
