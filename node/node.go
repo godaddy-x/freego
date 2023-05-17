@@ -249,6 +249,24 @@ func (self *Context) readParams() error {
 	return nil
 }
 
+func (self *Context) validReplayAttack(sign string) error {
+	if self.CacheAware == nil {
+		return nil
+	}
+	c, err := self.CacheAware()
+	if err != nil {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "cache instance invalid"}
+	}
+	b, err := c.Exists(sign)
+	if err != nil || b {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "replay attack invalid"}
+	}
+	if err := c.Put(sign, 1, 600); err != nil {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "cache replay attack value error"}
+	}
+	return nil
+}
+
 func (self *Context) validJsonBody(body *JsonBody) error {
 	d, b := body.Data.(string)
 	if !b || len(d) == 0 {
@@ -292,6 +310,9 @@ func (self *Context) validJsonBody(body *JsonBody) error {
 	}
 	if self.GetHmac256Sign(d, body.Nonce, body.Time, body.Plan, key) != body.Sign {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature invalid"}
+	}
+	if err := self.validReplayAttack(body.Sign); err != nil {
+		return err
 	}
 	var rawData []byte
 	var err error

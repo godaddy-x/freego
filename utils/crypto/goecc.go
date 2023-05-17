@@ -68,9 +68,13 @@ func (self *EccObj) Decrypt(msg string) (string, error) {
 }
 
 func (self *EccObj) Sign(msg []byte) ([]byte, error) {
-	return nil, nil
+	return ecc.Sign(self.privateKey, msg)
 }
 
 func (self *EccObj) Verify(msg, sign []byte) error {
+	b := ecc.Verify(self.publicKey, msg, sign)
+	if !b {
+		return errors.New("verify failed")
+	}
 	return nil
 }

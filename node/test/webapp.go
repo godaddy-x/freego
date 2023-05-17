@@ -2,6 +2,7 @@ package http_web
 
 import (
 	"fmt"
+	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/geetest"
 	"github.com/godaddy-x/freego/node"
 	"github.com/godaddy-x/freego/node/common"
@@ -150,7 +151,10 @@ func NewHTTP() *MyWebNode {
 		panic("ECC certificate generation failed")
 	}
 	my.AddCipher(cipher)
-	//my.AddCache(nil)
+	my.AddCache(func(ds ...string) (cache.Cache, error) {
+		rds, err := cache.NewRedis(ds...)
+		return rds, err
+	})
 	my.AddFilter(&node.FilterObject{Name: "NewPostFilter", Order: 100, Filter: &NewPostFilter{}})
 	my.AddFilter(&node.FilterObject{Name: "GeetestFilter", Order: 101, MatchPattern: []string{"/TestGeetest"}, Filter: &GeetestFilter{}})
 	return my

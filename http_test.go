@@ -3,7 +3,7 @@ package main
 import (
 	"encoding/base64"
 	"fmt"
-	"github.com/godaddy-x/eccrypto"
+	ecc "github.com/godaddy-x/eccrypto"
 	"github.com/godaddy-x/freego/node"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/crypto"
@@ -73,7 +73,8 @@ func PostByTokenSecret(path string, req *node.JsonBody) {
 	request.Header.Set("Authorization", access_token)
 	request.Header.SetMethod("POST")
 	request.SetRequestURI(domain + path)
-	request.SetBody(bytesData)
+	a := `{"d":"eyJsaW1pdCI6MjAsIm5hbWUiOiLmiJHniLHkuK3lm70vK189LzFkZiIsIm9mZnNldCI6NSwidWlkIjoxMjN9","t":1684292042,"n":"IiYI7MsR","p":0,"s":"k7ozEEv7Xi7qtzetLhglyzqAFk/wGUF5eQyYg4dMvo8="}`
+	request.SetBody(utils.Str2Bytes(a))
 	defer fasthttp.ReleaseRequest(request)
 	response := fasthttp.AcquireResponse()
 	defer fasthttp.ReleaseResponse(response)

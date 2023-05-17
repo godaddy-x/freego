@@ -67,7 +67,7 @@ func initGRPC() {
 
 func init() {
 	//initConsul()
-	//initRedis()
+	initRedis()
 	//initGRPC()
 }
 
