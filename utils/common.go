@@ -11,6 +11,7 @@ import (
 	"crypto/md5"
 	"crypto/sha1"
 	"crypto/sha256"
+	"crypto/sha512"
 	"encoding/base64"
 	"encoding/gob"
 	"encoding/hex"
@@ -407,9 +408,28 @@ func HMAC_SHA256(data, key string, useBase64 ...bool) string {
 	return Base64Encode(hmac.Sum([]byte(nil)))
 }
 
+func HMAC_SHA512(data, key string, useBase64 ...bool) string {
+	hmac := hmac.New(sha512.New, Str2Bytes(key))
+	hmac.Write(Str2Bytes(data))
+	if len(useBase64) == 0 {
+		return hex.EncodeToString(hmac.Sum([]byte(nil)))
+	}
+	return Base64Encode(hmac.Sum([]byte(nil)))
+}
+
 // SHA256加密
 func SHA256(s string, useBase64 ...bool) string {
 	h := sha256.New()
+	h.Write(Str2Bytes(s))
+	bs := h.Sum(nil)
+	if len(useBase64) == 0 {
+		return hex.EncodeToString(bs)
+	}
+	return Base64Encode(bs)
+}
+
+func SHA512(s string, useBase64 ...bool) string {
+	h := sha512.New()
 	h.Write(Str2Bytes(s))
 	bs := h.Sum(nil)
 	if len(useBase64) == 0 {
@@ -839,4 +859,19 @@ func DeepCopy(dst, src interface{}) error {
 		return Error("深度复制对象反序列异常: ", err.Error())
 	}
 	return nil
+}
+
+func PasswordHash(password, salt string) string {
+	suffix := SHA256(RandStr(32))[0:32]
+	hash := HMAC_SHA256(SHA512(password), HMAC_SHA512(SHA256(salt), suffix+GetLocalSecretKey()))
+	return AddStr(hash, suffix)
+}
+
+func PasswordVerify(password, salt, target string) bool {
+	if len(target) != 96 {
+		return false
+	}
+	suffix := target[64:]
+	hash := HMAC_SHA256(SHA512(password), HMAC_SHA512(SHA256(salt), suffix+GetLocalSecretKey()))
+	return AddStr(hash, suffix) == target
 }
