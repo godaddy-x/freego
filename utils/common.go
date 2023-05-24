@@ -860,18 +860,3 @@ func DeepCopy(dst, src interface{}) error {
 	}
 	return nil
 }
-
-func PasswordHash(password, salt string) string {
-	suffix := SHA256(RandStr(32))[0:32]
-	hash := HMAC_SHA256(SHA512(password), HMAC_SHA512(SHA256(salt), suffix+GetLocalSecretKey()))
-	return AddStr(hash, suffix)
-}
-
-func PasswordVerify(password, salt, target string) bool {
-	if len(target) != 96 {
-		return false
-	}
-	suffix := target[64:]
-	hash := HMAC_SHA256(SHA512(password), HMAC_SHA512(SHA256(salt), suffix+GetLocalSecretKey()))
-	return AddStr(hash, suffix) == target
-}
