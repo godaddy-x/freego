@@ -23,7 +23,9 @@ var (
 )
 
 const (
-	DefaultConsulHost = "consulx.com:8500"
+	DefaultConsulDockerHost = "172.17.0.1:8500"
+	DefaultConsulLocalHost  = "127.0.0.1:8500"
+	DefaultConsulDomainHost = "consulx.com:8500"
 )
 
 type ConsulManager struct {
@@ -80,7 +82,14 @@ func (self *ConsulManager) InitConfig(input ...ConsulConfig) (*ConsulManager, er
 }
 
 func InitDefaultConsul() {
-	config := ConsulConfig{Host: DefaultConsulHost}
+	config := ConsulConfig{Host: DefaultConsulDockerHost}
+	if _, err := new(ConsulManager).InitConfig(config); err != nil {
+		panic(err)
+	}
+}
+
+func InitHostConsul(host string) {
+	config := ConsulConfig{Host: host}
 	if _, err := new(ConsulManager).InitConfig(config); err != nil {
 		panic(err)
 	}
