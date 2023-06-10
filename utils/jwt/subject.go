@@ -102,6 +102,13 @@ func (self *Subject) Generate(config JwtConfig) string {
 	if err != nil {
 		return ""
 	}
+	if config.TokenExp > 0 {
+		if self.Payload.Iat > 0 {
+			self.Payload.Exp = self.Payload.Iat + config.TokenExp
+		} else {
+			self.Payload.Exp = utils.UnixSecond() + config.TokenExp
+		}
+	}
 	payload, err := utils.ToJsonBase64(self.Payload)
 	if err != nil {
 		return ""
