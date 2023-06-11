@@ -12,17 +12,47 @@ import (
 )
 
 type HttpSDK struct {
-	Debug   bool
-	Domain  string
-	KeyPath string
-	Token   string
-	Secret  string
+	Debug      bool
+	Domain     string
+	KeyPath    string
+	LoginPath  string
+	authObject interface{}
+	authToken  AuthToken
 }
 
-func (s *HttpSDK) Auth(token, secret string) {
-	s.Token = token
-	s.Secret = secret
+//func (s *HttpSDK) Auth(token, secret string, expired int64) {
+//	s.token = token
+//	s.secret = secret
+//	s.expired = expired
+//}
+
+// 请使用指针对象
+func (s *HttpSDK) AuthObject(object interface{}) {
+	s.authObject = object
 }
+
+func (s *HttpSDK) AuthToken(object AuthToken) {
+	s.authToken = object
+}
+
+//func (s *HttpSDK) Authorize() error {
+//	if len(s.Domain) == 0 {
+//		return ex.Throw{Msg: "domain is nil"}
+//	}
+//	if len(s.KeyPath) == 0 {
+//		return ex.Throw{Msg: "keyPath is nil"}
+//	}
+//	if len(s.LoginPath) == 0 {
+//		return ex.Throw{Msg: "loginPath is nil"}
+//	}
+//	if s.authObject == nil {
+//		return ex.Throw{Msg: "authObject is nil"}
+//	}
+//	if s.expired-3600 > utils.UnixSecond() {
+//		return nil
+//	}
+//	return nil
+//}
 
 func (s *HttpSDK) debugOut(a ...interface{}) {
 	if !s.Debug {
@@ -76,9 +106,9 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 		return ex.Throw{Msg: "ECC encrypt failed"}
 	}
 	randomCode := base64.StdEncoding.EncodeToString(r)
-	s.debugOut("服务端公钥: ", publicKey)
-	s.debugOut("RSA加密客户端密钥原文: ", clientSecretKey)
-	s.debugOut("RSA加密客户端密钥密文: ", randomCode)
+	s.debugOut("server key: ", publicKey)
+	s.debugOut("client key: ", clientSecretKey)
+	s.debugOut("client key encrypted: ", randomCode)
 	d, err := utils.AesEncrypt(jsonBody.Data.([]byte), clientSecretKey, clientSecretKey)
 	if err != nil {
 		return ex.Throw{Msg: "request data AES encrypt failed"}
@@ -89,7 +119,7 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	if err != nil {
 		return ex.Throw{Msg: "jsonBody data JsonMarshal invalid"}
 	}
-	s.debugOut("请求示例: ")
+	s.debugOut("request data: ")
 	s.debugOut(utils.Bytes2Str(bytesData))
 	request := fasthttp.AcquireRequest()
 	request.Header.SetContentType("application/json;charset=UTF-8")
@@ -105,7 +135,7 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 		return ex.Throw{Msg: "post request failed: " + err.Error()}
 	}
 	respBytes := response.Body()
-	s.debugOut("响应示例: ")
+	s.debugOut("response data: ")
 	s.debugOut(utils.Bytes2Str(respBytes))
 	respData := &node.JsonResp{
 		Code:  utils.GetJsonInt(respBytes, "c"),
@@ -122,15 +152,61 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	if validSign != respData.Sign {
 		return ex.Throw{Msg: "post response sign verify invalid"}
 	}
-	s.debugOut("****************** Response Signature Verify:", validSign == respData.Sign, "******************")
+	s.debugOut("response sign verify: ", validSign == respData.Sign)
 	dec, err := utils.AesDecrypt(respData.Data.(string), clientSecretKey, clientSecretKey)
 	if err != nil {
 		return ex.Throw{Msg: "post response data AES decrypt failed"}
 	}
-	s.debugOut("Plain2数据明文: ", utils.Bytes2Str(dec))
+	s.debugOut("response data decrypted: ", utils.Bytes2Str(dec))
 	if err := utils.JsonUnmarshal(dec, responseObj); err != nil {
 		return ex.Throw{Msg: "response data JsonUnmarshal invalid"}
 	}
+	return nil
+}
+
+type AuthToken struct {
+	Token   string `json:"token"`
+	Secret  string `json:"secret"`
+	Expired int64  `json:"expired"`
+}
+
+func (s *HttpSDK) valid() bool {
+	if len(s.authToken.Token) == 0 {
+		return false
+	}
+	if len(s.authToken.Secret) == 0 {
+		return false
+	}
+	if utils.UnixSecond() > s.authToken.Expired-3600 {
+		return false
+	}
+	return true
+}
+
+func (s *HttpSDK) checkAuth() error {
+	if s.valid() {
+		return nil
+	}
+	if s.authObject == nil { // 没授权对象则忽略
+		return nil
+	}
+	if len(s.Domain) == 0 {
+		return ex.Throw{Msg: "domain is nil"}
+	}
+	if len(s.KeyPath) == 0 {
+		return ex.Throw{Msg: "keyPath is nil"}
+	}
+	if len(s.LoginPath) == 0 {
+		return ex.Throw{Msg: "loginPath is nil"}
+	}
+	if s.authObject == nil {
+		return ex.Throw{Msg: "authObject is nil"}
+	}
+	responseObj := AuthToken{}
+	if err := s.PostByECC(s.LoginPath, s.authObject, &responseObj); err != nil {
+		return err
+	}
+	s.AuthToken(responseObj)
 	return nil
 }
 
@@ -139,7 +215,10 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 	if len(path) == 0 || requestObj == nil || responseObj == nil {
 		return ex.Throw{Msg: "params invalid"}
 	}
-	if len(s.Token) == 0 || len(s.Secret) == 0 {
+	if err := s.checkAuth(); err != nil {
+		return err
+	}
+	if len(s.authToken.Token) == 0 || len(s.authToken.Secret) == 0 {
 		return ex.Throw{Msg: "token or secret can't be empty"}
 	}
 	jsonData, err := utils.JsonMarshal(requestObj)
@@ -153,28 +232,28 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 		Plan:  0,
 	}
 	if len(encrypted) > 0 && encrypted[0] {
-		d, err := utils.AesEncrypt(jsonBody.Data.([]byte), s.Secret, utils.AddStr(jsonBody.Nonce, jsonBody.Time))
+		d, err := utils.AesEncrypt(jsonBody.Data.([]byte), s.authToken.Secret, utils.AddStr(jsonBody.Nonce, jsonBody.Time))
 		if err != nil {
 			return ex.Throw{Msg: "request data AES encrypt failed"}
 		}
 		jsonBody.Data = d
 		jsonBody.Plan = 1
-		s.debugOut("请求数据AES加密结果: ", jsonBody.Data)
+		s.debugOut("request data encrypted: ", jsonBody.Data)
 	} else {
 		d := utils.Base64Encode(jsonBody.Data.([]byte))
 		jsonBody.Data = d
-		s.debugOut("请求数据Base64结果: ", jsonBody.Data)
+		s.debugOut("request data base64: ", jsonBody.Data)
 	}
-	jsonBody.Sign = utils.HMAC_SHA256(utils.AddStr(path, jsonBody.Data.(string), jsonBody.Nonce, jsonBody.Time, jsonBody.Plan), s.Secret, true)
+	jsonBody.Sign = utils.HMAC_SHA256(utils.AddStr(path, jsonBody.Data.(string), jsonBody.Nonce, jsonBody.Time, jsonBody.Plan), s.authToken.Secret, true)
 	bytesData, err := utils.JsonMarshal(jsonBody)
 	if err != nil {
 		return ex.Throw{Msg: "jsonBody data JsonMarshal invalid"}
 	}
-	s.debugOut("请求示例: ")
+	s.debugOut("request data: ")
 	s.debugOut(utils.Bytes2Str(bytesData))
 	request := fasthttp.AcquireRequest()
 	request.Header.SetContentType("application/json;charset=UTF-8")
-	request.Header.Set("Authorization", s.Token)
+	request.Header.Set("Authorization", s.authToken.Token)
 	request.Header.SetMethod("POST")
 	request.SetRequestURI(s.Domain + path)
 	request.SetBody(bytesData)
@@ -185,7 +264,7 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 		return ex.Throw{Msg: "post request failed: " + err.Error()}
 	}
 	respBytes := response.Body()
-	s.debugOut("响应示例: ")
+	s.debugOut("response data: ")
 	s.debugOut(utils.Bytes2Str(respBytes))
 	respData := &node.JsonResp{
 		Code:  utils.GetJsonInt(respBytes, "c"),
@@ -198,21 +277,21 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 	if respData.Code != 200 {
 		return ex.Throw{Msg: "post request failed: " + respData.Message}
 	}
-	validSign := utils.HMAC_SHA256(utils.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan), s.Secret, true)
+	validSign := utils.HMAC_SHA256(utils.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan), s.authToken.Secret, true)
 	if validSign != respData.Sign {
 		return ex.Throw{Msg: "post response sign verify invalid"}
 	}
-	s.debugOut("****************** Response Signature Verify:", validSign == respData.Sign, "******************")
+	s.debugOut("response sign verify: ", validSign == respData.Sign)
 	var dec []byte
 	if respData.Plan == 0 {
 		dec = utils.Base64Decode(respData.Data)
-		s.debugOut("响应数据Base64明文: ", string(dec))
+		s.debugOut("response data base64: ", string(dec))
 	} else if respData.Plan == 1 {
-		dec, err = utils.AesDecrypt(respData.Data.(string), s.Secret, utils.AddStr(respData.Nonce, respData.Time))
+		dec, err = utils.AesDecrypt(respData.Data.(string), s.authToken.Secret, utils.AddStr(respData.Nonce, respData.Time))
 		if err != nil {
 			return ex.Throw{Msg: "post response data AES decrypt failed"}
 		}
-		s.debugOut("响应数据AES解密明文: ", utils.Bytes2Str(dec))
+		s.debugOut("response data decrypted: ", utils.Bytes2Str(dec))
 	} else {
 		return ex.Throw{Msg: "response sign plan invalid"}
 	}

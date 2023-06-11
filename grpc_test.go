@@ -12,6 +12,7 @@ import (
 )
 
 func TestConsulxRunGRPCServer(t *testing.T) {
+	initConsul()
 	go func() {
 		_ = http.ListenAndServe(":8848", nil)
 	}()
@@ -23,11 +24,12 @@ func TestConsulxRunGRPCServer(t *testing.T) {
 			AddRPC:  func(server *grpc.Server) { pb.RegisterPubWorkerServer(server, &impl.PubWorker{}) },
 		},
 	}
-	rpcx.RunServer("", true, objects...)
+	rpcx.RunServer("", false, objects...)
 }
 
 func TestConsulxCallGRPC_GenID(t *testing.T) {
-	rpcx.RunClient(appConfig.AppId)
+	initConsul()
+	rpcx.RunClient()
 	conn, err := rpcx.NewClientConn(rpcx.GRPC{Service: "PubWorker", Cache: 30})
 	if err != nil {
 		panic(err)

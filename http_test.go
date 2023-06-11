@@ -242,9 +242,10 @@ func PostByRSA(path string, req *node.JsonBody, useECC bool) {
 }
 
 var httpSDK = &sdk.HttpSDK{
-	Debug:   true,
-	Domain:  domain,
-	KeyPath: "/publicKey",
+	Debug:     true,
+	Domain:    domain,
+	KeyPath:   "/publicKey",
+	LoginPath: "/login",
 }
 
 func TestGetPublicKey(t *testing.T) {
@@ -265,7 +266,8 @@ func TestECCLogin(t *testing.T) {
 }
 
 func TestGetUser(t *testing.T) {
-	httpSDK.Auth(access_token, token_secret)
+	httpSDK.AuthObject(&map[string]string{"username": "1234567890123456", "password": "1234567890123456"})
+	//httpSDK.AuthToken(sdk.AuthToken{Token: access_token, Secret: token_secret})
 	requestObj := map[string]interface{}{"uid": 123, "name": "我爱中国/+_=/1df", "limit": 20, "offset": 5}
 	responseData := map[string]string{}
 	if err := httpSDK.PostByAuth("/getUser", &requestObj, &responseData, true); err != nil {
