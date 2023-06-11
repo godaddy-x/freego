@@ -138,12 +138,13 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	s.debugOut("response data: ")
 	s.debugOut(utils.Bytes2Str(respBytes))
 	respData := &node.JsonResp{
-		Code:  utils.GetJsonInt(respBytes, "c"),
-		Data:  utils.GetJsonString(respBytes, "d"),
-		Nonce: utils.GetJsonString(respBytes, "n"),
-		Time:  int64(utils.GetJsonInt(respBytes, "t")),
-		Plan:  int64(utils.GetJsonInt(respBytes, "p")),
-		Sign:  utils.GetJsonString(respBytes, "s"),
+		Code:    utils.GetJsonInt(respBytes, "c"),
+		Message: utils.GetJsonString(respBytes, "m"),
+		Data:    utils.GetJsonString(respBytes, "d"),
+		Nonce:   utils.GetJsonString(respBytes, "n"),
+		Time:    int64(utils.GetJsonInt(respBytes, "t")),
+		Plan:    int64(utils.GetJsonInt(respBytes, "p")),
+		Sign:    utils.GetJsonString(respBytes, "s"),
 	}
 	if respData.Code != 200 {
 		return ex.Throw{Msg: "post request failed: " + respData.Message}
@@ -267,12 +268,13 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 	s.debugOut("response data: ")
 	s.debugOut(utils.Bytes2Str(respBytes))
 	respData := &node.JsonResp{
-		Code:  utils.GetJsonInt(respBytes, "c"),
-		Data:  utils.GetJsonString(respBytes, "d"),
-		Nonce: utils.GetJsonString(respBytes, "n"),
-		Time:  int64(utils.GetJsonInt(respBytes, "t")),
-		Plan:  int64(utils.GetJsonInt(respBytes, "p")),
-		Sign:  utils.GetJsonString(respBytes, "s"),
+		Code:    utils.GetJsonInt(respBytes, "c"),
+		Message: utils.GetJsonString(respBytes, "m"),
+		Data:    utils.GetJsonString(respBytes, "d"),
+		Nonce:   utils.GetJsonString(respBytes, "n"),
+		Time:    int64(utils.GetJsonInt(respBytes, "t")),
+		Plan:    int64(utils.GetJsonInt(respBytes, "p")),
+		Sign:    utils.GetJsonString(respBytes, "s"),
 	}
 	if respData.Code != 200 {
 		return ex.Throw{Msg: "post request failed: " + respData.Message}
