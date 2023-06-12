@@ -11,20 +11,21 @@ import (
 	"time"
 )
 
+type AuthToken struct {
+	Token   string `json:"token"`
+	Secret  string `json:"secret"`
+	Expired int64  `json:"expired"`
+}
+
 type HttpSDK struct {
 	Debug      bool
 	Domain     string
 	KeyPath    string
 	LoginPath  string
+	timeout    int64
 	authObject interface{}
 	authToken  AuthToken
 }
-
-//func (s *HttpSDK) Auth(token, secret string, expired int64) {
-//	s.token = token
-//	s.secret = secret
-//	s.expired = expired
-//}
 
 // 请使用指针对象
 func (s *HttpSDK) AuthObject(object interface{}) {
@@ -35,24 +36,9 @@ func (s *HttpSDK) AuthToken(object AuthToken) {
 	s.authToken = object
 }
 
-//func (s *HttpSDK) Authorize() error {
-//	if len(s.Domain) == 0 {
-//		return ex.Throw{Msg: "domain is nil"}
-//	}
-//	if len(s.KeyPath) == 0 {
-//		return ex.Throw{Msg: "keyPath is nil"}
-//	}
-//	if len(s.LoginPath) == 0 {
-//		return ex.Throw{Msg: "loginPath is nil"}
-//	}
-//	if s.authObject == nil {
-//		return ex.Throw{Msg: "authObject is nil"}
-//	}
-//	if s.expired-3600 > utils.UnixSecond() {
-//		return nil
-//	}
-//	return nil
-//}
+func (s *HttpSDK) SetTimeout(timeout int64) {
+	s.timeout = timeout
+}
 
 func (s *HttpSDK) debugOut(a ...interface{}) {
 	if !s.Debug {
@@ -131,7 +117,11 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	defer fasthttp.ReleaseRequest(request)
 	response := fasthttp.AcquireResponse()
 	defer fasthttp.ReleaseResponse(response)
-	if err := fasthttp.DoTimeout(request, response, 60*time.Second); err != nil {
+	timeout := 120 * time.Second
+	if s.timeout > 0 {
+		timeout = time.Duration(s.timeout) * time.Second
+	}
+	if err := fasthttp.DoTimeout(request, response, timeout); err != nil {
 		return ex.Throw{Msg: "post request failed: " + err.Error()}
 	}
 	respBytes := response.Body()
@@ -163,12 +153,6 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 		return ex.Throw{Msg: "response data JsonUnmarshal invalid"}
 	}
 	return nil
-}
-
-type AuthToken struct {
-	Token   string `json:"token"`
-	Secret  string `json:"secret"`
-	Expired int64  `json:"expired"`
 }
 
 func (s *HttpSDK) valid() bool {
@@ -261,7 +245,11 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 	defer fasthttp.ReleaseRequest(request)
 	response := fasthttp.AcquireResponse()
 	defer fasthttp.ReleaseResponse(response)
-	if err := fasthttp.DoTimeout(request, response, 60*time.Second); err != nil {
+	timeout := 120 * time.Second
+	if s.timeout > 0 {
+		timeout = time.Duration(s.timeout) * time.Second
+	}
+	if err := fasthttp.DoTimeout(request, response, timeout); err != nil {
 		return ex.Throw{Msg: "post request failed: " + err.Error()}
 	}
 	respBytes := response.Body()
