@@ -503,6 +503,10 @@ func (self *MGOManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
 	return nil
 }
 
+func (self *MGOManager) FindOneComplex(cnd *sqlc.Cnd, data sqlc.Object) error {
+	return self.FindOne(cnd, data)
+}
+
 func (self *MGOManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	if data == nil {
 		return self.Error("[Mongo.FindList] data is nil")
@@ -571,6 +575,10 @@ func (self *MGOManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 		return self.Error(err)
 	}
 	return nil
+}
+
+func (self *MGOManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
+	return self.FindList(cnd, data)
 }
 
 func (self *MGOManager) Close() error {
