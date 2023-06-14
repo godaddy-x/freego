@@ -258,7 +258,7 @@ func TestGetPublicKey(t *testing.T) {
 
 func TestECCLogin(t *testing.T) {
 	requestData := map[string]string{"username": "1234567890123456", "password": "1234567890123456"}
-	responseData := map[string]string{}
+	responseData := sdk.AuthToken{}
 	if err := httpSDK.PostByECC("/login", &requestData, &responseData); err != nil {
 		fmt.Println(err)
 	}

@@ -11,6 +11,7 @@ import (
 	"github.com/godaddy-x/freego/zlog"
 	"github.com/valyala/fasthttp"
 	"net/http"
+	"strings"
 	"unsafe"
 )
 
@@ -96,6 +97,7 @@ type Context struct {
 	CreateAt      int64
 	Method        string
 	Path          string
+	ClientIP      string
 	RequestCtx    *fasthttp.RequestCtx
 	Subject       *jwt.Payload
 	JsonBody      *JsonBody
@@ -376,12 +378,32 @@ func (self *Context) reset(ctx *Context, handle PostHandle, request *fasthttp.Re
 	self.RequestCtx = request
 	self.Method = utils.Bytes2Str(self.RequestCtx.Method())
 	self.Path = utils.Bytes2Str(self.RequestCtx.Path())
+	self.ClientIP = getClientIP(self.RequestCtx)
 	self.RouterConfig = routerConfigs[self.Path]
 	self.postCompleted = false
 	self.filterChain.pos = 0
+	self.JsonBody = nil
+	self.Subject = nil
+	self.Token = ""
 	self.Response.Encoding = UTF8
 	self.Response.ContentType = APPLICATION_JSON
 	self.Response.ContentEntity = nil
 	self.Response.StatusCode = 0
 	self.Response.ContentEntityByte = nil
+}
+
+func getClientIP(ctx *fasthttp.RequestCtx) string {
+	clientIP := string(ctx.Request.Header.Peek("X-Forwarded-For"))
+	if index := strings.IndexByte(clientIP, ','); index >= 0 {
+		clientIP = clientIP[0:index]
+	}
+	clientIP = strings.TrimSpace(clientIP)
+	if len(clientIP) > 0 {
+		return clientIP
+	}
+	clientIP = strings.TrimSpace(string(ctx.Request.Header.Peek("X-Real-Ip")))
+	if len(clientIP) > 0 {
+		return clientIP
+	}
+	return ctx.RemoteIP().String()
 }
