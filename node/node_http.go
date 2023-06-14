@@ -21,7 +21,9 @@ var routerConfigs = make(map[string]*RouterConfig)
 var ctxPool = sync.Pool{New: func() interface{} {
 	ctx := &Context{}
 	ctx.filterChain = &filterChain{}
-	ctx.Response = &Response{Encoding: UTF8, ContentType: APPLICATION_JSON, ContentEntity: nil, ContentEntityByte: nil}
+	ctx.JsonBody = &JsonBody{}
+	ctx.Subject = &jwt.Subject{Header: &jwt.Header{}, Payload: &jwt.Payload{}}
+	ctx.Response = &Response{Encoding: UTF8, ContentType: APPLICATION_JSON, ContentEntity: nil}
 	return ctx
 }}
 
@@ -229,17 +231,17 @@ func defaultRenderError(ctx *Context, err error) error {
 			ctx.Response.StatusCode = out.Code
 		}
 		ctx.Response.ContentType = TEXT_PLAIN
-		ctx.Response.ContentEntityByte = utils.Str2Bytes(resp.Message)
+		ctx.Response.ContentEntityByte.Write(utils.Str2Bytes(resp.Message))
 		return nil
 	}
 	result, err := utils.JsonMarshal(resp)
 	if err != nil {
 		ctx.Response.ContentType = TEXT_PLAIN
-		ctx.Response.ContentEntityByte = utils.Str2Bytes(err.Error())
+		ctx.Response.ContentEntityByte.Write(utils.Str2Bytes(err.Error()))
 		return nil
 	}
 	ctx.Response.ContentType = APPLICATION_JSON
-	ctx.Response.ContentEntityByte = result
+	ctx.Response.ContentEntityByte.Write(result)
 	return nil
 }
 
@@ -250,7 +252,7 @@ func defaultRenderTo(ctx *Context) error {
 	} else {
 		ctx.RequestCtx.SetStatusCode(ctx.Response.StatusCode)
 	}
-	if _, err := ctx.RequestCtx.Write(ctx.Response.ContentEntityByte); err != nil {
+	if _, err := ctx.RequestCtx.Write(ctx.Response.ContentEntityByte.Bytes()); err != nil {
 		zlog.Error("response failed", 0, zlog.AddError(err))
 	}
 	return nil
@@ -262,9 +264,9 @@ func defaultRenderPre(ctx *Context) error {
 	case TEXT_PLAIN:
 		content := ctx.Response.ContentEntity
 		if v, b := content.(string); b {
-			ctx.Response.ContentEntityByte = utils.Str2Bytes(v)
+			ctx.Response.ContentEntityByte.Write(utils.Str2Bytes(v))
 		} else {
-			ctx.Response.ContentEntityByte = utils.Str2Bytes("")
+			ctx.Response.ContentEntityByte.Write(utils.Str2Bytes(""))
 		}
 	case APPLICATION_JSON:
 		if ctx.Response.ContentEntity == nil {
@@ -274,7 +276,7 @@ func defaultRenderPre(ctx *Context) error {
 			if result, err := utils.JsonMarshal(ctx.Response.ContentEntity); err != nil {
 				return ex.Throw{Code: http.StatusInternalServerError, Msg: "response JSON data failed", Err: err}
 			} else {
-				ctx.Response.ContentEntityByte = result
+				ctx.Response.ContentEntityByte.Write(result)
 			}
 			break
 		}
@@ -327,7 +329,7 @@ func defaultRenderPre(ctx *Context) error {
 		if result, err := utils.JsonMarshal(resp); err != nil {
 			return ex.Throw{Code: http.StatusInternalServerError, Msg: "response JSON data failed", Err: err}
 		} else {
-			ctx.Response.ContentEntityByte = result
+			ctx.Response.ContentEntityByte.Write(result)
 		}
 	default:
 		return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "invalid response ContentType"}

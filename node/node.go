@@ -1,6 +1,7 @@
 package node
 
 import (
+	"bytes"
 	"github.com/buaazp/fasthttprouter"
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/ex"
@@ -117,7 +118,7 @@ type Response struct {
 	ContentEntity interface{}
 	// response result
 	StatusCode        int
-	ContentEntityByte []byte
+	ContentEntityByte bytes.Buffer
 }
 
 func (self *JsonBody) ParseData(dst interface{}) error {
@@ -224,9 +225,10 @@ func (self *Context) readParams() error {
 	body := self.RequestCtx.PostBody()
 	// 原始请求模式
 	if self.RouterConfig.Guest {
-		if body != nil && len(body) > 0 {
-			self.JsonBody = &JsonBody{Data: body}
+		if body == nil || len(body) == 0 {
+			return nil
 		}
+		self.JsonBody.Data = body
 		return nil
 	}
 	// 安全请求模式
@@ -237,14 +239,22 @@ func (self *Context) readParams() error {
 	if len(body) > (MAX_VALUE_LEN) {
 		return ex.Throw{Code: http.StatusLengthRequired, Msg: "body parameters length is too long"}
 	}
-	req := &JsonBody{
-		Data:  utils.GetJsonString(body, "d"),
-		Time:  int64(utils.GetJsonInt(body, "t")),
-		Nonce: utils.GetJsonString(body, "n"),
-		Plan:  int64(utils.GetJsonInt(body, "p")),
-		Sign:  utils.GetJsonString(body, "s"),
-	}
-	if err := self.validJsonBody(req); err != nil { // TODO important
+	//req := &JsonBody{
+	//	Data:  utils.GetJsonString(body, "d"),
+	//	Time:  int64(utils.GetJsonInt(body, "t")),
+	//	Nonce: utils.GetJsonString(body, "n"),
+	//	Plan:  int64(utils.GetJsonInt(body, "p")),
+	//	Sign:  utils.GetJsonString(body, "s"),
+	//}
+	self.JsonBody.Data = utils.GetJsonString(body, "d")
+	self.JsonBody.Time = utils.GetJsonInt64(body, "t")
+	self.JsonBody.Nonce = utils.GetJsonString(body, "n")
+	self.JsonBody.Plan = utils.GetJsonInt64(body, "p")
+	self.JsonBody.Sign = utils.GetJsonString(body, "s")
+	//if err := utils.JsonUnmarshal(body, self.JsonBody); err != nil {
+	//	panic(err)
+	//}
+	if err := self.validJsonBody(); err != nil { // TODO important
 		return err
 	}
 	return nil
@@ -268,7 +278,11 @@ func (self *Context) validReplayAttack(sign string) error {
 	return nil
 }
 
-func (self *Context) validJsonBody(body *JsonBody) error {
+func (self *Context) validJsonBody() error {
+	if self.JsonBody == nil {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "request json body is nil"}
+	}
+	body := self.JsonBody
 	d, b := body.Data.(string)
 	if !b || len(d) == 0 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request data is nil"}
@@ -352,8 +366,7 @@ func (self *Context) validJsonBody(body *JsonBody) error {
 	} else {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters plan invalid"}
 	}
-	body.Data = rawData
-	self.JsonBody = body
+	self.JsonBody.Data = rawData
 	return nil
 }
 
@@ -386,9 +399,15 @@ func (self *Context) RemoteIP() string {
 }
 
 func (self *Context) reset(ctx *Context, handle PostHandle, request *fasthttp.RequestCtx) {
-	self.CacheAware = ctx.CacheAware
-	self.RSA = ctx.RSA
-	self.PermConfig = ctx.PermConfig
+	if self.CacheAware == nil {
+		self.CacheAware = ctx.CacheAware
+	}
+	if self.RSA == nil {
+		self.RSA = ctx.RSA
+	}
+	if self.PermConfig == nil {
+		self.PermConfig = ctx.PermConfig
+	}
 	self.postHandle = handle
 	self.RequestCtx = request
 	self.Method = utils.Bytes2Str(self.RequestCtx.Method())
@@ -396,14 +415,38 @@ func (self *Context) reset(ctx *Context, handle PostHandle, request *fasthttp.Re
 	self.RouterConfig = routerConfigs[self.Path]
 	self.postCompleted = false
 	self.filterChain.pos = 0
-	self.JsonBody = nil
 	self.Token = ""
-	self.Response.Encoding = UTF8
-	self.Response.ContentType = APPLICATION_JSON
+	self.resetJsonBody()
+	self.resetResponse()
+	self.resetSubject()
+}
+
+func (self *Context) resetJsonBody() {
+	if self.JsonBody == nil {
+		self.JsonBody = &JsonBody{}
+	}
+	self.JsonBody.Data = nil
+	self.JsonBody.Nonce = ""
+	self.JsonBody.Sign = ""
+	self.JsonBody.Time = 0
+	self.JsonBody.Plan = 0
+}
+
+func (self *Context) resetResponse() {
+	if self.Response == nil {
+		self.Response = &Response{}
+	}
+	if len(self.Response.Encoding) == 0 {
+		self.Response.Encoding = UTF8
+	}
+	if len(self.Response.ContentType) == 0 {
+		self.Response.ContentType = APPLICATION_JSON
+	}
 	self.Response.ContentEntity = nil
 	self.Response.StatusCode = 0
-	self.Response.ContentEntityByte = nil
-	self.resetSubject()
+	if self.Response.ContentEntityByte.Len() > 0 {
+		self.Response.ContentEntityByte.Reset()
+	}
 }
 
 func (self *Context) resetSubject() {

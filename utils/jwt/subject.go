@@ -178,6 +178,9 @@ func (self *Subject) CheckReady() bool {
 }
 
 func (self *Subject) ResetBytes() {
+	if self.rawBytes.Len() == 0 {
+		return
+	}
 	self.rawBytes.Reset()
 }
 

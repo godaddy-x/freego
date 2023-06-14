@@ -379,21 +379,21 @@ func openLogin() {
 //	}
 //}
 
-func BenchmarkGetUser(b *testing.B) {
-	b.StopTimer()
-	b.StartTimer()
-	for i := 0; i < b.N; i++ { //use b.N for looping
-		data, _ := utils.JsonMarshal(map[string]interface{}{"uid": 123, "name": "我爱中国/+_=/1df", "limit": 20, "offset": 5})
-		path := "/getUser"
-		req := &node.JsonBody{
-			Data:  data,
-			Time:  utils.UnixSecond(),
-			Nonce: utils.RandNonce(),
-			Plan:  int64(1),
-		}
-		PostByTokenSecret(path, req)
-	}
-}
+//func BenchmarkGetUser(b *testing.B) {
+//	b.StopTimer()
+//	b.StartTimer()
+//	for i := 0; i < b.N; i++ { //use b.N for looping
+//		data, _ := utils.JsonMarshal(map[string]interface{}{"uid": 123, "name": "我爱中国/+_=/1df", "limit": 20, "offset": 5})
+//		path := "/getUser"
+//		req := &node.JsonBody{
+//			Data:  data,
+//			Time:  utils.UnixSecond(),
+//			Nonce: utils.RandNonce(),
+//			Plan:  int64(1),
+//		}
+//		PostByTokenSecret(path, req)
+//	}
+//}
 
 // go test http_test.go -bench=BenchmarkPubkey  -benchmem -count=10 -cpuprofile cpuprofile.out -memprofile memprofile.out
 // go test http_test.go -bench=BenchmarkPubkey  -benchmem -count=10
@@ -401,10 +401,15 @@ func BenchmarkOpenLogin(b *testing.B) {
 	b.StopTimer()
 	b.StartTimer()
 	for i := 0; i < b.N; i++ { //use b.N for looping
-		httpSDK.AuthToken(sdk.AuthToken{Token: access_token, Secret: token_secret})
-		requestObj := map[string]interface{}{"uid": 123, "name": "我爱中国/+_=/1df", "limit": 20, "offset": 5}
-		responseData := map[string]string{}
-		if err := httpSDK.PostByAuth("/getUser", &requestObj, &responseData, true); err != nil {
+		//httpSDK.AuthToken(sdk.AuthToken{Token: access_token, Secret: token_secret})
+		//requestObj := map[string]interface{}{"uid": 123, "name": "我爱中国/+_=/1df", "limit": 20, "offset": 5}
+		//responseData := map[string]string{}
+		//if err := httpSDK.PostByAuth("/getUser", &requestObj, &responseData, true); err != nil {
+		//	fmt.Println(err)
+		//}
+		requestData := map[string]string{"username": "1234567890123456", "password": "1234567890123456"}
+		responseData := sdk.AuthToken{}
+		if err := httpSDK.PostByECC("/login", &requestData, &responseData); err != nil {
 			fmt.Println(err)
 		}
 	}
