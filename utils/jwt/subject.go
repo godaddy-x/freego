@@ -6,6 +6,7 @@ package jwt
  */
 
 import (
+	"bytes"
 	"github.com/godaddy-x/freego/utils"
 	"strings"
 )
@@ -22,8 +23,9 @@ const (
 )
 
 type Subject struct {
-	Header  *Header
-	Payload *Payload
+	Header   *Header
+	Payload  *Payload
+	rawBytes bytes.Buffer
 }
 
 type JwtConfig struct {
@@ -42,7 +44,7 @@ type Payload struct {
 	Sub string `json:"sub"` // 用户主体
 	Aud string `json:"aud"` // 接收token主体
 	Iss string `json:"iss"` // 签发token主体
-	Iat int64  `json:"iat"` // 授权token时间1
+	Iat int64  `json:"iat"` // 授权token时间
 	Exp int64  `json:"exp"` // 授权token过期时间
 	Dev string `json:"dev"` // 设备类型,web/app
 	Jti string `json:"jti"` // 唯一身份标识,主要用来作为一次性token,从而回避重放攻击
@@ -156,20 +158,79 @@ func (self *Subject) Verify(token, key string, decode bool) error {
 	if int64(utils.GetJsonInt(b64, "exp")) <= utils.UnixSecond() {
 		return utils.Error("token expired or invalid")
 	}
-	if decode {
-		//payload := &Payload{}
-		//if err := utils.ParseJsonBase64(part1, payload); err != nil {
-		//	return err
-		//}
-		//self.Payload = payload
-		if decode {
-			self.Payload = &Payload{
-				Sub: utils.GetJsonString(b64, "sub"),
-				Ext: utils.GetJsonString(b64, "ext"),
-			}
-		}
+	self.rawBytes.Reset()
+	self.rawBytes.Write(b64)
+	if !decode {
+		return nil
 	}
+	if self.Payload == nil {
+		self.Payload = &Payload{}
+	}
+	self.Payload.Sub = self.getStringValue("sub")
 	return nil
+}
+
+func (self *Subject) CheckReady() bool {
+	if self.Payload == nil || len(self.Payload.Sub) == 0 {
+		return false
+	}
+	return true
+}
+
+func (self *Subject) ResetBytes() {
+	self.rawBytes.Reset()
+}
+
+func (self *Subject) GetSub() string {
+	if self.Payload == nil {
+		self.Payload = &Payload{}
+	}
+	if len(self.Payload.Sub) == 0 {
+		self.Payload.Sub = self.getStringValue("sub")
+	}
+	return self.Payload.Sub
+}
+
+func (self *Subject) GetIss() string {
+	return self.getStringValue("iss")
+}
+
+func (self *Subject) GetAud() string {
+	return self.getStringValue("aud")
+}
+
+func (self *Subject) GetIat() int64 {
+	return self.getInt64Value("iat")
+}
+
+func (self *Subject) GetExp() int64 {
+	return self.getInt64Value("exp")
+}
+
+func (self *Subject) GetDev() string {
+	return self.getStringValue("dev")
+}
+
+func (self *Subject) GetJti() string {
+	return self.getStringValue("jti")
+}
+
+func (self *Subject) GetExt() string {
+	return self.getStringValue("ext")
+}
+
+func (self *Subject) getStringValue(k string) string {
+	if len(self.rawBytes.Bytes()) == 0 {
+		return ""
+	}
+	return utils.GetJsonString(self.rawBytes.Bytes(), k)
+}
+
+func (self *Subject) getInt64Value(k string) int64 {
+	if len(self.rawBytes.Bytes()) == 0 {
+		return 0
+	}
+	return utils.GetJsonInt64(self.rawBytes.Bytes(), k)
 }
 
 // 获取token的私钥

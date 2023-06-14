@@ -6,7 +6,6 @@ import (
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/concurrent"
-	"github.com/godaddy-x/freego/utils/jwt"
 	"github.com/godaddy-x/freego/zlog"
 	"math"
 	"net/http"
@@ -140,11 +139,9 @@ func (self *SessionFilter) DoFilter(chain Filter, ctx *Context, args ...interfac
 	if len(ctx.Token) == 0 {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "AccessToken is nil"}
 	}
-	subject := &jwt.Subject{}
-	if err := subject.Verify(ctx.Token, ctx.GetJwtConfig().TokenKey, true); err != nil {
+	if err := ctx.Subject.Verify(ctx.Token, ctx.GetJwtConfig().TokenKey, true); err != nil {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "AccessToken is invalid or expired", Err: err}
 	}
-	ctx.Subject = subject.Payload
 	return chain.DoFilter(chain, ctx, args...)
 }
 
@@ -164,7 +161,7 @@ func (self *RoleFilter) DoFilter(chain Filter, ctx *Context, args ...interface{}
 	if ctx.PermConfig == nil {
 		return chain.DoFilter(chain, ctx, args...)
 	}
-	_, need, err := ctx.PermConfig(ctx.Subject.Sub, ctx.Path)
+	_, need, err := ctx.PermConfig(ctx.Subject.GetSub(), ctx.Path)
 	if err != nil {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "failed to read authorization resource", Err: err}
 	} else if !need.Ready { // 无授权资源配置,跳过
@@ -177,7 +174,7 @@ func (self *RoleFilter) DoFilter(chain Filter, ctx *Context, args ...interface{}
 	} else if !ctx.Authenticated() { // 需要登录状态,会话为空,抛出异常
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "login status required"}
 	}
-	roles, _, err := ctx.PermConfig(ctx.Subject.Sub, "", true)
+	roles, _, err := ctx.PermConfig(ctx.Subject.GetSub(), "", true)
 	if err != nil {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "user roles read failed"}
 	}

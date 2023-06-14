@@ -43,7 +43,7 @@ func getServerPublicKey() string {
 	if _, b, err := fasthttp.Get(nil, domain+"/publicKey"); err != nil {
 		panic(err)
 	} else {
-		//output(utils.Bytes2Str(b))
+		output(utils.Bytes2Str(b))
 		return utils.Bytes2Str(b)
 	}
 }
@@ -242,7 +242,7 @@ func PostByRSA(path string, req *node.JsonBody, useECC bool) {
 }
 
 var httpSDK = &sdk.HttpSDK{
-	Debug:     true,
+	Debug:     false,
 	Domain:    domain,
 	KeyPath:   "/publicKey",
 	LoginPath: "/login",
@@ -266,8 +266,8 @@ func TestECCLogin(t *testing.T) {
 }
 
 func TestGetUser(t *testing.T) {
-	httpSDK.AuthObject(&map[string]string{"username": "1234567890123456", "password": "1234567890123456"})
-	//httpSDK.AuthToken(sdk.AuthToken{Token: access_token, Secret: token_secret})
+	//httpSDK.AuthObject(&map[string]string{"username": "1234567890123456", "password": "1234567890123456"})
+	httpSDK.AuthToken(sdk.AuthToken{Token: access_token, Secret: token_secret})
 	requestObj := map[string]interface{}{"uid": 123, "name": "我爱中国/+_=/1df", "limit": 20, "offset": 5}
 	responseData := map[string]string{}
 	if err := httpSDK.PostByAuth("/getUser", &requestObj, &responseData, true); err != nil {
@@ -401,13 +401,10 @@ func BenchmarkOpenLogin(b *testing.B) {
 	b.StopTimer()
 	b.StartTimer()
 	for i := 0; i < b.N; i++ { //use b.N for looping
-		request := fasthttp.AcquireRequest()
-		request.Header.SetMethod("GET")
-		defer fasthttp.ReleaseRequest(request)
-		response := fasthttp.AcquireResponse()
-		defer fasthttp.ReleaseResponse(response)
-		_, _, err := fasthttp.Get(nil, "http://localhost/open/public/login")
-		if err != nil {
+		httpSDK.AuthToken(sdk.AuthToken{Token: access_token, Secret: token_secret})
+		requestObj := map[string]interface{}{"uid": 123, "name": "我爱中国/+_=/1df", "limit": 20, "offset": 5}
+		responseData := map[string]string{}
+		if err := httpSDK.PostByAuth("/getUser", &requestObj, &responseData, true); err != nil {
 			fmt.Println(err)
 		}
 	}

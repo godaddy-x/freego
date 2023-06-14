@@ -60,6 +60,10 @@ func GetJsonInt(b []byte, k string) int {
 	return fastjson.GetInt(b, k)
 }
 
+func GetJsonInt64(b []byte, k string) int64 {
+	return int64(GetJsonInt(b, k))
+}
+
 func GetJsonBool(b []byte, k string) bool {
 	return fastjson.GetBool(b, k)
 }

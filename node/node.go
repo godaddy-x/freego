@@ -97,9 +97,8 @@ type Context struct {
 	CreateAt      int64
 	Method        string
 	Path          string
-	ClientIP      string
 	RequestCtx    *fasthttp.RequestCtx
-	Subject       *jwt.Payload
+	Subject       *jwt.Subject
 	JsonBody      *JsonBody
 	Response      *Response
 	filterChain   *filterChain
@@ -180,7 +179,7 @@ func (self *Context) DelStorage(k string) {
 }
 
 func (self *Context) Authenticated() bool {
-	if self.Subject == nil || len(self.Subject.Sub) == 0 {
+	if self.Subject == nil || !self.Subject.CheckReady() {
 		return false
 	}
 	return true
@@ -198,7 +197,7 @@ func (self *Context) Parser(dst interface{}) error {
 	// TODO 备注: 已有会话状态时,指针填充context值,不能随意修改指针偏移值
 	identify := &common.Identify{}
 	if self.Authenticated() {
-		identify.ID = self.Subject.Sub
+		identify.ID = self.Subject.GetSub()
 	}
 	context := common.Context{
 		Identify: identify,
@@ -370,6 +369,22 @@ func (self *Context) Handle() error {
 	return self.postHandle(self)
 }
 
+func (self *Context) RemoteIP() string {
+	clientIP := string(self.RequestCtx.Request.Header.Peek("X-Forwarded-For"))
+	if index := strings.IndexByte(clientIP, ','); index >= 0 {
+		clientIP = clientIP[0:index]
+	}
+	clientIP = strings.TrimSpace(clientIP)
+	if len(clientIP) > 0 {
+		return clientIP
+	}
+	clientIP = strings.TrimSpace(utils.Bytes2Str(self.RequestCtx.Request.Header.Peek("X-Real-Ip")))
+	if len(clientIP) > 0 {
+		return clientIP
+	}
+	return self.RequestCtx.RemoteIP().String()
+}
+
 func (self *Context) reset(ctx *Context, handle PostHandle, request *fasthttp.RequestCtx) {
 	self.CacheAware = ctx.CacheAware
 	self.RSA = ctx.RSA
@@ -378,32 +393,32 @@ func (self *Context) reset(ctx *Context, handle PostHandle, request *fasthttp.Re
 	self.RequestCtx = request
 	self.Method = utils.Bytes2Str(self.RequestCtx.Method())
 	self.Path = utils.Bytes2Str(self.RequestCtx.Path())
-	self.ClientIP = getClientIP(self.RequestCtx)
 	self.RouterConfig = routerConfigs[self.Path]
 	self.postCompleted = false
 	self.filterChain.pos = 0
 	self.JsonBody = nil
-	self.Subject = nil
 	self.Token = ""
 	self.Response.Encoding = UTF8
 	self.Response.ContentType = APPLICATION_JSON
 	self.Response.ContentEntity = nil
 	self.Response.StatusCode = 0
 	self.Response.ContentEntityByte = nil
+	self.resetSubject()
 }
 
-func getClientIP(ctx *fasthttp.RequestCtx) string {
-	clientIP := string(ctx.Request.Header.Peek("X-Forwarded-For"))
-	if index := strings.IndexByte(clientIP, ','); index >= 0 {
-		clientIP = clientIP[0:index]
+func (self *Context) resetSubject() {
+	if self.Subject == nil {
+		self.Subject = &jwt.Subject{}
+		self.Subject.Header = &jwt.Header{}
+		self.Subject.Payload = &jwt.Payload{}
 	}
-	clientIP = strings.TrimSpace(clientIP)
-	if len(clientIP) > 0 {
-		return clientIP
-	}
-	clientIP = strings.TrimSpace(string(ctx.Request.Header.Peek("X-Real-Ip")))
-	if len(clientIP) > 0 {
-		return clientIP
-	}
-	return ctx.RemoteIP().String()
+	self.Subject.Payload.Sub = ""
+	self.Subject.Payload.Iss = ""
+	self.Subject.Payload.Aud = ""
+	self.Subject.Payload.Iat = 0
+	self.Subject.Payload.Exp = 0
+	self.Subject.Payload.Dev = ""
+	self.Subject.Payload.Jti = ""
+	self.Subject.Payload.Ext = ""
+	self.Subject.ResetBytes()
 }
