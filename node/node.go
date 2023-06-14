@@ -93,9 +93,7 @@ type Context struct {
 	router        *fasthttprouter.Router
 	CacheAware    func(ds ...string) (cache.Cache, error)
 	AcceptTimeout int64 // 超时主动断开客户端连接,秒
-	Token         string
-	Device        string
-	CreateAt      int64
+	Token         bytes.Buffer
 	Method        string
 	Path          string
 	RequestCtx    *fasthttp.RequestCtx
@@ -138,7 +136,7 @@ func (self *JsonBody) RawData() []byte {
 }
 
 func (self *Context) GetTokenSecret() string {
-	return jwt.GetTokenSecret(self.Token, jwtConfig.TokenKey)
+	return jwt.GetTokenSecret(utils.Bytes2Str(self.Token.Bytes()), jwtConfig.TokenKey)
 }
 
 func (self *Context) GetHmac256Sign(d, n string, t, p int64, key string) string {
@@ -192,7 +190,7 @@ func (self *Context) Parser(dst interface{}) error {
 	}
 	if err := self.JsonBody.ParseData(dst); err != nil {
 		msg := "JSON parameter parsing failed"
-		zlog.Error(msg, 0, zlog.String("path", self.Path), zlog.String("device", self.Device), zlog.Any("data", self.JsonBody), zlog.AddError(err))
+		zlog.Error(msg, 0, zlog.String("path", self.Path), zlog.String("device", self.ClientDevice()), zlog.Any("data", self.JsonBody), zlog.AddError(err))
 		return ex.Throw{Msg: msg}
 	}
 	// TODO 备注: 已有会话状态时,指针填充context值,不能随意修改指针偏移值
@@ -210,15 +208,18 @@ func (self *Context) Parser(dst interface{}) error {
 	return nil
 }
 
-func (self *Context) readParams() error {
+func (self *Context) ClientDevice() string {
 	agent := utils.Bytes2Str(self.RequestCtx.Request.Header.Peek("User-Agent"))
 	if utils.HasStr(agent, "Android") || utils.HasStr(agent, "Adr") {
-		self.Device = ANDROID
+		return ANDROID
 	} else if utils.HasStr(agent, "iPad") || utils.HasStr(agent, "iPhone") || utils.HasStr(agent, "Mac") {
-		self.Device = IOS
+		return IOS
 	} else {
-		self.Device = WEB
+		return WEB
 	}
+}
+
+func (self *Context) readParams() error {
 	if self.Method != POST {
 		return nil
 	}
@@ -232,7 +233,7 @@ func (self *Context) readParams() error {
 		return nil
 	}
 	// 安全请求模式
-	self.Token = utils.Bytes2Str(self.RequestCtx.Request.Header.Peek(Authorization))
+	self.Token.Write(self.RequestCtx.Request.Header.Peek(Authorization))
 	if body == nil || len(body) == 0 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters is nil"}
 	}
@@ -305,7 +306,7 @@ func (self *Context) validJsonBody() error {
 	if !utils.CheckStrLen(body.Sign, 32, 64) {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature length invalid"}
 	}
-	if utils.CheckInt64(body.Plan, 0, 1) && len(self.Token) == 0 {
+	if utils.CheckInt64(body.Plan, 0, 1) && self.Token.Len() == 0 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request header token is nil"}
 	}
 	if utils.CheckInt64(body.Plan, 2, 3) { // reset token
@@ -315,7 +316,7 @@ func (self *Context) validJsonBody() error {
 		if self.RouterConfig.UseHAX && !self.RouterConfig.UseRSA && body.Plan != 3 {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters must use HAX signature"}
 		}
-		self.Token = ""
+		self.Token.Reset()
 	}
 	var key string
 	var anonymous bool // true.匿名状态
@@ -415,10 +416,21 @@ func (self *Context) reset(ctx *Context, handle PostHandle, request *fasthttp.Re
 	self.RouterConfig = routerConfigs[self.Path]
 	self.postCompleted = false
 	self.filterChain.pos = 0
-	self.Token = ""
 	self.resetJsonBody()
 	self.resetResponse()
 	self.resetSubject()
+	self.resetTokenStorage()
+}
+
+func (self *Context) resetTokenStorage() {
+	if self.Token.Len() > 0 {
+		self.Token.Reset()
+	}
+	if len(self.Storage) > 0 {
+		for k, _ := range self.Storage {
+			delete(self.Storage, k)
+		}
+	}
 }
 
 func (self *Context) resetJsonBody() {

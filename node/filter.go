@@ -17,7 +17,6 @@ const (
 	SessionFilterName            = "SessionFilter"
 	UserRateLimiterFilterName    = "UserRateLimiterFilter"
 	RoleFilterName               = "RoleFilter"
-	ReplayFilterName             = "ReplayFilter"
 	PostHandleFilterName         = "PostHandleFilter"
 	RenderHandleFilterName       = "RenderHandleFilter"
 )
@@ -30,7 +29,6 @@ var filterMap = map[string]*FilterObject{
 	SessionFilterName:            {Name: SessionFilterName, Order: -80, Filter: &SessionFilter{}},
 	UserRateLimiterFilterName:    {Name: UserRateLimiterFilterName, Order: -70, Filter: &UserRateLimiterFilter{}},
 	RoleFilterName:               {Name: RoleFilterName, Order: -60, Filter: &RoleFilter{}},
-	ReplayFilterName:             {Name: ReplayFilterName, Order: -50, Filter: &ReplayFilter{}},
 	PostHandleFilterName:         {Name: PostHandleFilterName, Order: math.MaxInt, Filter: &PostHandleFilter{}},
 	RenderHandleFilterName:       {Name: RenderHandleFilterName, Order: math.MinInt, Filter: &RenderHandleFilter{}},
 }
@@ -96,7 +94,6 @@ type ParameterFilter struct{}
 type SessionFilter struct{}
 type UserRateLimiterFilter struct{}
 type RoleFilter struct{}
-type ReplayFilter struct{}
 type PostHandleFilter struct{}
 type RenderHandleFilter struct{}
 
@@ -136,11 +133,11 @@ func (self *SessionFilter) DoFilter(chain Filter, ctx *Context, args ...interfac
 	if ctx.RouterConfig.UseRSA || ctx.RouterConfig.UseHAX || ctx.RouterConfig.Guest { // 登录接口和游客模式跳过会话认证
 		return chain.DoFilter(chain, ctx, args...)
 	}
-	if len(ctx.Token) == 0 {
-		return ex.Throw{Code: http.StatusUnauthorized, Msg: "AccessToken is nil"}
+	if ctx.Token.Len() == 0 {
+		return ex.Throw{Code: http.StatusUnauthorized, Msg: "token is nil"}
 	}
-	if err := ctx.Subject.Verify(ctx.Token, ctx.GetJwtConfig().TokenKey, true); err != nil {
-		return ex.Throw{Code: http.StatusUnauthorized, Msg: "AccessToken is invalid or expired", Err: err}
+	if err := ctx.Subject.Verify(utils.Bytes2Str(ctx.Token.Bytes()), ctx.GetJwtConfig().TokenKey, true); err != nil {
+		return ex.Throw{Code: http.StatusUnauthorized, Msg: "token invalid or expired", Err: err}
 	}
 	return chain.DoFilter(chain, ctx, args...)
 }
@@ -191,24 +188,6 @@ func (self *RoleFilter) DoFilter(chain Filter, ctx *Context, args ...interface{}
 		}
 	}
 	return ex.Throw{Code: http.StatusUnauthorized, Msg: "access defined"}
-}
-
-func (self *ReplayFilter) DoFilter(chain Filter, ctx *Context, args ...interface{}) error {
-	//param := ctx.Params
-	//if param == nil || len(param.Sign) == 0 {
-	//	return nil
-	//}
-	//key := param.Sign
-	//if c, err := node.CacheAware(); err != nil {
-	//	return err
-	//} else if b, err := c.GetInt64(key); err != nil {
-	//	return err
-	//} else if b > 1 {
-	//	return ex.Throw{Code: http.StatusForbidden, Msg: "重复请求不受理"}
-	//} else {
-	//	c.Put(key, 1, int((param.Time+jwt.FIVE_MINUTES)/1000))
-	//}
-	return chain.DoFilter(chain, ctx, args...)
 }
 
 func (self *PostHandleFilter) DoFilter(chain Filter, ctx *Context, args ...interface{}) error {

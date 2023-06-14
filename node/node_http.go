@@ -24,6 +24,7 @@ var ctxPool = sync.Pool{New: func() interface{} {
 	ctx.JsonBody = &JsonBody{}
 	ctx.Subject = &jwt.Subject{Header: &jwt.Header{}, Payload: &jwt.Payload{}}
 	ctx.Response = &Response{Encoding: UTF8, ContentType: APPLICATION_JSON, ContentEntity: nil}
+	ctx.Storage = map[string]interface{}{}
 	return ctx
 }}
 
