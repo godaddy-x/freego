@@ -68,7 +68,7 @@ type JsonBody struct {
 	Data  interface{} `json:"d"`
 	Time  int64       `json:"t"`
 	Nonce string      `json:"n"`
-	Plan  int64       `json:"p"` // 0.默认 1.AES 2.RSA模式 3.独立验签模式
+	Plan  int64       `json:"p"` // 0.默认(登录状态) 1.AES(登录状态) 2.RSA/ECC模式(匿名状态) 3.独立验签模式(匿名状态)
 	Sign  string      `json:"s"`
 }
 
@@ -310,11 +310,15 @@ func (self *Context) validJsonBody() error {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request header token is nil"}
 	}
 	if utils.CheckInt64(body.Plan, 2, 3) { // reset token
-		if self.RouterConfig.UseRSA && !self.RouterConfig.UseHAX && body.Plan != 2 {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters must use RSA encryption"}
+		if body.Plan == 2 {
+			if !self.RouterConfig.UseRSA {
+				return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters must use RSA encryption"}
+			}
 		}
-		if self.RouterConfig.UseHAX && !self.RouterConfig.UseRSA && body.Plan != 3 {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters must use HAX signature"}
+		if body.Plan == 3 {
+			if !self.RouterConfig.UseHAX {
+				return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters must use HAX signature"}
+			}
 		}
 	}
 	var key string

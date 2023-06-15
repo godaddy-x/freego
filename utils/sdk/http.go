@@ -164,33 +164,16 @@ func (s *HttpSDK) PostByHAX(path string, requestObj, responseObj interface{}) er
 		return ex.Throw{Msg: "request data JsonMarshal invalid"}
 	}
 	jsonBody := &node.JsonBody{
-		Data:  jsonData,
+		Data:  utils.Base64Encode(jsonData),
 		Time:  utils.UnixSecond(),
 		Nonce: utils.RandNonce(),
-		Plan:  int64(2),
+		Plan:  int64(3),
 	}
 	publicKey, err := s.GetPublicKey()
 	if err != nil {
 		return err
 	}
-	clientSecretKey := utils.RandStr(24)
-	_, pubBs, err := ecc.LoadBase64PublicKey(publicKey)
-	if err != nil {
-		return ex.Throw{Msg: "load ECC public key failed"}
-	}
-	r, err := ecc.Encrypt(pubBs, utils.Str2Bytes(clientSecretKey))
-	if err != nil {
-		return ex.Throw{Msg: "ECC encrypt failed"}
-	}
-	randomCode := base64.StdEncoding.EncodeToString(r)
 	s.debugOut("server key: ", publicKey)
-	s.debugOut("client key: ", clientSecretKey)
-	s.debugOut("client key encrypted: ", randomCode)
-	d, err := utils.AesEncrypt(jsonBody.Data.([]byte), clientSecretKey, clientSecretKey)
-	if err != nil {
-		return ex.Throw{Msg: "request data AES encrypt failed"}
-	}
-	jsonBody.Data = d
 	jsonBody.Sign = utils.HMAC_SHA256(utils.AddStr(path, jsonBody.Data.(string), jsonBody.Nonce, jsonBody.Time, jsonBody.Plan), publicKey, true)
 	bytesData, err := utils.JsonMarshal(jsonBody)
 	if err != nil {
@@ -201,7 +184,6 @@ func (s *HttpSDK) PostByHAX(path string, requestObj, responseObj interface{}) er
 	request := fasthttp.AcquireRequest()
 	request.Header.SetContentType("application/json;charset=UTF-8")
 	request.Header.Set("Authorization", "")
-	request.Header.Set("RandomCode", randomCode)
 	request.Header.SetMethod("POST")
 	request.SetRequestURI(s.Domain + path)
 	request.SetBody(bytesData)
@@ -230,16 +212,13 @@ func (s *HttpSDK) PostByHAX(path string, requestObj, responseObj interface{}) er
 	if respData.Code != 200 {
 		return ex.Throw{Msg: "post request failed: " + respData.Message}
 	}
-	validSign := utils.HMAC_SHA256(utils.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan), clientSecretKey, true)
+	validSign := utils.HMAC_SHA256(utils.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan), publicKey, true)
 	if validSign != respData.Sign {
 		return ex.Throw{Msg: "post response sign verify invalid"}
 	}
 	s.debugOut("response sign verify: ", validSign == respData.Sign)
-	dec, err := utils.AesDecrypt(respData.Data.(string), clientSecretKey, clientSecretKey)
-	if err != nil {
-		return ex.Throw{Msg: "post response data AES decrypt failed"}
-	}
-	s.debugOut("response data decrypted: ", utils.Bytes2Str(dec))
+	dec := utils.Base64Decode(respData.Data)
+	s.debugOut("response data base64: ", string(dec))
 	if err := utils.JsonUnmarshal(dec, responseObj); err != nil {
 		return ex.Throw{Msg: "response data JsonUnmarshal invalid"}
 	}

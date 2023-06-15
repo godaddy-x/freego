@@ -168,9 +168,9 @@ func StartHttpNode() {
 	my := NewHTTP()
 	my.POST("/test1", my.test, nil)
 	my.POST("/getUser", my.getUser, nil)
-	my.GET("/publicKey", my.publicKey, &node.RouterConfig{Guest: true})
 	my.POST("/testGuestPost", my.testGuestPost, &node.RouterConfig{Guest: true})
-	my.POST("/testHAX", my.testHAX, &node.RouterConfig{UseHAX: true, UseRSA: true})
+	my.POST("/testHAX", my.testHAX, &node.RouterConfig{UseHAX: true})
+	my.GET("/key", my.publicKey, &node.RouterConfig{Guest: true})
 	my.POST("/login", my.login, &node.RouterConfig{UseRSA: true})
 
 	my.POST("/geetest/register", my.FirstRegister, &node.RouterConfig{UseRSA: true})
