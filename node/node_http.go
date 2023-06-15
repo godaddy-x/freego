@@ -229,7 +229,13 @@ func (self *HttpNode) ClearFilterChain() {
 func errorMsgToLang(ctx *Context, msg string) string {
 	lang := ctx.ClientLanguage()
 	if len(lang) == 0 {
-		return msg
+		if len(langConfigs) == 0 {
+			return msg
+		}
+		for k, _ := range langConfigs {
+			lang = k
+			break
+		}
 	}
 	langKV, b := langConfigs[lang]
 	if !b || len(langKV) == 0 {
