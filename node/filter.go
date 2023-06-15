@@ -133,10 +133,10 @@ func (self *SessionFilter) DoFilter(chain Filter, ctx *Context, args ...interfac
 	if ctx.RouterConfig.UseRSA || ctx.RouterConfig.UseHAX || ctx.RouterConfig.Guest { // 登录接口和游客模式跳过会话认证
 		return chain.DoFilter(chain, ctx, args...)
 	}
-	if ctx.Token.Len() == 0 {
+	if len(ctx.Subject.GetRawBytes()) == 0 {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "token is nil"}
 	}
-	if err := ctx.Subject.Verify(utils.Bytes2Str(ctx.Token.Bytes()), ctx.GetJwtConfig().TokenKey, true); err != nil {
+	if err := ctx.Subject.Verify(utils.Bytes2Str(ctx.Subject.GetRawBytes()), ctx.GetJwtConfig().TokenKey, true); err != nil {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "token invalid or expired", Err: err}
 	}
 	return chain.DoFilter(chain, ctx, args...)

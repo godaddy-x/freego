@@ -28,14 +28,15 @@ var httpSDK = &sdk.HttpSDK{
 //	fmt.Println("服务端公钥: ", publicKey)
 //}
 //
-//func TestECCLogin(t *testing.T) {
-//	requestData := map[string]string{"username": "1234567890123456", "password": "1234567890123456"}
-//	responseData := sdk.AuthToken{}
-//	if err := httpSDK.PostByECC("/login", &requestData, &responseData); err != nil {
-//		fmt.Println(err)
-//	}
-//	fmt.Println(responseData)
-//}
+func TestECCLogin(t *testing.T) {
+	requestData := map[string]string{"username": "1234567890123456", "password": "1234567890123456"}
+	responseData := sdk.AuthToken{}
+	if err := httpSDK.PostByECC("/login", &requestData, &responseData); err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println(responseData)
+}
+
 //
 func TestGetUser(t *testing.T) {
 	//httpSDK.AuthObject(&map[string]string{"username": "1234567890123456", "password": "1234567890123456"})

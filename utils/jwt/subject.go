@@ -6,7 +6,6 @@ package jwt
  */
 
 import (
-	"bytes"
 	"github.com/godaddy-x/freego/utils"
 	"strings"
 )
@@ -25,7 +24,7 @@ const (
 type Subject struct {
 	Header   *Header
 	Payload  *Payload
-	rawBytes bytes.Buffer
+	rawBytes []byte
 }
 
 type JwtConfig struct {
@@ -158,8 +157,6 @@ func (self *Subject) Verify(token, key string, decode bool) error {
 	if int64(utils.GetJsonInt(b64, "exp")) <= utils.UnixSecond() {
 		return utils.Error("token expired or invalid")
 	}
-	self.rawBytes.Reset()
-	self.rawBytes.Write(b64)
 	if !decode {
 		return nil
 	}
@@ -177,11 +174,22 @@ func (self *Subject) CheckReady() bool {
 	return true
 }
 
-func (self *Subject) ResetBytes() {
-	if self.rawBytes.Len() == 0 {
+func (self *Subject) ResetBytes(b []byte) {
+	if b == nil && len(self.rawBytes) == 0 {
 		return
 	}
-	self.rawBytes.Reset()
+	self.rawBytes = nil
+	if b == nil {
+		return
+	}
+	self.rawBytes = b
+}
+
+func (self *Subject) GetRawBytes() []byte {
+	if len(self.rawBytes) == 0 {
+		return []byte{}
+	}
+	return self.rawBytes
 }
 
 func (self *Subject) GetSub() string {
@@ -223,17 +231,17 @@ func (self *Subject) GetExt() string {
 }
 
 func (self *Subject) getStringValue(k string) string {
-	if len(self.rawBytes.Bytes()) == 0 {
+	if len(self.rawBytes) == 0 {
 		return ""
 	}
-	return utils.GetJsonString(self.rawBytes.Bytes(), k)
+	return utils.GetJsonString(self.rawBytes, k)
 }
 
 func (self *Subject) getInt64Value(k string) int64 {
-	if len(self.rawBytes.Bytes()) == 0 {
+	if len(self.rawBytes) == 0 {
 		return 0
 	}
-	return utils.GetJsonInt64(self.rawBytes.Bytes(), k)
+	return utils.GetJsonInt64(self.rawBytes, k)
 }
 
 // 获取token的私钥

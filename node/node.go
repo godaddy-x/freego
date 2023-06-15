@@ -93,7 +93,7 @@ type Context struct {
 	router        *fasthttprouter.Router
 	CacheAware    func(ds ...string) (cache.Cache, error)
 	AcceptTimeout int64 // 超时主动断开客户端连接,秒
-	Token         bytes.Buffer
+	//Token         string
 	Method        string
 	Path          string
 	RequestCtx    *fasthttp.RequestCtx
@@ -136,7 +136,7 @@ func (self *JsonBody) RawData() []byte {
 }
 
 func (self *Context) GetTokenSecret() string {
-	return jwt.GetTokenSecret(utils.Bytes2Str(self.Token.Bytes()), jwtConfig.TokenKey)
+	return jwt.GetTokenSecret(utils.Bytes2Str(self.Subject.GetRawBytes()), jwtConfig.TokenKey)
 }
 
 func (self *Context) GetHmac256Sign(d, n string, t, p int64, key string) string {
@@ -233,7 +233,7 @@ func (self *Context) readParams() error {
 		return nil
 	}
 	// 安全请求模式
-	self.Token.Write(self.RequestCtx.Request.Header.Peek(Authorization))
+	self.Subject.ResetBytes(self.RequestCtx.Request.Header.Peek(Authorization))
 	if body == nil || len(body) == 0 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters is nil"}
 	}
@@ -306,7 +306,7 @@ func (self *Context) validJsonBody() error {
 	if !utils.CheckStrLen(body.Sign, 32, 64) {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature length invalid"}
 	}
-	if utils.CheckInt64(body.Plan, 0, 1) && self.Token.Len() == 0 {
+	if utils.CheckInt64(body.Plan, 0, 1) && len(self.Subject.GetRawBytes()) == 0 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request header token is nil"}
 	}
 	if utils.CheckInt64(body.Plan, 2, 3) { // reset token
@@ -316,7 +316,6 @@ func (self *Context) validJsonBody() error {
 		if self.RouterConfig.UseHAX && !self.RouterConfig.UseRSA && body.Plan != 3 {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters must use HAX signature"}
 		}
-		self.Token.Reset()
 	}
 	var key string
 	var anonymous bool // true.匿名状态
@@ -423,8 +422,8 @@ func (self *Context) reset(ctx *Context, handle PostHandle, request *fasthttp.Re
 }
 
 func (self *Context) resetTokenStorage() {
-	if self.Token.Len() > 0 {
-		self.Token.Reset()
+	if len(self.Subject.GetRawBytes()) > 0 {
+		self.Subject.ResetBytes(nil)
 	}
 	if len(self.Storage) > 0 {
 		for k, _ := range self.Storage {
@@ -475,5 +474,5 @@ func (self *Context) resetSubject() {
 	self.Subject.Payload.Dev = ""
 	self.Subject.Payload.Jti = ""
 	self.Subject.Payload.Ext = ""
-	self.Subject.ResetBytes()
+	self.Subject.ResetBytes(nil)
 }

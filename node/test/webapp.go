@@ -10,6 +10,7 @@ import (
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/crypto"
 	"github.com/godaddy-x/freego/utils/jwt"
+	"github.com/godaddy-x/freego/utils/sdk"
 )
 
 type MyWebNode struct {
@@ -60,7 +61,11 @@ func (self *MyWebNode) login(ctx *node.Context) error {
 	config := ctx.GetJwtConfig()
 	token := ctx.Subject.Create(utils.NextSID()).Dev("APP").Generate(config)
 	secret := jwt.GetTokenSecret(token, config.TokenKey)
-	return self.Json(ctx, map[string]interface{}{"token": token, "secret": secret, "expired": ctx.Subject.Payload.Exp})
+	return self.Json(ctx, &sdk.AuthToken{
+		Token:   token,
+		Secret:  secret,
+		Expired: ctx.Subject.Payload.Exp,
+	})
 	//return self.Html(ctx, "/web/index.html", map[string]interface{}{"tewt": 1})
 }
 
