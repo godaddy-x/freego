@@ -22,6 +22,7 @@ type HttpSDK struct {
 	Domain     string
 	KeyPath    string
 	LoginPath  string
+	language   string
 	timeout    int64
 	authObject interface{}
 	authToken  AuthToken
@@ -38,6 +39,10 @@ func (s *HttpSDK) AuthToken(object AuthToken) {
 
 func (s *HttpSDK) SetTimeout(timeout int64) {
 	s.timeout = timeout
+}
+
+func (s *HttpSDK) SetLanguage(language string) {
+	s.language = language
 }
 
 func (s *HttpSDK) debugOut(a ...interface{}) {
@@ -111,6 +116,7 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	request.Header.SetContentType("application/json;charset=UTF-8")
 	request.Header.Set("Authorization", "")
 	request.Header.Set("RandomCode", randomCode)
+	request.Header.Set("Language", s.language)
 	request.Header.SetMethod("POST")
 	request.SetRequestURI(s.Domain + path)
 	request.SetBody(bytesData)
@@ -184,6 +190,7 @@ func (s *HttpSDK) PostByHAX(path string, requestObj, responseObj interface{}) er
 	request := fasthttp.AcquireRequest()
 	request.Header.SetContentType("application/json;charset=UTF-8")
 	request.Header.Set("Authorization", "")
+	request.Header.Set("Language", s.language)
 	request.Header.SetMethod("POST")
 	request.SetRequestURI(s.Domain + path)
 	request.SetBody(bytesData)
@@ -309,6 +316,7 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 	request := fasthttp.AcquireRequest()
 	request.Header.SetContentType("application/json;charset=UTF-8")
 	request.Header.Set("Authorization", s.authToken.Token)
+	request.Header.Set("Language", s.language)
 	request.Header.SetMethod("POST")
 	request.SetRequestURI(s.Domain + path)
 	request.SetBody(bytesData)

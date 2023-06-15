@@ -11,6 +11,7 @@ import (
 	"github.com/godaddy-x/freego/zlog"
 	"github.com/valyala/fasthttp"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -18,6 +19,7 @@ import (
 var localCache cache.Cache
 var emptyMap = map[string]string{}
 var routerConfigs = make(map[string]*RouterConfig)
+var langConfigs = make(map[string]map[string]string)
 var ctxPool = sync.Pool{New: func() interface{} {
 	ctx := &Context{}
 	ctx.filterChain = &filterChain{}
@@ -164,6 +166,22 @@ func (self *HttpNode) AddCipher(cipher crypto.Cipher) {
 	}
 }
 
+func (self *HttpNode) AddLanguage(langDs, filePath string) error {
+	if len(langDs) == 0 || len(filePath) == 0 {
+		return nil
+	}
+	bs, err := utils.ReadFile(filePath)
+	if err != nil {
+		return err
+	}
+	kv := map[string]string{}
+	if err := utils.JsonUnmarshal(bs, &kv); err != nil {
+		return err
+	}
+	langConfigs[langDs] = kv
+	return nil
+}
+
 func (self *HttpNode) addRouterConfig(path string, routerConfig *RouterConfig) {
 	self.readyContext()
 	if routerConfig == nil {
@@ -208,6 +226,32 @@ func (self *HttpNode) ClearFilterChain() {
 	}
 }
 
+func errorMsgToLang(ctx *Context, msg string) string {
+	lang := ctx.ClientLanguage()
+	if len(lang) == 0 {
+		return msg
+	}
+	langKV, b := langConfigs[lang]
+	if !b || len(langKV) == 0 {
+		return msg
+	}
+	find := utils.SPEL.FindAllStringSubmatch(msg, -1)
+	if len(find) == 0 {
+		return msg
+	}
+	for _, v := range find {
+		if len(v) != 2 {
+			continue
+		}
+		kv, b := langKV[v[1]]
+		if !b || len(kv) == 0 {
+			continue
+		}
+		msg = strings.ReplaceAll(msg, v[0], kv)
+	}
+	return msg
+}
+
 func defaultRenderError(ctx *Context, err error) error {
 	if err == nil {
 		return nil
@@ -215,7 +259,7 @@ func defaultRenderError(ctx *Context, err error) error {
 	out := ex.Catch(err)
 	resp := &JsonResp{
 		Code:    out.Code,
-		Message: out.Msg,
+		Message: errorMsgToLang(ctx, out.Msg),
 		Time:    utils.UnixMilli(),
 	}
 	if !ctx.Authenticated() {

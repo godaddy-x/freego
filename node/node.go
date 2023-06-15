@@ -219,6 +219,10 @@ func (self *Context) ClientDevice() string {
 	}
 }
 
+func (self *Context) ClientLanguage() string {
+	return utils.Bytes2Str(self.RequestCtx.Request.Header.Peek("Language"))
+}
+
 func (self *Context) readParams() error {
 	if self.Method != POST {
 		return nil

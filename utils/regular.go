@@ -21,6 +21,10 @@ const (
 	MONEY3   = "(^(-)?[1-9]([0-9]{0,12})?(\\.[0-9]{1,2})?$)|(^(0){1}$)|(^(-)?[0-9]\\.[0-9]([0-9])?$)"
 )
 
+var (
+	SPEL = regexp.MustCompile(`\$\{([^}]+)\}`)
+)
+
 func IsPKNO(s string) bool {
 	return ValidPattern(s, PKNO)
 }
