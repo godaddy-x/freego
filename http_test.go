@@ -20,14 +20,14 @@ var httpSDK = &sdk.HttpSDK{
 	LoginPath: "/login",
 }
 
-//func TestGetPublicKey(t *testing.T) {
-//	publicKey, err := httpSDK.GetPublicKey()
-//	if err != nil {
-//		fmt.Println(err)
-//	}
-//	fmt.Println("服务端公钥: ", publicKey)
-//}
-//
+func TestGetPublicKey(t *testing.T) {
+	publicKey, err := httpSDK.GetPublicKey()
+	if err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println("服务端公钥: ", publicKey)
+}
+
 func TestECCLogin(t *testing.T) {
 	requestData := map[string]string{"username": "1234567890123456", "password": "1234567890123456"}
 	responseData := sdk.AuthToken{}
@@ -37,7 +37,6 @@ func TestECCLogin(t *testing.T) {
 	fmt.Println(responseData)
 }
 
-//
 func TestGetUser(t *testing.T) {
 	//httpSDK.AuthObject(&map[string]string{"username": "1234567890123456", "password": "1234567890123456"})
 	httpSDK.AuthToken(sdk.AuthToken{Token: access_token, Secret: token_secret})
@@ -80,18 +79,14 @@ func TestGetUser(t *testing.T) {
 //	PostByTokenSecret(path, req)
 //}
 
-//
-//func TestHAX(t *testing.T) {
-//	data, _ := utils.JsonMarshal(map[string]interface{}{"uid": 123, "name": "我爱中国/+_=/1df", "limit": 20, "offset": 5})
-//	path := "/testHAX"
-//	req := &node.JsonBody{
-//		Data:  data,
-//		Time:  utils.UnixSecond(),
-//		Nonce: utils.RandNonce(),
-//		Plan:  int64(3),
-//	}
-//	PostByPublicKeyHAX(path, req)
-//}
+func TestHAX(t *testing.T) {
+	requestData := map[string]interface{}{"uid": 123, "name": "我爱中国/+_=/1df", "limit": 20, "offset": 5}
+	responseData := map[string]interface{}{}
+	if err := httpSDK.PostByECC("/login", &requestData, &responseData); err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println(responseData)
+}
 
 //
 //func TestGuestPost(t *testing.T) {
