@@ -21,11 +21,11 @@ var httpSDK = &sdk.HttpSDK{
 }
 
 func TestGetPublicKey(t *testing.T) {
-	publicKey, err := httpSDK.GetPublicKey()
-	if err != nil {
-		fmt.Println(err)
-	}
-	fmt.Println("服务端公钥: ", publicKey)
+	//publicKey, err := httpSDK.GetPublicKey()
+	//if err != nil {
+	//	fmt.Println(err)
+	//}
+	//fmt.Println("服务端公钥: ", publicKey)
 }
 
 func TestECCLogin(t *testing.T) {

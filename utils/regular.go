@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"bytes"
 	"regexp"
 )
 
@@ -9,7 +10,7 @@ const (
 	INTEGER  = "^[\\-]?[1-9]+[0-9]*$|^[0]$"
 	FLOAT    = "^[\\-]?[1-9]+[\\.][0-9]+$|^[\\-]?[0][\\.][0-9]+$"
 	IPV4     = "^((25[0-5]|2[0-4]\\d|[01]?\\d\\d?)\\.){3}(25[0-5]|2[0-4]\\d|[01]?\\d\\d?)$"
-	EMAIL    = "^([a-z0-9A-Z]+[-|\\.]?)+[a-z0-9A-Z]@([a-z0-9A-Z]+(-[a-z0-9A-Z]+)?\\.)+[a-zA-Z]{2,}$"
+	EMAIL    = "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"
 	ACCOUNT  = "^[a-zA-Z][a-zA-Z0-9_]{5,14}$"
 	PASSWORD = "^.{6,18}$"
 	URL      = "http(s)?://([\\w-]+\\.)+[\\w-]+(/[\\w- ./?%&=]*)?$"
@@ -86,4 +87,20 @@ func IsURL(s string) bool {
 func ValidPattern(content, pattern string) bool {
 	r, _ := regexp.Compile(pattern)
 	return r.MatchString(content)
+}
+
+func FmtEL(msg string, values ...interface{}) (string, error) {
+	if len(values) == 0 {
+		return msg, nil
+	}
+	buffer := bytes.NewBufferString(msg)
+	for k, v := range values {
+		key := AddStr("${", k, "}")
+		bs := bytes.ReplaceAll(buffer.Bytes(), Str2Bytes(key), Str2Bytes(AnyToStr(v)))
+		buffer.Reset()
+		buffer.Write(bs)
+	}
+	msg = buffer.String()
+	buffer.Reset()
+	return msg, nil
 }
