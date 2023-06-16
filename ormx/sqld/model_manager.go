@@ -3,6 +3,7 @@ package sqld
 import (
 	"github.com/godaddy-x/freego/ormx/sqlc"
 	"github.com/godaddy-x/freego/utils"
+	"github.com/godaddy-x/freego/utils/decimal"
 	"reflect"
 )
 
@@ -341,6 +342,17 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 			utils.SetUint64(ptr, ret)
 		}
 		return nil
+	case reflect.Struct:
+		if elem.FieldType == "decimal.Decimal" {
+			if len(b) == 0 {
+				b = utils.Str2Bytes("0")
+			}
+			v, err := decimal.NewFromString(utils.Bytes2Str(b))
+			if err != nil {
+				return err
+			}
+			reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(v))
+		}
 	case reflect.Slice:
 		switch elem.FieldType {
 		case "[]string":
