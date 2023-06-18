@@ -22,9 +22,10 @@ const (
 )
 
 type Subject struct {
-	Header   *Header
-	Payload  *Payload
-	rawBytes []byte
+	Header       *Header
+	Payload      *Payload
+	tokenBytes   []byte
+	payloadBytes []byte
 }
 
 type JwtConfig struct {
@@ -163,6 +164,7 @@ func (self *Subject) Verify(token, key string, decode bool) error {
 	if self.Payload == nil {
 		self.Payload = &Payload{}
 	}
+	self.payloadBytes = b64
 	self.Payload.Sub = self.getStringValue("sub")
 	return nil
 }
@@ -174,22 +176,33 @@ func (self *Subject) CheckReady() bool {
 	return true
 }
 
-func (self *Subject) ResetBytes(b []byte) {
-	if b == nil && len(self.rawBytes) == 0 {
+func (self *Subject) ResetTokenBytes(b []byte) {
+	if b == nil && len(self.tokenBytes) == 0 {
 		return
 	}
-	self.rawBytes = nil
+	self.tokenBytes = nil
 	if b == nil {
 		return
 	}
-	self.rawBytes = b
+	self.tokenBytes = b
+}
+
+func (self *Subject) ResetPayloadBytes(b []byte) {
+	if b == nil && len(self.payloadBytes) == 0 {
+		return
+	}
+	self.payloadBytes = nil
+	if b == nil {
+		return
+	}
+	self.payloadBytes = b
 }
 
 func (self *Subject) GetRawBytes() []byte {
-	if len(self.rawBytes) == 0 {
+	if len(self.tokenBytes) == 0 {
 		return []byte{}
 	}
-	return self.rawBytes
+	return self.tokenBytes
 }
 
 func (self *Subject) GetSub() string {
@@ -231,17 +244,17 @@ func (self *Subject) GetExt() string {
 }
 
 func (self *Subject) getStringValue(k string) string {
-	if len(self.rawBytes) == 0 {
+	if len(self.payloadBytes) == 0 {
 		return ""
 	}
-	return utils.GetJsonString(self.rawBytes, k)
+	return utils.GetJsonString(self.payloadBytes, k)
 }
 
 func (self *Subject) getInt64Value(k string) int64 {
-	if len(self.rawBytes) == 0 {
+	if len(self.payloadBytes) == 0 {
 		return 0
 	}
-	return utils.GetJsonInt64(self.rawBytes, k)
+	return utils.GetJsonInt64(self.payloadBytes, k)
 }
 
 // 获取token的私钥

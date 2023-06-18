@@ -237,20 +237,13 @@ func (self *Context) readParams() error {
 		return nil
 	}
 	// 安全请求模式
-	self.Subject.ResetBytes(self.RequestCtx.Request.Header.Peek(Authorization))
+	self.Subject.ResetTokenBytes(self.RequestCtx.Request.Header.Peek(Authorization))
 	if body == nil || len(body) == 0 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters is nil"}
 	}
 	if len(body) > (MAX_VALUE_LEN) {
 		return ex.Throw{Code: http.StatusLengthRequired, Msg: "body parameters length is too long"}
 	}
-	//req := &JsonBody{
-	//	Data:  utils.GetJsonString(body, "d"),
-	//	Time:  int64(utils.GetJsonInt(body, "t")),
-	//	Nonce: utils.GetJsonString(body, "n"),
-	//	Plan:  int64(utils.GetJsonInt(body, "p")),
-	//	Sign:  utils.GetJsonString(body, "s"),
-	//}
 	self.JsonBody.Data = utils.GetJsonString(body, "d")
 	self.JsonBody.Time = utils.GetJsonInt64(body, "t")
 	self.JsonBody.Nonce = utils.GetJsonString(body, "n")
@@ -430,13 +423,11 @@ func (self *Context) reset(ctx *Context, handle PostHandle, request *fasthttp.Re
 }
 
 func (self *Context) resetTokenStorage() {
-	if len(self.Subject.GetRawBytes()) > 0 {
-		self.Subject.ResetBytes(nil)
+	if len(self.Storage) == 0 {
+		return
 	}
-	if len(self.Storage) > 0 {
-		for k, _ := range self.Storage {
-			delete(self.Storage, k)
-		}
+	for k, _ := range self.Storage {
+		delete(self.Storage, k)
 	}
 }
 
@@ -482,5 +473,6 @@ func (self *Context) resetSubject() {
 	self.Subject.Payload.Dev = ""
 	self.Subject.Payload.Jti = ""
 	self.Subject.Payload.Ext = ""
-	self.Subject.ResetBytes(nil)
+	self.Subject.ResetTokenBytes(nil)
+	self.Subject.ResetPayloadBytes(nil)
 }
