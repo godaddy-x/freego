@@ -143,7 +143,7 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 		Sign:    utils.GetJsonString(respBytes, "s"),
 	}
 	if respData.Code != 200 {
-		return ex.Throw{Msg: "post request failed: " + respData.Message}
+		return ex.Throw{Msg: respData.Message}
 	}
 	validSign := utils.HMAC_SHA256(utils.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan), clientSecretKey, true)
 	if validSign != respData.Sign {
@@ -217,7 +217,7 @@ func (s *HttpSDK) PostByHAX(path string, requestObj, responseObj interface{}) er
 		Sign:    utils.GetJsonString(respBytes, "s"),
 	}
 	if respData.Code != 200 {
-		return ex.Throw{Msg: "post request failed: " + respData.Message}
+		return ex.Throw{Msg: respData.Message}
 	}
 	validSign := utils.HMAC_SHA256(utils.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan), publicKey, true)
 	if validSign != respData.Sign {
@@ -343,7 +343,7 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 		Sign:    utils.GetJsonString(respBytes, "s"),
 	}
 	if respData.Code != 200 {
-		return ex.Throw{Msg: "post request failed: " + respData.Message}
+		return ex.Throw{Msg: respData.Message}
 	}
 	validSign := utils.HMAC_SHA256(utils.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan), s.authToken.Secret, true)
 	if validSign != respData.Sign {
