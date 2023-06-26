@@ -143,6 +143,9 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 		Sign:    utils.GetJsonString(respBytes, "s"),
 	}
 	if respData.Code != 200 {
+		if !utils.JsonValid(respBytes) && len(respData.Message) == 0 {
+			return ex.Throw{Msg: utils.Bytes2Str(respBytes)}
+		}
 		return ex.Throw{Msg: respData.Message}
 	}
 	validSign := utils.HMAC_SHA256(utils.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan), clientSecretKey, true)
