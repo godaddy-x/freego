@@ -35,6 +35,7 @@ const (
 	OPTIONS = "OPTIONS"
 
 	MAX_VALUE_LEN = 200000 // 最大参数值长度
+	MAX_TOKEN_LEN = 2048   // 最大Token值长度
 
 	Authorization = "Authorization"
 	RandomCode    = "RandomCode"
@@ -237,7 +238,12 @@ func (self *Context) readParams() error {
 		return nil
 	}
 	// 安全请求模式
-	self.Subject.ResetTokenBytes(self.RequestCtx.Request.Header.Peek(Authorization))
+	auth := self.RequestCtx.Request.Header.Peek(Authorization)
+	if len(auth) > MAX_TOKEN_LEN {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "authorization parameters length is too long"}
+	}
+	self.Subject.ResetTokenBytes(auth)
+	//self.Subject.ResetTokenBytes(self.RequestCtx.Request.Header.Peek(Authorization))
 	if body == nil || len(body) == 0 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters is nil"}
 	}
