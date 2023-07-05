@@ -36,19 +36,21 @@ const (
 
 	MAX_VALUE_LEN = 200000 // 最大参数值长度
 	MAX_TOKEN_LEN = 2048   // 最大Token值长度
-	MAX_CODE_LEN  = 100    // 最大Code值长度
+	MAX_CODE_LEN  = 1024   // 最大Code值长度
 
 	Authorization = "Authorization"
 	RandomCode    = "RandomCode"
 )
 
-var (
-	jwtConfig = jwt.JwtConfig{}
-)
-
 type HookNode struct {
 	Context *Context
 	Filters []*FilterObject
+}
+
+type Configs struct {
+	jwtConfig     jwt.JwtConfig
+	routerConfigs map[string]*RouterConfig
+	langConfigs   map[string]map[string]string
 }
 
 type RouterConfig struct {
@@ -93,6 +95,7 @@ type Permission struct {
 }
 
 type Context struct {
+	configs       *Configs
 	router        *fasthttprouter.Router
 	CacheAware    func(ds ...string) (cache.Cache, error)
 	AcceptTimeout int64 // 超时主动断开客户端连接,秒
@@ -139,7 +142,7 @@ func (self *JsonBody) RawData() []byte {
 }
 
 func (self *Context) GetTokenSecret() string {
-	return jwt.GetTokenSecret(utils.Bytes2Str(self.Subject.GetRawBytes()), jwtConfig.TokenKey)
+	return jwt.GetTokenSecret(utils.Bytes2Str(self.Subject.GetRawBytes()), self.configs.jwtConfig.TokenKey)
 }
 
 func (self *Context) GetHmac256Sign(d, n string, t, p int64, key string) string {
@@ -384,7 +387,7 @@ func (self *Context) validJsonBody() error {
 }
 
 func (self *Context) GetJwtConfig() jwt.JwtConfig {
-	return jwtConfig
+	return self.configs.jwtConfig
 }
 
 func (self *Context) Handle() error {
@@ -428,7 +431,7 @@ func (self *Context) reset(ctx *Context, handle PostHandle, request *fasthttp.Re
 	self.RequestCtx = request
 	self.Method = utils.Bytes2Str(self.RequestCtx.Method())
 	self.Path = utils.Bytes2Str(self.RequestCtx.Path())
-	self.RouterConfig = routerConfigs[self.Path]
+	self.RouterConfig = self.configs.routerConfigs[self.Path]
 	self.postCompleted = false
 	self.filterChain.pos = 0
 	self.resetJsonBody()

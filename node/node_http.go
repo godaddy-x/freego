@@ -16,36 +16,26 @@ import (
 	"time"
 )
 
-var localCache cache.Cache
 var emptyMap = map[string]string{}
-var routerConfigs = make(map[string]*RouterConfig)
-var langConfigs = make(map[string]map[string]string)
-var ctxPool = sync.Pool{New: func() interface{} {
-	ctx := &Context{}
-	ctx.filterChain = &filterChain{}
-	ctx.JsonBody = &JsonBody{}
-	ctx.Subject = &jwt.Subject{Header: &jwt.Header{}, Payload: &jwt.Payload{}}
-	ctx.Response = &Response{Encoding: UTF8, ContentType: APPLICATION_JSON, ContentEntity: nil}
-	ctx.Storage = map[string]interface{}{}
-	return ctx
-}}
 
 type CacheAware func(ds ...string) (cache.Cache, error)
 
 type HttpNode struct {
 	HookNode
+	ctxPool    sync.Pool
+	localCache cache.Cache
 }
 
 type PostHandle func(*Context) error
 
 func (self *HttpNode) doRequest(handle PostHandle, request *fasthttp.RequestCtx) error {
-	ctx := ctxPool.Get().(*Context)
+	ctx := self.ctxPool.Get().(*Context)
 	ctx.reset(self.Context, handle, request, self.Filters)
 	if err := ctx.filterChain.DoFilter(ctx.filterChain, ctx); err != nil {
-		ctxPool.Put(ctx)
+		self.ctxPool.Put(ctx)
 		return err
 	}
-	ctxPool.Put(ctx)
+	self.ctxPool.Put(ctx)
 	return nil
 }
 
@@ -130,6 +120,19 @@ func (self *HttpNode) AddFilter(object *FilterObject) {
 func (self *HttpNode) readyContext() {
 	if self.Context == nil {
 		self.Context = &Context{}
+		self.Context.configs = &Configs{}
+		self.Context.configs.routerConfigs = make(map[string]*RouterConfig)
+		self.Context.configs.langConfigs = make(map[string]map[string]string)
+		self.ctxPool = sync.Pool{New: func() interface{} {
+			ctx := &Context{}
+			ctx.configs = self.Context.configs
+			ctx.filterChain = &filterChain{}
+			ctx.JsonBody = &JsonBody{}
+			ctx.Subject = &jwt.Subject{Header: &jwt.Header{}, Payload: &jwt.Payload{}}
+			ctx.Response = &Response{Encoding: UTF8, ContentType: APPLICATION_JSON, ContentEntity: nil}
+			ctx.Storage = map[string]interface{}{}
+			return ctx
+		}}
 	}
 }
 
@@ -137,11 +140,11 @@ func (self *HttpNode) AddCache(aware CacheAware) {
 	self.readyContext()
 	if self.Context.CacheAware == nil {
 		if aware == nil {
-			if localCache == nil {
-				localCache = cache.NewLocalCache(30, 2)
+			if self.localCache == nil {
+				self.localCache = cache.NewLocalCache(30, 2)
 			}
 			aware = func(ds ...string) (cache.Cache, error) {
-				return localCache, nil
+				return self.localCache, nil
 			}
 		}
 		self.Context.CacheAware = aware
@@ -182,7 +185,7 @@ func (self *HttpNode) AddLanguage(langDs, filePath string) error {
 	if err := utils.JsonUnmarshal(bs, &kv); err != nil {
 		return err
 	}
-	langConfigs[langDs] = kv
+	self.Context.configs.langConfigs[langDs] = kv
 	return nil
 }
 
@@ -191,8 +194,8 @@ func (self *HttpNode) addRouterConfig(path string, routerConfig *RouterConfig) {
 	if routerConfig == nil {
 		routerConfig = &RouterConfig{}
 	}
-	if _, b := routerConfigs[path]; !b {
-		routerConfigs[path] = routerConfig
+	if _, b := self.Context.configs.routerConfigs[path]; !b {
+		self.Context.configs.routerConfigs[path] = routerConfig
 	}
 }
 
@@ -213,10 +216,10 @@ func (self *HttpNode) AddJwtConfig(config jwt.JwtConfig) {
 	if config.TokenExp < 0 {
 		panic("jwt config exp invalid")
 	}
-	jwtConfig.TokenAlg = config.TokenAlg
-	jwtConfig.TokenTyp = config.TokenTyp
-	jwtConfig.TokenKey = config.TokenKey
-	jwtConfig.TokenExp = config.TokenExp
+	self.Context.configs.jwtConfig.TokenAlg = config.TokenAlg
+	self.Context.configs.jwtConfig.TokenTyp = config.TokenTyp
+	self.Context.configs.jwtConfig.TokenKey = config.TokenKey
+	self.Context.configs.jwtConfig.TokenExp = config.TokenExp
 }
 
 func (self *HttpNode) EnableECC(enable bool) {
@@ -233,15 +236,15 @@ func (self *HttpNode) ClearFilterChain() {
 func errorMsgToLang(ctx *Context, msg string) string {
 	lang := ctx.ClientLanguage()
 	if len(lang) == 0 {
-		if len(langConfigs) == 0 {
+		if len(ctx.configs.langConfigs) == 0 {
 			return msg
 		}
-		for k, _ := range langConfigs {
+		for k, _ := range ctx.configs.langConfigs {
 			lang = k
 			break
 		}
 	}
-	langKV, b := langConfigs[lang]
+	langKV, b := ctx.configs.langConfigs[lang]
 	if !b || len(langKV) == 0 {
 		return msg
 	}
@@ -314,7 +317,7 @@ func defaultRenderTo(ctx *Context) error {
 }
 
 func defaultRenderPre(ctx *Context) error {
-	routerConfig, _ := routerConfigs[ctx.Path]
+	routerConfig, _ := ctx.configs.routerConfigs[ctx.Path]
 	switch ctx.Response.ContentType {
 	case TEXT_PLAIN:
 		content := ctx.Response.ContentEntity

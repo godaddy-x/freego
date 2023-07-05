@@ -10,11 +10,12 @@ import (
 
 const domain = "http://localhost:8090"
 
-const access_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxNjY3MzYwOTMyMzMxNzgyMTQ1IiwiYXVkIjoiIiwiaXNzIjoiIiwiaWF0IjowLCJleHAiOjE2ODc1NzQzOTgsImRldiI6IkFQUCIsImp0aSI6IlRPVDBmUVY1bCtnL2JRQ3JlQmNrTEE9PSIsImV4dCI6IiJ9.jXXBaG/ne0oDyTzRwM39k2ivCTZGMxLp1SmBxJT0flQ="
-const token_secret = "eM5wygtspL1AVqpHy*kT^j#lKIUQc7g22ifj4myS#lK!ZC@diQbx5OGpau6KXGA="
+const access_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxNjc2NjIzNTg5NDQ2NTE2NzM3IiwiYXVkIjoiIiwiaXNzIjoiIiwiaWF0IjowLCJleHAiOjE2ODk3ODI3ODgsImRldiI6IkFQUCIsImp0aSI6ImtVYWhIMjV5RDhWMXU0ZnQ4YzEvRVE9PSIsImV4dCI6IiJ9.sV7vhjp7nRJuo6XGU4mrVyHVaM2EzqiX7tGGuPcim+o="
+const token_secret = "uHsLjyEFQ8Ik4X+Hy*kT^j#lKHDxs9XcK/wAWhc8#lK!ZC@diQSvcunC5KckkxQ="
+const token_expire = 1689782788
 
 var httpSDK = &sdk.HttpSDK{
-	Debug:     true,
+	Debug:     false,
 	Domain:    domain,
 	KeyPath:   "/key",
 	LoginPath: "/login",
@@ -39,7 +40,7 @@ func TestECCLogin(t *testing.T) {
 
 func TestGetUser(t *testing.T) {
 	httpSDK.AuthObject(&map[string]string{"username": "1234567890123456", "password": "1234567890123456"})
-	//httpSDK.AuthToken(sdk.AuthToken{Token: access_token, Secret: token_secret})
+	httpSDK.AuthToken(sdk.AuthToken{Token: access_token, Secret: token_secret, Expired: token_expire})
 	requestObj := map[string]interface{}{"uid": 123, "name": "我爱中国/+_=/1df", "limit": 20, "offset": 5}
 	responseData := map[string]string{}
 	if err := httpSDK.PostByAuth("/getUser", &requestObj, &responseData, true); err != nil {
@@ -63,7 +64,7 @@ func BenchmarkGetUser(b *testing.B) {
 	b.StopTimer()
 	b.StartTimer()
 	for i := 0; i < b.N; i++ { //use b.N for looping
-		httpSDK.AuthToken(sdk.AuthToken{Token: access_token, Secret: token_secret})
+		httpSDK.AuthToken(sdk.AuthToken{Token: access_token, Secret: token_secret, Expired: token_expire})
 		requestObj := map[string]interface{}{"uid": 123, "name": "我爱中国/+_=/1df", "limit": 20, "offset": 5}
 		responseData := map[string]string{}
 		if err := httpSDK.PostByAuth("/getUser", &requestObj, &responseData, false); err != nil {
