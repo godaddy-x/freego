@@ -35,6 +35,8 @@ const (
 	OPTIONS = "OPTIONS"
 
 	MAX_VALUE_LEN = 200000 // 最大参数值长度
+	MAX_TOKEN_LEN = 2048   // 最大Token值长度
+	MAX_CODE_LEN  = 100    // 最大Code值长度
 
 	Authorization = "Authorization"
 	RandomCode    = "RandomCode"
@@ -238,7 +240,12 @@ func (self *Context) readParams() error {
 		return nil
 	}
 	// 安全请求模式
-	self.Subject.ResetTokenBytes(self.RequestCtx.Request.Header.Peek(Authorization))
+	auth := self.RequestCtx.Request.Header.Peek(Authorization)
+	if len(auth) > MAX_TOKEN_LEN {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "authorization parameters length is too long"}
+	}
+	self.Subject.ResetTokenBytes(auth)
+	//self.Subject.ResetTokenBytes(self.RequestCtx.Request.Header.Peek(Authorization))
 	if body == nil || len(body) == 0 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters is nil"}
 	}
@@ -344,7 +351,11 @@ func (self *Context) validJsonBody() error {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "AES failed to parse data", Err: err}
 		}
 	} else if body.Plan == 2 && self.RouterConfig.UseRSA && anonymous { // 非登录状态 P2 RSA+AES
-		randomCode := utils.Bytes2Str(self.RequestCtx.Request.Header.Peek(RandomCode))
+		codeBs := self.RequestCtx.Request.Header.Peek(RandomCode)
+		if len(codeBs) > MAX_CODE_LEN {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "client random code invalid"}
+		}
+		randomCode := utils.Bytes2Str(codeBs)
 		if len(randomCode) == 0 {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "client random code invalid"}
 		}
