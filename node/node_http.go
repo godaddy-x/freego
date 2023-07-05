@@ -40,7 +40,7 @@ type PostHandle func(*Context) error
 
 func (self *HttpNode) doRequest(handle PostHandle, request *fasthttp.RequestCtx) error {
 	ctx := ctxPool.Get().(*Context)
-	ctx.reset(self.Context, handle, request)
+	ctx.reset(self.Context, handle, request, self.Filters)
 	if err := ctx.filterChain.DoFilter(ctx.filterChain, ctx); err != nil {
 		ctxPool.Put(ctx)
 		return err
@@ -67,8 +67,12 @@ func (self *HttpNode) StartServer(addr string) {
 				zlog.Printf("RSA certificate service has been started successful")
 			}
 		}
-		if err := createFilterChain(); err != nil {
+		fs, err := createFilterChain()
+		if err != nil {
 			panic("http service create filter chain failed")
+		}
+		if len(self.Filters) == 0 {
+			self.Filters = fs
 		}
 		zlog.Printf("http【%s】service has been started successful", addr)
 		if err := fasthttp.Serve(NewGracefulListener(addr, time.Second*10), self.Context.router.Handler); err != nil {

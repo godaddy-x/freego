@@ -21,8 +21,6 @@ const (
 	RenderHandleFilterName       = "RenderHandleFilter"
 )
 
-var filters []*FilterObject
-
 var filterMap = map[string]*FilterObject{
 	GatewayRateLimiterFilterName: {Name: GatewayRateLimiterFilterName, Order: -100, Filter: &GatewayRateLimiterFilter{}},
 	ParameterFilterName:          {Name: ParameterFilterName, Order: -90, Filter: &ParameterFilter{}},
@@ -40,7 +38,8 @@ type FilterObject struct {
 	MatchPattern []string
 }
 
-func createFilterChain() error {
+func createFilterChain() ([]*FilterObject, error) {
+	var filters []*FilterObject
 	var fs []interface{}
 	for _, v := range filterMap {
 		fs = append(fs, v)
@@ -56,9 +55,9 @@ func createFilterChain() error {
 		zlog.Printf("add filter [%s] successful", v.Name)
 	}
 	if len(filters) == 0 {
-		return utils.Error("filter chain is nil")
+		return nil, utils.Error("filter chain is nil")
 	}
-	return nil
+	return filters, nil
 }
 
 type Filter interface {
@@ -66,15 +65,12 @@ type Filter interface {
 }
 
 type filterChain struct {
-	pos int
-}
-
-func (self *filterChain) getFilters() []*FilterObject {
-	return filters
+	pos     int
+	filters []*FilterObject
 }
 
 func (self *filterChain) DoFilter(chain Filter, ctx *Context, args ...interface{}) error {
-	fs := self.getFilters()
+	fs := self.filters
 	for self.pos < len(fs) {
 		f := fs[self.pos]
 		if f == nil || f.Filter == nil {

@@ -46,6 +46,7 @@ var (
 
 type HookNode struct {
 	Context *Context
+	Filters []*FilterObject
 }
 
 type RouterConfig struct {
@@ -399,7 +400,7 @@ func (self *Context) RemoteIP() string {
 	return self.RequestCtx.RemoteIP().String()
 }
 
-func (self *Context) reset(ctx *Context, handle PostHandle, request *fasthttp.RequestCtx) {
+func (self *Context) reset(ctx *Context, handle PostHandle, request *fasthttp.RequestCtx, fs []*FilterObject) {
 	if self.CacheAware == nil {
 		self.CacheAware = ctx.CacheAware
 	}
@@ -408,6 +409,9 @@ func (self *Context) reset(ctx *Context, handle PostHandle, request *fasthttp.Re
 	}
 	if self.PermConfig == nil {
 		self.PermConfig = ctx.PermConfig
+	}
+	if len(self.filterChain.filters) == 0 {
+		self.filterChain.filters = fs
 	}
 	self.postHandle = handle
 	self.RequestCtx = request
