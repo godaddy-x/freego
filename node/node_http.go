@@ -107,6 +107,7 @@ func (self *HttpNode) Text(ctx *Context, data string) error {
 }
 
 func (self *HttpNode) AddFilter(object *FilterObject) {
+	self.readyContext()
 	if object == nil {
 		panic("filter object is nil")
 	}
@@ -136,6 +137,7 @@ func (self *HttpNode) readyContext() {
 		self.Context.configs = &Configs{}
 		self.Context.configs.routerConfigs = make(map[string]*RouterConfig)
 		self.Context.configs.langConfigs = make(map[string]map[string]string)
+		self.Context.configs.jwtConfig = jwt.JwtConfig{}
 		self.ctxPool = self.createCtxPool()
 	}
 }
@@ -175,6 +177,7 @@ func (self *HttpNode) AddCipher(cipher crypto.Cipher) {
 }
 
 func (self *HttpNode) AddLanguage(langDs, filePath string) error {
+	self.readyContext()
 	if len(langDs) == 0 || len(filePath) == 0 {
 		return nil
 	}
@@ -182,11 +185,15 @@ func (self *HttpNode) AddLanguage(langDs, filePath string) error {
 	if err != nil {
 		return err
 	}
+	if !utils.JsonValid(bs) {
+		panic("lang json config invalid: " + langDs)
+	}
 	kv := map[string]string{}
 	if err := utils.JsonUnmarshal(bs, &kv); err != nil {
-		return err
+		panic("lang json unmarshal failed: " + err.Error())
 	}
 	self.Context.configs.langConfigs[langDs] = kv
+	zlog.Printf("add lang [%s] successful", langDs)
 	return nil
 }
 
@@ -211,6 +218,7 @@ func (self *HttpNode) newRouter() {
 }
 
 func (self *HttpNode) AddJwtConfig(config jwt.JwtConfig) {
+	self.readyContext()
 	if len(config.TokenKey) == 0 {
 		panic("jwt config key is nil")
 	}
@@ -235,6 +243,9 @@ func (self *HttpNode) ClearFilterChain() {
 }
 
 func errorMsgToLang(ctx *Context, msg string) string {
+	if len(msg) == 0 {
+		return msg
+	}
 	lang := ctx.ClientLanguage()
 	if len(lang) == 0 {
 		if len(ctx.configs.langConfigs) == 0 {
@@ -247,7 +258,16 @@ func errorMsgToLang(ctx *Context, msg string) string {
 	}
 	langKV, b := ctx.configs.langConfigs[lang]
 	if !b || len(langKV) == 0 {
-		return msg
+		if len(ctx.configs.langConfigs) == 0 {
+			return msg
+		}
+		for _, v := range ctx.configs.langConfigs {
+			langKV = v
+			break
+		}
+		if len(langKV) == 0 {
+			return msg
+		}
 	}
 	find := utils.SPEL.FindAllStringSubmatch(msg, -1)
 	if len(find) == 0 {
