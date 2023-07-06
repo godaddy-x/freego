@@ -22,8 +22,8 @@ type CacheAware func(ds ...string) (cache.Cache, error)
 
 type HttpNode struct {
 	HookNode
-	ctxPool    sync.Pool
-	localCache cache.Cache
+	mu      sync.Mutex
+	ctxPool sync.Pool
 }
 
 type PostHandle func(*Context) error
@@ -117,37 +117,38 @@ func (self *HttpNode) AddFilter(object *FilterObject) {
 	zlog.Printf("add filter [%s] successful", object.Name)
 }
 
+func (self *HttpNode) createCtxPool() sync.Pool {
+	return sync.Pool{New: func() interface{} {
+		ctx := &Context{}
+		ctx.configs = self.Context.configs
+		ctx.filterChain = &filterChain{}
+		ctx.JsonBody = &JsonBody{}
+		ctx.Subject = &jwt.Subject{Header: &jwt.Header{}, Payload: &jwt.Payload{}}
+		ctx.Response = &Response{Encoding: UTF8, ContentType: APPLICATION_JSON, ContentEntity: nil}
+		ctx.Storage = map[string]interface{}{}
+		return ctx
+	}}
+}
+
 func (self *HttpNode) readyContext() {
 	if self.Context == nil {
 		self.Context = &Context{}
 		self.Context.configs = &Configs{}
 		self.Context.configs.routerConfigs = make(map[string]*RouterConfig)
 		self.Context.configs.langConfigs = make(map[string]map[string]string)
-		self.ctxPool = sync.Pool{New: func() interface{} {
-			ctx := &Context{}
-			ctx.configs = self.Context.configs
-			ctx.filterChain = &filterChain{}
-			ctx.JsonBody = &JsonBody{}
-			ctx.Subject = &jwt.Subject{Header: &jwt.Header{}, Payload: &jwt.Payload{}}
-			ctx.Response = &Response{Encoding: UTF8, ContentType: APPLICATION_JSON, ContentEntity: nil}
-			ctx.Storage = map[string]interface{}{}
-			return ctx
-		}}
+		self.ctxPool = self.createCtxPool()
 	}
 }
 
-func (self *HttpNode) AddCache(aware CacheAware) {
+func (self *HttpNode) AddCache(cacheAware CacheAware) {
 	self.readyContext()
 	if self.Context.CacheAware == nil {
-		if aware == nil {
-			if self.localCache == nil {
-				self.localCache = cache.NewLocalCache(30, 2)
-			}
-			aware = func(ds ...string) (cache.Cache, error) {
-				return self.localCache, nil
+		if cacheAware == nil {
+			cacheAware = func(ds ...string) (cache.Cache, error) {
+				return cache.NewLocalCache(30, 2), nil
 			}
 		}
-		self.Context.CacheAware = aware
+		self.Context.CacheAware = cacheAware
 	}
 }
 

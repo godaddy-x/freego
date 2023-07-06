@@ -13,6 +13,8 @@ import (
 )
 
 func http_test() {
+	go http_web.StartHttpNode1()
+	go http_web.StartHttpNode2()
 	http_web.StartHttpNode()
 }
 

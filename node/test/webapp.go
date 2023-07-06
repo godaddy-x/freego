@@ -177,3 +177,17 @@ func StartHttpNode() {
 	my.POST("/geetest/validate", my.SecondValidate, &node.RouterConfig{UseRSA: true})
 	my.StartServer(":8090")
 }
+
+func StartHttpNode1() {
+	go geetest.CheckServerStatus(geetest.Config{})
+	my := NewHTTP()
+	my.POST("/test1", my.test, nil)
+	my.StartServer(":8091")
+}
+
+func StartHttpNode2() {
+	go geetest.CheckServerStatus(geetest.Config{})
+	my := NewHTTP()
+	my.POST("/test1", my.test, nil)
+	my.StartServer(":8092")
+}
