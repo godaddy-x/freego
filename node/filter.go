@@ -38,10 +38,18 @@ type FilterObject struct {
 	MatchPattern []string
 }
 
-func createFilterChain() ([]*FilterObject, error) {
+func createFilterChain(extFilters []*FilterObject) ([]*FilterObject, error) {
 	var filters []*FilterObject
 	var fs []interface{}
 	for _, v := range filterMap {
+		extFilters = append(extFilters, v)
+	}
+	for _, v := range extFilters {
+		for _, check := range fs {
+			if check.(*FilterObject).Name == v.Name {
+				panic("filter name exist: " + v.Name)
+			}
+		}
 		fs = append(fs, v)
 	}
 	fs = concurrent.NewSorter(fs, func(a, b interface{}) bool {

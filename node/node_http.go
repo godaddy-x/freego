@@ -22,7 +22,6 @@ type CacheAware func(ds ...string) (cache.Cache, error)
 
 type HttpNode struct {
 	HookNode
-	mu      sync.Mutex
 	ctxPool sync.Pool
 }
 
@@ -30,7 +29,7 @@ type PostHandle func(*Context) error
 
 func (self *HttpNode) doRequest(handle PostHandle, request *fasthttp.RequestCtx) error {
 	ctx := self.ctxPool.Get().(*Context)
-	ctx.reset(self.Context, handle, request, self.Filters)
+	ctx.reset(self.Context, handle, request, self.filters)
 	if err := ctx.filterChain.DoFilter(ctx.filterChain, ctx); err != nil {
 		self.ctxPool.Put(ctx)
 		return err
@@ -57,12 +56,13 @@ func (self *HttpNode) StartServer(addr string) {
 				zlog.Printf("RSA certificate service has been started successful")
 			}
 		}
-		fs, err := createFilterChain()
+		fs, err := createFilterChain(self.filters)
 		if err != nil {
 			panic("http service create filter chain failed")
 		}
-		if len(self.Filters) == 0 {
-			self.Filters = fs
+		self.filters = fs
+		if len(self.filters) == 0 {
+			panic("filter chain is nil")
 		}
 		zlog.Printf("http【%s】service has been started successful", addr)
 		if err := fasthttp.Serve(NewGracefulListener(addr, time.Second*10), self.Context.router.Handler); err != nil {
@@ -113,7 +113,7 @@ func (self *HttpNode) AddFilter(object *FilterObject) {
 	if len(object.Name) == 0 || object.Filter == nil {
 		panic("filter object name/filter is nil")
 	}
-	filterMap[object.Name] = object
+	self.filters = append(self.filters, object)
 	zlog.Printf("add filter [%s] successful", object.Name)
 }
 

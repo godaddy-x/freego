@@ -44,7 +44,7 @@ const (
 
 type HookNode struct {
 	Context *Context
-	Filters []*FilterObject
+	filters []*FilterObject
 }
 
 type Configs struct {
