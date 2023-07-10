@@ -22,6 +22,7 @@ type CacheAware func(ds ...string) (cache.Cache, error)
 
 type HttpNode struct {
 	HookNode
+	mu      sync.Mutex
 	ctxPool sync.Pool
 }
 
@@ -50,7 +51,7 @@ func (self *HttpNode) StartServer(addr string) {
 			zlog.Printf("cache service has been started successful")
 		}
 		if self.Context.RSA != nil {
-			if self.Context.EnableECC {
+			if self.Context.enableECC {
 				zlog.Printf("ECC certificate service has been started successful")
 			} else {
 				zlog.Printf("RSA certificate service has been started successful")
@@ -132,6 +133,8 @@ func (self *HttpNode) createCtxPool() sync.Pool {
 }
 
 func (self *HttpNode) readyContext() {
+	self.mu.Lock()
+	defer self.mu.Unlock()
 	if self.Context == nil {
 		self.Context = &Context{}
 		self.Context.configs = &Configs{}
@@ -158,7 +161,7 @@ func (self *HttpNode) AddCipher(cipher crypto.Cipher) {
 	self.readyContext()
 	if self.Context.RSA == nil {
 		if cipher == nil {
-			if self.Context.EnableECC {
+			if self.Context.enableECC {
 				defaultECC := &crypto.EccObj{}
 				if err := defaultECC.CreateS256ECC(); err != nil {
 					panic("ECC certificate generation failed")
@@ -194,6 +197,13 @@ func (self *HttpNode) AddLanguage(langDs, filePath string) error {
 	}
 	self.Context.configs.langConfigs[langDs] = kv
 	zlog.Printf("add lang [%s] successful", langDs)
+	return nil
+}
+
+func (self *HttpNode) AddPermConfig(permConfig func(ctx *Context, onlyRole bool) (Permission, error)) error {
+	self.readyContext()
+	self.Context.permConfig = permConfig
+	zlog.Printf("add permission config successful")
 	return nil
 }
 
@@ -233,7 +243,7 @@ func (self *HttpNode) AddJwtConfig(config jwt.JwtConfig) {
 
 func (self *HttpNode) EnableECC(enable bool) {
 	self.readyContext()
-	self.Context.EnableECC = enable
+	self.Context.enableECC = enable
 }
 
 func (self *HttpNode) ClearFilterChain() {

@@ -88,10 +88,11 @@ type JsonResp struct {
 }
 
 type Permission struct {
-	Ready     bool
-	MathchAll int64
-	NeedLogin int64
-	NeedRole  []int64
+	Ready     bool    // true.已有权限配置
+	MatchAll  bool    // true.满足所有权限角色才放行
+	NeedLogin bool    // true.需要登录状态
+	HasRole   []int64 // 拥有角色ID列表
+	NeedRole  []int64 // 所需角色ID列表
 }
 
 type Context struct {
@@ -102,6 +103,7 @@ type Context struct {
 	//Token         string
 	Method        string
 	Path          string
+	System        string
 	RequestCtx    *fasthttp.RequestCtx
 	Subject       *jwt.Subject
 	JsonBody      *JsonBody
@@ -109,8 +111,8 @@ type Context struct {
 	filterChain   *filterChain
 	RouterConfig  *RouterConfig
 	RSA           crypto.Cipher
-	EnableECC     bool
-	PermConfig    func(uid, url string, isRole ...bool) ([]int64, Permission, error)
+	enableECC     bool
+	permConfig    func(ctx *Context, onlyRole bool) (Permission, error) // 资源对象
 	Storage       map[string]interface{}
 	postCompleted bool
 	postHandle    PostHandle
@@ -421,8 +423,8 @@ func (self *Context) reset(ctx *Context, handle PostHandle, request *fasthttp.Re
 	if self.RSA == nil {
 		self.RSA = ctx.RSA
 	}
-	if self.PermConfig == nil {
-		self.PermConfig = ctx.PermConfig
+	if self.permConfig == nil {
+		self.permConfig = ctx.permConfig
 	}
 	if len(self.filterChain.filters) == 0 {
 		self.filterChain.filters = fs

@@ -159,33 +159,33 @@ func (self *UserRateLimiterFilter) DoFilter(chain Filter, ctx *Context, args ...
 }
 
 func (self *RoleFilter) DoFilter(chain Filter, ctx *Context, args ...interface{}) error {
-	if ctx.PermConfig == nil {
+	if ctx.permConfig == nil {
 		return chain.DoFilter(chain, ctx, args...)
 	}
-	_, need, err := ctx.PermConfig(ctx.Subject.GetSub(), ctx.Path)
+	need, err := ctx.permConfig(ctx, false)
 	if err != nil {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "failed to read authorization resource", Err: err}
 	} else if !need.Ready { // 无授权资源配置,跳过
 		return chain.DoFilter(chain, ctx, args...)
-	} else if need.NeedRole == nil || len(need.NeedRole) == 0 { // 无授权角色配置跳过
+	} else if len(need.NeedRole) == 0 { // 无授权角色配置跳过
 		return chain.DoFilter(chain, ctx, args...)
 	}
-	if need.NeedLogin == 0 { // 无登录状态,跳过
-		return chain.DoFilter(chain, ctx, args...)
-	} else if !ctx.Authenticated() { // 需要登录状态,会话为空,抛出异常
-		return ex.Throw{Code: http.StatusUnauthorized, Msg: "login status required"}
-	}
-	roles, _, err := ctx.PermConfig(ctx.Subject.GetSub(), "", true)
+	//if !need.NeedLogin { // 无登录状态,跳过
+	//	return chain.DoFilter(chain, ctx, args...)
+	//} else if !ctx.Authenticated() { // 需要登录状态,会话为空,抛出异常
+	//	return ex.Throw{Code: http.StatusUnauthorized, Msg: "login status required"}
+	//}
+	has, err := ctx.permConfig(ctx, true)
 	if err != nil {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "user roles read failed"}
 	}
 	access := 0
 	needAccess := len(need.NeedRole)
-	for _, cr := range roles {
+	for _, cr := range has.HasRole {
 		for _, nr := range need.NeedRole {
 			if cr == nr {
 				access++
-				if need.MathchAll == 0 || access == needAccess { // 任意授权通过则放行,或已满足授权长度
+				if !need.MatchAll || access == needAccess { // 任意授权通过则放行,或已满足授权长度
 					return chain.DoFilter(chain, ctx, args...)
 				}
 			}
