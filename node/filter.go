@@ -159,15 +159,17 @@ func (self *UserRateLimiterFilter) DoFilter(chain Filter, ctx *Context, args ...
 }
 
 func (self *RoleFilter) DoFilter(chain Filter, ctx *Context, args ...interface{}) error {
-	if ctx.permConfig == nil {
+	if ctx.permConfig == nil || !ctx.Authenticated() { // 未配置权限方法或非登录状态跳过
 		return chain.DoFilter(chain, ctx, args...)
 	}
 	need, err := ctx.permConfig(ctx, false)
 	if err != nil {
-		return ex.Throw{Code: http.StatusUnauthorized, Msg: "failed to read authorization resource", Err: err}
-	} else if !need.Ready { // 无授权资源配置,跳过
+		return err
+	}
+	if need == nil { // 无授权资源配置,跳过
 		return chain.DoFilter(chain, ctx, args...)
-	} else if len(need.NeedRole) == 0 { // 无授权角色配置跳过
+	}
+	if len(need.NeedRole) == 0 { // 无授权角色配置跳过
 		return chain.DoFilter(chain, ctx, args...)
 	}
 	//if !need.NeedLogin { // 无登录状态,跳过
@@ -177,15 +179,19 @@ func (self *RoleFilter) DoFilter(chain Filter, ctx *Context, args ...interface{}
 	//}
 	has, err := ctx.permConfig(ctx, true)
 	if err != nil {
-		return ex.Throw{Code: http.StatusUnauthorized, Msg: "user roles read failed"}
+		return err
 	}
-	access := 0
+	var hasRoles []int64
+	if has != nil && len(has.HasRole) > 0 {
+		hasRoles = has.HasRole
+	}
+	accessCount := 0
 	needAccess := len(need.NeedRole)
-	for _, cr := range has.HasRole {
-		for _, nr := range need.NeedRole {
-			if cr == nr {
-				access++
-				if !need.MatchAll || access == needAccess { // 任意授权通过则放行,或已满足授权长度
+	for _, hasRole := range hasRoles {
+		for _, needRole := range need.NeedRole {
+			if hasRole == needRole {
+				accessCount++
+				if !need.MatchAll || accessCount == needAccess { // 任意授权通过则放行,或已满足授权长度
 					return chain.DoFilter(chain, ctx, args...)
 				}
 			}

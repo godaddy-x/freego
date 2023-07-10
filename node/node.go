@@ -88,7 +88,7 @@ type JsonResp struct {
 }
 
 type Permission struct {
-	Ready     bool    // true.已有权限配置
+	//Ready     bool    // true.已有权限配置
 	MatchAll  bool    // true.满足所有权限角色才放行
 	NeedLogin bool    // true.需要登录状态
 	HasRole   []int64 // 拥有角色ID列表
@@ -100,7 +100,6 @@ type Context struct {
 	router        *fasthttprouter.Router
 	CacheAware    func(ds ...string) (cache.Cache, error)
 	AcceptTimeout int64 // 超时主动断开客户端连接,秒
-	//Token         string
 	Method        string
 	Path          string
 	System        string
@@ -112,7 +111,7 @@ type Context struct {
 	RouterConfig  *RouterConfig
 	RSA           crypto.Cipher
 	enableECC     bool
-	permConfig    func(ctx *Context, onlyRole bool) (Permission, error) // 资源对象
+	permConfig    func(ctx *Context, onlyRole bool) (*Permission, error) // 资源对象
 	Storage       map[string]interface{}
 	postCompleted bool
 	postHandle    PostHandle

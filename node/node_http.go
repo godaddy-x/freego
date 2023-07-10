@@ -200,7 +200,7 @@ func (self *HttpNode) AddLanguage(langDs, filePath string) error {
 	return nil
 }
 
-func (self *HttpNode) AddPermConfig(permConfig func(ctx *Context, onlyRole bool) (Permission, error)) error {
+func (self *HttpNode) AddPermConfig(permConfig func(ctx *Context, onlyRole bool) (*Permission, error)) error {
 	self.readyContext()
 	self.Context.permConfig = permConfig
 	zlog.Printf("add permission config successful")

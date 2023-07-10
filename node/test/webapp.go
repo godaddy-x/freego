@@ -140,17 +140,14 @@ const (
 	privateKey = "MHcCAQEEIEpXwxicdbb4DM+EW/cJVvoTSubRHIKB6kai/1qgaWnNoAoGCCqGSM49AwEHoUQDQgAEo2hpVqkCUrLC/mxd9qD8sdryanqx0YVfpAfN9ciMGiOSgJ8KBmDpE8FfAtRSk8PM4Le6EMLrQQLPaLURshOwZg=="
 )
 
-func PermissionConfig(ctx *node.Context, onlyRole bool) (node.Permission, error) {
-	permission := node.Permission{}
-	if ctx.Path != "/getUser" {
-		return permission, nil
-	}
+func PermissionConfig(ctx *node.Context, onlyRole bool) (*node.Permission, error) {
+	permission := &node.Permission{}
 	if onlyRole {
 		permission.HasRole = []int64{1, 2, 3, 4}
 		return permission, nil
 	}
-	permission.Ready = true
-	permission.MatchAll = true
+	//permission.Ready = true
+	//permission.MatchAll = true
 	permission.NeedRole = []int64{2, 3, 4}
 	return permission, nil
 }
