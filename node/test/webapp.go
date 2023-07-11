@@ -140,7 +140,7 @@ const (
 	privateKey = "MHcCAQEEIEpXwxicdbb4DM+EW/cJVvoTSubRHIKB6kai/1qgaWnNoAoGCCqGSM49AwEHoUQDQgAEo2hpVqkCUrLC/mxd9qD8sdryanqx0YVfpAfN9ciMGiOSgJ8KBmDpE8FfAtRSk8PM4Le6EMLrQQLPaLURshOwZg=="
 )
 
-func PermissionConfig(ctx *node.Context, onlyRole bool) (*node.Permission, error) {
+func roleRealm(ctx *node.Context, onlyRole bool) (*node.Permission, error) {
 	permission := &node.Permission{}
 	if onlyRole {
 		permission.HasRole = []int64{1, 2, 3, 4}
@@ -170,7 +170,7 @@ func NewHTTP() *MyWebNode {
 	//	rds, err := cache.NewRedis(ds...)
 	//	return rds, err
 	//})
-	my.AddPermConfig(PermissionConfig)
+	my.AddRoleRealm(roleRealm)
 	my.AddFilter(&node.FilterObject{Name: "NewPostFilter", Order: 100, Filter: &NewPostFilter{}})
 	my.AddFilter(&node.FilterObject{Name: "GeetestFilter", Order: 101, MatchPattern: []string{"/TestGeetest"}, Filter: &GeetestFilter{}})
 	return my

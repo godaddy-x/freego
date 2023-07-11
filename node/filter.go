@@ -159,10 +159,10 @@ func (self *UserRateLimiterFilter) DoFilter(chain Filter, ctx *Context, args ...
 }
 
 func (self *RoleFilter) DoFilter(chain Filter, ctx *Context, args ...interface{}) error {
-	if ctx.permConfig == nil || !ctx.Authenticated() { // 未配置权限方法或非登录状态跳过
+	if ctx.roleRealm == nil || !ctx.Authenticated() { // 未配置权限方法或非登录状态跳过
 		return chain.DoFilter(chain, ctx, args...)
 	}
-	need, err := ctx.permConfig(ctx, false)
+	need, err := ctx.roleRealm(ctx, false)
 	if err != nil {
 		return err
 	}
@@ -177,7 +177,7 @@ func (self *RoleFilter) DoFilter(chain Filter, ctx *Context, args ...interface{}
 	//} else if !ctx.Authenticated() { // 需要登录状态,会话为空,抛出异常
 	//	return ex.Throw{Code: http.StatusUnauthorized, Msg: "login status required"}
 	//}
-	has, err := ctx.permConfig(ctx, true)
+	has, err := ctx.roleRealm(ctx, true)
 	if err != nil {
 		return err
 	}

@@ -111,7 +111,7 @@ type Context struct {
 	RouterConfig  *RouterConfig
 	RSA           crypto.Cipher
 	enableECC     bool
-	permConfig    func(ctx *Context, onlyRole bool) (*Permission, error) // 资源对象
+	roleRealm     func(ctx *Context, onlyRole bool) (*Permission, error) // 资源对象
 	Storage       map[string]interface{}
 	postCompleted bool
 	postHandle    PostHandle
@@ -422,8 +422,8 @@ func (self *Context) reset(ctx *Context, handle PostHandle, request *fasthttp.Re
 	if self.RSA == nil {
 		self.RSA = ctx.RSA
 	}
-	if self.permConfig == nil {
-		self.permConfig = ctx.permConfig
+	if self.roleRealm == nil {
+		self.roleRealm = ctx.roleRealm
 	}
 	if len(self.filterChain.filters) == 0 {
 		self.filterChain.filters = fs
