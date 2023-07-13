@@ -2,7 +2,9 @@ package common
 
 import (
 	"fmt"
+	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/utils"
+	"github.com/godaddy-x/freego/utils/crypto"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"unsafe"
 )
@@ -54,8 +56,17 @@ func (s *Identify) ObjectID() primitive.ObjectID {
 	return r
 }
 
+type System struct {
+	Name    string // 系统名
+	Version string // 系统版本
+}
+
 type Context struct {
-	Identify *Identify
+	Identify   *Identify
+	CacheAware func(ds ...string) (cache.Cache, error)
+	RSA        crypto.Cipher
+	Path       string
+	System     *System
 }
 
 type BaseReq struct {

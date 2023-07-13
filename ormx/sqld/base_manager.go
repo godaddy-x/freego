@@ -46,6 +46,7 @@ type Option struct {
 	DsName      string // 数据源,分库时使用
 	Database    string // 数据库名称
 	OpenTx      bool   // 是否开启事务 true.是 false.否
+	AutoID      bool   // 是否自增ID
 	MongoSync   bool   // 是否自动同步mongo数据库写入
 	Timeout     int64  // 请求超时设置/毫秒,默认10000
 	SlowQuery   int64  // 0.不开启筛选 >0开启筛选查询 毫秒
@@ -83,6 +84,8 @@ type IDBase interface {
 	UpdateByCnd(cnd *sqlc.Cnd) (int64, error)
 	// 删除数据
 	Delete(datas ...sqlc.Object) error
+	// 删除数据
+	DeleteById(object sqlc.Object, data ...interface{}) error
 	// 统计数据
 	Count(cnd *sqlc.Cnd) (int64, error)
 	// 按ID查询单条数据
@@ -131,6 +134,10 @@ func (self *DBManager) UpdateByCnd(cnd *sqlc.Cnd) (int64, error) {
 
 func (self *DBManager) Delete(datas ...sqlc.Object) error {
 	return utils.Error("No implementation method [Delete] was found")
+}
+
+func (self *DBManager) DeleteById(object sqlc.Object, data ...interface{}) error {
+	return utils.Error("No implementation method [DeleteById] was found")
 }
 
 func (self *DBManager) Count(cnd *sqlc.Cnd) (int64, error) {
@@ -271,7 +278,7 @@ func (self *RDBManager) Save(data ...sqlc.Object) error {
 		vpart_ := bytes.NewBuffer(make([]byte, 0, 64))
 		vpart_.WriteString(" (")
 		for _, vv := range obv.FieldElem {
-			if vv.Ignore {
+			if vv.Ignore || self.AutoID {
 				continue
 			}
 			if vv.Primary {
@@ -602,6 +609,68 @@ func (self *RDBManager) Delete(data ...sqlc.Object) error {
 		self.MGOSyncData = append(self.MGOSyncData, &MGOSyncData{DELETE, data[0], nil, data})
 	}
 	return nil
+}
+
+func (self *RDBManager) DeleteById(object sqlc.Object, data ...interface{}) (int64, error) {
+	if data == nil || len(data) == 0 {
+		return 0, self.Error("[Mysql.DeleteById] data is nil")
+	}
+	if len(data) > 2000 {
+		return 0, self.Error("[Mysql.DeleteById] data length > 2000")
+	}
+	obv, ok := modelDrivers[object.GetTable()]
+	if !ok {
+		return 0, self.Error("[Mysql.DeleteById] registration object type not found [", object.GetTable(), "]")
+	}
+	parameter := make([]interface{}, 0, len(data))
+	vpart := bytes.NewBuffer(make([]byte, 0, 2*len(data)))
+	for _, v := range data {
+		vpart.WriteString("?,")
+		parameter = append(parameter, v)
+	}
+	str2 := utils.Bytes2Str(vpart.Bytes())
+	if len(str2) == 0 {
+		return 0, self.Error("where case is nil")
+	}
+	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str2)+64))
+	sqlbuf.WriteString("delete from ")
+	sqlbuf.WriteString(obv.TableName)
+	sqlbuf.WriteString(" where ")
+	sqlbuf.WriteString(obv.PkName)
+	sqlbuf.WriteString(" in (")
+	sqlbuf.WriteString(utils.Substr(str2, 0, len(str2)-1))
+	sqlbuf.WriteString(")")
+
+	prepare := utils.Bytes2Str(sqlbuf.Bytes())
+	if zlog.IsDebug() {
+		defer zlog.Debug("[Mysql.DeleteById] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
+	defer cancel()
+	var err error
+	var stmt *sql.Stmt
+	if self.OpenTx {
+		stmt, err = self.Tx.PrepareContext(ctx, prepare)
+	} else {
+		stmt, err = self.Db.PrepareContext(ctx, prepare)
+	}
+	if err != nil {
+		return 0, self.Error("[Mysql.DeleteById] [ ", prepare, " ] prepare failed: ", err)
+	}
+	defer stmt.Close()
+	ret, err := stmt.ExecContext(ctx, parameter...)
+	if err != nil {
+		return 0, self.Error("[Mysql.DeleteById] delete failed: ", err)
+	}
+	rowsAffected, err := ret.RowsAffected()
+	if err != nil {
+		return 0, self.Error("[Mysql.DeleteById] affected rows failed: ", err)
+	}
+	if rowsAffected <= 0 {
+		zlog.Warn(utils.AddStr("[Mysql.DeleteById] affected rows <= 0 -> ", rowsAffected), 0, zlog.String("sql", prepare))
+		return 0, nil
+	}
+	return rowsAffected, nil
 }
 
 func (self *RDBManager) FindById(data sqlc.Object) error {

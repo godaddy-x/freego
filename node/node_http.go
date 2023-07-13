@@ -51,7 +51,7 @@ func (self *HttpNode) StartServer(addr string) {
 			zlog.Printf("cache service has been started successful")
 		}
 		if self.Context.RSA != nil {
-			if self.Context.enableECC {
+			if self.Context.System.enableECC {
 				zlog.Printf("ECC certificate service has been started successful")
 			} else {
 				zlog.Printf("RSA certificate service has been started successful")
@@ -87,7 +87,7 @@ func (self *HttpNode) addRouter(method, path string, handle PostHandle, routerCo
 		func(ctx *fasthttp.RequestCtx) {
 			self.proxy(handle, ctx)
 		},
-		time.Duration(self.Context.AcceptTimeout)*time.Second,
+		time.Duration(self.Context.System.AcceptTimeout)*time.Second,
 		fmt.Sprintf(`{"c":408,"m":"server actively disconnects the client","d":null,"t":%d,"n":"%s","p":0,"s":""}`, utils.UnixMilli(), utils.RandNonce())))
 }
 
@@ -124,6 +124,7 @@ func (self *HttpNode) createCtxPool() sync.Pool {
 		ctx := &Context{}
 		ctx.configs = self.Context.configs
 		ctx.filterChain = &filterChain{}
+		ctx.System = &System{}
 		ctx.JsonBody = &JsonBody{}
 		ctx.Subject = &jwt.Subject{Header: &jwt.Header{}, Payload: &jwt.Payload{}}
 		ctx.Response = &Response{Encoding: UTF8, ContentType: APPLICATION_JSON, ContentEntity: nil}
@@ -141,6 +142,7 @@ func (self *HttpNode) readyContext() {
 		self.Context.configs.routerConfigs = make(map[string]*RouterConfig)
 		self.Context.configs.langConfigs = make(map[string]map[string]string)
 		self.Context.configs.jwtConfig = jwt.JwtConfig{}
+		self.Context.System = &System{}
 		self.ctxPool = self.createCtxPool()
 	}
 }
@@ -161,7 +163,7 @@ func (self *HttpNode) AddCipher(cipher crypto.Cipher) {
 	self.readyContext()
 	if self.Context.RSA == nil {
 		if cipher == nil {
-			if self.Context.enableECC {
+			if self.Context.System.enableECC {
 				defaultECC := &crypto.EccObj{}
 				if err := defaultECC.CreateS256ECC(); err != nil {
 					panic("ECC certificate generation failed")
@@ -219,8 +221,8 @@ func (self *HttpNode) addRouterConfig(path string, routerConfig *RouterConfig) {
 
 func (self *HttpNode) newRouter() {
 	self.readyContext()
-	if self.Context.AcceptTimeout <= 0 {
-		self.Context.AcceptTimeout = 60
+	if self.Context.System.AcceptTimeout <= 0 {
+		self.Context.System.AcceptTimeout = 60
 	}
 	if self.Context.router == nil {
 		self.Context.router = fasthttprouter.New()
@@ -243,12 +245,13 @@ func (self *HttpNode) AddJwtConfig(config jwt.JwtConfig) {
 
 func (self *HttpNode) EnableECC(enable bool) {
 	self.readyContext()
-	self.Context.enableECC = enable
+	self.Context.System.enableECC = enable
 }
 
-func (self *HttpNode) SetSystem(name string) {
+func (self *HttpNode) SetSystem(name, version string) {
 	self.readyContext()
-	self.Context.System = name
+	self.Context.System.Name = name
+	self.Context.System.Version = version
 }
 
 func (self *HttpNode) ClearFilterChain() {

@@ -14,7 +14,7 @@ func init() {
 
 func TestMysqlSave(t *testing.T) {
 	initMysqlDB()
-	db, err := new(sqld.MysqlManager).Get(sqld.Option{OpenTx: true})
+	db, err := sqld.NewMysql(sqld.Option{OpenTx: true, AutoID: true})
 	if err != nil {
 		panic(err)
 	}
@@ -22,7 +22,7 @@ func TestMysqlSave(t *testing.T) {
 	var vs []sqlc.Object
 	for i := 0; i < 1; i++ {
 		wallet := OwAuth{
-			Ctime: utils.UnixMilli(),
+			//Ctime: utils.UnixMilli(),
 		}
 		vs = append(vs, &wallet)
 	}
@@ -43,10 +43,10 @@ func TestMysqlUpdate(t *testing.T) {
 	var vs []sqlc.Object
 	for i := 0; i < 1; i++ {
 		wallet := OwAuth{
-			Id:     1649040212178763776,
-			Secret: "1111122",
-			Ctime:  utils.UnixMilli(),
-			Seed:   "3321",
+			Id: 1649040212178763776,
+			//Secret: "1111122",
+			//Ctime:  utils.UnixMilli(),
+			//Seed:   "3321",
 		}
 		vs = append(vs, &wallet)
 	}
@@ -122,6 +122,20 @@ func TestMysqlFindOne(t *testing.T) {
 	}
 }
 
+func TestMysqlDeleteById(t *testing.T) {
+	initMysqlDB()
+	db, err := sqld.NewMysql()
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+	ret, err := db.DeleteById(&OwWallet{}, 1136187262606770177, 1136187262606770178)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(ret)
+}
+
 func TestMysqlFindList(t *testing.T) {
 	initMysqlDB()
 	db, err := new(sqld.MysqlManager).Get(sqld.Option{OpenTx: false})
@@ -134,6 +148,7 @@ func TestMysqlFindList(t *testing.T) {
 	if err := db.FindList(sqlc.M(&OwAuth{}).Orderby("id", sqlc.DESC_).Limit(1, 5), &result); err != nil {
 		fmt.Println(err)
 	}
+	fmt.Println(result[0].Usestate.String())
 	fmt.Println("cost: ", utils.UnixMilli()-l)
 }
 

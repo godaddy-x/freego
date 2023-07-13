@@ -170,6 +170,7 @@ func NewHTTP() *MyWebNode {
 	//	rds, err := cache.NewRedis(ds...)
 	//	return rds, err
 	//})
+	my.SetSystem("test", "1.0.0")
 	my.AddRoleRealm(roleRealm)
 	my.AddFilter(&node.FilterObject{Name: "NewPostFilter", Order: 100, Filter: &NewPostFilter{}})
 	my.AddFilter(&node.FilterObject{Name: "GeetestFilter", Order: 101, MatchPattern: []string{"/TestGeetest"}, Filter: &GeetestFilter{}})

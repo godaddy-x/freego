@@ -5,6 +5,7 @@ import (
 	"github.com/godaddy-x/freego/ormx/sqlc"
 	"github.com/godaddy-x/freego/ormx/sqld"
 	"github.com/godaddy-x/freego/utils"
+	"github.com/godaddy-x/freego/utils/decimal"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
@@ -101,16 +102,13 @@ func (o *OwBlock) NewIndex() []sqlc.Index {
 }
 
 type OwAuth struct {
-	Id     int64  `json:"id" bson:"_id" auto:"true"`
-	Secret string `json:"secret" bson:"secret"`
-	Seed   string `json:"seed" bson:"seed"`
-	Ctime  int64  `json:"cTime" bson:"cTime" date:"true"`
-	Utime  int64  `json:"uTime" bson:"uTime" date:"true"`
-	State  int64  `json:"state" bson:"state"`
+	Id       int64           `json:"id" bson:"_id" auto:"true"`
+	Name     string          `json:"name" bson:"secret"`
+	Usestate decimal.Decimal `json:"usestate" bson:"usestate"`
 }
 
 func (o *OwAuth) GetTable() string {
-	return "admin_auth_test"
+	return "ow_api"
 }
 
 func (o *OwAuth) NewObject() sqlc.Object {
@@ -146,9 +144,9 @@ func initMongoDB() {
 func initDriver() {
 	sqld.ModelDriver(
 		&OwWallet{},
-		&OwWallet2{},
-		&OwBlock{},
-		&OwContract{},
+		//&OwWallet2{},
+		//&OwBlock{},
+		//&OwContract{},
 		&OwAuth{},
 	)
 }

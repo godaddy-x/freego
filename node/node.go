@@ -95,14 +95,20 @@ type Permission struct {
 	NeedRole  []int64 // 所需角色ID列表
 }
 
+type System struct {
+	Name          string // 系统名
+	Version       string // 系统版本
+	AcceptTimeout int64  // 超时主动断开客户端连接,秒
+	enableECC     bool
+}
+
 type Context struct {
 	configs       *Configs
 	router        *fasthttprouter.Router
 	CacheAware    func(ds ...string) (cache.Cache, error)
-	AcceptTimeout int64 // 超时主动断开客户端连接,秒
 	Method        string
 	Path          string
-	System        string
+	System        *System
 	RequestCtx    *fasthttp.RequestCtx
 	Subject       *jwt.Subject
 	JsonBody      *JsonBody
@@ -110,7 +116,6 @@ type Context struct {
 	filterChain   *filterChain
 	RouterConfig  *RouterConfig
 	RSA           crypto.Cipher
-	enableECC     bool
 	roleRealm     func(ctx *Context, onlyRole bool) (*Permission, error) // 资源对象
 	Storage       map[string]interface{}
 	postCompleted bool
@@ -206,7 +211,11 @@ func (self *Context) Parser(dst interface{}) error {
 		identify.ID = self.Subject.GetSub()
 	}
 	context := common.Context{
-		Identify: identify,
+		Identify:   identify,
+		Path:       self.Path,
+		System:     &common.System{Name: self.System.Name, Version: self.System.Version},
+		CacheAware: self.CacheAware,
+		RSA:        self.RSA,
 	}
 	src := utils.GetPtr(dst, 0)
 	req := common.GetBaseReq(src)
@@ -428,6 +437,7 @@ func (self *Context) reset(ctx *Context, handle PostHandle, request *fasthttp.Re
 	if len(self.filterChain.filters) == 0 {
 		self.filterChain.filters = fs
 	}
+	self.System = ctx.System
 	self.postHandle = handle
 	self.RequestCtx = request
 	self.Method = utils.Bytes2Str(self.RequestCtx.Method())
