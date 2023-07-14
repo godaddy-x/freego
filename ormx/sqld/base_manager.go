@@ -103,9 +103,9 @@ type IDBase interface {
 	// 构建逻辑条件
 	BuildWhereCase(cnd *sqlc.Cnd) (*bytes.Buffer, []interface{})
 	// 构建分组条件
-	BuilGroupBy(cnd *sqlc.Cnd) string
+	BuildGroupBy(cnd *sqlc.Cnd) string
 	// 构建排序条件
-	BuilSortBy(cnd *sqlc.Cnd) string
+	BuildSortBy(cnd *sqlc.Cnd) string
 	// 构建分页条件
 	BuildPagination(cnd *sqlc.Cnd, sql string, values []interface{}) (string, error)
 	// 数据库操作缓存异常
@@ -178,12 +178,12 @@ func (self *DBManager) BuildWhereCase(cnd *sqlc.Cnd) (*bytes.Buffer, []interface
 	return nil, nil
 }
 
-func (self *DBManager) BuilGroupBy(cnd *sqlc.Cnd) string {
+func (self *DBManager) BuildGroupBy(cnd *sqlc.Cnd) string {
 	zlog.Warn("No implementation method [BuilGroupBy] was found", 0)
 	return ""
 }
 
-func (self *DBManager) BuilSortBy(cnd *sqlc.Cnd) string {
+func (self *DBManager) BuildSortBy(cnd *sqlc.Cnd) string {
 	zlog.Warn("No implementation method [BuilSortBy] was found", 0)
 	return ""
 }
@@ -273,7 +273,7 @@ func (self *RDBManager) Save(data ...sqlc.Object) error {
 	}
 	var fready bool
 	parameter := make([]interface{}, 0, len(obv.FieldElem)*len(data))
-	fpart := bytes.NewBuffer(make([]byte, 0, 10*len(obv.FieldElem)))
+	fpart := bytes.NewBuffer(make([]byte, 0, 14*len(obv.FieldElem)))
 	vpart := bytes.NewBuffer(make([]byte, 0, 64*len(data)))
 	for _, v := range data {
 		vpart_ := bytes.NewBuffer(make([]byte, 0, 64))
@@ -321,7 +321,9 @@ func (self *RDBManager) Save(data ...sqlc.Object) error {
 				parameter = append(parameter, fval)
 			}
 			if !fready {
+				fpart.WriteString("`")
 				fpart.WriteString(vv.FieldJsonName)
+				fpart.WriteString("`")
 				fpart.WriteString(",")
 			}
 			vpart_.WriteString("?,")
@@ -389,7 +391,7 @@ func (self *RDBManager) Update(data ...sqlc.Object) error {
 	}
 
 	parameter := make([]interface{}, 0, len(obv.FieldElem))
-	fpart := bytes.NewBuffer(make([]byte, 0, 64))
+	fpart := bytes.NewBuffer(make([]byte, 0, 96))
 	var lastInsertId interface{}
 	for _, v := range obv.FieldElem { // 遍历对象字段
 		if v.Ignore {
@@ -420,7 +422,9 @@ func (self *RDBManager) Update(data ...sqlc.Object) error {
 			continue
 		}
 		fpart.WriteString(" ")
+		fpart.WriteString("`")
 		fpart.WriteString(v.FieldJsonName)
+		fpart.WriteString("`")
 		fpart.WriteString(" = ?,")
 		parameter = append(parameter, fval)
 	}
@@ -432,7 +436,9 @@ func (self *RDBManager) Update(data ...sqlc.Object) error {
 	sqlbuf.WriteString(" set ")
 	sqlbuf.WriteString(utils.Substr(str1, 0, len(str1)-1))
 	sqlbuf.WriteString(" where ")
+	sqlbuf.WriteString("`")
 	sqlbuf.WriteString(obv.PkName)
+	sqlbuf.WriteString("`")
 	sqlbuf.WriteString(" = ?")
 
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
@@ -482,10 +488,12 @@ func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) (int64, error) {
 		return 0, self.Error("[Mysql.UpdateByCnd] update WhereCase is nil")
 	}
 	parameter := make([]interface{}, 0, len(cnd.Upsets)+len(case_arg))
-	fpart := bytes.NewBuffer(make([]byte, 0, 64))
+	fpart := bytes.NewBuffer(make([]byte, 0, 96))
 	for k, v := range cnd.Upsets { // 遍历对象字段
 		fpart.WriteString(" ")
+		fpart.WriteString("`")
 		fpart.WriteString(k)
+		fpart.WriteString("`")
 		fpart.WriteString(" = ?,")
 		parameter = append(parameter, v)
 	}
@@ -579,7 +587,9 @@ func (self *RDBManager) Delete(data ...sqlc.Object) error {
 	sqlbuf.WriteString("delete from ")
 	sqlbuf.WriteString(obv.TableName)
 	sqlbuf.WriteString(" where ")
+	sqlbuf.WriteString("`")
 	sqlbuf.WriteString(obv.PkName)
+	sqlbuf.WriteString("`")
 	sqlbuf.WriteString(" in (")
 	sqlbuf.WriteString(utils.Substr(str2, 0, len(str2)-1))
 	sqlbuf.WriteString(")")
@@ -640,7 +650,9 @@ func (self *RDBManager) DeleteById(object sqlc.Object, data ...interface{}) (int
 	sqlbuf.WriteString("delete from ")
 	sqlbuf.WriteString(obv.TableName)
 	sqlbuf.WriteString(" where ")
+	sqlbuf.WriteString("`")
 	sqlbuf.WriteString(obv.PkName)
+	sqlbuf.WriteString("`")
 	sqlbuf.WriteString(" in (")
 	sqlbuf.WriteString(utils.Substr(str2, 0, len(str2)-1))
 	sqlbuf.WriteString(")")
@@ -699,12 +711,14 @@ func (self *RDBManager) FindById(data sqlc.Object) error {
 		}
 		parameter = append(parameter, lastInsertId)
 	}
-	fpart := bytes.NewBuffer(make([]byte, 0, 12*len(obv.FieldElem)))
+	fpart := bytes.NewBuffer(make([]byte, 0, 14*len(obv.FieldElem)))
 	for _, vv := range obv.FieldElem {
 		if vv.Ignore {
 			continue
 		}
+		fpart.WriteString("`")
 		fpart.WriteString(vv.FieldJsonName)
+		fpart.WriteString("`")
 		fpart.WriteString(",")
 	}
 	str1 := utils.Bytes2Str(fpart.Bytes())
@@ -714,7 +728,9 @@ func (self *RDBManager) FindById(data sqlc.Object) error {
 	sqlbuf.WriteString(" from ")
 	sqlbuf.WriteString(obv.TableName)
 	sqlbuf.WriteString(" where ")
+	sqlbuf.WriteString("`")
 	sqlbuf.WriteString(obv.PkName)
+	sqlbuf.WriteString("`")
 	sqlbuf.WriteString(" = ?")
 	sqlbuf.WriteString(" limit 1")
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
@@ -772,12 +788,14 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
 		return self.Error("[Mysql.FindOne] registration object type not found [", data.GetTable(), "]")
 	}
 	var parameter []interface{}
-	fpart := bytes.NewBuffer(make([]byte, 0, 12*len(obv.FieldElem)))
+	fpart := bytes.NewBuffer(make([]byte, 0, 14*len(obv.FieldElem)))
 	for _, vv := range obv.FieldElem {
 		if vv.Ignore {
 			continue
 		}
+		fpart.WriteString("`")
 		fpart.WriteString(vv.FieldJsonName)
+		fpart.WriteString("`")
 		fpart.WriteString(",")
 	}
 	case_part, case_arg := self.BuildWhereCase(cnd.Offset(0, 1))
@@ -796,7 +814,7 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
 	if vpart != nil {
 		str2 = utils.Bytes2Str(vpart.Bytes())
 	}
-	sortby := self.BuilSortBy(cnd)
+	sortby := self.BuildSortBy(cnd)
 	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str1)+len(str2)+len(sortby)+32))
 	sqlbuf.WriteString("select ")
 	sqlbuf.WriteString(utils.Substr(str1, 0, len(str1)-1))
@@ -872,12 +890,14 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	if !ok {
 		return self.Error("[Mysql.FindList] registration object type not found [", cnd.Model.GetTable(), "]")
 	}
-	fpart := bytes.NewBuffer(make([]byte, 0, 12*len(obv.FieldElem)))
+	fpart := bytes.NewBuffer(make([]byte, 0, 14*len(obv.FieldElem)))
 	for _, vv := range obv.FieldElem {
 		if vv.Ignore {
 			continue
 		}
+		fpart.WriteString("`")
 		fpart.WriteString(vv.FieldJsonName)
+		fpart.WriteString("`")
 		fpart.WriteString(",")
 	}
 	case_part, case_arg := self.BuildWhereCase(cnd)
@@ -897,8 +917,8 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	if vpart != nil {
 		str2 = utils.Bytes2Str(vpart.Bytes())
 	}
-	groupby := self.BuilGroupBy(cnd)
-	sortby := self.BuilSortBy(cnd)
+	groupby := self.BuildGroupBy(cnd)
+	sortby := self.BuildSortBy(cnd)
 	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str1)+len(str2)+len(groupby)+len(sortby)+32))
 	sqlbuf.WriteString("select ")
 	sqlbuf.WriteString(utils.Substr(str1, 0, len(str1)-1))
@@ -1073,9 +1093,11 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 	if !ok {
 		return self.Error("[Mysql.FindListComplex] registration object type not found [", cnd.Model.GetTable(), "]")
 	}
-	fpart := bytes.NewBuffer(make([]byte, 0, 30*len(cnd.AnyFields)))
+	fpart := bytes.NewBuffer(make([]byte, 0, 32*len(cnd.AnyFields)))
 	for _, vv := range cnd.AnyFields {
+		fpart.WriteString("`")
 		fpart.WriteString(vv)
+		fpart.WriteString("`")
 		fpart.WriteString(",")
 	}
 	case_part, case_arg := self.BuildWhereCase(cnd)
@@ -1095,8 +1117,8 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 	if vpart != nil {
 		str2 = utils.Bytes2Str(vpart.Bytes())
 	}
-	groupby := self.BuilGroupBy(cnd)
-	sortby := self.BuilSortBy(cnd)
+	groupby := self.BuildGroupBy(cnd)
+	sortby := self.BuildSortBy(cnd)
 	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str1)+len(str2)+len(groupby)+len(sortby)+32))
 	sqlbuf.WriteString("select ")
 	sqlbuf.WriteString(utils.Substr(str1, 0, len(str1)-1))
@@ -1209,9 +1231,11 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data sqlc.Object) error {
 	if !ok {
 		return self.Error("[Mysql.FindOneComplex] registration object type not found [", data.GetTable(), "]")
 	}
-	fpart := bytes.NewBuffer(make([]byte, 0, 30*len(cnd.AnyFields)))
+	fpart := bytes.NewBuffer(make([]byte, 0, 32*len(cnd.AnyFields)))
 	for _, vv := range cnd.AnyFields {
+		fpart.WriteString("`")
 		fpart.WriteString(vv)
+		fpart.WriteString("`")
 		fpart.WriteString(",")
 	}
 	case_part, case_arg := self.BuildWhereCase(cnd.Offset(0, 1))
@@ -1231,8 +1255,8 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data sqlc.Object) error {
 	if vpart != nil {
 		str2 = utils.Bytes2Str(vpart.Bytes())
 	}
-	groupby := self.BuilGroupBy(cnd)
-	sortby := self.BuilSortBy(cnd)
+	groupby := self.BuildGroupBy(cnd)
+	sortby := self.BuildSortBy(cnd)
 	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str1)+len(str2)+len(groupby)+len(sortby)+32))
 	sqlbuf.WriteString("select ")
 	sqlbuf.WriteString(utils.Substr(str1, 0, len(str1)-1))
@@ -1405,7 +1429,9 @@ func OutDest(rows *sql.Rows, flen int) ([][][]byte, error) {
 func (self *RDBManager) BuildCondKey(cnd *sqlc.Cnd, key string) []byte {
 	fieldPart := bytes.NewBuffer(make([]byte, 0, 16))
 	fieldPart.WriteString(" ")
+	fieldPart.WriteString("`")
 	fieldPart.WriteString(key)
+	fieldPart.WriteString("`")
 	return fieldPart.Bytes()
 }
 
@@ -1523,7 +1549,7 @@ func (self *RDBManager) BuildWhereCase(cnd *sqlc.Cnd) (*bytes.Buffer, []interfac
 }
 
 // 构建分组命令
-func (self *RDBManager) BuilGroupBy(cnd *sqlc.Cnd) string {
+func (self *RDBManager) BuildGroupBy(cnd *sqlc.Cnd) string {
 	if cnd == nil || len(cnd.Groupbys) <= 0 {
 		return ""
 	}
@@ -1534,7 +1560,9 @@ func (self *RDBManager) BuilGroupBy(cnd *sqlc.Cnd) string {
 			continue
 		}
 		groupby.WriteString(" ")
+		groupby.WriteString("`")
 		groupby.WriteString(v)
+		groupby.WriteString("`")
 		groupby.WriteString(",")
 	}
 	s := utils.Bytes2Str(groupby.Bytes())
@@ -1542,7 +1570,7 @@ func (self *RDBManager) BuilGroupBy(cnd *sqlc.Cnd) string {
 }
 
 // 构建排序命令
-func (self *RDBManager) BuilSortBy(cnd *sqlc.Cnd) string {
+func (self *RDBManager) BuildSortBy(cnd *sqlc.Cnd) string {
 	if cnd == nil || len(cnd.Orderbys) <= 0 {
 		return ""
 	}
@@ -1550,7 +1578,9 @@ func (self *RDBManager) BuilSortBy(cnd *sqlc.Cnd) string {
 	sortby.WriteString(" order by")
 	for _, v := range cnd.Orderbys {
 		sortby.WriteString(" ")
+		sortby.WriteString("`")
 		sortby.WriteString(v.Key)
+		sortby.WriteString("`")
 		if v.Value == sqlc.DESC_ {
 			sortby.WriteString(" desc,")
 		} else if v.Value == sqlc.ASC_ {

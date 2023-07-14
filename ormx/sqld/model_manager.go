@@ -40,6 +40,13 @@ type MdlDriver struct {
 	Object     sqlc.Object
 }
 
+func isPk(key string) bool {
+	if len(key) > 0 && key == sqlc.True {
+		return true
+	}
+	return false
+}
+
 func ModelDriver(objects ...sqlc.Object) error {
 	if objects == nil || len(objects) == 0 {
 		panic("objects is nil")
@@ -76,7 +83,7 @@ func ModelDriver(objects ...sqlc.Object) error {
 			f.FieldBsonName = field.Tag.Get(sqlc.Bson)
 			f.FieldOffset = field.Offset
 			f.FieldType = field.Type.String()
-			if field.Name == sqlc.Id {
+			if field.Name == sqlc.Id || isPk(field.Tag.Get(sqlc.Key)) {
 				f.Primary = true
 				md.PkOffset = field.Offset
 				md.PkKind = value.Kind()

@@ -44,6 +44,7 @@ const DESC_ = 2
 
 const (
 	Id     = "Id"
+	Key    = "key"
 	Auto   = "auto"
 	Ignore = "ignore"
 	Bson   = "bson"
