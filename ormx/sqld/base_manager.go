@@ -232,6 +232,7 @@ func (self *RDBManager) GetDB(options ...Option) error {
 	self.MongoSync = rdb.MongoSync
 	self.CacheManager = rdb.CacheManager
 	self.OpenTx = false
+	self.Option.AutoID = option.AutoID
 	if len(option.DsName) > 0 {
 		if len(option.DsName) > 0 {
 			self.DsName = option.DsName
@@ -278,10 +279,13 @@ func (self *RDBManager) Save(data ...sqlc.Object) error {
 		vpart_ := bytes.NewBuffer(make([]byte, 0, 64))
 		vpart_.WriteString(" (")
 		for _, vv := range obv.FieldElem {
-			if vv.Ignore || self.AutoID {
+			if vv.Ignore {
 				continue
 			}
 			if vv.Primary {
+				if self.AutoID {
+					continue
+				}
 				if vv.FieldKind == reflect.Int64 {
 					lastInsertId := utils.GetInt64(utils.GetPtr(v, obv.PkOffset))
 					if lastInsertId == 0 {
