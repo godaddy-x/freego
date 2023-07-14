@@ -16,6 +16,7 @@ type FieldElem struct {
 	Primary       bool
 	Ignore        bool
 	IsDate        bool
+	IsBlob        bool
 	FieldName     string
 	FieldJsonName string
 	FieldBsonName string
@@ -98,6 +99,10 @@ func ModelDriver(objects ...sqlc.Object) error {
 			isDate := field.Tag.Get(sqlc.Date)
 			if len(isDate) > 0 && isDate == sqlc.True {
 				f.IsDate = true
+			}
+			isBlob := field.Tag.Get(sqlc.Blob)
+			if len(isBlob) > 0 && isBlob == sqlc.True {
+				f.IsBlob = true
 			}
 			md.FieldElem = append(md.FieldElem, f)
 		}
@@ -184,6 +189,9 @@ func GetValue(obj interface{}, elem *FieldElem) (interface{}, error) {
 		case "[]uint":
 			return getValueJsonStr(utils.GetUintArr(ptr))
 		case "[]uint8":
+			if elem.IsBlob {
+				return utils.GetUint8Arr(ptr), nil
+			}
 			return getValueJsonStr(utils.GetUint8Arr(ptr))
 		case "[]uint16":
 			return getValueJsonStr(utils.GetUint16Arr(ptr))
@@ -457,6 +465,10 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 			return nil
 		case "[]uint8":
 			if b == nil || len(b) == 0 {
+				return nil
+			}
+			if elem.IsBlob {
+				utils.SetUint8Arr(ptr, b)
 				return nil
 			}
 			v := make([]uint8, 0)

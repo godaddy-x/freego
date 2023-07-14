@@ -51,6 +51,7 @@ const (
 	Mg     = "mg"
 	True   = "true"
 	Date   = "date"
+	Blob   = "blob"
 	Dtype  = "dtype"
 )
 
