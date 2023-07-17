@@ -110,6 +110,7 @@ type Cnd struct {
 	SampleSize      int64
 	LimitSize       int64 // 固定截取结果集数量
 	CacheConfig     CacheConfig
+	Escape          bool
 }
 
 // 缓存结果集参数
@@ -126,6 +127,7 @@ func M(model ...Object) *Cnd {
 	if model != nil && len(model) > 0 {
 		c.Model = model[0]
 	}
+	c.Escape = true
 	return c
 }
 
@@ -133,6 +135,11 @@ func M(model ...Object) *Cnd {
 func addDefaultCondit(cnd *Cnd, condit Condition) *Cnd {
 	cnd.Conditions = append(cnd.Conditions, condit)
 	return cnd
+}
+
+func (self *Cnd) UnEscape() *Cnd {
+	self.Escape = false
+	return self
 }
 
 // =

@@ -65,13 +65,13 @@ func TestMysqlUpdateByCnd(t *testing.T) {
 	}
 	defer db.Close()
 	l := utils.UnixMilli()
-	if _, err := db.UpdateByCnd(sqlc.M(&OwAuth{}).Upset([]string{"seed", "cTime"}, "123456789", utils.Time2Str(utils.UnixMilli())).Eq("id", 1649040212178763776)); err != nil {
+	if _, err := db.UpdateByCnd(sqlc.M(&OwWallet{}).Upset([]string{"appID", "utime"}, "123456789", utils.UnixMilli()).Eq("id", 1649040212178763776)); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println("cost: ", utils.UnixMilli()-l)
 }
 
-func TestMysqlDetele(t *testing.T) {
+func TestMysqlDelete(t *testing.T) {
 	initMysqlDB()
 	db, err := new(sqld.MysqlManager).Get(sqld.Option{OpenTx: true})
 	if err != nil {
@@ -117,7 +117,7 @@ func TestMysqlFindOne(t *testing.T) {
 	}
 	defer db.Close()
 	wallet := OwWallet{}
-	if err := db.FindOne(sqlc.M().Eq("id", 1570732354786295849), &wallet); err != nil {
+	if err := db.FindOne(sqlc.M().Eq("id", 1109996130134917121), &wallet); err != nil {
 		panic(err)
 	}
 }
@@ -144,11 +144,10 @@ func TestMysqlFindList(t *testing.T) {
 	}
 	defer db.Close()
 	l := utils.UnixMilli()
-	var result []*OwAuth
-	if err := db.FindList(sqlc.M(&OwAuth{}).Orderby("id", sqlc.DESC_).Limit(1, 5), &result); err != nil {
+	var result []*OwWallet
+	if err := db.FindList(sqlc.M(&OwWallet{}).Eq("id", 1109996130134917121).Orderby("id", sqlc.DESC_).Limit(1, 5), &result); err != nil {
 		fmt.Println(err)
 	}
-	fmt.Println(result[0].Usestate.String())
 	fmt.Println("cost: ", utils.UnixMilli()-l)
 }
 
@@ -161,7 +160,7 @@ func TestMysqlFindListComplex(t *testing.T) {
 	defer db.Close()
 	l := utils.UnixMilli()
 	var result []*OwWallet
-	if err := db.FindListComplex(sqlc.M(&OwWallet{}).Fields("count(a.id) as id").From("ow_wallet a").Orderby("a.id", sqlc.DESC_).Limit(1, 5), &result); err != nil {
+	if err := db.FindListComplex(sqlc.M(&OwWallet{}).UnEscape().Fields("count(a.id) as `id`").From("ow_wallet a").Orderby("a.id", sqlc.DESC_).Limit(1, 5), &result); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println("cost: ", utils.UnixMilli()-l)
@@ -176,7 +175,7 @@ func TestMysqlFindOneComplex(t *testing.T) {
 	defer db.Close()
 	l := utils.UnixMilli()
 	result := OwWallet{}
-	if err := db.FindOneComplex(sqlc.M().Fields("count(a.id) as id").From("ow_wallet a").Orderby("a.id", sqlc.DESC_).Limit(1, 5), &result); err != nil {
+	if err := db.FindOneComplex(sqlc.M().UnEscape().Fields("count(a.id) as id").From("ow_wallet a").Orderby("a.id", sqlc.DESC_).Limit(1, 5), &result); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println("cost: ", utils.UnixMilli()-l)

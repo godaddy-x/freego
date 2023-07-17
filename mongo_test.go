@@ -177,7 +177,7 @@ func TestMongoFindList(t *testing.T) {
 	}
 	fmt.Println(sql.Pagination)
 	for _, v := range o {
-		fmt.Println("result: ", v.Id, v.Keystore)
+		fmt.Println("result: ", v.Id, v.Id)
 	}
 	fmt.Println("cost: ", utils.UnixMilli()-l)
 }

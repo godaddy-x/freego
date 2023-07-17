@@ -490,11 +490,17 @@ func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) (int64, error) {
 	parameter := make([]interface{}, 0, len(cnd.Upsets)+len(case_arg))
 	fpart := bytes.NewBuffer(make([]byte, 0, 96))
 	for k, v := range cnd.Upsets { // 遍历对象字段
-		fpart.WriteString(" ")
-		fpart.WriteString("`")
-		fpart.WriteString(k)
-		fpart.WriteString("`")
-		fpart.WriteString(" = ?,")
+		if cnd.Escape {
+			fpart.WriteString(" ")
+			fpart.WriteString("`")
+			fpart.WriteString(k)
+			fpart.WriteString("`")
+			fpart.WriteString(" = ?,")
+		} else {
+			fpart.WriteString(" ")
+			fpart.WriteString(k)
+			fpart.WriteString(" = ?,")
+		}
 		parameter = append(parameter, v)
 	}
 	for _, v := range case_arg {
@@ -1095,10 +1101,15 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 	}
 	fpart := bytes.NewBuffer(make([]byte, 0, 32*len(cnd.AnyFields)))
 	for _, vv := range cnd.AnyFields {
-		fpart.WriteString("`")
-		fpart.WriteString(vv)
-		fpart.WriteString("`")
-		fpart.WriteString(",")
+		if cnd.Escape {
+			fpart.WriteString("`")
+			fpart.WriteString(vv)
+			fpart.WriteString("`")
+			fpart.WriteString(",")
+		} else {
+			fpart.WriteString(vv)
+			fpart.WriteString(",")
+		}
 	}
 	case_part, case_arg := self.BuildWhereCase(cnd)
 	parameter := make([]interface{}, 0, len(case_arg))
@@ -1233,10 +1244,15 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data sqlc.Object) error {
 	}
 	fpart := bytes.NewBuffer(make([]byte, 0, 32*len(cnd.AnyFields)))
 	for _, vv := range cnd.AnyFields {
-		fpart.WriteString("`")
-		fpart.WriteString(vv)
-		fpart.WriteString("`")
-		fpart.WriteString(",")
+		if cnd.Escape {
+			fpart.WriteString("`")
+			fpart.WriteString(vv)
+			fpart.WriteString("`")
+			fpart.WriteString(",")
+		} else {
+			fpart.WriteString(vv)
+			fpart.WriteString(",")
+		}
 	}
 	case_part, case_arg := self.BuildWhereCase(cnd.Offset(0, 1))
 	parameter := make([]interface{}, 0, len(case_arg))
@@ -1428,10 +1444,15 @@ func OutDest(rows *sql.Rows, flen int) ([][][]byte, error) {
 
 func (self *RDBManager) BuildCondKey(cnd *sqlc.Cnd, key string) []byte {
 	fieldPart := bytes.NewBuffer(make([]byte, 0, 16))
-	fieldPart.WriteString(" ")
-	fieldPart.WriteString("`")
-	fieldPart.WriteString(key)
-	fieldPart.WriteString("`")
+	if cnd.Escape {
+		fieldPart.WriteString(" ")
+		fieldPart.WriteString("`")
+		fieldPart.WriteString(key)
+		fieldPart.WriteString("`")
+	} else {
+		fieldPart.WriteString(" ")
+		fieldPart.WriteString(key)
+	}
 	return fieldPart.Bytes()
 }
 
@@ -1559,11 +1580,17 @@ func (self *RDBManager) BuildGroupBy(cnd *sqlc.Cnd) string {
 		if len(v) == 0 {
 			continue
 		}
-		groupby.WriteString(" ")
-		groupby.WriteString("`")
-		groupby.WriteString(v)
-		groupby.WriteString("`")
-		groupby.WriteString(",")
+		if cnd.Escape {
+			groupby.WriteString(" ")
+			groupby.WriteString("`")
+			groupby.WriteString(v)
+			groupby.WriteString("`")
+			groupby.WriteString(",")
+		} else {
+			groupby.WriteString(" ")
+			groupby.WriteString(v)
+			groupby.WriteString(",")
+		}
 	}
 	s := utils.Bytes2Str(groupby.Bytes())
 	return utils.Substr(s, 0, len(s)-1)
@@ -1577,10 +1604,15 @@ func (self *RDBManager) BuildSortBy(cnd *sqlc.Cnd) string {
 	var sortby = bytes.Buffer{}
 	sortby.WriteString(" order by")
 	for _, v := range cnd.Orderbys {
-		sortby.WriteString(" ")
-		sortby.WriteString("`")
-		sortby.WriteString(v.Key)
-		sortby.WriteString("`")
+		if cnd.Escape {
+			sortby.WriteString(" ")
+			sortby.WriteString("`")
+			sortby.WriteString(v.Key)
+			sortby.WriteString("`")
+		} else {
+			sortby.WriteString(" ")
+			sortby.WriteString(v.Key)
+		}
 		if v.Value == sqlc.DESC_ {
 			sortby.WriteString(" desc,")
 		} else if v.Value == sqlc.ASC_ {
