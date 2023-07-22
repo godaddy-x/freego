@@ -27,10 +27,10 @@ func UnixMilli() int64 {
 
 // 时间戳转time
 func Int2Time(t int64) time.Time {
-	return time.Unix(t/1000, 0)
+	return time.Unix(0, t*1e6)
 }
 
-// 时间戳转格式字符串/毫秒
+// 时间戳转格式字符串/毫秒, 例: 2023-07-22 08:47:27.379
 func Time2Str(t int64) string {
 	return Int2Time(t).In(cst_sh).Format(time_fmt)
 }
@@ -41,7 +41,15 @@ func Time2DateStr(t int64) string {
 }
 
 // 格式字符串转时间戳/毫秒
+//2023-07-22 08:47:27.379
+//2023-07-22 08:47:27
+//2023-07-22
 func Str2Time(s string) (int64, error) {
+	if len(s) == 10 {
+		s += " 00:00:00.000"
+	} else if len(s) == 19 {
+		s += ".000"
+	}
 	t, err := time.ParseInLocation(time_fmt, s, cst_sh)
 	if err != nil {
 		return 0, err

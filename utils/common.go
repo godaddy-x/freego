@@ -42,7 +42,7 @@ var (
 const (
 	xforwardedfor = "X-Forwarded-For"
 	xrealip       = "X-Real-IP"
-	time_fmt      = "2006-01-02 15:04:05"
+	time_fmt      = "2006-01-02 15:04:05.000"
 	date_fmt      = "2006-01-02"
 	OneDay        = 86400000
 	OneWeek       = OneDay * 7
