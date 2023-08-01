@@ -505,3 +505,19 @@ func (self *Context) resetSubject() {
 	self.Subject.ResetTokenBytes(nil)
 	self.Subject.ResetPayloadBytes(nil)
 }
+
+func (self *Context) Json(data interface{}) error {
+	self.Response.ContentType = APPLICATION_JSON
+	if data == nil {
+		self.Response.ContentEntity = emptyMap
+	} else {
+		self.Response.ContentEntity = data
+	}
+	return nil
+}
+
+func (self *Context) Text(data string) error {
+	self.Response.ContentType = TEXT_PLAIN
+	self.Response.ContentEntity = data
+	return nil
+}

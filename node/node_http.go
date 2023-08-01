@@ -92,19 +92,11 @@ func (self *HttpNode) addRouter(method, path string, handle PostHandle, routerCo
 }
 
 func (self *HttpNode) Json(ctx *Context, data interface{}) error {
-	ctx.Response.ContentType = APPLICATION_JSON
-	if data == nil {
-		ctx.Response.ContentEntity = emptyMap
-	} else {
-		ctx.Response.ContentEntity = data
-	}
-	return nil
+	return ctx.Json(data)
 }
 
 func (self *HttpNode) Text(ctx *Context, data string) error {
-	ctx.Response.ContentType = TEXT_PLAIN
-	ctx.Response.ContentEntity = data
-	return nil
+	return ctx.Text(data)
 }
 
 func (self *HttpNode) AddFilter(object *FilterObject) {
