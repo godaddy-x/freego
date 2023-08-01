@@ -447,6 +447,38 @@ func (self *MGOManager) Delete(data ...sqlc.Object) error {
 	return nil
 }
 
+func (self *MGOManager) DeleteById(object sqlc.Object, data ...interface{}) (int64, error) {
+	if data == nil || len(data) == 0 {
+		return 0, self.Error("[Mongo.DeleteById] data is nil")
+	}
+	if len(data) > 2000 {
+		return 0, self.Error("[Mongo.DeleteById] data length > 2000")
+	}
+	d := object
+	if len(self.MGOSyncData) > 0 {
+		d = self.MGOSyncData[0].CacheModel
+	}
+	_, ok := modelDrivers[d.GetTable()]
+	if !ok {
+		return 0, self.Error("[Mongo.DeleteById] registration object type not found [", d.GetTable(), "]")
+	}
+	db, err := self.GetDatabase(d.GetTable())
+	if err != nil {
+		return 0, self.Error(err)
+	}
+	if zlog.IsDebug() {
+		defer zlog.Debug("[Mongo.DeleteById]", utils.UnixMilli(), zlog.Any("data", data))
+	}
+	if len(data) > 0 {
+		res, err := db.DeleteMany(self.GetSessionContext(), bson.M{"_id": bson.M{"$in": data}})
+		if err != nil {
+			return 0, self.Error("[Mongo.DeleteById] delete failed: ", err)
+		}
+		return res.DeletedCount, nil
+	}
+	return 0, nil
+}
+
 func (self *MGOManager) Count(cnd *sqlc.Cnd) (int64, error) {
 	if cnd.Model == nil {
 		return 0, self.Error("[Mongo.Count] data model is nil")

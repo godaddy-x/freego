@@ -85,7 +85,7 @@ type IDBase interface {
 	// 删除数据
 	Delete(datas ...sqlc.Object) error
 	// 删除数据
-	DeleteById(object sqlc.Object, data ...interface{}) error
+	DeleteById(object sqlc.Object, data ...interface{}) (int64, error)
 	// 统计数据
 	Count(cnd *sqlc.Cnd) (int64, error)
 	// 按ID查询单条数据
@@ -136,8 +136,8 @@ func (self *DBManager) Delete(datas ...sqlc.Object) error {
 	return utils.Error("No implementation method [Delete] was found")
 }
 
-func (self *DBManager) DeleteById(object sqlc.Object, data ...interface{}) error {
-	return utils.Error("No implementation method [DeleteById] was found")
+func (self *DBManager) DeleteById(object sqlc.Object, data ...interface{}) (int64, error) {
+	return 0, utils.Error("No implementation method [DeleteById] was found")
 }
 
 func (self *DBManager) Count(cnd *sqlc.Cnd) (int64, error) {
