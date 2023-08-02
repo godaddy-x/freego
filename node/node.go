@@ -120,6 +120,7 @@ type Context struct {
 	Storage       map[string]interface{}
 	postCompleted bool
 	postHandle    PostHandle
+	errorHandle   ErrorHandle
 }
 
 type Response struct {
@@ -433,6 +434,9 @@ func (self *Context) reset(ctx *Context, handle PostHandle, request *fasthttp.Re
 	}
 	if self.roleRealm == nil {
 		self.roleRealm = ctx.roleRealm
+	}
+	if self.errorHandle == nil {
+		self.errorHandle = ctx.errorHandle
 	}
 	if len(self.filterChain.filters) == 0 {
 		self.filterChain.filters = fs

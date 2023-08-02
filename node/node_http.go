@@ -28,6 +28,8 @@ type HttpNode struct {
 
 type PostHandle func(*Context) error
 
+type ErrorHandle func(ctx *Context, throw ex.Throw) error
+
 func (self *HttpNode) doRequest(handle PostHandle, request *fasthttp.RequestCtx) error {
 	ctx := self.ctxPool.Get().(*Context)
 	ctx.reset(self.Context, handle, request, self.filters)
@@ -201,6 +203,13 @@ func (self *HttpNode) AddRoleRealm(roleRealm func(ctx *Context, onlyRole bool) (
 	return nil
 }
 
+func (self *HttpNode) AddErrorHandle(errorHandle func(ctx *Context, throw ex.Throw) error) error {
+	self.readyContext()
+	self.Context.errorHandle = errorHandle
+	zlog.Printf("add error handle successful")
+	return nil
+}
+
 func (self *HttpNode) addRouterConfig(path string, routerConfig *RouterConfig) {
 	self.readyContext()
 	if routerConfig == nil {
@@ -301,6 +310,15 @@ func defaultRenderError(ctx *Context, err error) error {
 		return nil
 	}
 	out := ex.Catch(err)
+	if ctx.errorHandle != nil {
+		throw, ok := err.(ex.Throw)
+		if !ok {
+			throw = ex.Throw{Code: out.Code, Msg: out.Msg, Err: err}
+		}
+		if err = ctx.errorHandle(ctx, throw); err != nil {
+			zlog.Error("response error handl failed", 0, zlog.AddError(err))
+		}
+	}
 	resp := &JsonResp{
 		Code:    out.Code,
 		Message: errorMsgToLang(ctx, out.Msg),
