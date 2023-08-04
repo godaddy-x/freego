@@ -86,6 +86,8 @@ type IDBase interface {
 	Delete(datas ...sqlc.Object) error
 	// 删除数据
 	DeleteById(object sqlc.Object, data ...interface{}) (int64, error)
+	// 按条件删除数据
+	DeleteByCnd(cnd *sqlc.Cnd) (int64, error)
 	// 统计数据
 	Count(cnd *sqlc.Cnd) (int64, error)
 	// 按ID查询单条数据
@@ -138,6 +140,10 @@ func (self *DBManager) Delete(datas ...sqlc.Object) error {
 
 func (self *DBManager) DeleteById(object sqlc.Object, data ...interface{}) (int64, error) {
 	return 0, utils.Error("No implementation method [DeleteById] was found")
+}
+
+func (self *DBManager) DeleteByCnd(cnd *sqlc.Cnd) (int64, error) {
+	return 0, utils.Error("No implementation method [DeleteByCnd] was found")
 }
 
 func (self *DBManager) Count(cnd *sqlc.Cnd) (int64, error) {
@@ -691,6 +697,87 @@ func (self *RDBManager) DeleteById(object sqlc.Object, data ...interface{}) (int
 	if rowsAffected <= 0 {
 		zlog.Warn(utils.AddStr("[Mysql.DeleteById] affected rows <= 0 -> ", rowsAffected), 0, zlog.String("sql", prepare))
 		return 0, nil
+	}
+	return rowsAffected, nil
+}
+
+func (self *RDBManager) DeleteByCnd(cnd *sqlc.Cnd) (int64, error) {
+	if cnd.Model == nil {
+		return 0, self.Error("[Mysql.DeleteByCnd] data is nil")
+	}
+	obv, ok := modelDrivers[cnd.Model.GetTable()]
+	if !ok {
+		return 0, self.Error("[Mysql.DeleteByCnd] registration object type not found [", cnd.Model.GetTable(), "]")
+	}
+	case_part, case_arg := self.BuildWhereCase(cnd)
+	if case_part.Len() == 0 || len(case_arg) == 0 {
+		return 0, self.Error("[Mysql.DeleteByCnd] update WhereCase is nil")
+	}
+	parameter := make([]interface{}, 0, len(case_arg))
+	//fpart := bytes.NewBuffer(make([]byte, 0, 96))
+	//for k, v := range cnd.Upsets { // 遍历对象字段
+	//	if cnd.Escape {
+	//		fpart.WriteString(" ")
+	//		fpart.WriteString("`")
+	//		fpart.WriteString(k)
+	//		fpart.WriteString("`")
+	//		fpart.WriteString(" = ?,")
+	//	} else {
+	//		fpart.WriteString(" ")
+	//		fpart.WriteString(k)
+	//		fpart.WriteString(" = ?,")
+	//	}
+	//	parameter = append(parameter, v)
+	//}
+	for _, v := range case_arg {
+		parameter = append(parameter, v)
+	}
+	vpart := bytes.NewBuffer(make([]byte, 0, case_part.Len()+16))
+	vpart.WriteString(" where")
+	str := case_part.String()
+	vpart.WriteString(utils.Substr(str, 0, len(str)-3))
+	//str1 := utils.Bytes2Str(fpart.Bytes())
+	str2 := utils.Bytes2Str(vpart.Bytes())
+	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str2)+64))
+	sqlbuf.WriteString("delete from ")
+	sqlbuf.WriteString(obv.TableName)
+	//sqlbuf.WriteString(" set ")
+	//sqlbuf.WriteString(utils.Substr(str1, 0, len(str1)-1))
+	//sqlbuf.WriteString(" ")
+	if len(str2) > 0 {
+		sqlbuf.WriteString(utils.Substr(str2, 0, len(str2)-1))
+	}
+	prepare := utils.Bytes2Str(sqlbuf.Bytes())
+	if zlog.IsDebug() {
+		defer zlog.Debug("[Mysql.DeleteByCnd] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
+	defer cancel()
+	var err error
+	var stmt *sql.Stmt
+	if self.OpenTx {
+		stmt, err = self.Tx.PrepareContext(ctx, prepare)
+	} else {
+		stmt, err = self.Db.PrepareContext(ctx, prepare)
+	}
+	if err != nil {
+		return 0, self.Error("[Mysql.DeleteByCnd] [ ", prepare, " ] prepare failed: ", err)
+	}
+	defer stmt.Close()
+	ret, err := stmt.ExecContext(ctx, parameter...)
+	if err != nil {
+		return 0, self.Error("[Mysql.DeleteByCnd] update failed: ", err)
+	}
+	rowsAffected, err := ret.RowsAffected()
+	if err != nil {
+		return 0, self.Error("[Mysql.DeleteByCnd] affected rows failed: ", err)
+	}
+	if rowsAffected <= 0 {
+		zlog.Warn(utils.AddStr("[Mysql.DeleteByCnd] affected rows <= 0 -> ", rowsAffected), 0, zlog.String("sql", prepare))
+		return 0, nil
+	}
+	if self.MongoSync && obv.ToMongo {
+		self.MGOSyncData = append(self.MGOSyncData, &MGOSyncData{DELETE, cnd.Model, cnd, nil})
 	}
 	return rowsAffected, nil
 }

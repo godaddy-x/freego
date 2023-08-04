@@ -377,7 +377,7 @@ func (self *MGOManager) UpdateByCnd(cnd *sqlc.Cnd) (int64, error) {
 	match := buildMongoMatch(cnd)
 	upset := buildMongoUpset(cnd)
 	if match == nil || len(match) == 0 {
-		return 0, self.Error("pipe math is nil")
+		return 0, self.Error("pipe match is nil")
 	}
 	if upset == nil || len(upset) == 0 {
 		return 0, self.Error("pipe upset is nil")
@@ -477,6 +477,29 @@ func (self *MGOManager) DeleteById(object sqlc.Object, data ...interface{}) (int
 		return res.DeletedCount, nil
 	}
 	return 0, nil
+}
+
+func (self *MGOManager) DeleteByCnd(cnd *sqlc.Cnd) (int64, error) {
+	if cnd.Model == nil {
+		return 0, self.Error("[Mongo.DeleteByCnd] data model is nil")
+	}
+	db, err := self.GetDatabase(cnd.Model.GetTable())
+	if err != nil {
+		return 0, err
+	}
+	match := buildMongoMatch(cnd)
+	if match == nil || len(match) == 0 {
+		return 0, self.Error("pipe match is nil")
+	}
+	defer self.writeLog("[Mongo.DeleteByCnd]", utils.UnixMilli(), map[string]interface{}{"match": match}, nil)
+	res, err := db.DeleteMany(self.GetSessionContext(), match)
+	if err != nil {
+		return 0, self.Error("[Mongo.DeleteByCnd] delete failed: ", err)
+	}
+	if res.DeletedCount == 0 {
+		return 0, self.Error("[Mongo.DeleteByCnd] delete failed: ModifiedCount = 0")
+	}
+	return res.DeletedCount, nil
 }
 
 func (self *MGOManager) Count(cnd *sqlc.Cnd) (int64, error) {
