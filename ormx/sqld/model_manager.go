@@ -215,6 +215,16 @@ func GetValue(obj interface{}, elem *FieldElem) (interface{}, error) {
 		} else {
 			return nil, nil
 		}
+	case reflect.Ptr:
+		if v, err := getValueOfMapStr(obj, elem); err != nil {
+			return nil, err
+		} else if len(v) > 0 {
+			return v, nil
+		} else {
+			return nil, nil
+		}
+	case reflect.Struct:
+		return nil, utils.Error("please use pointer type: ", elem.FieldName)
 	}
 	return nil, nil
 }
@@ -698,6 +708,19 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 			reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(v))
 			return nil
 		}
+	case reflect.Ptr:
+		if b == nil || len(b) == 0 {
+			return nil
+		}
+		structValue := reflect.ValueOf(obj).Elem()
+		pointerObjValue := structValue.FieldByName(elem.FieldName)
+		objType := pointerObjValue.Type().Elem()
+		newObj := reflect.New(objType).Elem()
+		if err := utils.JsonUnmarshal(b, newObj.Addr().Interface()); err != nil {
+			return err
+		}
+		pointerObjValue.Set(newObj.Addr())
+		return nil
 	}
 	return nil
 }
