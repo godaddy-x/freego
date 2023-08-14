@@ -20,6 +20,7 @@ type AuthToken struct {
 type HttpSDK struct {
 	Debug      bool
 	Domain     string
+	AuthDomain string
 	KeyPath    string
 	LoginPath  string
 	language   string
@@ -52,13 +53,20 @@ func (s *HttpSDK) debugOut(a ...interface{}) {
 	fmt.Println(a...)
 }
 
+func (s *HttpSDK) getURI(path string) string {
+	if s.KeyPath == path || s.LoginPath == path {
+		return s.AuthDomain + path
+	}
+	return s.Domain + path
+}
+
 func (s *HttpSDK) GetPublicKey() (string, error) {
 	request := fasthttp.AcquireRequest()
 	request.Header.SetMethod("GET")
 	defer fasthttp.ReleaseRequest(request)
 	response := fasthttp.AcquireResponse()
 	defer fasthttp.ReleaseResponse(response)
-	_, b, err := fasthttp.Get(nil, s.Domain+s.KeyPath)
+	_, b, err := fasthttp.Get(nil, s.getURI(s.KeyPath))
 	if err != nil {
 		return "", ex.Throw{Msg: "request public key failed"}
 	}
@@ -118,7 +126,7 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	request.Header.Set("RandomCode", randomCode)
 	request.Header.Set("Language", s.language)
 	request.Header.SetMethod("POST")
-	request.SetRequestURI(s.Domain + path)
+	request.SetRequestURI(s.getURI(path))
 	request.SetBody(bytesData)
 	defer fasthttp.ReleaseRequest(request)
 	response := fasthttp.AcquireResponse()
@@ -195,7 +203,7 @@ func (s *HttpSDK) PostByHAX(path string, requestObj, responseObj interface{}) er
 	request.Header.Set("Authorization", "")
 	request.Header.Set("Language", s.language)
 	request.Header.SetMethod("POST")
-	request.SetRequestURI(s.Domain + path)
+	request.SetRequestURI(s.getURI(path))
 	request.SetBody(bytesData)
 	defer fasthttp.ReleaseRequest(request)
 	response := fasthttp.AcquireResponse()
@@ -321,7 +329,7 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 	request.Header.Set("Authorization", s.authToken.Token)
 	request.Header.Set("Language", s.language)
 	request.Header.SetMethod("POST")
-	request.SetRequestURI(s.Domain + path)
+	request.SetRequestURI(s.getURI(path))
 	request.SetBody(bytesData)
 	defer fasthttp.ReleaseRequest(request)
 	response := fasthttp.AcquireResponse()
