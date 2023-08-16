@@ -1060,6 +1060,10 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	if err != nil {
 		return self.Error("[Mysql.FindList] read result failed: ", err)
 	} else if len(out) == 0 {
+		if cnd.Pagination.IsPage {
+			cnd.Pagination.PageCount = 0
+			cnd.Pagination.PageTotal = 0
+		}
 		return nil
 	}
 	resultv := reflect.ValueOf(data)
@@ -1291,6 +1295,10 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 	if err != nil {
 		return self.Error("[Mysql.FindListComplex] read result failed: ", err)
 	} else if len(out) == 0 {
+		if cnd.Pagination.IsPage {
+			cnd.Pagination.PageCount = 0
+			cnd.Pagination.PageTotal = 0
+		}
 		return nil
 	}
 	resultv := reflect.ValueOf(data)
