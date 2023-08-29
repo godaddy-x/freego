@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"sync"
 	"time"
+	_ "unsafe"
 )
 
 var (
@@ -107,14 +108,19 @@ func NewNode(node int64) (*Node, error) {
 	}, nil
 }
 
+//go:linkname now time.now
+func now() (sec int64, nsec int32, mono int64)
+
 func (n *Node) GetNow() int64 {
-	return time.Now().UnixNano() / 1000000
+	s, m, _ := now()
+	return (s*1e9 + int64(m)) / 1e6
+	//return time.Now().UnixNano() / 1000000
 }
 
 func (n *Node) GetValidNow() int64 {
 	now := n.GetNow()
 	if n.time > now {
-		time.Sleep(time.Duration(((n.time - now) + 1)) * time.Millisecond)
+		time.Sleep(time.Duration((n.time-now)+1) * time.Millisecond)
 	}
 	return n.GetNow()
 }
