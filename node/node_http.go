@@ -184,6 +184,11 @@ func (self *HttpNode) AddLanguage(langDs, filePath string) error {
 	if err != nil {
 		return err
 	}
+	return self.AddLanguageByJson(langDs, bs)
+}
+
+func (self *HttpNode) AddLanguageByJson(langDs string, bs []byte) error {
+	self.readyContext()
 	if !utils.JsonValid(bs) {
 		panic("lang json config invalid: " + langDs)
 	}
