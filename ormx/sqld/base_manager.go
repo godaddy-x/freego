@@ -1067,7 +1067,13 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 		return nil
 	}
 	resultv := reflect.ValueOf(data)
+	if resultv.Kind() != reflect.Ptr {
+		return self.Error("[Mysql.FindList] target value kind not ptr")
+	}
 	slicev := resultv.Elem()
+	if slicev.Kind() != reflect.Slice {
+		return self.Error("[Mysql.FindList] target value kind not slice")
+	}
 	slicev = slicev.Slice(0, slicev.Cap())
 	for _, v := range out {
 		model := cnd.Model.NewObject()
@@ -1302,7 +1308,13 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 		return nil
 	}
 	resultv := reflect.ValueOf(data)
+	if resultv.Kind() != reflect.Ptr {
+		return self.Error("[Mysql.FindList] target value kind not ptr")
+	}
 	slicev := resultv.Elem()
+	if slicev.Kind() != reflect.Slice {
+		return self.Error("[Mysql.FindList] target value kind not slice")
+	}
 	slicev = slicev.Slice(0, slicev.Cap())
 	for _, v := range out {
 		model := cnd.Model.NewObject()
