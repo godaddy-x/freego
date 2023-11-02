@@ -197,6 +197,9 @@ func (self *HttpNode) AddLanguageByJson(langDs string, bs []byte) error {
 		panic("lang json unmarshal failed: " + err.Error())
 	}
 	self.Context.configs.langConfigs[langDs] = kv
+	if len(self.Context.configs.defaultLang) == 0 {
+		self.Context.configs.defaultLang = langDs
+	}
 	zlog.Printf("add lang [%s] successful", langDs)
 	return nil
 }
@@ -266,29 +269,23 @@ func (self *HttpNode) ClearFilterChain() {
 	}
 }
 
-func errorMsgToLang(ctx *Context, msg string) string {
+func ErrorMsgToLang(ctx *Context, msg string) string {
 	if len(msg) == 0 {
 		return msg
 	}
 	lang := ctx.ClientLanguage()
 	if len(lang) == 0 {
-		if len(ctx.configs.langConfigs) == 0 {
+		if len(ctx.configs.defaultLang) == 0 {
 			return msg
 		}
-		for k, _ := range ctx.configs.langConfigs {
-			lang = k
-			break
-		}
+		lang = ctx.configs.defaultLang
 	}
 	langKV, b := ctx.configs.langConfigs[lang]
 	if !b || len(langKV) == 0 {
-		if len(ctx.configs.langConfigs) == 0 {
+		if len(ctx.configs.defaultLang) == 0 {
 			return msg
 		}
-		for _, v := range ctx.configs.langConfigs {
-			langKV = v
-			break
-		}
+		langKV = ctx.configs.langConfigs[ctx.configs.defaultLang]
 		if len(langKV) == 0 {
 			return msg
 		}
@@ -326,7 +323,7 @@ func defaultRenderError(ctx *Context, err error) error {
 	}
 	resp := &JsonResp{
 		Code:    out.Code,
-		Message: errorMsgToLang(ctx, out.Msg),
+		Message: ErrorMsgToLang(ctx, out.Msg),
 		Time:    utils.UnixMilli(),
 	}
 	if !ctx.Authenticated() {

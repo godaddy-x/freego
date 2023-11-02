@@ -15,7 +15,7 @@ const (
 	PASSWORD = "^.{6,18}$"                                                                            // 密码格式
 	URL      = "http(s)?://([\\w-]+\\.)+[\\w-]+(/[\\w- ./?%&=]*)?$"                                   // URL格式
 	IDNO     = "(^\\d{18}$)|(^\\d{15}$)"                                                              // 身份证格式
-	PKNO     = "^1([3-8]{1})([0-9]{17})$"                                                             // 主键ID格式
+	PKNO     = "^1([3-9]{1})([0-9]{17})$"                                                             // 主键ID格式
 	NUMBER   = "(^[1-9]([0-9]{0,29})$)|(^(0){1}$)"                                                    // 自然数
 	NUMBER2  = "^[0-9]+$"                                                                             // 纯数字
 	MONEY    = "(^[1-9]([0-9]{0,10})$)"                                                               // 自然数金额格式
@@ -27,8 +27,14 @@ var (
 	SPEL = regexp.MustCompile(`\$\{([^}]+)\}`)
 )
 
-func IsPKNO(s string) bool {
-	return ValidPattern(s, PKNO)
+func IsPKNO(s interface{}) bool {
+	if v, b := s.(string); b {
+		return ValidPattern(v, PKNO)
+	}
+	if v, b := s.(int64); b {
+		return ValidPattern(AddStr(v), PKNO)
+	}
+	return false
 }
 
 func IsNumber(s string) bool {

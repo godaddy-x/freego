@@ -51,6 +51,7 @@ type Configs struct {
 	jwtConfig     jwt.JwtConfig
 	routerConfigs map[string]*RouterConfig
 	langConfigs   map[string]map[string]string
+	defaultLang   string
 }
 
 type RouterConfig struct {
