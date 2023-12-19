@@ -8,6 +8,7 @@ import (
 	stdlog "log"
 	"os"
 	"strings"
+	"time"
 )
 
 const (
@@ -18,10 +19,14 @@ const (
 	FATAL = "fatal"
 )
 
-var zapLog = &ZapLog{}
+var (
+	time_fmt  = "2006-01-02 15:04:05.000"
+	cst_sh, _ = time.LoadLocation("Asia/Shanghai") //上海
+	zapLog    = &ZapLog{}
+)
 
 func init() {
-	InitDefaultLog(&ZapConfig{Level: INFO, Console: true})
+	InitDefaultLog(&ZapConfig{TimeFormat: -1, Level: INFO, Console: true})
 }
 
 type ZapLog struct {
@@ -72,6 +77,7 @@ type FileConfig struct {
 
 // 日志初始化配置
 type ZapConfig struct {
+	TimeFormat int64              // 0.输出上海时间格式 1.输出时间戳
 	Level      string             // 日志级别
 	Console    bool               // 是否控制台输出
 	FileConfig *FileConfig        // 输出文件配置
@@ -99,14 +105,30 @@ func buildLog(config *ZapConfig) *zap.Logger {
 		LevelKey: "level",
 		NameKey:  "logger",
 		// CallerKey:      "caller",
-		MessageKey:     "msg",
-		StacktraceKey:  "stacktrace",
-		LineEnding:     zapcore.DefaultLineEnding,
-		EncodeLevel:    zapcore.LowercaseLevelEncoder,  // 小写编码器
-		EncodeTime:     zapcore.EpochMillisTimeEncoder, // 毫秒时间戳格式
-		EncodeCaller:   zapcore.ShortCallerEncoder,     // 全路径编码器
+		MessageKey:    "msg",
+		StacktraceKey: "stacktrace",
+		LineEnding:    zapcore.DefaultLineEnding,
+		EncodeLevel:   zapcore.LowercaseLevelEncoder, // 小写编码器
+		//EncodeTime:     zapcore.ISO8601TimeEncoder,    // 毫秒时间戳格式
+		EncodeCaller:   zapcore.ShortCallerEncoder, // 全路径编码器
 		EncodeDuration: zapcore.SecondsDurationEncoder,
 		EncodeName:     zapcore.FullNameEncoder,
+	}
+	if config.TimeFormat == 0 {
+		encoderConfig.EncodeTime = func(t time.Time, enc zapcore.PrimitiveArrayEncoder) {
+			type appendTimeEncoder interface {
+				AppendTimeLayout(time.Time, string)
+			}
+			if enc, ok := enc.(appendTimeEncoder); ok {
+				enc.AppendTimeLayout(t, time_fmt)
+				return
+			}
+			enc.AppendString(t.In(cst_sh).Format(time_fmt))
+		}
+	} else if config.TimeFormat == 1 {
+		encoderConfig.EncodeTime = zapcore.EpochMillisTimeEncoder
+	} else {
+		panic("time format invalid")
 	}
 	// 设置日志级别
 	atomicLevel := zap.NewAtomicLevel()
