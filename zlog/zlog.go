@@ -26,7 +26,7 @@ var (
 )
 
 func init() {
-	InitDefaultLog(&ZapConfig{TimeFormat: -1, Level: INFO, Console: true})
+	InitDefaultLog(&ZapConfig{TimeFormat: 0, Level: INFO, Console: true})
 }
 
 type ZapLog struct {
