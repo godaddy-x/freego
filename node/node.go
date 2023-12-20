@@ -398,6 +398,14 @@ func (self *Context) validJsonBody() error {
 	return nil
 }
 
+func (self *Context) GetHeader(key string) string {
+	return utils.Bytes2Str(self.RequestCtx.Request.Header.Peek(key))
+}
+
+func (self *Context) GetPostBody() string {
+	return utils.Bytes2Str(self.RequestCtx.Request.Body())
+}
+
 func (self *Context) GetJwtConfig() jwt.JwtConfig {
 	return self.configs.jwtConfig
 }
