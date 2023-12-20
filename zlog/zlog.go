@@ -20,13 +20,13 @@ const (
 )
 
 var (
-	time_fmt  = "2006-01-02 15:04:05.000"
+	layout    = "2006-01-02T15:04:05.000"
 	cst_sh, _ = time.LoadLocation("Asia/Shanghai") //上海
 	zapLog    = &ZapLog{}
 )
 
 func init() {
-	InitDefaultLog(&ZapConfig{TimeFormat: 0, Level: INFO, Console: true})
+	InitDefaultLog(&ZapConfig{Layout: 0, Location: cst_tk, Level: INFO, Console: true})
 }
 
 type ZapLog struct {
@@ -77,7 +77,8 @@ type FileConfig struct {
 
 // 日志初始化配置
 type ZapConfig struct {
-	TimeFormat int64              // 0.输出上海时间格式 1.输出时间戳
+	Layout     int64              // 时间格式, 0.输出日期格式 1.输出毫秒时间戳
+	Location   *time.Location     // 时间地区, 默认上海
 	Level      string             // 日志级别
 	Console    bool               // 是否控制台输出
 	FileConfig *FileConfig        // 输出文件配置
@@ -97,6 +98,19 @@ func InitNewLog(config *ZapConfig) *zap.Logger {
 	return z.l
 }
 
+func NewTimeEncoder(layout string, location *time.Location) func(t time.Time, enc zapcore.PrimitiveArrayEncoder) {
+	return func(t time.Time, enc zapcore.PrimitiveArrayEncoder) {
+		type appendTimeEncoder interface {
+			AppendTimeLayout(time.Time, string)
+		}
+		if enc, ok := enc.(appendTimeEncoder); ok {
+			enc.AppendTimeLayout(t, layout)
+			return
+		}
+		enc.AppendString(t.In(location).Format(layout))
+	}
+}
+
 // 通过配置创建日志对象
 func buildLog(config *ZapConfig) *zap.Logger {
 	// 基础日志配置
@@ -114,21 +128,13 @@ func buildLog(config *ZapConfig) *zap.Logger {
 		EncodeDuration: zapcore.SecondsDurationEncoder,
 		EncodeName:     zapcore.FullNameEncoder,
 	}
-	if config.TimeFormat == 0 {
-		encoderConfig.EncodeTime = func(t time.Time, enc zapcore.PrimitiveArrayEncoder) {
-			type appendTimeEncoder interface {
-				AppendTimeLayout(time.Time, string)
-			}
-			if enc, ok := enc.(appendTimeEncoder); ok {
-				enc.AppendTimeLayout(t, time_fmt)
-				return
-			}
-			enc.AppendString(t.In(cst_sh).Format(time_fmt))
-		}
-	} else if config.TimeFormat == 1 {
-		encoderConfig.EncodeTime = zapcore.EpochMillisTimeEncoder
+	if config.Location == nil {
+		config.Location = cst_sh
+	}
+	if config.Layout == 0 {
+		encoderConfig.EncodeTime = NewTimeEncoder(layout, config.Location)
 	} else {
-		panic("time format invalid")
+		encoderConfig.EncodeTime = zapcore.EpochMillisTimeEncoder
 	}
 	// 设置日志级别
 	atomicLevel := zap.NewAtomicLevel()
