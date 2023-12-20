@@ -26,7 +26,7 @@ var (
 )
 
 func init() {
-	InitDefaultLog(&ZapConfig{Layout: 0, Location: cst_tk, Level: INFO, Console: true})
+	InitDefaultLog(&ZapConfig{Layout: 0, Location: cst_sh, Level: INFO, Console: true})
 }
 
 type ZapLog struct {
