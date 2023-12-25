@@ -22,10 +22,10 @@ type IndexInfo struct {
 	SeqInIndex   int            // 索引中的列的顺序号
 	ColumnName   string         // 索引的列名
 	Collation    string         // 索引列的排序规则
-	Cardinality  int            // 索引列的基数，即不重复的索引值数量
+	Cardinality  interface{}    // 索引列的基数，即不重复的索引值数量
 	SubPart      sql.NullString // 索引的子部分长度。通常用于前缀索引，以指示索引的前缀长度
 	Packed       sql.NullString // 索引存储的方式
-	Null         string         // 索引列是否可以包含 NULL 值
+	Null         interface{}    // 索引列是否可以包含 NULL 值
 	IndexType    string         // 索引的类型，如 BTREE、HASH 等
 	Comment      string         // 索引的注释信息
 	IndexComment string         // 索引的额外注释信息
