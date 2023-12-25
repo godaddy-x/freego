@@ -2,6 +2,7 @@ package ex
 
 import (
 	"github.com/godaddy-x/freego/utils"
+	"github.com/godaddy-x/freego/zlog"
 	"strings"
 )
 
@@ -78,4 +79,16 @@ func Catch(err error) Throw {
 		}
 	}
 	return Throw{Code: UNKNOWN, Msg: "failed to catch exception", Err: err}
+}
+
+func OutError(title string, err error) {
+	throw, ok := err.(Throw)
+	if ok {
+		if throw.Err == nil {
+			throw.Err = utils.Error(throw.Msg)
+		}
+		zlog.Error(title, 0, zlog.AddError(throw.Err))
+	} else {
+		zlog.Error(title, 0, zlog.AddError(err))
+	}
 }
