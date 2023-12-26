@@ -253,13 +253,37 @@ func RebuildMongoDBIndex() error {
 	return nil
 }
 
+func checkMysqlTable(tableName string) (bool, error) {
+	db, err := NewMysql(Option{Timeout: 120000})
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+	var result string
+	if err := db.Db.QueryRow("SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ? LIMIT 1", tableName).Scan(&result); err != nil {
+		if err == sql.ErrNoRows {
+			return false, nil // 表不存在
+		}
+		return false, err // 查询出错
+	}
+	return true, nil // 表存在
+}
+
 // RebuildMysqlDBIndex 先删除所有表索引,再按配置新建(线上慎用功能)
 func RebuildMysqlDBIndex() error {
 	for _, model := range modelDrivers {
 		index := model.Object.NewIndex()
-		//if index == nil {
-		//	continue
-		//}
+		if len(index) == 0 {
+			continue
+		}
+		exist, err := checkMysqlTable(model.Object.GetTable())
+		if err != nil {
+			panic(err)
+		}
+		if !exist {
+			zlog.Warn("mysql table not exist", 0, zlog.String("table", model.Object.GetTable()))
+			continue
+		}
 		if !dropMysqlIndex(model.Object, index) {
 			fmt.Println(fmt.Sprintf("********* [%s] index consistent, skipping *********", model.Object.GetTable()))
 			continue
