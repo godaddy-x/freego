@@ -10,7 +10,6 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
-	"log"
 	"reflect"
 	"sort"
 )
@@ -94,21 +93,45 @@ func dropMysqlIndex(object sqlc.Object, index []sqlc.Index) bool {
 	// 执行查询获取索引信息
 	rows, err := db.Db.Query("SHOW INDEX FROM " + object.GetTable())
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 	defer rows.Close()
 
+	// 获取查询结果的字段名称
+	columns, err := rows.Columns()
+	if err != nil {
+		panic(err)
+	}
+
+	// 创建一个动态映射，用于存储字段名和对应的值
+	result := make(map[string]interface{})
+	values := make([]interface{}, len(columns))
+	for i := range columns {
+		values[i] = new(sql.RawBytes)
+	}
+
 	var indexes []IndexInfo
 	for rows.Next() {
-		var index IndexInfo
-		if err := rows.Scan(
-			&index.Table, &index.NonUnique, &index.KeyName, &index.SeqInIndex,
-			&index.ColumnName, &index.Collation, &index.Cardinality, &index.SubPart,
-			&index.Packed, &index.Null,
-			&index.IndexType, &index.Comment, &index.IndexComment,
-		); err != nil {
+		if err := rows.Scan(values...); err != nil {
 			panic(err)
 		}
+		for i, column := range columns {
+			if values[i] == nil {
+				result[column] = nil // 或者设置为其他默认值
+				continue
+			}
+			result[column] = values[i]
+		}
+		var index IndexInfo
+		index.Table = string(*result["Table"].(*sql.RawBytes))
+		index.KeyName = string(*result["Key_name"].(*sql.RawBytes))
+		index.ColumnName = string(*result["Column_name"].(*sql.RawBytes))
+		index.IndexType = string(*result["Index_type"].(*sql.RawBytes))
+		nonUnique, err := utils.StrToInt(string(*result["Non_unique"].(*sql.RawBytes)))
+		if err != nil {
+			panic(err)
+		}
+		index.NonUnique = nonUnique
 		indexes = append(indexes, index)
 	}
 

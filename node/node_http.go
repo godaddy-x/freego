@@ -269,7 +269,7 @@ func (self *HttpNode) ClearFilterChain() {
 	}
 }
 
-func ErrorMsgToLang(ctx *Context, msg string) string {
+func ErrorMsgToLang(ctx *Context, msg string, args ...string) string {
 	if len(msg) == 0 {
 		return msg
 	}
@@ -302,7 +302,11 @@ func ErrorMsgToLang(ctx *Context, msg string) string {
 		if !b || len(kv) == 0 {
 			continue
 		}
-		msg = strings.ReplaceAll(msg, v[0], kv)
+		fill := kv
+		for i, arg := range args {
+			fill = strings.ReplaceAll(fill, utils.AddStr("$", i+1), arg)
+		}
+		msg = strings.ReplaceAll(msg, v[0], fill)
 	}
 	return msg
 }
@@ -315,15 +319,15 @@ func defaultRenderError(ctx *Context, err error) error {
 	if ctx.errorHandle != nil {
 		throw, ok := err.(ex.Throw)
 		if !ok {
-			throw = ex.Throw{Code: out.Code, Msg: out.Msg, Err: err}
+			throw = ex.Throw{Code: out.Code, Msg: out.Msg, Err: err, Arg: out.Arg}
 		}
 		if err = ctx.errorHandle(ctx, throw); err != nil {
-			zlog.Error("response error handl failed", 0, zlog.AddError(err))
+			zlog.Error("response error handle failed", 0, zlog.AddError(err))
 		}
 	}
 	resp := &JsonResp{
 		Code:    out.Code,
-		Message: ErrorMsgToLang(ctx, out.Msg),
+		Message: ErrorMsgToLang(ctx, out.Msg, out.Arg...),
 		Time:    utils.UnixMilli(),
 	}
 	if !ctx.Authenticated() {

@@ -52,16 +52,30 @@ type Throw struct {
 	Msg  string
 	Url  string
 	Err  error
+	Arg  []string
 }
 
 func (self Throw) Error() string {
 	if self.Code == 0 {
 		self.Code = BIZ
 	}
-	return utils.AddStr(self.Code, sep, self.Msg, sep, self.Url)
+	errMsg := utils.AddStr(self.Code, sep, self.Msg)
+	if len(self.Url) > 0 {
+		errMsg = utils.AddStr(errMsg, sep, self.Url)
+	}
+	if len(self.Arg) > 0 {
+		if len(self.Url) == 0 {
+			errMsg = utils.AddStr(errMsg, sep, self.Url)
+		}
+		errMsg = utils.AddStr(errMsg, sep, self.Arg)
+	}
+	return errMsg
 }
 
 func Catch(err error) Throw {
+	if throw, ok := err.(Throw); ok {
+		return throw
+	}
 	spl := strings.Split(err.Error(), sep)
 	if len(spl) == 1 {
 		return Throw{Code: UNKNOWN, Msg: spl[0]}
@@ -76,6 +90,16 @@ func Catch(err error) Throw {
 			return Throw{Code: SYSTEM, Msg: err.Error()}
 		} else {
 			return Throw{Code: c, Msg: spl[1], Url: spl[2]}
+		}
+	} else if len(spl) == 4 {
+		if c, err := utils.StrToInt(spl[0]); err != nil {
+			return Throw{Code: SYSTEM, Msg: err.Error()}
+		} else {
+			var args []string
+			if err := utils.JsonUnmarshal(utils.Str2Bytes(spl[3]), &args); err != nil {
+				zlog.Error("exception args unmarshal failed", 0, zlog.AddError(err))
+			}
+			return Throw{Code: c, Msg: spl[1], Url: spl[2], Arg: args}
 		}
 	}
 	return Throw{Code: UNKNOWN, Msg: "failed to catch exception", Err: err}
