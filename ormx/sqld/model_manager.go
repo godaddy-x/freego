@@ -24,6 +24,7 @@ type FieldElem struct {
 	FieldType     string
 	ValueKind     interface{}
 	FieldDBType   string
+	FieldComment  string
 	FieldOffset   uintptr
 }
 
@@ -36,6 +37,8 @@ type MdlDriver struct {
 	PkBsonName string
 	AutoId     bool
 	PkType     string
+	Charset    string
+	Collate    string
 	FieldElem  []*FieldElem
 	Object     sqlc.Object
 }
@@ -78,7 +81,8 @@ func ModelDriver(objects ...sqlc.Object) error {
 			value := vof.Field(i)
 			f.FieldName = field.Name
 			f.FieldKind = value.Kind()
-			//f.FieldDBType = field.Tag.Get(sqlc.Dtype)
+			f.FieldDBType = field.Tag.Get(sqlc.DB)
+			f.FieldComment = field.Tag.Get(sqlc.Comment)
 			f.FieldJsonName = field.Tag.Get(sqlc.Json)
 			f.FieldBsonName = field.Tag.Get(sqlc.Bson)
 			f.FieldOffset = field.Offset
@@ -88,6 +92,14 @@ func ModelDriver(objects ...sqlc.Object) error {
 				md.PkOffset = field.Offset
 				md.PkKind = value.Kind()
 				md.PkType = field.Type.String()
+				md.Charset = field.Tag.Get(sqlc.Charset)
+				if len(md.Charset) == 0 {
+					md.Charset = "utf8mb4"
+				}
+				md.Collate = field.Tag.Get(sqlc.Collate)
+				if len(md.Collate) == 0 {
+					md.Collate = "utf8mb4_general_ci"
+				}
 				md.PkName = field.Tag.Get(sqlc.Json)
 				md.PkBsonName = field.Tag.Get(sqlc.Bson)
 				mg := field.Tag.Get(sqlc.Mg)

@@ -43,17 +43,20 @@ const ASC_ = 1
 const DESC_ = 2
 
 const (
-	Id     = "Id"
-	Key    = "key"
-	Auto   = "auto"
-	Ignore = "ignore"
-	Bson   = "bson"
-	Json   = "json"
-	Mg     = "mg"
-	True   = "true"
-	Date   = "date"
-	Blob   = "blob"
-	Dtype  = "dtype"
+	Id      = "Id"
+	Key     = "key"
+	Auto    = "auto"
+	Ignore  = "ignore"
+	Bson    = "bson"
+	Json    = "json"
+	Mg      = "mg"
+	True    = "true"
+	Date    = "date"
+	Blob    = "blob"
+	DB      = "db"
+	Comment = "comment"
+	Charset = "charset"
+	Collate = "collate"
 )
 
 // 数据库操作逻辑条件对象

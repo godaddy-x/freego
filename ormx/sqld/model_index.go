@@ -269,6 +269,47 @@ func checkMysqlTable(tableName string) (bool, error) {
 	return true, nil // 表存在
 }
 
+func isInt(s string) bool {
+	if s == "int64" || s == "int" {
+		return true
+	}
+	return false
+}
+
+func createTable(model *MdlDriver) error {
+	sql := utils.AddStr("CREATE TABLE ", model.TableName, "( ")
+	var fields string
+	for _, v := range model.FieldElem {
+		if len(v.FieldDBType) == 0 {
+			if isInt(v.FieldType) {
+				fields = utils.AddStr(fields, ",", v.FieldJsonName, " ", "BIGINT")
+			} else {
+				fields = utils.AddStr(fields, ",", v.FieldJsonName, " ", "VARCHAR(255)")
+			}
+		} else {
+			fields = utils.AddStr(fields, ",", v.FieldJsonName, " ", v.FieldDBType)
+		}
+		if v.Primary {
+			fields = utils.AddStr(fields, " NOT NULL PRIMARY KEY")
+		}
+		if len(v.FieldComment) > 0 {
+			fields = utils.AddStr(fields, " COMMENT '", v.FieldComment, "'")
+		}
+	}
+	sql = utils.AddStr(sql, fields[1:], ")")
+	sql = utils.AddStr(sql, " ENGINE=InnoDB DEFAULT CHARSET=", model.Charset, " COLLATE=", model.Collate, ";")
+	db, err := NewMysql(Option{Timeout: 120000})
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+	if _, err := db.Db.Exec(sql); err != nil {
+		return err
+	}
+	zlog.Info("create table success", 0, zlog.String("table", model.TableName))
+	return nil
+}
+
 // RebuildMysqlDBIndex 先删除所有表索引,再按配置新建(线上慎用功能)
 func RebuildMysqlDBIndex() error {
 	for _, model := range modelDrivers {
@@ -282,7 +323,9 @@ func RebuildMysqlDBIndex() error {
 		}
 		if !exist {
 			zlog.Warn("mysql table not exist", 0, zlog.String("table", model.Object.GetTable()))
-			continue
+			if err := createTable(model); err != nil {
+				panic(err)
+			}
 		}
 		if !dropMysqlIndex(model.Object, index) {
 			fmt.Println(fmt.Sprintf("********* [%s] index consistent, skipping *********", model.Object.GetTable()))
