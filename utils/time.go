@@ -41,9 +41,9 @@ func Time2DateStr(t int64) string {
 }
 
 // 格式字符串转时间戳/毫秒
-//2023-07-22 08:47:27.379
-//2023-07-22 08:47:27
-//2023-07-22
+// 2023-07-22 08:47:27.379
+// 2023-07-22 08:47:27
+// 2023-07-22
 func Str2Time(s string) (int64, error) {
 	if len(s) == 10 {
 		s += " 00:00:00.000"
@@ -72,7 +72,7 @@ func GetMonthFirstAndLast() (int64, int64) {
 	currentYear, currentMonth, _ := now.Date()
 	firstOfMonth := time.Date(currentYear, currentMonth, 1, 0, 0, 0, 0, now.Location())
 	lastOfMonth := firstOfMonth.AddDate(0, 1, -1)
-	return firstOfMonth.UnixMilli(), lastOfMonth.UnixNano() + OneDay
+	return firstOfMonth.UnixMilli(), lastOfMonth.UnixMilli() + OneDay
 }
 
 // 获取指定月份开始和结束时间
