@@ -49,7 +49,10 @@ func (self *MysqlManager) buildByConfig(manager cache.Cache, input ...MysqlConfi
 		if _, b := rdbs[dsName]; b {
 			return utils.Error("mysql init failed: [", v.DsName, "] exist")
 		}
-		link := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8", v.Username, v.Password, v.Host, v.Port, v.Database)
+		if len(v.Charset) == 0 {
+			v.Charset = "utf8mb4"
+		}
+		link := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=%s", v.Username, v.Password, v.Host, v.Port, v.Database, v.Charset)
 		db, err := sql.Open("mysql", link)
 		if err != nil {
 			return utils.Error("mysql init failed: ", err)

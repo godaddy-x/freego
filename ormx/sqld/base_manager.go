@@ -45,6 +45,7 @@ type DBConfig struct {
 type Option struct {
 	DsName      string // 数据源,分库时使用
 	Database    string // 数据库名称
+	Charset     string // 连接字符集,默认utf8mb4
 	OpenTx      bool   // 是否开启事务 true.是 false.否
 	AutoID      bool   // 是否自增ID
 	MongoSync   bool   // 是否自动同步mongo数据库写入
