@@ -154,6 +154,9 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 		if !utils.JsonValid(respBytes) && len(respData.Message) == 0 {
 			return ex.Throw{Msg: utils.Bytes2Str(respBytes)}
 		}
+		if respData.Code > 0 {
+			return ex.Throw{Code: respData.Code, Msg: respData.Message}
+		}
 		return ex.Throw{Msg: respData.Message}
 	}
 	validSign := utils.HMAC_SHA256(utils.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan), clientSecretKey, true)
@@ -228,6 +231,9 @@ func (s *HttpSDK) PostByHAX(path string, requestObj, responseObj interface{}) er
 		Sign:    utils.GetJsonString(respBytes, "s"),
 	}
 	if respData.Code != 200 {
+		if respData.Code > 0 {
+			return ex.Throw{Code: respData.Code, Msg: respData.Message}
+		}
 		return ex.Throw{Msg: respData.Message}
 	}
 	validSign := utils.HMAC_SHA256(utils.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan), publicKey, true)
@@ -283,7 +289,7 @@ func (s *HttpSDK) checkAuth() error {
 	return nil
 }
 
-// 对象请使用指针
+// PostByAuth 对象请使用指针
 func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, encrypted ...bool) error {
 	if len(path) == 0 || requestObj == nil || responseObj == nil {
 		return ex.Throw{Msg: "params invalid"}
@@ -354,6 +360,9 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 		Sign:    utils.GetJsonString(respBytes, "s"),
 	}
 	if respData.Code != 200 {
+		if respData.Code > 0 {
+			return ex.Throw{Code: respData.Code, Msg: respData.Message}
+		}
 		return ex.Throw{Msg: respData.Message}
 	}
 	validSign := utils.HMAC_SHA256(utils.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan), s.authToken.Secret, true)
