@@ -26,6 +26,19 @@ func getBase64Image(image *qrcode.QRCode, size int) (string, error) {
 }
 
 func Create(issuer, accountName string, size int) (string, string, error) {
+	secret, url, err := CreateURL(issuer, accountName)
+	if err != nil {
+		return "", "", err
+	}
+	image, err := CreateImage(url, size)
+	if err != nil {
+		return "", "", err
+	}
+	return secret, image, nil
+}
+
+// CreateURL 密钥,链接
+func CreateURL(issuer, accountName string) (string, string, error) {
 	key, err := totp.Generate(totp.GenerateOpts{
 		Issuer:      issuer,
 		AccountName: accountName,
@@ -33,12 +46,15 @@ func Create(issuer, accountName string, size int) (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
-	url := key.URL()
+	return key.Secret(), key.URL(), nil
+}
+
+func CreateImage(url string, size int) (string, error) {
 	image, err := getQRImage(url, size)
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
-	return key.Secret(), image, nil
+	return image, nil
 }
 
 func Validate(code, secret string) bool {
