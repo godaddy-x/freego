@@ -91,6 +91,8 @@ type IDBase interface {
 	DeleteByCnd(cnd *sqlc.Cnd) (int64, error)
 	// 统计数据
 	Count(cnd *sqlc.Cnd) (int64, error)
+	// 检测是否存在
+	Exists(cnd *sqlc.Cnd) (bool, error)
 	// 按ID查询单条数据
 	FindById(data sqlc.Object) error
 	// 按条件查询单条数据
@@ -149,6 +151,10 @@ func (self *DBManager) DeleteByCnd(cnd *sqlc.Cnd) (int64, error) {
 
 func (self *DBManager) Count(cnd *sqlc.Cnd) (int64, error) {
 	return 0, utils.Error("No implementation method [Count] was found")
+}
+
+func (self *DBManager) Exists(cnd *sqlc.Cnd) (bool, error) {
+	return false, utils.Error("No implementation method [Exists] was found")
 }
 
 func (self *DBManager) FindById(data sqlc.Object) error {
@@ -1178,6 +1184,79 @@ func (self *RDBManager) Count(cnd *sqlc.Cnd) (int64, error) {
 	}
 	cnd.Pagination.PageTotal = pageTotal
 	return pageTotal, nil
+}
+
+func (self *RDBManager) Exists(cnd *sqlc.Cnd) (bool, error) {
+	if cnd.Model == nil {
+		return false, self.Error("[Mysql.Exists] data is nil")
+	}
+	obv, ok := modelDrivers[cnd.Model.GetTable()]
+	if !ok {
+		return false, self.Error("[Mysql.Exists] registration object type not found [", cnd.Model.GetTable(), "]")
+	}
+	fpart := bytes.NewBuffer(make([]byte, 0, 32))
+	fpart.WriteString("1")
+	case_part, case_arg := self.BuildWhereCase(cnd)
+	parameter := make([]interface{}, 0, len(case_arg))
+	for _, v := range case_arg {
+		parameter = append(parameter, v)
+	}
+	var vpart *bytes.Buffer
+	if case_part.Len() > 0 {
+		vpart = bytes.NewBuffer(make([]byte, 0, case_part.Len()+16))
+		vpart.WriteString("where")
+		str := case_part.String()
+		vpart.WriteString(utils.Substr(str, 0, len(str)-3))
+	}
+	str1 := utils.Bytes2Str(fpart.Bytes())
+	str2 := ""
+	if vpart != nil {
+		str2 = utils.Bytes2Str(vpart.Bytes())
+	}
+	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str1)+len(str2)+64))
+	sqlbuf.WriteString("select exists(")
+	sqlbuf.WriteString("select ")
+	sqlbuf.WriteString(str1)
+	sqlbuf.WriteString(" from ")
+	sqlbuf.WriteString(obv.TableName)
+	sqlbuf.WriteString(" ")
+	if len(str2) > 0 {
+		sqlbuf.WriteString(utils.Substr(str2, 0, len(str2)-1))
+	}
+	sqlbuf.WriteString(" ) as pub_exists")
+	prepare := utils.Bytes2Str(sqlbuf.Bytes())
+	if zlog.IsDebug() {
+		defer zlog.Debug("[Mysql.Exists] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
+	defer cancel()
+	var err error
+	var rows *sql.Rows
+	var stmt *sql.Stmt
+	if self.OpenTx {
+		stmt, err = self.Tx.PrepareContext(ctx, prepare)
+	} else {
+		stmt, err = self.Db.PrepareContext(ctx, prepare)
+	}
+	if err != nil {
+		return false, self.Error("[Mysql.Exists] [ ", prepare, " ] prepare failed: ", err)
+	}
+	defer stmt.Close()
+	rows, err = stmt.QueryContext(ctx, parameter...)
+	if err != nil {
+		return false, utils.Error("[Mysql.Exists] query failed: ", err)
+	}
+	defer rows.Close()
+	var exists int64
+	for rows.Next() {
+		if err := rows.Scan(&exists); err != nil {
+			return false, self.Error("[Mysql.Exists] read total failed: ", err)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return false, self.Error("[Mysql.Exists] read result failed: ", err)
+	}
+	return exists > 0, nil
 }
 
 func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {

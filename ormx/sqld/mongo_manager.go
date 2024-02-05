@@ -537,6 +537,14 @@ func (self *MGOManager) Count(cnd *sqlc.Cnd) (int64, error) {
 	return pageTotal, nil
 }
 
+func (self *MGOManager) Exists(cnd *sqlc.Cnd) (bool, error) {
+	check, err := self.Count(cnd)
+	if err != nil {
+		return false, err
+	}
+	return check > 0, nil
+}
+
 func (self *MGOManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
 	if data == nil {
 		return self.Error("[Mongo.FindOne] data is nil")
