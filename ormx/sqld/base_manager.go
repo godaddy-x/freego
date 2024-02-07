@@ -1223,6 +1223,7 @@ func (self *RDBManager) Exists(cnd *sqlc.Cnd) (bool, error) {
 	if len(str2) > 0 {
 		sqlbuf.WriteString(utils.Substr(str2, 0, len(str2)-1))
 	}
+	sqlbuf.WriteString(" limit 1 ")
 	sqlbuf.WriteString(" ) as pub_exists")
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
