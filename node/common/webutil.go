@@ -76,8 +76,9 @@ type BaseReq struct {
 	CountQ  bool    `json:"countQ"`
 	Offset  int64   `json:"offset"`
 	Limit   int64   `json:"limit"`
+	Cmd     string  `json:"cmd"`
 }
 
-func GetBaseReq(ptr uintptr) *BaseReq {
+func GetBasePtrReq(ptr uintptr) *BaseReq {
 	return (*BaseReq)(unsafe.Pointer(ptr))
 }

@@ -205,7 +205,7 @@ func (self *Context) Parser(dst interface{}) error {
 	if err := self.JsonBody.ParseData(dst); err != nil {
 		msg := "JSON parameter parsing failed"
 		zlog.Error(msg, 0, zlog.String("path", self.Path), zlog.String("device", self.ClientDevice()), zlog.Any("data", self.JsonBody), zlog.AddError(err))
-		return ex.Throw{Msg: msg}
+		return ex.Throw{Msg: msg, Err: err}
 	}
 	// TODO 备注: 已有会话状态时,指针填充context值,不能随意修改指针偏移值
 	identify := &common.Identify{}
@@ -220,8 +220,16 @@ func (self *Context) Parser(dst interface{}) error {
 		RSA:        self.RSA,
 	}
 	src := utils.GetPtr(dst, 0)
-	req := common.GetBaseReq(src)
-	base := common.BaseReq{Context: context, Offset: req.Offset, Limit: req.Limit, PrevID: req.PrevID, LastID: req.LastID, CountQ: req.CountQ}
+	req := common.GetBasePtrReq(src)
+	base := common.BaseReq{
+		Context: context,
+		Offset:  req.Offset,
+		Limit:   req.Limit,
+		PrevID:  req.PrevID,
+		LastID:  req.LastID,
+		CountQ:  req.CountQ,
+		Cmd:     req.Cmd,
+	}
 	*((*common.BaseReq)(unsafe.Pointer(src))) = base
 	return nil
 }
