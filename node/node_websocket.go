@@ -15,8 +15,10 @@ type ConnPool map[string]map[string]*DevConn
 
 const (
 	pingTime = 10
-	pingCmd  = "ws-ping-cmd"
+	pingCmd  = "ws-health-check"
 )
+
+type Handle func(*Context, []byte) (interface{}, error) // 如响应数据为nil则不回复
 
 type WsNode struct {
 	HookNode
@@ -25,8 +27,10 @@ type WsNode struct {
 }
 
 type DevConn struct {
+	Dev  string
 	Life int64
 	Last int64
+	Ctx  *Context
 	Conn *websocket.Conn
 }
 
@@ -138,7 +142,18 @@ func (ctx *Context) writeError(ws *websocket.Conn, err error) error {
 	return nil
 }
 
-func createCtx(self *WsNode, path string, handle PostHandle) *Context {
+func closeConn(ws *websocket.Conn) {
+	defer func() {
+		if err := recover(); err != nil {
+			zlog.Error("ws close panic error", 0, zlog.Any("error", err))
+		}
+	}()
+	if err := ws.Close(); err != nil {
+		zlog.Error("ws close error", 0, zlog.AddError(err))
+	}
+}
+
+func createCtx(self *WsNode, path string) *Context {
 	ctx := self.Context
 	ctxNew := &Context{}
 	ctxNew.configs = self.Context.configs
@@ -161,7 +176,7 @@ func createCtx(self *WsNode, path string, handle PostHandle) *Context {
 		ctxNew.errorHandle = ctx.errorHandle
 	}
 	ctxNew.System = ctx.System
-	ctxNew.postHandle = handle
+	//ctxNew.postHandle = handle
 	//ctxNew.RequestCtx = request
 	//ctxNew.Method = utils.Bytes2Str(self.RequestCtx.Method())
 	ctxNew.Path = path
@@ -171,99 +186,54 @@ func createCtx(self *WsNode, path string, handle PostHandle) *Context {
 	return ctxNew
 }
 
-func closeConn(ws *websocket.Conn) {
-	defer func() {
-		if err := recover(); err != nil {
-			zlog.Error("ws close panic error", 0, zlog.Any("error", err))
-		}
-	}()
-	if err := ws.Close(); err != nil {
-		zlog.Error("ws close error", 0, zlog.AddError(err))
+func wsRenderTo(ws *websocket.Conn, ctx *Context, data interface{}) error {
+	if data == nil {
+		return nil
 	}
-}
-
-func wsRenderTo(ws *websocket.Conn, msg []byte) error {
-	if err := websocket.Message.Send(ws, msg); err != nil {
+	routerConfig, _ := ctx.configs.routerConfigs[ctx.Path]
+	data, err := authReq(ctx.Path, data, ctx.GetTokenSecret(), routerConfig.AesResponse)
+	if err != nil {
+		return err
+	}
+	if err := websocket.Message.Send(ws, data); err != nil {
 		return ex.Throw{Code: ex.WS_SEND, Msg: "websocket send error", Err: err}
 	}
 	return nil
 }
 
-func wsRenderPre(ws *websocket.Conn, ctx *Context) error {
-	routerConfig, _ := ctx.configs.routerConfigs[ctx.Path]
-	switch ctx.Response.ContentType {
-	case TEXT_PLAIN:
-		content := ctx.Response.ContentEntity
-		if v, b := content.(string); b {
-			return wsRenderTo(ws, utils.Str2Bytes(v))
-		} else {
-			return wsRenderTo(ws, utils.Str2Bytes(""))
+func validBody(ws *websocket.Conn, ctx *Context, body []byte) bool {
+	if body == nil || len(body) == 0 {
+		ctx.writeError(ws, ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters is nil"})
+		return false
+	}
+	if len(body) > (MAX_VALUE_LEN) {
+		ctx.writeError(ws, ex.Throw{Code: http.StatusLengthRequired, Msg: "body parameters length is too long"})
+		return false
+	}
+	ctx.JsonBody.Data = utils.GetJsonString(body, "d")
+	ctx.JsonBody.Time = utils.GetJsonInt64(body, "t")
+	ctx.JsonBody.Nonce = utils.GetJsonString(body, "n")
+	ctx.JsonBody.Plan = utils.GetJsonInt64(body, "p")
+	ctx.JsonBody.Sign = utils.GetJsonString(body, "s")
+	if err := ctx.validJsonBody(); err != nil { // TODO important
+		ctx.writeError(ws, err)
+		return false
+	}
+	return true
+}
+
+func (self *WsNode) SendMessage(data interface{}, subject string, dev ...string) error {
+	conn, b := self.pool[subject]
+	if !b || len(conn) == 0 {
+		return nil
+	}
+	for _, v := range conn {
+		if len(dev) > 0 && !utils.CheckStr(v.Dev, dev...) {
+			continue
 		}
-	case APPLICATION_JSON:
-		if ctx.Response.ContentEntity == nil {
-			return ex.Throw{Code: http.StatusInternalServerError, Msg: "response ContentEntity is nil"}
+		if err := wsRenderTo(v.Conn, v.Ctx, data); err != nil {
+			return err
 		}
-		if routerConfig.Guest {
-			if result, err := utils.JsonMarshal(ctx.Response.ContentEntity); err != nil {
-				return ex.Throw{Code: http.StatusInternalServerError, Msg: "response JSON data failed", Err: err}
-			} else {
-				return wsRenderTo(ws, result)
-			}
-			break
-		}
-		data, err := utils.JsonMarshal(ctx.Response.ContentEntity)
-		if err != nil {
-			return ex.Throw{Code: http.StatusInternalServerError, Msg: "response conversion JSON failed", Err: err}
-		}
-		resp := &JsonResp{
-			Code: http.StatusOK,
-			Time: utils.UnixMilli(),
-		}
-		if ctx.JsonBody == nil || len(ctx.JsonBody.Nonce) == 0 {
-			resp.Nonce = utils.RandNonce()
-		} else {
-			resp.Nonce = ctx.JsonBody.Nonce
-		}
-		var key string
-		if routerConfig.UseRSA || routerConfig.UseHAX { // 非登录状态响应
-			if ctx.JsonBody.Plan == 2 {
-				v := ctx.GetStorage(RandomCode)
-				if v == nil {
-					return ex.Throw{Msg: "encryption random code is nil"}
-				}
-				key, _ = v.(string)
-				data, err := utils.AesEncrypt(data, key, key)
-				if err != nil {
-					return ex.Throw{Code: http.StatusInternalServerError, Msg: "AES encryption response data failed", Err: err}
-				}
-				resp.Data = data
-				resp.Plan = 2
-				ctx.DelStorage(RandomCode)
-			} else if ctx.JsonBody.Plan == 3 {
-				resp.Data = utils.Base64Encode(data)
-				_, key = ctx.RSA.GetPublicKey()
-				resp.Plan = 3
-			} else {
-				return ex.Throw{Msg: "anonymous response plan invalid"}
-			}
-		} else if routerConfig.AesResponse {
-			data, err := utils.AesEncrypt(data, ctx.GetTokenSecret(), utils.AddStr(resp.Nonce, resp.Time))
-			if err != nil {
-				return ex.Throw{Code: http.StatusInternalServerError, Msg: "AES encryption response data failed", Err: err}
-			}
-			resp.Data = data
-			resp.Plan = 1
-		} else {
-			resp.Data = utils.Base64Encode(data)
-		}
-		resp.Sign = ctx.GetHmac256Sign(resp.Data.(string), resp.Nonce, resp.Time, resp.Plan, key)
-		if result, err := utils.JsonMarshal(resp); err != nil {
-			return ex.Throw{Code: http.StatusInternalServerError, Msg: "response JSON data failed", Err: err}
-		} else {
-			return wsRenderTo(ws, result)
-		}
-	default:
-		return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "invalid response ContentType"}
 	}
 	return nil
 }
@@ -280,21 +250,21 @@ func (self *WsNode) addConn(conn *websocket.Conn, ctx *Context) error {
 
 	zlog.Info("websocket client connect success", 0, zlog.String("subject", sub), zlog.String("path", ctx.Path), zlog.String("dev", dev))
 
-	dev = utils.AddStr(dev, "_", ctx.Path)
+	key := utils.AddStr(dev, "_", ctx.Path)
 	if self.pool == nil {
 		self.pool = make(ConnPool, 50)
 	}
 
 	check, b := self.pool[sub]
 	if !b {
-		self.pool[sub] = map[string]*DevConn{dev: {Life: exp, Last: utils.UnixSecond(), Conn: conn}}
+		self.pool[sub] = map[string]*DevConn{key: {Life: exp, Last: utils.UnixSecond(), Dev: dev, Ctx: ctx, Conn: conn}}
 		return nil
 	}
-	devConn, b := check[dev]
+	devConn, b := check[key]
 	if b {
 		closeConn(devConn.Conn) // 如果存在连接对象则先关闭
 	}
-	check[dev] = &DevConn{Life: exp, Last: utils.UnixSecond(), Conn: conn}
+	check[key] = &DevConn{Life: exp, Last: utils.UnixSecond(), Dev: dev, Ctx: ctx, Conn: conn}
 	return nil
 }
 
@@ -331,16 +301,18 @@ func (self *WsNode) NewPool(initSize int) {
 	}
 }
 
-func (self *WsNode) AddRouter(path string, handle PostHandle, routerConfig *RouterConfig) {
+func (self *WsNode) AddRouter(path string, handle Handle, routerConfig *RouterConfig) {
 	if handle == nil {
 		panic("handle function is nil")
 	}
+
 	self.checkContextReady(path, routerConfig)
+
 	http.Handle(path, websocket.Handler(func(ws *websocket.Conn) {
 
 		defer closeConn(ws)
 
-		ctx := createCtx(self, path, handle)
+		ctx := createCtx(self, path)
 		ctx.readWsToken(ws.Request().Header.Get("Authorization"))
 
 		if len(ctx.Subject.GetRawBytes()) == 0 {
@@ -356,58 +328,36 @@ func (self *WsNode) AddRouter(path string, handle PostHandle, routerConfig *Rout
 
 		for {
 			// 读取消息
-			var msg string
-			err := websocket.Message.Receive(ws, &msg)
+			var body []byte
+			err := websocket.Message.Receive(ws, &body)
 			if err != nil {
 				zlog.Error("receive message error", 0, zlog.AddError(err))
 				break
 			}
 
-			body := utils.Str2Bytes(msg)
+			if !validBody(ws, ctx, body) {
+				continue
+			}
 
-			if body == nil || len(body) == 0 {
-				ctx.writeError(ws, ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters is nil"})
+			dec, b := ctx.JsonBody.Data.([]byte)
+
+			if b && utils.GetJsonString(dec, "healthCheck") == pingCmd {
+				self.refConn(ctx)
 				continue
 			}
-			if len(body) > (MAX_VALUE_LEN) {
-				ctx.writeError(ws, ex.Throw{Code: http.StatusLengthRequired, Msg: "body parameters length is too long"})
-				continue
-			}
-			ctx.JsonBody.Data = utils.GetJsonString(body, "d")
-			ctx.JsonBody.Time = utils.GetJsonInt64(body, "t")
-			ctx.JsonBody.Nonce = utils.GetJsonString(body, "n")
-			ctx.JsonBody.Plan = utils.GetJsonInt64(body, "p")
-			ctx.JsonBody.Sign = utils.GetJsonString(body, "s")
-			if err := ctx.validJsonBody(); err != nil { // TODO important
+
+			reply, err := handle(ctx, dec)
+			if err != nil {
 				ctx.writeError(ws, err)
 				continue
 			}
 
-			ctxNew := createCtx(self, path, handle)
-			ctxNew.JsonBody = ctx.JsonBody
-			ctxNew.Subject = ctx.Subject
-
-			if dec, b := ctxNew.JsonBody.Data.([]byte); b {
-				if utils.GetJsonString(dec, "cmd") == pingCmd {
-					self.refConn(ctxNew)
-					continue
-				}
+			// 回复消息
+			if err := wsRenderTo(ws, ctx, reply); err != nil {
+				zlog.Error("receive message reply error", 0, zlog.AddError(err))
+				break
 			}
 
-			if err := handle(ctxNew); err != nil {
-				ctx.writeError(ws, err)
-				continue
-			}
-
-			//回复消息
-			if err := wsRenderPre(ws, ctxNew); err != nil {
-				out := ex.Catch(err)
-				if out.Code == ex.WS_SEND {
-					zlog.Error("websocket render error", 0, zlog.AddError(err))
-					break
-				}
-				continue
-			}
 		}
 	}))
 }
@@ -436,178 +386,4 @@ func (self *WsNode) StartWebsocket(addr string) {
 		}
 	}()
 	select {}
-}
-
-type ClientAuth struct {
-	Origin      string
-	Addr        string
-	Path        string
-	token       string
-	secret      string
-	AuthCall    func(object interface{}) (string, string, error)
-	ReceiveCall func(message []byte, err error) error
-}
-
-type Ping struct {
-	Cmd string `json:"cmd"`
-}
-
-func StartWebsocketClient(client ClientAuth, authObject interface{}) error {
-
-	if len(client.Addr) == 0 {
-		return utils.Error("client addr is nil")
-	}
-
-	if len(client.Path) == 0 {
-		return utils.Error("client path is nil")
-	}
-
-	if len(client.Origin) == 0 {
-		return utils.Error("client origin is nil")
-	}
-
-	if authObject == nil {
-		return utils.Error("client auth object is nil")
-	}
-
-	if client.AuthCall == nil {
-		return utils.Error("client auth call is nil")
-	}
-
-	if client.ReceiveCall == nil {
-		return utils.Error("client receive call is nil")
-	}
-
-	// 创建 WebSocket 连接
-	config, err := websocket.NewConfig(client.Addr+client.Path, client.Origin)
-	if err != nil {
-		return err
-	}
-
-	token, secret, err := client.AuthCall(authObject)
-	if err != nil {
-		return err
-	}
-
-	client.token = token
-	client.secret = secret
-
-	// 设置 JWT 头部
-	config.Header.Add("Authorization", client.token)
-
-	// 建立 WebSocket 连接
-	ws, err := websocket.DialConfig(config)
-	if err != nil {
-		return err
-	}
-	defer ws.Close()
-
-	zlog.Info("websocket connect success", 0, zlog.String("url", client.Addr+client.Path))
-
-	// 持续心跳包
-	go func() {
-		for {
-			ping := Ping{
-				Cmd: pingCmd,
-			}
-			data, _ := authReq(client.Path, &ping, client.secret)
-			if err := websocket.Message.Send(ws, utils.Bytes2Str(data)); err != nil {
-				zlog.Error("websocket client ping error", 0, zlog.AddError(err))
-				break
-			}
-			time.Sleep(pingTime / 2 * time.Second)
-		}
-	}()
-
-	// 读取服务端消息
-	for {
-		var message string
-		if err := websocket.Message.Receive(ws, &message); err != nil {
-			return err
-		}
-		res, err := authRes(client, message)
-		if err != nil {
-			out := ex.Catch(err)
-			if out.Code == 401 {
-				break
-			}
-		}
-		if err := client.ReceiveCall(res, err); err != nil {
-			zlog.Error("websocket receive error", 0, zlog.AddError(err))
-		}
-	}
-
-	return nil
-}
-
-func authReq(path string, requestObj interface{}, secret string, encrypted ...bool) ([]byte, error) {
-	if len(path) == 0 || requestObj == nil {
-		return nil, ex.Throw{Msg: "params invalid"}
-	}
-	jsonData, err := utils.JsonMarshal(requestObj)
-	if err != nil {
-		return nil, ex.Throw{Msg: "request data JsonMarshal invalid"}
-	}
-	jsonBody := &JsonBody{
-		Data:  jsonData,
-		Time:  utils.UnixSecond(),
-		Nonce: utils.RandNonce(),
-		Plan:  0,
-	}
-	if len(encrypted) > 0 && encrypted[0] {
-		d, err := utils.AesEncrypt(jsonBody.Data.([]byte), secret, utils.AddStr(jsonBody.Nonce, jsonBody.Time))
-		if err != nil {
-			return nil, ex.Throw{Msg: "request data AES encrypt failed"}
-		}
-		jsonBody.Data = d
-		jsonBody.Plan = 1
-	} else {
-		d := utils.Base64Encode(jsonBody.Data.([]byte))
-		jsonBody.Data = d
-	}
-	jsonBody.Sign = utils.HMAC_SHA256(utils.AddStr(path, jsonBody.Data.(string), jsonBody.Nonce, jsonBody.Time, jsonBody.Plan), secret, true)
-	bytesData, err := utils.JsonMarshal(jsonBody)
-	if err != nil {
-		return nil, ex.Throw{Msg: "jsonBody data JsonMarshal invalid"}
-	}
-	return bytesData, nil
-}
-
-func authRes(client ClientAuth, message string) ([]byte, error) {
-	if len(message) == 0 {
-		return nil, ex.Throw{Msg: "message is nil"}
-	}
-	respBytes := utils.Str2Bytes(message)
-	respData := &JsonResp{
-		Code:    utils.GetJsonInt(respBytes, "c"),
-		Message: utils.GetJsonString(respBytes, "m"),
-		Data:    utils.GetJsonString(respBytes, "d"),
-		Nonce:   utils.GetJsonString(respBytes, "n"),
-		Time:    int64(utils.GetJsonInt(respBytes, "t")),
-		Plan:    int64(utils.GetJsonInt(respBytes, "p")),
-		Sign:    utils.GetJsonString(respBytes, "s"),
-	}
-	if respData.Code != 200 {
-		if respData.Code > 0 {
-			return nil, ex.Throw{Code: respData.Code, Msg: respData.Message}
-		}
-		return nil, ex.Throw{Msg: respData.Message}
-	}
-	validSign := utils.HMAC_SHA256(utils.AddStr(client.Path, respData.Data, respData.Nonce, respData.Time, respData.Plan), client.secret, true)
-	if validSign != respData.Sign {
-		return nil, ex.Throw{Msg: "post response sign verify invalid"}
-	}
-	var err error
-	var dec []byte
-	if respData.Plan == 0 {
-		dec = utils.Base64Decode(respData.Data)
-	} else if respData.Plan == 1 {
-		dec, err = utils.AesDecrypt(respData.Data.(string), client.secret, utils.AddStr(respData.Nonce, respData.Time))
-		if err != nil {
-			return nil, ex.Throw{Msg: "post response data AES decrypt failed"}
-		}
-	} else {
-		return nil, ex.Throw{Msg: "response sign plan invalid"}
-	}
-	return dec, nil
 }

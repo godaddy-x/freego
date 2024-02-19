@@ -10,16 +10,14 @@ import (
 	"time"
 )
 
+type MsgReply struct {
+	Id   string      `json:"id"`
+	Ack  bool        `json:"ack"`
+	Type string      `json:"type"`
+	Data interface{} `json:"data"`
+}
+
 func TestWS2(t *testing.T) {
-	//// 设置 WebSocket 路由
-	//http.Handle("/", websocket.Handler(wsHandler))
-	//
-	//// 启动 WebSocket 服务器
-	//addr := ":8080"
-	//fmt.Printf("Server is running on %s\n", addr)
-	//if err := http.ListenAndServe(addr, nil); err != nil {
-	//	log.Fatal("ListenAndServe: ", err)
-	//}
 	ws := node.WsNode{}
 	ws.AddJwtConfig(jwt.JwtConfig{
 		TokenTyp: jwt.JWT,
@@ -27,21 +25,22 @@ func TestWS2(t *testing.T) {
 		TokenKey: "123456" + utils.CreateLocalSecretKey(12, 45, 23, 60, 58, 30),
 		TokenExp: jwt.TWO_WEEK,
 	})
-	ws.AddRouter("/balance", func(ctx *node.Context) error {
-		//req := Ping{}
-		//if err := ctx.Parser(&req); err != nil {
-		//	return err
-		//}
-		//fmt.Println(req)
-		result := map[string]string{"cmd": "123", "test": utils.NextSID()}
-		//return ex.Throw{Msg: "test error"}
-		return ctx.Json(&result)
-	}, nil)
-	ws.AddRouter("/query", func(ctx *node.Context) error {
-		result := map[string]string{"cmd": "456", "test222": utils.NextSID()}
-		//return ex.Throw{Msg: "test error"}
-		return ctx.Json(&result)
-	}, nil)
+	handle := func(ctx *node.Context, message []byte) (interface{}, error) {
+		result := map[string]interface{}{}
+		if err := utils.JsonUnmarshal(message, &result); err != nil {
+			return nil, err
+		}
+		fmt.Println("receive ack:", result)
+		return nil, nil
+	}
+	ws.AddRouter("/query", handle, nil)
+	go func() {
+		for {
+			reply := MsgReply{Id: utils.NextSID(), Type: "transfer", Data: "我爱中国"}
+			ws.SendMessage(&reply, "1756510920302919681", "APP")
+			time.Sleep(5 * time.Second)
+		}
+	}()
 	ws.StartWebsocket(":8080")
 }
 
@@ -64,9 +63,14 @@ func TestWS5(t *testing.T) {
 		return jwtToken, jwtSecret, nil
 	}
 
-	receiveCall := func(message []byte, err error) error {
-		fmt.Println("receive:", string(message))
-		return err
+	receiveCall := func(message []byte, err error) (interface{}, error) {
+		reply := MsgReply{}
+		if err := utils.JsonUnmarshal(message, &reply); err != nil {
+			return nil, err
+		}
+		fmt.Println("receive:", reply)
+		reply.Ack = true
+		return &reply, nil
 	}
 
 	client := node.ClientAuth{
