@@ -100,10 +100,13 @@ func authRes(client *WsClient, respBytes []byte) ([]byte, error) {
 	return dec, nil
 }
 
-func (client *WsClient) StartWebsocket(n ...int) {
+func (client *WsClient) StartWebsocket(auto bool, n ...int) {
 	for {
 		if err := client.initClient(); err != nil {
 			zlog.Error("websocket client error", 0, zlog.AddError(err))
+			if !auto {
+				break
+			}
 		}
 		restart := time.Duration(10)
 		if len(n) > 0 && n[0] > 0 {

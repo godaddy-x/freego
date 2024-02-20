@@ -1,12 +1,10 @@
 package main
 
 import (
-	"fmt"
 	"github.com/godaddy-x/freego/node"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/jwt"
 	"testing"
-	"time"
 )
 
 type MsgReply struct {
@@ -24,21 +22,23 @@ func TestWsServer(t *testing.T) {
 		TokenKey: "123456" + utils.CreateLocalSecretKey(12, 45, 23, 60, 58, 30),
 		TokenExp: jwt.TWO_WEEK,
 	})
+	server.NewPool(50000)
 	handle := func(ctx *node.Context, message []byte) (interface{}, error) {
 		result := map[string]interface{}{}
 		if err := utils.JsonUnmarshal(message, &result); err != nil {
 			return nil, err
 		}
-		fmt.Println("receive ack:", result)
+		result["subject"] = ctx.Subject.GetSub()
+		//fmt.Println("receive ack:", result)
 		return nil, nil
 	}
 	server.AddRouter("/query", handle, nil)
-	go func() {
-		for {
-			reply := MsgReply{Id: utils.NextSID(), Type: "transfer", Data: "我爱中国"}
-			server.SendMessage(&reply, "1756510920302919681", "APP")
-			time.Sleep(5 * time.Second)
-		}
-	}()
+	//go func() {
+	//	for {
+	//		reply := MsgReply{Id: utils.NextSID(), Type: "transfer", Data: "我爱中国"}
+	//		server.SendMessage(&reply, "1756510920302919681", "APP")
+	//		time.Sleep(5 * time.Second)
+	//	}
+	//}()
 	server.StartWebsocket(":8080")
 }

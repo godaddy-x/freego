@@ -1,6 +1,8 @@
 package node
 
 import (
+	"fmt"
+	rate "github.com/godaddy-x/freego/cache/limiter"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/jwt"
@@ -22,8 +24,10 @@ type Handle func(*Context, []byte) (interface{}, error) // 如响应数据为nil
 
 type WsServer struct {
 	HookNode
-	mu   sync.RWMutex
-	pool ConnPool
+	mu      sync.RWMutex
+	pool    ConnPool
+	max     int           // 连接池总数量
+	limiter *rate.Limiter // 每秒限定连接数量
 }
 
 type DevConn struct {
@@ -293,22 +297,43 @@ func (self *WsServer) refConn(ctx *Context) error {
 	return nil
 }
 
-func (self *WsServer) NewPool(initSize int) {
+func (self *WsServer) NewPool(maxConn, limit, bucket int) {
+	if maxConn <= 0 {
+		panic("maxConn is nil")
+	}
+	if limit <= 0 {
+		panic("limit is nil")
+	}
+	if bucket <= 0 {
+		panic("bucket is nil")
+	}
 	self.mu.Lock()
 	defer self.mu.Unlock()
 	if self.pool == nil {
-		self.pool = make(ConnPool, initSize)
+		self.pool = make(ConnPool, maxConn)
 	}
+	self.max = maxConn
+
+	// 设置每秒放入100个令牌，并允许最大突发50个令牌
+	self.limiter = rate.NewLimiter(rate.Limit(limit), bucket)
 }
 
-func (self *WsServer) AddRouter(path string, handle Handle, routerConfig *RouterConfig) {
-	if handle == nil {
-		panic("handle function is nil")
-	}
+func (self *WsServer) withConnectionLimit(handler websocket.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !self.limiter.Allow() {
+			http.Error(w, "limited access", http.StatusServiceUnavailable)
+			return
+		}
+		//if len(self.pool) >= self.max {
+		//	http.Error(w, "too many connections", http.StatusServiceUnavailable)
+		//	return
+		//}
+		handler.ServeHTTP(w, r)
+	})
+}
 
-	self.checkContextReady(path, routerConfig)
-
-	http.Handle(path, websocket.Handler(func(ws *websocket.Conn) {
+func (self *WsServer) wsHandler(path string, handle Handle) websocket.Handler {
+	return func(ws *websocket.Conn) {
 
 		defer closeConn(ws)
 
@@ -359,13 +384,25 @@ func (self *WsServer) AddRouter(path string, handle Handle, routerConfig *Router
 			}
 
 		}
-	}))
+	}
+}
+
+func (self *WsServer) AddRouter(path string, handle Handle, routerConfig *RouterConfig) {
+	if handle == nil {
+		panic("handle function is nil")
+	}
+
+	self.checkContextReady(path, routerConfig)
+
+	http.Handle(path, self.withConnectionLimit(self.wsHandler(path, handle)))
 }
 
 func (self *WsServer) StartWebsocket(addr string) {
 	go func() {
 		for {
 			time.Sleep(pingTime * time.Second)
+			s := utils.UnixMilli()
+			index := 0
 			current := utils.UnixSecond()
 			for _, v := range self.pool {
 				for k1, v1 := range v {
@@ -375,8 +412,10 @@ func (self *WsServer) StartWebsocket(addr string) {
 						delete(v, k1)
 						self.mu.Unlock()
 					}
+					index++
 				}
 			}
+			fmt.Println("check time: ", utils.UnixMilli()-s, " count: ", index)
 		}
 	}()
 	go func() {

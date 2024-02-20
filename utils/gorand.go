@@ -3,7 +3,6 @@ package utils
 import (
 	"math/rand"
 	"time"
-	"unsafe"
 	_ "unsafe"
 )
 
@@ -24,21 +23,26 @@ const (
 //go:linkname fastrand runtime.fastrand
 func fastrand() uint32
 
-func gorand(n int, letters string) string {
-	b := make([]byte, n)
-	// A rand.Int63() generates 63 random bits, enough for letterIdMax letters!
-	for i, cache, remain := n-1, src.Int63(), letterIdMax; i >= 0; {
-		if remain == 0 {
-			cache, remain = src.Int63(), letterIdMax
-		}
-		if idx := int(cache & letterIdMask); idx < len(letters) {
-			b[i] = letters[idx]
-			i--
-		}
-		cache >>= letterIdBits
-		remain--
+func gorand(n int, characters string) string {
+	//b := make([]byte, n)
+	//// A rand.Int63() generates 63 random bits, enough for letterIdMax letters!
+	//for i, cache, remain := n-1, src.Int63(), letterIdMax; i >= 0; {
+	//	if remain == 0 {
+	//		cache, remain = src.Int63(), letterIdMax
+	//	}
+	//	if idx := int(cache & letterIdMask); idx < len(letters) {
+	//		b[i] = letters[idx]
+	//		i--
+	//	}
+	//	cache >>= letterIdBits
+	//	remain--
+	//}
+	//return *(*string)(unsafe.Pointer(&b))
+	randomString := make([]byte, n)
+	for i := range randomString {
+		randomString[i] = characters[rand.Intn(len(characters))]
 	}
-	return *(*string)(unsafe.Pointer(&b))
+	return Bytes2Str(randomString)
 }
 
 func RandStr(n int, b ...bool) string {
