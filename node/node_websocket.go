@@ -20,7 +20,7 @@ const (
 
 type Handle func(*Context, []byte) (interface{}, error) // 如响应数据为nil则不回复
 
-type WsNode struct {
+type WsServer struct {
 	HookNode
 	mu   sync.RWMutex
 	pool ConnPool
@@ -34,7 +34,7 @@ type DevConn struct {
 	Conn *websocket.Conn
 }
 
-func (self *WsNode) readyContext() {
+func (self *WsServer) readyContext() {
 	self.mu.Lock()
 	defer self.mu.Unlock()
 	if self.Context == nil {
@@ -47,12 +47,12 @@ func (self *WsNode) readyContext() {
 	}
 }
 
-func (self *WsNode) checkContextReady(path string, routerConfig *RouterConfig) {
+func (self *WsServer) checkContextReady(path string, routerConfig *RouterConfig) {
 	self.readyContext()
 	self.addRouterConfig(path, routerConfig)
 }
 
-func (self *WsNode) AddJwtConfig(config jwt.JwtConfig) {
+func (self *WsServer) AddJwtConfig(config jwt.JwtConfig) {
 	self.readyContext()
 	if len(config.TokenKey) == 0 {
 		panic("jwt config key is nil")
@@ -66,7 +66,7 @@ func (self *WsNode) AddJwtConfig(config jwt.JwtConfig) {
 	self.Context.configs.jwtConfig.TokenExp = config.TokenExp
 }
 
-func (self *WsNode) addRouterConfig(path string, routerConfig *RouterConfig) {
+func (self *WsServer) addRouterConfig(path string, routerConfig *RouterConfig) {
 	if routerConfig == nil {
 		routerConfig = &RouterConfig{}
 	}
@@ -153,7 +153,7 @@ func closeConn(ws *websocket.Conn) {
 	}
 }
 
-func createCtx(self *WsNode, path string) *Context {
+func createCtx(self *WsServer, path string) *Context {
 	ctx := self.Context
 	ctxNew := &Context{}
 	ctxNew.configs = self.Context.configs
@@ -222,7 +222,7 @@ func validBody(ws *websocket.Conn, ctx *Context, body []byte) bool {
 	return true
 }
 
-func (self *WsNode) SendMessage(data interface{}, subject string, dev ...string) error {
+func (self *WsServer) SendMessage(data interface{}, subject string, dev ...string) error {
 	conn, b := self.pool[subject]
 	if !b || len(conn) == 0 {
 		return nil
@@ -238,7 +238,7 @@ func (self *WsNode) SendMessage(data interface{}, subject string, dev ...string)
 	return nil
 }
 
-func (self *WsNode) addConn(conn *websocket.Conn, ctx *Context) error {
+func (self *WsServer) addConn(conn *websocket.Conn, ctx *Context) error {
 	self.mu.Lock()
 	defer self.mu.Unlock()
 	sub := ctx.Subject.Payload.Sub
@@ -268,7 +268,7 @@ func (self *WsNode) addConn(conn *websocket.Conn, ctx *Context) error {
 	return nil
 }
 
-func (self *WsNode) refConn(ctx *Context) error {
+func (self *WsServer) refConn(ctx *Context) error {
 	self.mu.Lock()
 	defer self.mu.Unlock()
 	sub := ctx.Subject.Payload.Sub
@@ -293,7 +293,7 @@ func (self *WsNode) refConn(ctx *Context) error {
 	return nil
 }
 
-func (self *WsNode) NewPool(initSize int) {
+func (self *WsServer) NewPool(initSize int) {
 	self.mu.Lock()
 	defer self.mu.Unlock()
 	if self.pool == nil {
@@ -301,7 +301,7 @@ func (self *WsNode) NewPool(initSize int) {
 	}
 }
 
-func (self *WsNode) AddRouter(path string, handle Handle, routerConfig *RouterConfig) {
+func (self *WsServer) AddRouter(path string, handle Handle, routerConfig *RouterConfig) {
 	if handle == nil {
 		panic("handle function is nil")
 	}
@@ -362,7 +362,7 @@ func (self *WsNode) AddRouter(path string, handle Handle, routerConfig *RouterCo
 	}))
 }
 
-func (self *WsNode) StartWebsocket(addr string) {
+func (self *WsServer) StartWebsocket(addr string) {
 	go func() {
 		for {
 			time.Sleep(pingTime * time.Second)

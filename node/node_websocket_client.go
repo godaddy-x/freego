@@ -9,13 +9,18 @@ import (
 	"time"
 )
 
-type ClientAuth struct {
+type TokenAuth struct {
+	Token  string
+	Secret string
+}
+
+type WsClient struct {
 	Origin      string
 	Addr        string
 	Path        string
-	token       string
-	secret      string
-	AuthCall    func(object interface{}) (string, string, error)
+	auth        TokenAuth
+	conn        *websocket.Conn
+	AuthCall    func() (string, string, error)
 	ReceiveCall func(message []byte, err error) (interface{}, error) // 如响应数据为nil,则不回复服务端
 }
 
@@ -57,7 +62,7 @@ func authReq(path string, requestObj interface{}, secret string, encrypted ...bo
 	return bytesData, nil
 }
 
-func authRes(client ClientAuth, respBytes []byte) ([]byte, error) {
+func authRes(client *WsClient, respBytes []byte) ([]byte, error) {
 	if len(respBytes) == 0 {
 		return nil, ex.Throw{Msg: "message is nil"}
 	}
@@ -76,7 +81,7 @@ func authRes(client ClientAuth, respBytes []byte) ([]byte, error) {
 		}
 		return nil, ex.Throw{Msg: respData.Message}
 	}
-	validSign := utils.HMAC_SHA256(utils.AddStr(client.Path, respData.Data, respData.Nonce, respData.Time, respData.Plan), client.secret, true)
+	validSign := utils.HMAC_SHA256(utils.AddStr(client.Path, respData.Data, respData.Nonce, respData.Time, respData.Plan), client.auth.Secret, true)
 	if validSign != respData.Sign {
 		return nil, ex.Throw{Msg: "post response sign verify invalid"}
 	}
@@ -85,7 +90,7 @@ func authRes(client ClientAuth, respBytes []byte) ([]byte, error) {
 	if respData.Plan == 0 {
 		dec = utils.Base64Decode(respData.Data)
 	} else if respData.Plan == 1 {
-		dec, err = utils.AesDecrypt(respData.Data.(string), client.secret, utils.AddStr(respData.Nonce, respData.Time))
+		dec, err = utils.AesDecrypt(respData.Data.(string), client.auth.Secret, utils.AddStr(respData.Nonce, respData.Time))
 		if err != nil {
 			return nil, ex.Throw{Msg: "post response data AES decrypt failed"}
 		}
@@ -95,8 +100,24 @@ func authRes(client ClientAuth, respBytes []byte) ([]byte, error) {
 	return dec, nil
 }
 
-func StartWebsocketClient(client ClientAuth, authObject interface{}) error {
+func (client *WsClient) StartWebsocket(n ...int) {
+	for {
+		if err := client.initClient(); err != nil {
+			zlog.Error("websocket client error", 0, zlog.AddError(err))
+		}
+		restart := time.Duration(10)
+		if len(n) > 0 && n[0] > 0 {
+			restart = time.Duration(n[0])
+		}
+		time.Sleep(restart * time.Second)
+	}
+}
 
+func (client *WsClient) Ready() bool {
+	return client.conn != nil && len(client.auth.Secret) > 0
+}
+
+func (client *WsClient) initClient() error {
 	if len(client.Addr) == 0 {
 		return utils.Error("client addr is nil")
 	}
@@ -107,10 +128,6 @@ func StartWebsocketClient(client ClientAuth, authObject interface{}) error {
 
 	if len(client.Origin) == 0 {
 		return utils.Error("client origin is nil")
-	}
-
-	if authObject == nil {
-		return utils.Error("client auth object is nil")
 	}
 
 	if client.AuthCall == nil {
@@ -127,36 +144,40 @@ func StartWebsocketClient(client ClientAuth, authObject interface{}) error {
 		return err
 	}
 
-	token, secret, err := client.AuthCall(authObject)
+	token, secret, err := client.AuthCall()
 	if err != nil {
 		return err
 	}
 
-	client.token = token
-	client.secret = secret
+	if len(token) == 0 || len(secret) == 0 {
+		return utils.Error("token/secret invalid")
+	}
 
 	// 设置 JWT 头部
-	config.Header.Add("Authorization", client.token)
+	config.Header.Add("Authorization", token)
 
 	// 建立 WebSocket 连接
 	ws, err := websocket.DialConfig(config)
 	if err != nil {
 		return err
 	}
-	defer ws.Close()
+	defer closeConn(ws)
+
+	client.conn = ws
+	client.auth = TokenAuth{Token: token, Secret: secret}
 
 	zlog.Info("websocket connect success", 0, zlog.String("url", client.Addr+client.Path))
 
-	go ping(client, ws)
+	go client.ping()
 
-	return receive(client, ws)
+	return client.receive()
 }
 
 // receive 读取服务端消息
-func receive(client ClientAuth, ws *websocket.Conn) error {
+func (client *WsClient) receive() error {
 	for {
 		var message []byte
-		if err := websocket.Message.Receive(ws, &message); err != nil {
+		if err := websocket.Message.Receive(client.conn, &message); err != nil {
 			return err
 		}
 		res, err := authRes(client, message)
@@ -168,33 +189,44 @@ func receive(client ClientAuth, ws *websocket.Conn) error {
 		if err != nil {
 			zlog.Error("websocket receive call error", 0, zlog.AddError(err))
 		}
-		if reply != nil {
-			data, err := authReq(client.Path, reply, client.secret)
-			if err != nil {
-				zlog.Error("websocket receive reply create error", 0, zlog.AddError(err))
-				continue
-			}
-			if err := websocket.Message.Send(ws, data); err != nil {
-				zlog.Error("websocket client reply error", 0, zlog.AddError(err))
-				break
-			}
+		if err := client.SendMessage(reply); err != nil {
+			break
 		}
 	}
 	return nil
 }
 
+func (client *WsClient) SendMessage(reply interface{}) error {
+	if reply == nil {
+		return nil
+	}
+	if !client.Ready() {
+		zlog.Warn("client not ready", 0)
+		return nil
+	}
+	data, err := authReq(client.Path, reply, client.auth.Secret)
+	if err != nil {
+		zlog.Error("websocket receive reply create error", 0, zlog.AddError(err))
+		return nil
+	}
+	if err := websocket.Message.Send(client.conn, data); err != nil {
+		zlog.Error("websocket client reply error", 0, zlog.AddError(err))
+		return err
+	}
+	return nil
+}
+
 // ping 持续心跳包
-func ping(client ClientAuth, ws *websocket.Conn) error {
+func (client *WsClient) ping() {
 	for {
 		ping := Ping{
 			HealthCheck: pingCmd,
 		}
-		data, _ := authReq(client.Path, &ping, client.secret)
-		if err := websocket.Message.Send(ws, data); err != nil {
+		data, _ := authReq(client.Path, &ping, client.auth.Secret)
+		if err := websocket.Message.Send(client.conn, data); err != nil {
 			zlog.Error("websocket client ping error", 0, zlog.AddError(err))
 			break
 		}
 		time.Sleep(pingTime / 2 * time.Second)
 	}
-	return nil
 }
