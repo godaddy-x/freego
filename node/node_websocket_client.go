@@ -21,7 +21,7 @@ type WsClient struct {
 	auth        TokenAuth
 	conn        *websocket.Conn
 	AuthCall    func() (string, string, error)
-	ReceiveCall func(message []byte, err error) (interface{}, error) // 如响应数据为nil,则不回复服务端
+	ReceiveCall func(message []byte) (interface{}, error) // 如响应数据为nil,则不回复服务端
 }
 
 type Ping struct {
@@ -188,7 +188,7 @@ func (client *WsClient) receive() error {
 			zlog.Error("websocket receive parse error", 0, zlog.AddError(err))
 			continue
 		}
-		reply, err := client.ReceiveCall(res, err)
+		reply, err := client.ReceiveCall(res)
 		if err != nil {
 			zlog.Error("websocket receive call error", 0, zlog.AddError(err))
 		}
