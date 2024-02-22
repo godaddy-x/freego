@@ -2,6 +2,7 @@ package http_web
 
 import (
 	"fmt"
+	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/geetest"
 	"github.com/godaddy-x/freego/node"
 	"github.com/godaddy-x/freego/node/common"
@@ -57,6 +58,10 @@ func testCallRPC() {
 }
 
 func (self *MyWebNode) login(ctx *node.Context) error {
+	//fmt.Println("-----", ctx.GetHeader("Language"))
+	//fmt.Println("-----", ctx.GetPostBody())
+	//// {"test":"测试$1次 我是$4岁"}
+	//return ex.Throw{Msg: "${test}", Arg: []string{"1", "2", "123", "99"}}
 	//self.LoginBySubject(subject, exp)
 	config := ctx.GetJwtConfig()
 	token := ctx.Subject.Create(utils.NextSID()).Dev("APP").Generate(config)
@@ -136,6 +141,14 @@ func (self *GeetestFilter) DoFilter(chain node.Filter, ctx *node.Context, args .
 	return geetest.CleanStatus(filterObject)
 }
 
+type TestFilter struct{}
+
+func (self *TestFilter) DoFilter(chain node.Filter, ctx *node.Context, args ...interface{}) error {
+	ctx.Json(map[string]string{"tttt": "22222"})
+	//return utils.Error("11111")
+	return chain.DoFilter(chain, ctx, args...)
+}
+
 const (
 	privateKey = "MHcCAQEEIEpXwxicdbb4DM+EW/cJVvoTSubRHIKB6kai/1qgaWnNoAoGCCqGSM49AwEHoUQDQgAEo2hpVqkCUrLC/mxd9qD8sdryanqx0YVfpAfN9ciMGiOSgJ8KBmDpE8FfAtRSk8PM4Le6EMLrQQLPaLURshOwZg=="
 )
@@ -172,6 +185,11 @@ func NewHTTP() *MyWebNode {
 	//})
 	my.SetSystem("test", "1.0.0")
 	my.AddRoleRealm(roleRealm)
+	my.AddErrorHandle(func(ctx *node.Context, throw ex.Throw) error {
+		fmt.Println(throw)
+		return throw
+	})
+	my.AddFilter(&node.FilterObject{Name: "TestFilter", Order: 100, Filter: &TestFilter{}, MatchPattern: []string{"/getUser"}})
 	my.AddFilter(&node.FilterObject{Name: "NewPostFilter", Order: 100, Filter: &NewPostFilter{}})
 	my.AddFilter(&node.FilterObject{Name: "GeetestFilter", Order: 101, MatchPattern: []string{"/TestGeetest"}, Filter: &GeetestFilter{}})
 	return my
@@ -189,6 +207,8 @@ func StartHttpNode() {
 
 	my.POST("/geetest/register", my.FirstRegister, &node.RouterConfig{UseRSA: true})
 	my.POST("/geetest/validate", my.SecondValidate, &node.RouterConfig{UseRSA: true})
+
+	my.AddLanguageByJson("en", []byte(`{"test":"测试$1次 我是$4岁"}`))
 	my.StartServer(":8090")
 }
 
