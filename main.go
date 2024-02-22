@@ -5,6 +5,7 @@ import (
 	"github.com/godaddy-x/freego/cache/limiter"
 	ballast "github.com/godaddy-x/freego/gc"
 	"github.com/godaddy-x/freego/node/test"
+	"github.com/godaddy-x/freego/ormx/sqld"
 	"github.com/godaddy-x/freego/rpcx"
 	"github.com/godaddy-x/freego/utils"
 	_ "go.uber.org/automaxprocs"
@@ -13,8 +14,9 @@ import (
 )
 
 func http_test() {
-	go http_web.StartHttpNode1()
-	go http_web.StartHttpNode2()
+	//go http_web.StartHttpNode1()
+	//go http_web.StartHttpNode2()
+	sqld.RebuildMongoDBIndex()
 	http_web.StartHttpNode()
 }
 
@@ -69,7 +71,7 @@ func initGRPC() {
 
 func init() {
 	//initConsul()
-	initRedis()
+	//initRedis()
 	//initGRPC()
 }
 
