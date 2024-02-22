@@ -17,6 +17,7 @@ type MsgReply struct {
 
 func TestWsServer(t *testing.T) {
 	server := node.WsServer{}
+	server.Debug = true
 	server.AddJwtConfig(jwt.JwtConfig{
 		TokenTyp: jwt.JWT,
 		TokenAlg: jwt.HS256,

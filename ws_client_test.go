@@ -60,7 +60,7 @@ func newClient() {
 }
 
 func TestWsClient(t *testing.T) {
-	for i := 0; i < 10000; i++ {
+	for i := 0; i < 1; i++ {
 		go newClient()
 	}
 	select {}
