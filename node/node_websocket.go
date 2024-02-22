@@ -1,7 +1,6 @@
 package node
 
 import (
-	"fmt"
 	rate "github.com/godaddy-x/freego/cache/limiter"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/utils"
@@ -427,7 +426,9 @@ func (self *WsServer) StartWebsocket(addr string) {
 					index++
 				}
 			}
-			fmt.Println("check time: ", utils.UnixMilli()-s, " count: ", index)
+			if self.Debug {
+				zlog.Info("websocket check pool", 0, zlog.String("cost", utils.AddStr(utils.UnixMilli()-s, " ms")), zlog.Int("count", index))
+			}
 		}
 	}()
 	go func() {
