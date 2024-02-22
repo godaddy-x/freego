@@ -23,6 +23,7 @@ const (
 type Handle func(*Context, []byte) (interface{}, error) // 如响应数据为nil则不回复
 
 type WsServer struct {
+	Debug bool
 	HookNode
 	mu      sync.RWMutex
 	pool    ConnPool
@@ -360,7 +361,14 @@ func (self *WsServer) wsHandler(path string, handle Handle) websocket.Handler {
 				break
 			}
 
+			if self.Debug {
+				zlog.Info("websocket receive message", 0, zlog.String("data", string(body)))
+			}
+
 			if !validBody(ws, ctx, body) {
+				if self.Debug {
+					zlog.Info("websocket receive message invalid", 0, zlog.String("data", string(body)))
+				}
 				continue
 			}
 
@@ -375,6 +383,10 @@ func (self *WsServer) wsHandler(path string, handle Handle) websocket.Handler {
 			if err != nil {
 				ctx.writeError(ws, err)
 				continue
+			}
+
+			if self.Debug && reply != nil {
+				zlog.Info("websocket reply message", 0, zlog.Any("data", reply))
 			}
 
 			// 回复消息
