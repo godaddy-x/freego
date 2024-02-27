@@ -3,6 +3,7 @@ package utils
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	jsonIterator "github.com/json-iterator/go"
 	"github.com/valyala/fastjson"
 )
@@ -74,4 +75,31 @@ func GetJsonFloat64(b []byte, k string) float64 {
 
 func GetJsonBytes(b []byte, k string) []byte {
 	return fastjson.GetBytes(b, k)
+}
+
+func GetJsonObjectBytes(b []byte, k string) []byte {
+	value := GetJsonObjectValue(b)
+	if value == nil {
+		return nil
+	}
+	v := value.Get(k)
+	if v == nil {
+		return nil
+	}
+	return v.MarshalTo(nil)
+}
+
+func GetJsonObjectString(b []byte, k string) string {
+	return Bytes2Str(GetJsonObjectBytes(b, k))
+}
+
+// GetJsonObjectValue 例如: v.Get("a").Get("b").MarshalTo(nil)
+func GetJsonObjectValue(b []byte) *fastjson.Value {
+	var p fastjson.Parser
+	v, err := p.ParseBytes(b)
+	if err != nil {
+		fmt.Println("parsing json error:", err)
+		return nil
+	}
+	return v
 }
