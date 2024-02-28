@@ -24,7 +24,7 @@ func TestWsServer(t *testing.T) {
 		TokenKey: "123456" + utils.CreateLocalSecretKey(12, 45, 23, 60, 58, 30),
 		TokenExp: jwt.TWO_WEEK,
 	})
-	server.NewPool(5000, 1500, 500)
+	server.NewPool(5000, 1500, 500, 30)
 	handle := func(ctx *node.Context, message []byte) (interface{}, error) {
 		result := map[string]interface{}{}
 		if err := utils.JsonUnmarshal(message, &result); err != nil {

@@ -230,6 +230,6 @@ func (client *WsClient) ping() {
 			zlog.Error("websocket client ping error", 0, zlog.AddError(err))
 			break
 		}
-		time.Sleep(pingTime / 2 * time.Second)
+		time.Sleep(10 / 2 * time.Second)
 	}
 }

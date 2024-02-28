@@ -15,8 +15,7 @@ import (
 type ConnPool map[string]map[string]*DevConn
 
 const (
-	pingTime = 10
-	pingCmd  = "ws-health-check"
+	pingCmd = "ws-health-check"
 )
 
 type Handle func(*Context, []byte) (interface{}, error) // 如响应数据为nil则不回复
@@ -26,6 +25,7 @@ type WsServer struct {
 	HookNode
 	mu      sync.RWMutex
 	pool    ConnPool
+	ping    int           // 长连接心跳间隔
 	max     int           // 连接池总数量
 	limiter *rate.Limiter // 每秒限定连接数量
 }
@@ -297,7 +297,7 @@ func (self *WsServer) refConn(ctx *Context) error {
 	return nil
 }
 
-func (self *WsServer) NewPool(maxConn, limit, bucket int) {
+func (self *WsServer) NewPool(maxConn, limit, bucket, ping int) {
 	if maxConn <= 0 {
 		panic("maxConn is nil")
 	}
@@ -307,12 +307,16 @@ func (self *WsServer) NewPool(maxConn, limit, bucket int) {
 	if bucket <= 0 {
 		panic("bucket is nil")
 	}
+	if ping <= 0 {
+		panic("ping is nil")
+	}
 	self.mu.Lock()
 	defer self.mu.Unlock()
 	if self.pool == nil {
 		self.pool = make(ConnPool, maxConn)
 	}
 	self.max = maxConn
+	self.ping = ping
 
 	// 设置每秒放入100个令牌，并允许最大突发50个令牌
 	self.limiter = rate.NewLimiter(rate.Limit(limit), bucket)
@@ -411,13 +415,13 @@ func (self *WsServer) AddRouter(path string, handle Handle, routerConfig *Router
 func (self *WsServer) StartWebsocket(addr string) {
 	go func() {
 		for {
-			time.Sleep(pingTime * time.Second)
+			time.Sleep(time.Duration(self.ping) * time.Second)
 			s := utils.UnixMilli()
 			index := 0
 			current := utils.UnixSecond()
 			for _, v := range self.pool {
 				for k1, v1 := range v {
-					if current-v1.Last > pingTime || current > v1.Life {
+					if current-v1.Last > int64(self.ping*2) || current > v1.Life {
 						self.mu.Lock()
 						closeConn(v1.Conn)
 						delete(v, k1)
