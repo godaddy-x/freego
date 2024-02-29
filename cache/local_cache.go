@@ -102,6 +102,10 @@ func (self *LocalMapManager) Size(pattern ...string) (int, error) {
 	return self.c.ItemCount(), nil
 }
 
+func (self *LocalMapManager) Values(pattern ...string) ([]interface{}, error) {
+	return []interface{}{self.c.Items()}, nil
+}
+
 func (self *LocalMapManager) Flush() error {
 	self.c.Flush()
 	return nil

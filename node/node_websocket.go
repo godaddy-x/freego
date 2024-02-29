@@ -1,18 +1,22 @@
 package node
 
 import (
+	"github.com/godaddy-x/freego/cache"
 	rate "github.com/godaddy-x/freego/cache/limiter"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/jwt"
 	"github.com/godaddy-x/freego/zlog"
+	cache2 "github.com/patrickmn/go-cache"
 	"golang.org/x/net/websocket"
 	"net/http"
 	"sync"
 	"time"
 )
 
-type ConnPool map[string]map[string]*DevConn
+var (
+	localCache = cache.NewLocalCache(10, 10)
+)
 
 const (
 	pingCmd = "ws-health-check"
@@ -23,24 +27,25 @@ type Handle func(*Context, []byte) (interface{}, error) // 如响应数据为nil
 type WsServer struct {
 	Debug bool
 	HookNode
-	mu      sync.RWMutex
-	pool    ConnPool
+	mu sync.RWMutex
+	//pool    ConnPool
 	ping    int           // 长连接心跳间隔
 	max     int           // 连接池总数量
 	limiter *rate.Limiter // 每秒限定连接数量
 }
 
 type DevConn struct {
-	Dev  string
-	Life int64
-	Last int64
-	Ctx  *Context
-	Conn *websocket.Conn
+	mu    sync.Mutex
+	Ready bool
+	Dev   string
+	Life  int64
+	Last  int64
+	Ctx   *Context
+	Conn  *websocket.Conn
 }
 
 func (self *WsServer) readyContext() {
 	self.mu.Lock()
-	defer self.mu.Unlock()
 	if self.Context == nil {
 		self.Context = &Context{}
 		self.Context.configs = &Configs{}
@@ -49,6 +54,7 @@ func (self *WsServer) readyContext() {
 		self.Context.configs.jwtConfig = jwt.JwtConfig{}
 		self.Context.System = &System{}
 	}
+	self.mu.Unlock()
 }
 
 func (self *WsServer) checkContextReady(path string, routerConfig *RouterConfig) {
@@ -79,30 +85,7 @@ func (self *WsServer) addRouterConfig(path string, routerConfig *RouterConfig) {
 	}
 }
 
-func (self *Context) readWsToken(auth string) error {
-	self.Subject.ResetTokenBytes(utils.Str2Bytes(auth))
-	return nil
-}
-
-func (self *Context) readWsBody(body []byte) error {
-	if body == nil || len(body) == 0 {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters is nil"}
-	}
-	if len(body) > (MAX_VALUE_LEN) {
-		return ex.Throw{Code: http.StatusLengthRequired, Msg: "body parameters length is too long"}
-	}
-	self.JsonBody.Data = utils.GetJsonString(body, "d")
-	self.JsonBody.Time = utils.GetJsonInt64(body, "t")
-	self.JsonBody.Nonce = utils.GetJsonString(body, "n")
-	self.JsonBody.Plan = utils.GetJsonInt64(body, "p")
-	self.JsonBody.Sign = utils.GetJsonString(body, "s")
-	if err := self.validJsonBody(); err != nil { // TODO important
-		return err
-	}
-	return nil
-}
-
-func (ctx *Context) writeError(ws *websocket.Conn, err error) error {
+func (self *WsServer) writeError(ctx *Context, err error) error {
 	if err == nil {
 		return nil
 	}
@@ -139,9 +122,52 @@ func (ctx *Context) writeError(ws *websocket.Conn, err error) error {
 	if resp.Code == 0 {
 		resp.Code = ex.BIZ
 	}
-	result, _ := utils.JsonMarshal(resp)
-	if err := websocket.Message.Send(ws, result); err != nil {
+	if err := self.SendMessage(resp, ctx.Subject.GetSub()); err != nil {
 		zlog.Error("websocket send error", 0, zlog.AddError(err))
+	}
+	return nil
+}
+
+func (self *WsServer) validBody(ctx *Context, body []byte) bool {
+	if body == nil || len(body) == 0 {
+		_ = self.writeError(ctx, ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters is nil"})
+		return false
+	}
+	if len(body) > (MAX_VALUE_LEN) {
+		_ = self.writeError(ctx, ex.Throw{Code: http.StatusLengthRequired, Msg: "body parameters length is too long"})
+		return false
+	}
+	ctx.JsonBody.Data = utils.GetJsonString(body, "d")
+	ctx.JsonBody.Time = utils.GetJsonInt64(body, "t")
+	ctx.JsonBody.Nonce = utils.GetJsonString(body, "n")
+	ctx.JsonBody.Plan = utils.GetJsonInt64(body, "p")
+	ctx.JsonBody.Sign = utils.GetJsonString(body, "s")
+	if err := ctx.validJsonBody(); err != nil { // TODO important
+		//ctx.writeError(ws, err)
+		return false
+	}
+	return true
+}
+
+func (self *Context) readWsToken(auth string) error {
+	self.Subject.ResetTokenBytes(utils.Str2Bytes(auth))
+	return nil
+}
+
+func (self *Context) readWsBody(body []byte) error {
+	if body == nil || len(body) == 0 {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters is nil"}
+	}
+	if len(body) > (MAX_VALUE_LEN) {
+		return ex.Throw{Code: http.StatusLengthRequired, Msg: "body parameters length is too long"}
+	}
+	self.JsonBody.Data = utils.GetJsonString(body, "d")
+	self.JsonBody.Time = utils.GetJsonInt64(body, "t")
+	self.JsonBody.Nonce = utils.GetJsonString(body, "n")
+	self.JsonBody.Plan = utils.GetJsonInt64(body, "p")
+	self.JsonBody.Sign = utils.GetJsonString(body, "s")
+	if err := self.validJsonBody(); err != nil { // TODO important
+		return err
 	}
 	return nil
 }
@@ -205,39 +231,36 @@ func wsRenderTo(ws *websocket.Conn, ctx *Context, data interface{}) error {
 	return nil
 }
 
-func validBody(ws *websocket.Conn, ctx *Context, body []byte) bool {
-	if body == nil || len(body) == 0 {
-		ctx.writeError(ws, ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters is nil"})
-		return false
+func getDevConn(subject string) (*DevConn, error) {
+	value, b, err := localCache.Get(subject, nil)
+	if err != nil {
+		return nil, err
 	}
-	if len(body) > (MAX_VALUE_LEN) {
-		ctx.writeError(ws, ex.Throw{Code: http.StatusLengthRequired, Msg: "body parameters length is too long"})
-		return false
+	if !b || value == nil {
+		return nil, nil
 	}
-	ctx.JsonBody.Data = utils.GetJsonString(body, "d")
-	ctx.JsonBody.Time = utils.GetJsonInt64(body, "t")
-	ctx.JsonBody.Nonce = utils.GetJsonString(body, "n")
-	ctx.JsonBody.Plan = utils.GetJsonInt64(body, "p")
-	ctx.JsonBody.Sign = utils.GetJsonString(body, "s")
-	if err := ctx.validJsonBody(); err != nil { // TODO important
-		ctx.writeError(ws, err)
-		return false
+	conn, b := value.(*DevConn)
+	if !b {
+		return nil, nil
 	}
-	return true
+	return conn, nil
 }
 
 func (self *WsServer) SendMessage(data interface{}, subject string, dev ...string) error {
-	conn, b := self.pool[subject]
-	if !b || len(conn) == 0 {
+	conn, err := getDevConn(subject)
+	if err != nil {
+		return err
+	}
+	if conn == nil {
 		return nil
 	}
-	for _, v := range conn {
-		if len(dev) > 0 && !utils.CheckStr(v.Dev, dev...) {
-			continue
-		}
-		if err := wsRenderTo(v.Conn, v.Ctx, data); err != nil {
-			return err
-		}
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+	if !conn.Ready {
+		return nil
+	}
+	if err := wsRenderTo(conn.Conn, conn.Ctx, data); err != nil {
+		return err
 	}
 	return nil
 }
@@ -245,6 +268,15 @@ func (self *WsServer) SendMessage(data interface{}, subject string, dev ...strin
 func (self *WsServer) addConn(conn *websocket.Conn, ctx *Context) error {
 	self.mu.Lock()
 	defer self.mu.Unlock()
+
+	size, err := localCache.Size()
+	if err != nil {
+		return err
+	}
+	if size >= self.max {
+		closeConn(conn)
+		return utils.Error("conn pool full: ", size)
+	}
 	sub := ctx.Subject.Payload.Sub
 	dev := ctx.Subject.GetDev()
 	exp := ctx.Subject.GetExp()
@@ -254,46 +286,47 @@ func (self *WsServer) addConn(conn *websocket.Conn, ctx *Context) error {
 
 	zlog.Info("websocket client connect success", 0, zlog.String("subject", sub), zlog.String("path", ctx.Path), zlog.String("dev", dev))
 
-	key := utils.AddStr(dev, "_", ctx.Path)
-	if self.pool == nil {
-		self.pool = make(ConnPool, 50)
+	value, err := getDevConn(sub)
+	if err != nil {
+		return err
 	}
-
-	check, b := self.pool[sub]
-	if !b {
-		self.pool[sub] = map[string]*DevConn{key: {Life: exp, Last: utils.UnixSecond(), Dev: dev, Ctx: ctx, Conn: conn}}
+	if value == nil {
+		_ = localCache.Put(sub, &DevConn{Ready: true, Life: exp, Last: utils.UnixSecond(), Dev: dev, Ctx: ctx, Conn: conn})
 		return nil
 	}
-	devConn, b := check[key]
-	if b {
-		closeConn(devConn.Conn) // 如果存在连接对象则先关闭
-	}
-	check[key] = &DevConn{Life: exp, Last: utils.UnixSecond(), Dev: dev, Ctx: ctx, Conn: conn}
+	value.mu.Lock()
+	closeConn(value.Conn) // 如果存在连接对象则先关闭
+	value.Last = utils.UnixSecond()
+	value.Life = exp
+	value.Dev = dev
+	value.Ctx = ctx
+	value.Conn = conn
+	value.Ready = true
+	value.mu.Unlock()
 	return nil
 }
 
 func (self *WsServer) refConn(ctx *Context) error {
-	self.mu.Lock()
-	defer self.mu.Unlock()
-	sub := ctx.Subject.Payload.Sub
-	dev := ctx.Subject.GetDev()
-	if len(dev) == 0 {
-		dev = "web"
-	}
-	dev = utils.AddStr(dev, "_", ctx.Path)
-	if self.pool == nil {
-		return nil
-	}
+	//self.mu.Lock()
+	//defer self.mu.Unlock()
+	//dev := ctx.Subject.GetDev()
+	//if len(dev) == 0 {
+	//	dev = "web"
+	//}
+	//dev = utils.AddStr(dev, "_", ctx.Path)
 
-	check, b := self.pool[sub]
-	if !b {
+	value, err := getDevConn(ctx.Subject.Payload.Sub)
+	if err != nil {
+		return err
+	}
+	if value == nil {
 		return nil
 	}
-	devConn, b := check[dev]
-	if !b {
-		return nil
+	value.mu.Lock()
+	if value.Ready {
+		value.Last = utils.UnixSecond()
 	}
-	devConn.Last = utils.UnixSecond()
+	value.mu.Unlock()
 	return nil
 }
 
@@ -312,9 +345,9 @@ func (self *WsServer) NewPool(maxConn, limit, bucket, ping int) {
 	}
 	self.mu.Lock()
 	defer self.mu.Unlock()
-	if self.pool == nil {
-		self.pool = make(ConnPool, maxConn)
-	}
+	//if self.pool == nil {
+	//	self.pool = make(ConnPool, maxConn)
+	//}
 	self.max = maxConn
 	self.ping = ping
 
@@ -342,18 +375,22 @@ func (self *WsServer) wsHandler(path string, handle Handle) websocket.Handler {
 		defer closeConn(ws)
 
 		ctx := createCtx(self, path)
-		ctx.readWsToken(ws.Request().Header.Get("Authorization"))
+		_ = ctx.readWsToken(ws.Request().Header.Get("Authorization"))
 
 		if len(ctx.Subject.GetRawBytes()) == 0 {
-			ctx.writeError(ws, ex.Throw{Code: http.StatusUnauthorized, Msg: "token is nil"})
+			//_ = self.writeError(ctx, ex.Throw{Code: http.StatusUnauthorized, Msg: "token is nil"})
 			return
 		}
 		if err := ctx.Subject.Verify(utils.Bytes2Str(ctx.Subject.GetRawBytes()), ctx.GetJwtConfig().TokenKey, true); err != nil {
-			ctx.writeError(ws, ex.Throw{Code: http.StatusUnauthorized, Msg: "token invalid or expired", Err: err})
+			//_ = self.writeError(ctx, ex.Throw{Code: http.StatusUnauthorized, Msg: "token invalid or expired", Err: err})
+			zlog.Error("subject token invalid or expired", 0, zlog.AddError(err), zlog.String("data", utils.Bytes2Str(ctx.Subject.GetRawBytes())))
 			return
 		}
 
-		self.addConn(ws, ctx)
+		if err := self.addConn(ws, ctx); err != nil {
+			zlog.Error("add conn error", 0, zlog.AddError(err))
+			return
+		}
 
 		for {
 			// 读取消息
@@ -368,7 +405,7 @@ func (self *WsServer) wsHandler(path string, handle Handle) websocket.Handler {
 				zlog.Info("websocket receive message", 0, zlog.String("data", string(body)))
 			}
 
-			if !validBody(ws, ctx, body) {
+			if !self.validBody(ctx, body) {
 				if self.Debug {
 					zlog.Info("websocket receive message invalid", 0, zlog.String("data", string(body)))
 				}
@@ -378,13 +415,13 @@ func (self *WsServer) wsHandler(path string, handle Handle) websocket.Handler {
 			dec, b := ctx.JsonBody.Data.([]byte)
 
 			if b && utils.GetJsonString(dec, "healthCheck") == pingCmd {
-				self.refConn(ctx)
+				_ = self.refConn(ctx)
 				continue
 			}
 
 			reply, err := handle(ctx, dec)
 			if err != nil {
-				ctx.writeError(ws, err)
+				_ = self.writeError(ctx, err)
 				continue
 			}
 
@@ -393,7 +430,7 @@ func (self *WsServer) wsHandler(path string, handle Handle) websocket.Handler {
 			}
 
 			// 回复消息
-			if err := wsRenderTo(ws, ctx, reply); err != nil {
+			if err := self.SendMessage(reply, ctx.Subject.GetSub()); err != nil {
 				zlog.Error("receive message reply error", 0, zlog.AddError(err))
 				break
 			}
@@ -412,6 +449,14 @@ func (self *WsServer) AddRouter(path string, handle Handle, routerConfig *Router
 	http.Handle(path, self.withConnectionLimit(self.wsHandler(path, handle)))
 }
 
+func (self *WsServer) GetAllConn() map[string]cache2.Item {
+	items, _ := localCache.Values()
+	if len(items) == 0 {
+		return nil
+	}
+	return items[0].(map[string]cache2.Item)
+}
+
 func (self *WsServer) StartWebsocket(addr string) {
 	go func() {
 		for {
@@ -419,16 +464,25 @@ func (self *WsServer) StartWebsocket(addr string) {
 			s := utils.UnixMilli()
 			index := 0
 			current := utils.UnixSecond()
-			for _, v := range self.pool {
-				for k1, v1 := range v {
-					if current-v1.Last > int64(self.ping*2) || current > v1.Life {
-						self.mu.Lock()
-						closeConn(v1.Conn)
-						delete(v, k1)
-						self.mu.Unlock()
-					}
-					index++
+			items, _ := localCache.Values()
+			if len(items) == 0 {
+				continue
+			}
+			var del []string
+			item := items[0].(map[string]cache2.Item)
+			for k, v := range item {
+				conn := v.Object.(*DevConn)
+				conn.mu.Lock()
+				if current-conn.Last > int64(self.ping*2) || current > conn.Life {
+					conn.Ready = false
+					closeConn(conn.Conn)
+					del = append(del, k)
 				}
+				index++
+				conn.mu.Unlock()
+			}
+			if len(del) > 0 {
+				_ = localCache.Del(del...)
 			}
 			if self.Debug {
 				zlog.Info("websocket check pool", 0, zlog.String("cost", utils.AddStr(utils.UnixMilli()-s, " ms")), zlog.Int("count", index))

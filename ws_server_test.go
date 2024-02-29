@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"github.com/godaddy-x/freego/node"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/jwt"
@@ -24,7 +25,7 @@ func TestWsServer(t *testing.T) {
 		TokenKey: "123456" + utils.CreateLocalSecretKey(12, 45, 23, 60, 58, 30),
 		TokenExp: jwt.TWO_WEEK,
 	})
-	server.NewPool(5000, 1500, 500, 30)
+	server.NewPool(200, 1500, 50, 10)
 	handle := func(ctx *node.Context, message []byte) (interface{}, error) {
 		result := map[string]interface{}{}
 		if err := utils.JsonUnmarshal(message, &result); err != nil {
@@ -34,13 +35,27 @@ func TestWsServer(t *testing.T) {
 		//fmt.Println("receive ack:", result)
 		return nil, nil
 	}
-	server.AddRouter("/query", handle, nil)
+	server.AddRouter("/websocket", handle, nil)
 	go func() {
 		for {
-			reply := MsgReply{Id: utils.NextSID(), Type: "transfer", Data: "我爱中国"}
-			server.SendMessage(&reply, "1756510920302919681", "APP")
+			index := 0
+			for i := 0; i < 100; i++ {
+				go func() {
+					for k, _ := range server.GetAllConn() {
+						reply := MsgReply{Id: utils.NextSID(), Type: "transfer", Data: "我爱中国"}
+						_ = server.SendMessage(&reply, k)
+						index++
+					}
+				}()
+			}
 			time.Sleep(5 * time.Second)
+			fmt.Println("发送完毕: ---", index)
 		}
+		//for {
+		//	reply := MsgReply{Id: utils.NextSID(), Type: "transfer", Data: "我爱中国"}
+		//	_ = server.SendMessage(&reply, "1756510920302919681", "APP")
+		//	time.Sleep(5 * time.Second)
+		//}
 	}()
-	server.StartWebsocket(":8080")
+	server.StartWebsocket(":6060")
 }

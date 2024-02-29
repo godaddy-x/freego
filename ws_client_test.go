@@ -27,24 +27,35 @@ func newClient() {
 		subject := jwt.Subject{}
 		jwtToken := subject.Create(utils.NextSID()).Dev("APP").Generate(config)
 		jwtSecret := jwt.GetTokenSecret(jwtToken, config.TokenKey)
+		//fmt.Println(jwtToken)
+		//fmt.Println(jwtSecret)
+		//jwtToken := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxNzYzMDI4MjgyNDcyNjYwOTkyIiwiYXVkIjoiIiwiaXNzIjoiIiwiaWF0IjowLCJleHAiOjE3MTAzODMyNzIsImRldiI6IkFQUCIsImp0aSI6IlEyRW9sWVNyM29GR0JiNWRqeHlsZ1E9PSIsImV4dCI6IiJ9.8SZskvU5vbJ3N0jGT1V3dtFk7dRpjNzqK/NKbmvvxHk="
+		//jwtSecret := "mRYCvKf8iqYhTqtHy*kT^j#lKJHd4YPy0QE9xc9H#lK!ZC@diQQdHdVvwnj2hms="
 		//jwtToken := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxNzU2NTEwOTIwMzAyOTE5NjgxIiwiYXVkIjoiIiwiaXNzIjoiIiwiaWF0IjowLCJleHAiOjE3MDg4Mjk0MTIsImRldiI6IkFQUCIsImp0aSI6InEyTEtYTG1uYXJ5MGhlM0FmVE9ZcFE9PSIsImV4dCI6IiJ9.T5o3LYyncHp2H7yWhj1S+MoWCj68KrcjfpZzqf0qxL8="
 		//jwtSecret := "liEnMu77ysCaU4BHy*kT^j#lKWM1JqTPhjSHNtEl#lK!ZC@diQRl04GSsDVIQnU="
+		//jwtToken := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxNzE5MjYwOTAwMTIyMTY1MjQ4IiwiYXVkIjoiIiwiaXNzIjoiIiwiaWF0IjowLCJleHAiOjE3MDk3ODE5NTQsImRldiI6IiIsImp0aSI6IlZIY0o0dVlLNUtPMnRTMkdnMktkc0E9PSIsImV4dCI6IiJ9.23r2TXlxehMpDjLFcF0ywExweHqQVpxsaEqE9qj6ywM="
+		//jwtSecret := "9R930u8MVhxjy5+Hy*kT^j#lKECJUx8e4U3Jg309#lK!ZC@diQYB/owhMijldsg="
 		return jwtToken, jwtSecret, nil
 	}
 
 	receiveCall := func(message []byte) (interface{}, error) {
-		reply := MsgReply{}
-		if err := utils.JsonUnmarshal(message, &reply); err != nil {
-			return nil, err
-		}
-		fmt.Println("receive:", reply)
-		reply.Ack = true
-		return &reply, nil
+		//reply := MsgReply{}
+		//if err := utils.JsonUnmarshal(message, &reply); err != nil {
+		//	return nil, err
+		//}
+		//fmt.Println("receive:", reply)
+		//reply.Ack = true
+		//return &reply, nil
+		fmt.Println("receive: ", string(message))
+		return nil, nil
 	}
 
 	client := node.WsClient{
-		Addr:        "ws://localhost:8080",
-		Path:        "/query",
+		//Addr:        "wss://uapi.3w.com:443",
+		//Addr:        "ws://18.166.239.217:6060",
+		//Path:        "/websocket",
+		Addr:        "ws://localhost:6060",
+		Path:        "/websocket",
 		Origin:      "*",
 		AuthCall:    authCall,
 		ReceiveCall: receiveCall,
@@ -60,7 +71,7 @@ func newClient() {
 }
 
 func TestWsClient(t *testing.T) {
-	for i := 0; i < 1; i++ {
+	for i := 0; i < 500; i++ {
 		go newClient()
 	}
 	select {}
