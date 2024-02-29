@@ -259,6 +259,11 @@ func (self *WsServer) addConn(conn *websocket.Conn, ctx *Context) error {
 		self.pool = make(ConnPool, 50)
 	}
 
+	if len(self.pool) >= self.max {
+		closeConn(conn)
+		return utils.Error("conn pool full: ", len(self.pool))
+	}
+
 	check, b := self.pool[sub]
 	if !b {
 		self.pool[sub] = map[string]*DevConn{key: {Life: exp, Last: utils.UnixSecond(), Dev: dev, Ctx: ctx, Conn: conn}}
@@ -268,7 +273,12 @@ func (self *WsServer) addConn(conn *websocket.Conn, ctx *Context) error {
 	if b {
 		closeConn(devConn.Conn) // 如果存在连接对象则先关闭
 	}
-	check[key] = &DevConn{Life: exp, Last: utils.UnixSecond(), Dev: dev, Ctx: ctx, Conn: conn}
+	devConn.Life = exp
+	devConn.Dev = dev
+	devConn.Last = utils.UnixSecond()
+	devConn.Ctx = ctx
+	devConn.Conn = conn
+	//check[key] = &DevConn{Life: exp, Last: utils.UnixSecond(), Dev: dev, Ctx: ctx, Conn: conn}
 	return nil
 }
 
@@ -328,10 +338,6 @@ func (self *WsServer) withConnectionLimit(handler websocket.Handler) http.Handle
 			http.Error(w, "limited access", http.StatusServiceUnavailable)
 			return
 		}
-		//if len(self.pool) >= self.max {
-		//	http.Error(w, "too many connections", http.StatusServiceUnavailable)
-		//	return
-		//}
 		handler.ServeHTTP(w, r)
 	})
 }
@@ -353,7 +359,10 @@ func (self *WsServer) wsHandler(path string, handle Handle) websocket.Handler {
 			return
 		}
 
-		self.addConn(ws, ctx)
+		if err := self.addConn(ws, ctx); err != nil {
+			zlog.Error("add conn error", 0, zlog.AddError(err))
+			return
+		}
 
 		for {
 			// 读取消息

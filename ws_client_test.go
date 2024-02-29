@@ -43,8 +43,8 @@ func newClient() {
 	}
 
 	client := node.WsClient{
-		Addr:        "ws://localhost:8080",
-		Path:        "/query",
+		Addr:        "ws://localhost:6060",
+		Path:        "/websocket",
 		Origin:      "*",
 		AuthCall:    authCall,
 		ReceiveCall: receiveCall,
@@ -60,7 +60,7 @@ func newClient() {
 }
 
 func TestWsClient(t *testing.T) {
-	for i := 0; i < 1; i++ {
+	for i := 0; i < 50; i++ {
 		go newClient()
 	}
 	select {}

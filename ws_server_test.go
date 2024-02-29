@@ -24,7 +24,7 @@ func TestWsServer(t *testing.T) {
 		TokenKey: "123456" + utils.CreateLocalSecretKey(12, 45, 23, 60, 58, 30),
 		TokenExp: jwt.TWO_WEEK,
 	})
-	server.NewPool(5000, 1500, 500, 30)
+	server.NewPool(30, 1500, 20, 30)
 	handle := func(ctx *node.Context, message []byte) (interface{}, error) {
 		result := map[string]interface{}{}
 		if err := utils.JsonUnmarshal(message, &result); err != nil {
@@ -34,7 +34,7 @@ func TestWsServer(t *testing.T) {
 		//fmt.Println("receive ack:", result)
 		return nil, nil
 	}
-	server.AddRouter("/query", handle, nil)
+	server.AddRouter("/websocket", handle, nil)
 	go func() {
 		for {
 			reply := MsgReply{Id: utils.NextSID(), Type: "transfer", Data: "我爱中国"}
@@ -42,5 +42,5 @@ func TestWsServer(t *testing.T) {
 			time.Sleep(5 * time.Second)
 		}
 	}()
-	server.StartWebsocket(":8080")
+	server.StartWebsocket(":6060")
 }
