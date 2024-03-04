@@ -207,11 +207,11 @@ func wsRenderTo(ws *websocket.Conn, ctx *Context, data interface{}) error {
 
 func validBody(ws *websocket.Conn, ctx *Context, body []byte) bool {
 	if body == nil || len(body) == 0 {
-		ctx.writeError(ws, ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters is nil"})
+		_ = ctx.writeError(ws, ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters is nil"})
 		return false
 	}
 	if len(body) > (MAX_VALUE_LEN) {
-		ctx.writeError(ws, ex.Throw{Code: http.StatusLengthRequired, Msg: "body parameters length is too long"})
+		_ = ctx.writeError(ws, ex.Throw{Code: http.StatusLengthRequired, Msg: "body parameters length is too long"})
 		return false
 	}
 	ctx.JsonBody.Data = utils.GetJsonString(body, "d")
@@ -220,7 +220,7 @@ func validBody(ws *websocket.Conn, ctx *Context, body []byte) bool {
 	ctx.JsonBody.Plan = utils.GetJsonInt64(body, "p")
 	ctx.JsonBody.Sign = utils.GetJsonString(body, "s")
 	if err := ctx.validJsonBody(); err != nil { // TODO important
-		ctx.writeError(ws, err)
+		_ = ctx.writeError(ws, err)
 		return false
 	}
 	return true
@@ -266,7 +266,9 @@ func (self *WsServer) addConn(conn *websocket.Conn, ctx *Context) error {
 
 	check, b := self.pool[sub]
 	if !b {
-		self.pool[sub] = map[string]*DevConn{key: {Life: exp, Last: utils.UnixSecond(), Dev: dev, Ctx: ctx, Conn: conn}}
+		value := make(map[string]*DevConn, 2)
+		value[key] = &DevConn{Life: exp, Last: utils.UnixSecond(), Dev: dev, Ctx: ctx, Conn: conn}
+		self.pool[sub] = value
 		return nil
 	}
 	devConn, b := check[key]
@@ -348,14 +350,14 @@ func (self *WsServer) wsHandler(path string, handle Handle) websocket.Handler {
 		defer closeConn(ws)
 
 		ctx := createCtx(self, path)
-		ctx.readWsToken(ws.Request().Header.Get("Authorization"))
+		_ = ctx.readWsToken(ws.Request().Header.Get("Authorization"))
 
 		if len(ctx.Subject.GetRawBytes()) == 0 {
-			ctx.writeError(ws, ex.Throw{Code: http.StatusUnauthorized, Msg: "token is nil"})
+			_ = ctx.writeError(ws, ex.Throw{Code: http.StatusUnauthorized, Msg: "token is nil"})
 			return
 		}
 		if err := ctx.Subject.Verify(utils.Bytes2Str(ctx.Subject.GetRawBytes()), ctx.GetJwtConfig().TokenKey, true); err != nil {
-			ctx.writeError(ws, ex.Throw{Code: http.StatusUnauthorized, Msg: "token invalid or expired", Err: err})
+			_ = ctx.writeError(ws, ex.Throw{Code: http.StatusUnauthorized, Msg: "token invalid or expired", Err: err})
 			return
 		}
 
@@ -387,13 +389,13 @@ func (self *WsServer) wsHandler(path string, handle Handle) websocket.Handler {
 			dec, b := ctx.JsonBody.Data.([]byte)
 
 			if b && utils.GetJsonString(dec, "healthCheck") == pingCmd {
-				self.refConn(ctx)
+				_ = self.refConn(ctx)
 				continue
 			}
 
 			reply, err := handle(ctx, dec)
 			if err != nil {
-				ctx.writeError(ws, err)
+				_ = ctx.writeError(ws, err)
 				continue
 			}
 
