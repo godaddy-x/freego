@@ -168,7 +168,7 @@ func dropMysqlIndex(object sqlc.Object, index []sqlc.Index) bool {
 		return false
 	}
 	for k, _ := range check { // 确定删除表所有索引
-		if _, err := db.Db.Exec("DROP INDEX " + k + " ON " + object.GetTable()); err != nil {
+		if _, err := db.Db.Exec("DROP INDEX `" + k + "` ON " + object.GetTable()); err != nil {
 			panic(err)
 		}
 	}
@@ -218,9 +218,9 @@ func addMysqlIndex(object sqlc.Object, index sqlc.Index) error {
 		sql = utils.AddStr(sql, " UNIQUE ")
 	}
 	sql = utils.AddStr(sql, " INDEX ")
-	sql = utils.AddStr(sql, index.Name)
-	sql = utils.AddStr(sql, " ON ", object.GetTable(), " (")
-	sql = utils.AddStr(sql, columns[1:], ")")
+	sql = utils.AddStr(sql, "`", index.Name, "`")
+	sql = utils.AddStr(sql, " ON ", object.GetTable(), " (`")
+	sql = utils.AddStr(sql, columns[1:], "`)")
 
 	db, err := NewMysql(Option{Timeout: 120000})
 	if err != nil {
@@ -282,12 +282,12 @@ func createTable(model *MdlDriver) error {
 	for _, v := range model.FieldElem {
 		if len(v.FieldDBType) == 0 {
 			if isInt(v.FieldType) {
-				fields = utils.AddStr(fields, ",", v.FieldJsonName, " ", "BIGINT")
+				fields = utils.AddStr(fields, ",`", v.FieldJsonName, "` ", "BIGINT")
 			} else {
-				fields = utils.AddStr(fields, ",", v.FieldJsonName, " ", "VARCHAR(255)")
+				fields = utils.AddStr(fields, ",`", v.FieldJsonName, "` ", "VARCHAR(255)")
 			}
 		} else {
-			fields = utils.AddStr(fields, ",", v.FieldJsonName, " ", v.FieldDBType)
+			fields = utils.AddStr(fields, ",`", v.FieldJsonName, "` ", v.FieldDBType)
 		}
 		if v.Primary {
 			fields = utils.AddStr(fields, " NOT NULL PRIMARY KEY")
