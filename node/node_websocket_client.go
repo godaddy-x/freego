@@ -164,7 +164,7 @@ func (client *WsClient) initClient() error {
 	if err != nil {
 		return err
 	}
-	defer closeConn(ws)
+	defer closeConn("ws client close", &DevConn{Conn: ws})
 
 	client.conn = ws
 	client.auth = TokenAuth{Token: token, Secret: secret}

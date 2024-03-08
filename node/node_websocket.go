@@ -31,6 +31,7 @@ type WsServer struct {
 }
 
 type DevConn struct {
+	Sub  string
 	Dev  string
 	Life int64
 	Last int64
@@ -146,14 +147,16 @@ func (ctx *Context) writeError(ws *websocket.Conn, err error) error {
 	return nil
 }
 
-func closeConn(ws *websocket.Conn) {
+func closeConn(msg string, object *DevConn) {
 	defer func() {
 		if err := recover(); err != nil {
-			zlog.Error("ws close panic error", 0, zlog.Any("error", err))
+			zlog.Error("ws close panic error", 0, zlog.String("sub", object.Sub), zlog.String("dev", object.Dev), zlog.Any("error", err))
 		}
 	}()
-	if err := ws.Close(); err != nil {
-		zlog.Error("ws close error", 0, zlog.AddError(err))
+	if object.Conn != nil {
+		if err := object.Conn.Close(); err != nil {
+			zlog.Error("ws close error", 0, zlog.String("msg", msg), zlog.String("sub", object.Sub), zlog.String("dev", object.Dev), zlog.AddError(err))
+		}
 	}
 }
 
@@ -245,7 +248,7 @@ func (self *WsServer) SendMessage(data interface{}, subject string, dev ...strin
 func (self *WsServer) addConn(conn *websocket.Conn, ctx *Context) error {
 	self.mu.Lock()
 	defer self.mu.Unlock()
-	sub := ctx.Subject.Payload.Sub
+	sub := ctx.Subject.GetSub()
 	dev := ctx.Subject.GetDev()
 	exp := ctx.Subject.GetExp()
 	if len(dev) == 0 {
@@ -260,21 +263,26 @@ func (self *WsServer) addConn(conn *websocket.Conn, ctx *Context) error {
 	}
 
 	if len(self.pool) >= self.max {
-		closeConn(conn)
+		closeConn("add conn max pool close", &DevConn{Conn: conn, Dev: ctx.Subject.GetDev(), Sub: ctx.Subject.GetSub()})
 		return utils.Error("conn pool full: ", len(self.pool))
 	}
 
 	check, b := self.pool[sub]
 	if !b {
 		value := make(map[string]*DevConn, 2)
-		value[key] = &DevConn{Life: exp, Last: utils.UnixSecond(), Dev: dev, Ctx: ctx, Conn: conn}
+		value[key] = &DevConn{Life: exp, Last: utils.UnixSecond(), Sub: sub, Dev: dev, Ctx: ctx, Conn: conn}
 		self.pool[sub] = value
 		return nil
 	}
 	devConn, b := check[key]
 	if b {
-		closeConn(devConn.Conn) // 如果存在连接对象则先关闭
+		closeConn("add conn replace close", devConn) // 如果存在连接对象则先关闭
 	}
+	if devConn == nil {
+		check[key] = &DevConn{Life: exp, Last: utils.UnixSecond(), Sub: sub, Dev: dev, Ctx: ctx, Conn: conn}
+		return nil
+	}
+	devConn.Sub = sub
 	devConn.Life = exp
 	devConn.Dev = dev
 	devConn.Last = utils.UnixSecond()
@@ -347,7 +355,9 @@ func (self *WsServer) withConnectionLimit(handler websocket.Handler) http.Handle
 func (self *WsServer) wsHandler(path string, handle Handle) websocket.Handler {
 	return func(ws *websocket.Conn) {
 
-		defer closeConn(ws)
+		devConn := &DevConn{Conn: ws}
+
+		defer closeConn("handler close", devConn)
 
 		ctx := createCtx(self, path)
 		_ = ctx.readWsToken(ws.Request().Header.Get("Authorization"))
@@ -360,6 +370,9 @@ func (self *WsServer) wsHandler(path string, handle Handle) websocket.Handler {
 			_ = ctx.writeError(ws, ex.Throw{Code: http.StatusUnauthorized, Msg: "token invalid or expired", Err: err})
 			return
 		}
+
+		devConn.Sub = ctx.Subject.GetSub()
+		devConn.Dev = ctx.Subject.GetDev()
 
 		if err := self.addConn(ws, ctx); err != nil {
 			zlog.Error("add conn error", 0, zlog.AddError(err))
@@ -434,7 +447,7 @@ func (self *WsServer) StartWebsocket(addr string) {
 				for k1, v1 := range v {
 					if current-v1.Last > int64(self.ping*2) || current > v1.Life {
 						self.mu.Lock()
-						closeConn(v1.Conn)
+						closeConn("check life close", v1)
 						delete(v, k1)
 						self.mu.Unlock()
 					}
