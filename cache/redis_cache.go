@@ -143,6 +143,19 @@ func (self *RedisManager) GetString(key string) (string, error) {
 	return utils.Bytes2Str(value), nil
 }
 
+func (self *RedisManager) GetBytes(key string) ([]byte, error) {
+	client := self.Pool.Get()
+	defer self.Close(client)
+	value, err := redis.Bytes(client.Do("GET", key))
+	if err != nil && err != redis.ErrNil {
+		return nil, err
+	}
+	if value == nil || len(value) == 0 {
+		return nil, nil
+	}
+	return value, nil
+}
+
 func (self *RedisManager) GetBool(key string) (bool, error) {
 	client := self.Pool.Get()
 	defer self.Close(client)
@@ -160,7 +173,12 @@ func (self *RedisManager) Put(key string, input interface{}, expire ...int) erro
 	if len(key) == 0 || input == nil {
 		return nil
 	}
-	value := utils.Str2Bytes(utils.AnyToStr(input))
+	var value []byte
+	if v, b := input.([]byte); b {
+		value = v
+	} else {
+		value = utils.Str2Bytes(utils.AnyToStr(input))
+	}
 	client := self.Pool.Get()
 	defer self.Close(client)
 	if len(expire) > 0 && expire[0] > 0 {

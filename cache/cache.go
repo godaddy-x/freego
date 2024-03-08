@@ -22,6 +22,7 @@ type Cache interface {
 	GetInt64(key string) (int64, error)
 	GetFloat64(key string) (float64, error)
 	GetString(key string) (string, error)
+	GetBytes(key string) ([]byte, error)
 	GetBool(key string) (bool, error)
 	// 保存/过期时间(秒)
 	Put(key string, input interface{}, expire ...int) error
@@ -65,6 +66,10 @@ func (self *CacheManager) GetInt64(key string) (int64, error) {
 
 func (self *CacheManager) GetFloat64(key string) (float64, error) {
 	return 0, utils.Error("No implementation method [GetFloat64] was found")
+}
+
+func (self *CacheManager) GetBytes(key string) ([]byte, error) {
+	return nil, utils.Error("No implementation method [GetBytes] was found")
 }
 
 func (self *CacheManager) GetString(key string) (string, error) {

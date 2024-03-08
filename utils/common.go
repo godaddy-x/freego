@@ -240,6 +240,8 @@ func AnyToStr(any interface{}) string {
 	}
 	if str, ok := any.(string); ok {
 		return str
+	} else if str, ok := any.([]byte); ok {
+		return Bytes2Str(str)
 	} else if str, ok := any.(int); ok {
 		return strconv.FormatInt(int64(str), 10)
 	} else if str, ok := any.(int8); ok {
@@ -658,9 +660,11 @@ func Shift(input interface{}, ln int, fz bool) string {
 		}
 	}
 	if fz && ln > 0 && len(part2) < ln {
-		for i := 0; i <= ln-len(part2); i++ {
-			part2 = AddStr(part2, "0")
+		var zero string
+		for i := 0; i < ln-len(part2); i++ {
+			zero = AddStr(zero, "0")
 		}
+		part2 = AddStr(part2, zero)
 	}
 	if len(part2) > 0 {
 		part1 = AddStr(part1, ".", part2)

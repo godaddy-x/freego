@@ -66,6 +66,14 @@ func (self *LocalMapManager) GetString(key string) (string, error) {
 	return utils.AnyToStr(v), nil
 }
 
+func (self *LocalMapManager) GetBytes(key string) ([]byte, error) {
+	v, b := self.c.Get(key)
+	if !b || v == nil {
+		return nil, nil
+	}
+	return v.([]byte), nil
+}
+
 func (self *LocalMapManager) GetBool(key string) (bool, error) {
 	v, b := self.c.Get(key)
 	if !b || v == nil {
