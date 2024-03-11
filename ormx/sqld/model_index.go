@@ -211,7 +211,7 @@ func addMysqlIndex(object sqlc.Object, index sqlc.Index) error {
 		if len(v) == 0 {
 			panic("index key field is nil: " + object.GetTable())
 		}
-		columns += utils.AddStr(",", v)
+		columns += utils.AddStr(",`", v, "`")
 	}
 	sql := "CREATE"
 	if index.Unique {
@@ -219,8 +219,8 @@ func addMysqlIndex(object sqlc.Object, index sqlc.Index) error {
 	}
 	sql = utils.AddStr(sql, " INDEX ")
 	sql = utils.AddStr(sql, "`", index.Name, "`")
-	sql = utils.AddStr(sql, " ON ", object.GetTable(), " (`")
-	sql = utils.AddStr(sql, columns[1:], "`)")
+	sql = utils.AddStr(sql, " ON ", object.GetTable(), " (")
+	sql = utils.AddStr(sql, columns[1:], ")")
 
 	db, err := NewMysql(Option{Timeout: 120000})
 	if err != nil {
