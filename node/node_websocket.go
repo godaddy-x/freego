@@ -375,7 +375,7 @@ func (self *WsServer) wsHandler(path string, handle Handle) websocket.Handler {
 		devConn.Dev = ctx.Subject.GetDev()
 
 		if err := self.addConn(ws, ctx); err != nil {
-			zlog.Error("add conn error", 0, zlog.AddError(err))
+			zlog.Error("add conn error", 0, zlog.String("sub", devConn.Sub), zlog.String("dev", devConn.Dev), zlog.AddError(err))
 			return
 		}
 
@@ -384,17 +384,17 @@ func (self *WsServer) wsHandler(path string, handle Handle) websocket.Handler {
 			var body []byte
 			err := websocket.Message.Receive(ws, &body)
 			if err != nil {
-				zlog.Error("receive message error", 0, zlog.AddError(err))
+				zlog.Error("receive message error", 0, zlog.String("sub", devConn.Sub), zlog.String("dev", devConn.Dev), zlog.AddError(err))
 				break
 			}
 
 			if self.Debug {
-				zlog.Info("websocket receive message", 0, zlog.String("data", string(body)))
+				zlog.Info("websocket receive message", 0, zlog.String("sub", devConn.Sub), zlog.String("dev", devConn.Dev), zlog.String("data", string(body)))
 			}
 
 			if !validBody(ws, ctx, body) {
 				if self.Debug {
-					zlog.Info("websocket receive message invalid", 0, zlog.String("data", string(body)))
+					zlog.Info("websocket receive message invalid", 0, zlog.String("sub", devConn.Sub), zlog.String("dev", devConn.Dev), zlog.String("data", string(body)))
 				}
 				continue
 			}
@@ -413,12 +413,12 @@ func (self *WsServer) wsHandler(path string, handle Handle) websocket.Handler {
 			}
 
 			if self.Debug && reply != nil {
-				zlog.Info("websocket reply message", 0, zlog.Any("data", reply))
+				zlog.Info("websocket reply message", 0, zlog.String("sub", devConn.Sub), zlog.String("dev", devConn.Dev), zlog.Any("data", reply))
 			}
 
 			// 回复消息
 			if err := wsRenderTo(ws, ctx, reply); err != nil {
-				zlog.Error("receive message reply error", 0, zlog.AddError(err))
+				zlog.Error("receive message reply error", 0, zlog.String("sub", devConn.Sub), zlog.String("dev", devConn.Dev), zlog.AddError(err))
 				break
 			}
 
