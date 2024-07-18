@@ -47,7 +47,7 @@ func (self *HttpNode) proxy(handle PostHandle, ctx *fasthttp.RequestCtx) {
 	}
 }
 
-func (self *HttpNode) StartServer(addr string) {
+func (self *HttpNode) StartServer(addr string, timeout ...int) {
 	go func() {
 		if self.Context.CacheAware != nil {
 			zlog.Printf("cache service has been started successful")
@@ -68,7 +68,11 @@ func (self *HttpNode) StartServer(addr string) {
 			panic("filter chain is nil")
 		}
 		zlog.Printf("http【%s】service has been started successful", addr)
-		if err := fasthttp.Serve(NewGracefulListener(addr, time.Second*10), self.Context.router.Handler); err != nil {
+		t := 10
+		if timeout != nil {
+			t = timeout[0]
+		}
+		if err := fasthttp.Serve(NewGracefulListener(addr, time.Second*time.Duration((t))), self.Context.router.Handler); err != nil {
 			panic(err)
 		}
 	}()
