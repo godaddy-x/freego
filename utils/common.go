@@ -329,6 +329,11 @@ func NextSID() string {
 	return snowflake_node.Generate().String()
 }
 
+// NextBID 获取雪花string ID,默认为1024区
+func NextBID() []byte {
+	return snowflake_node.Generate().Bytes()
+}
+
 func GetUUID(replace ...bool) string {
 	uid, err := uuid.NewUUID()
 	if err != nil {

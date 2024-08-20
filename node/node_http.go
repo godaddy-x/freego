@@ -72,7 +72,7 @@ func (self *HttpNode) StartServer(addr string, timeout ...int) {
 		if timeout != nil {
 			t = timeout[0]
 		}
-		if err := fasthttp.Serve(NewGracefulListener(addr, time.Second*time.Duration((t))), self.Context.router.Handler); err != nil {
+		if err := fasthttp.Serve(NewGracefulListener(addr, time.Second*time.Duration(t)), self.Context.router.Handler); err != nil {
 			panic(err)
 		}
 	}()

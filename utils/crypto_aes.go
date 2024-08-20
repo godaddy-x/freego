@@ -7,6 +7,10 @@ import (
 	"errors"
 )
 
+const (
+	keyLen = 24
+)
+
 func PKCS7Padding(ciphertext []byte, blockSize int) []byte {
 	padding := blockSize - len(ciphertext)%blockSize
 	padtext := bytes.Repeat([]byte{byte(padding)}, padding)
@@ -46,6 +50,40 @@ func AesDecrypt(msg, key, iv string) ([]byte, error) {
 	if ciphertext == nil || len(ciphertext) == 0 {
 		return nil, err
 	}
+	blockModel := cipher.NewCBCDecrypter(block, GetAesIV(iv))
+	plantText := make([]byte, len(ciphertext))
+	blockModel.CryptBlocks(plantText, ciphertext)
+	plantText = PKCS7UnPadding(plantText, block.BlockSize())
+	if plantText == nil {
+		return nil, errors.New("unPadding data failed")
+	}
+	return plantText, nil
+}
+
+func AesEncrypt2(plantText []byte, key string) string {
+	block, err := aes.NewCipher(GetAesKey(key)) //选择加密算法
+	if err != nil {
+		return ""
+	}
+	iv := RandStr(keyLen)
+	plantText = PKCS7Padding(plantText, block.BlockSize())
+	blockModel := cipher.NewCBCEncrypter(block, GetAesIV(iv))
+	ciphertext := make([]byte, len(plantText))
+	blockModel.CryptBlocks(ciphertext, plantText)
+	return Base64Encode(append(Str2Bytes(iv), ciphertext...))
+}
+
+func AesDecrypt2(msg, key string) ([]byte, error) {
+	block, err := aes.NewCipher(GetAesKey(key)) //选择加密算法
+	if err != nil {
+		return nil, err
+	}
+	bs := Base64Decode(msg)
+	if bs == nil || len(bs) <= keyLen {
+		return nil, errors.New("msg bs invalid")
+	}
+	iv := Bytes2Str(bs[:keyLen])
+	ciphertext := bs[keyLen:]
 	blockModel := cipher.NewCBCDecrypter(block, GetAesIV(iv))
 	plantText := make([]byte, len(ciphertext))
 	blockModel.CryptBlocks(plantText, ciphertext)
