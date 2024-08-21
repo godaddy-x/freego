@@ -280,6 +280,9 @@ func (self *RDBManager) Save(data ...sqlc.Object) error {
 	if len(data) > 2000 {
 		return self.Error("[Mysql.Save] data length > 2000")
 	}
+	if self.AutoID && len(data) != 1 {
+		return self.Error("[Mysql.Save] auto ID unsupported many object")
+	}
 	obv, ok := modelDrivers[data[0].GetTable()]
 	if !ok {
 		return self.Error("[Mysql.Save] registration object type not found [", data[0].GetTable(), "]")
@@ -383,6 +386,18 @@ func (self *RDBManager) Save(data ...sqlc.Object) error {
 		return self.Error("[Mysql.Save] affected rows failed: ", err)
 	} else if rowsAffected <= 0 {
 		return self.Error("[Mysql.Save] affected rows <= 0: ", rowsAffected)
+	} else if self.AutoID && len(data) == 1 {
+		lastInsertId, err := ret.LastInsertId()
+		if err != nil {
+			return self.Error("[Mysql.Save] save get last id failed: ", err)
+		}
+		only := data[0]
+		for _, vv := range obv.FieldElem {
+			if vv.Primary {
+				utils.SetInt64(utils.GetPtr(only, vv.FieldOffset), lastInsertId)
+				break
+			}
+		}
 	}
 	if self.MongoSync && obv.ToMongo {
 		self.MGOSyncData = append(self.MGOSyncData, &MGOSyncData{SAVE, data[0], nil, data})

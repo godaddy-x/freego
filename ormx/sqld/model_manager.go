@@ -236,7 +236,20 @@ func GetValue(obj interface{}, elem *FieldElem) (interface{}, error) {
 			return nil, nil
 		}
 	case reflect.Struct:
-		return nil, utils.Error("please use pointer type: ", elem.FieldName)
+		if elem.FieldType == "decimal.Decimal" {
+			// 使用反射获取结构体对象中的字段值
+			fieldValue := reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName)
+			// 判断字段值是否有效
+			if fieldValue.IsValid() {
+				// 处理 decimal.Decimal 类型字段值
+				decimalValue := fieldValue.Interface().(decimal.Decimal) // 将字段值转换为 decimal.Decimal 类型
+				return decimalValue.String(), nil
+			} else {
+				return nil, utils.Error("field not found: ", elem.FieldName)
+			}
+		} else {
+			return nil, utils.Error("please use pointer type: ", elem.FieldName)
+		}
 	}
 	return nil, nil
 }
