@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"github.com/godaddy-x/eccrypto"
+	"github.com/godaddy-x/freego/utils"
 	"unsafe"
 )
 
@@ -13,6 +14,12 @@ type EccObj struct {
 	publicKey        *ecdsa.PublicKey
 	PrivateKeyBase64 string
 	PublicKeyBase64  string
+}
+
+func NewEccObject() *EccObj {
+	obj := &EccObj{}
+	obj.CreateS256ECC()
+	return obj
 }
 
 func (self *EccObj) CreateS256ECC() error {
@@ -39,6 +46,18 @@ func (self *EccObj) LoadS256ECC(b64 string) error {
 	//self.PrivateKeyBase64 = base64.StdEncoding.EncodeToString(prkBs)
 	self.PublicKeyBase64 = base64.StdEncoding.EncodeToString(pubBs)
 	return nil
+}
+
+func (self *EccObj) GenSharedKey(b64 string) (string, error) {
+	pub, _, err := ecc.LoadBase64PublicKey(b64)
+	if err != nil {
+		return "", err
+	}
+	key, err := ecc.GenSharedKey(self.privateKey, pub)
+	if err != nil {
+		return "", err
+	}
+	return utils.SHA512(utils.Bytes2Str(key)), nil
 }
 
 // ******************************************************* ECC Implement *******************************************************

@@ -1,9 +1,10 @@
 package node
 
 import (
-	"fmt"
+	"errors"
 	"github.com/buaazp/fasthttprouter"
 	"github.com/godaddy-x/freego/utils"
+	"github.com/godaddy-x/freego/utils/crypto"
 	"github.com/godaddy-x/freego/zlog"
 	"github.com/valyala/fasthttp"
 )
@@ -12,6 +13,7 @@ var (
 	defaultMap = map[string]string{
 		utils.RandStr(16): utils.RandStr(32),
 	}
+	eccObject = crypto.NewEccObject()
 )
 
 type EncipherParam struct {
@@ -67,17 +69,29 @@ func (s *DefaultEncipher) getSignDepth() int {
 }
 
 func (s *DefaultEncipher) Signature(input string) string {
+	if len(input) == 0 {
+		return ""
+	}
 	return utils.PasswordHash(input, s.getSignKey(), s.getSignDepth())
 }
 func (s *DefaultEncipher) VerifySignature(input, sign string) bool {
+	if len(input) == 0 || len(sign) == 0 {
+		return false
+	}
 	return utils.PasswordVerify(input, s.getSignKey(), sign, s.getSignDepth())
 }
 
 func (s *DefaultEncipher) Encrypt(input string) (string, error) {
+	if len(input) == 0 {
+		return "", errors.New("input is nil")
+	}
 	return utils.AesEncrypt2(utils.Str2Bytes(input), s.getEncryptKey()), nil
 }
 
 func (s *DefaultEncipher) Decrypt(input string) (string, error) {
+	if len(input) == 0 {
+		return "", errors.New("input is nil")
+	}
 	res, err := utils.AesDecrypt2(input, s.getEncryptKey())
 	if err != nil {
 		return "", err
@@ -85,45 +99,81 @@ func (s *DefaultEncipher) Decrypt(input string) (string, error) {
 	return utils.Bytes2Str(res), nil
 }
 
+func decryptBody(pub, body []byte) (string, string) {
+	if len(pub) == 0 || len(body) == 0 {
+		return "", ""
+	}
+	key, err := eccObject.GenSharedKey(utils.Bytes2Str(pub))
+	if err != nil {
+		zlog.Error("shared fail", 0, zlog.AddError(err))
+		return "", ""
+	}
+	res, err := utils.AesDecrypt2(utils.Bytes2Str(body), key)
+	if err != nil {
+		zlog.Error("decrypt fail", 0, zlog.AddError(err))
+		return "", ""
+	}
+	return utils.Bytes2Str(res), key
+}
+
+func encryptBody(body, shared string) string {
+	if len(shared) == 0 || len(body) == 0 {
+		return ""
+	}
+	return utils.AesEncrypt2(utils.Str2Bytes(body), shared)
+}
+
 func StartNodeEncipher(addr string, enc Encipher) {
 	// 创建一个新的路由器
 	router := fasthttprouter.New()
 	// 设置路由处理函数
+	router.GET("/api/publicKey", func(ctx *fasthttp.RequestCtx) {
+		_, pub := eccObject.GetPublicKey()
+		_, _ = ctx.WriteString(pub)
+	})
 	router.GET("/api/nextId", func(ctx *fasthttp.RequestCtx) {
 		_, _ = ctx.WriteString(utils.NextSID())
 	})
 	router.POST("/api/signature", func(ctx *fasthttp.RequestCtx) {
+		pub := ctx.Request.Header.Peek("pub")
 		body := ctx.PostBody()
-		_, _ = ctx.WriteString(enc.Signature(utils.Bytes2Str(body)))
+		decodeBody, sharedKey := decryptBody(pub, body)
+		_, _ = ctx.WriteString(encryptBody(enc.Signature(decodeBody), sharedKey))
 	})
 	router.POST("/api/signature/verify", func(ctx *fasthttp.RequestCtx) {
-		body := ctx.PostBody()
+		pub := ctx.Request.Header.Peek("pub")
 		sign := utils.Bytes2Str(ctx.Request.Header.Peek("sign"))
-		res := enc.VerifySignature(utils.Bytes2Str(body), sign)
+		body := ctx.PostBody()
+		decodeBody, _ := decryptBody(pub, body)
+		res := enc.VerifySignature(decodeBody, sign)
 		if res {
-			_, _ = ctx.WriteString("true")
+			_, _ = ctx.WriteString("success")
 		} else {
-			_, _ = ctx.WriteString("false")
+			_, _ = ctx.WriteString("fail")
 		}
 	})
 	router.POST("/api/encrypt", func(ctx *fasthttp.RequestCtx) {
+		pub := ctx.Request.Header.Peek("pub")
 		body := ctx.PostBody()
-		res, err := enc.Encrypt(utils.Bytes2Str(body))
+		decodeBody, sharedKey := decryptBody(pub, body)
+		res, err := enc.Encrypt(decodeBody)
 		if err != nil {
 			zlog.Error("encrypt fail", 0, zlog.AddError(err))
 		}
-		_, _ = ctx.WriteString(res)
+		_, _ = ctx.WriteString(encryptBody(res, sharedKey))
 	})
 	router.POST("/api/decrypt", func(ctx *fasthttp.RequestCtx) {
+		pub := ctx.Request.Header.Peek("pub")
 		body := ctx.PostBody()
-		res, err := enc.Decrypt(utils.Bytes2Str(body))
+		decodeBody, sharedKey := decryptBody(pub, body)
+		res, err := enc.Decrypt(decodeBody)
 		if err != nil {
 			zlog.Error("decrypt fail", 0, zlog.AddError(err))
 		}
-		_, _ = ctx.WriteString(res)
+		_, _ = ctx.WriteString(encryptBody(res, sharedKey))
 	})
 	// 开启服务器
-	fmt.Println("Server is running on " + addr)
+	zlog.Info("Encipher service is running on "+addr, 0)
 	if err := fasthttp.ListenAndServe(addr, router.Handler); err != nil {
 		panic(err)
 	}
