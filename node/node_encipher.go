@@ -7,6 +7,8 @@ import (
 	"github.com/godaddy-x/freego/utils/crypto"
 	"github.com/godaddy-x/freego/zlog"
 	"github.com/valyala/fasthttp"
+	"io/ioutil"
+	"os"
 )
 
 var (
@@ -37,7 +39,44 @@ type DefaultEncipher struct {
 	param *EncipherParam
 }
 
-func NewDefaultEncipher(object EncipherParam) *DefaultEncipher {
+func config() EncipherParam {
+	keyfile := "keyfile"
+	if _, err := os.Stat(keyfile); os.IsNotExist(err) {
+		file, err := os.Create(keyfile)
+		if err != nil {
+			panic("create file fail: " + err.Error())
+		}
+		defer file.Close()
+		param := EncipherParam{
+			SignDepth:  8,
+			SignKey:    utils.RandStr(96, true),
+			EncryptKey: utils.RandStr(96, true),
+		}
+		str, err := utils.JsonMarshal(&param)
+		if err != nil {
+			panic(err)
+		}
+		if _, err := file.WriteString(string(str)); err != nil {
+			panic("write file fail: " + err.Error())
+		}
+		return param
+	} else {
+		file, err := os.Open(keyfile)
+		if err != nil {
+			panic("open file fail: " + err.Error())
+		}
+		defer file.Close()
+		data, err := ioutil.ReadAll(file)
+		param := EncipherParam{}
+		if err := utils.JsonUnmarshal(data, &param); err != nil {
+			panic("read file json failed: " + err.Error())
+		}
+		return param
+	}
+}
+
+func NewDefaultEncipher() *DefaultEncipher {
+	object := config()
 	newEncipher := &DefaultEncipher{
 		param: &EncipherParam{},
 	}
