@@ -5,8 +5,10 @@ import (
 	"github.com/godaddy-x/freego/ormx/sqlc"
 	"github.com/godaddy-x/freego/ormx/sqld"
 	"github.com/godaddy-x/freego/utils"
+	"github.com/godaddy-x/freego/utils/crypto"
 	"github.com/godaddy-x/freego/utils/decimal"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"testing"
 )
 
 type OwWallet struct {
@@ -102,13 +104,14 @@ func (o *OwBlock) NewIndex() []sqlc.Index {
 }
 
 type OwAuth struct {
-	Id       int64           `json:"id" bson:"_id" auto:"true"`
+	Id       int64           `json:"id" bson:"_id"`
 	Name     string          `json:"name" bson:"secret"`
 	Usestate decimal.Decimal `json:"usestate" bson:"usestate"`
+	Content  []byte          `json:"content" bson:"content" blob:"true"`
 }
 
 func (o *OwAuth) GetTable() string {
-	return "ow_api"
+	return "ow_auth"
 }
 
 func (o *OwAuth) NewObject() sqlc.Object {
@@ -247,39 +250,36 @@ func init() {
 //	}
 //}
 
-//func BenchmarkMysqlFindOne(b *testing.B) {
-//	b.StopTimer()  //调用该函数停止压力测试的时间计数go test -run="webbench_test.go" -test.bench="."*
-//	b.StartTimer() //重新开始时间
-//	for i := 0; i < b.N; i++ { //use b.N for looping
-//		db, err := new(sqld.MysqlManager).Get(sqld.Option{OpenTx: false})
-//		if err != nil {
-//			panic(err)
-//		}
-//		defer db.Close()
-//		//l := utils.UnixMilli()
-//		wallet := OwWallet{}
-//		if err := db.FindOne(sqlc.M().Eq("id", 1109819683034365953), &wallet); err != nil {
-//			fmt.Println(err)
-//		}
-//		//fmt.Println("cost: ", utils.UnixMilli()-l)
-//	}
-//}
-//
-//func BenchmarkMongoFindOne(b *testing.B) {
-//	b.StopTimer()  //调用该函数停止压力测试的时间计数go test -run="webbench_test.go" -test.bench="."*
-//	b.StartTimer() //重新开始时间
-//	for i := 0; i < b.N; i++ { //use b.N for looping
-//		db, err := new(sqld.MGOManager).Get()
-//		if err != nil {
-//			panic(err)
-//		}
-//		defer db.Close()
-//		o := &OwWallet{}
-//		if err := db.FindOne(sqlc.M().Eq("id", 1182663723102240768), o); err != nil {
-//			fmt.Println(err)
+//	func BenchmarkMysqlFindOne(b *testing.B) {
+//		b.StopTimer()  //调用该函数停止压力测试的时间计数go test -run="webbench_test.go" -test.bench="."*
+//		b.StartTimer() //重新开始时间
+//		for i := 0; i < b.N; i++ { //use b.N for looping
+//			db, err := new(sqld.MysqlManager).Get(sqld.Option{OpenTx: false})
+//			if err != nil {
+//				panic(err)
+//			}
+//			defer db.Close()
+//			//l := utils.UnixMilli()
+//			wallet := OwWallet{}
+//			if err := db.FindOne(sqlc.M().Eq("id", 1109819683034365953), &wallet); err != nil {
+//				fmt.Println(err)
+//			}
+//			//fmt.Println("cost: ", utils.UnixMilli()-l)
 //		}
 //	}
-//}
+func BenchmarkMongoFindOne(b *testing.B) {
+	//fmt.Println(pub)
+	b.StopTimer()              //调用该函数停止压力测试的时间计数go test -run="webbench_test.go" -test.bench="."*
+	b.StartTimer()             //重新开始时间
+	for i := 0; i < b.N; i++ { //use b.N for looping
+		obj := &crypto.EccObj{}
+		obj.CreateS256ECC()
+		obj1 := &crypto.EccObj{}
+		obj1.CreateS256ECC()
+		_, pub := obj1.GetPublicKey()
+		obj.GenSharedKey(pub)
+	}
+}
 
 //func BenchmarkConsulxCallRPC(b *testing.B) {
 //	mgr, err := new(consul.ConsulManager).Client()
