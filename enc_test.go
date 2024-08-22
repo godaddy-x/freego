@@ -2,13 +2,8 @@ package main
 
 import (
 	"fmt"
-	"github.com/godaddy-x/freego/utils/sdk"
 	"testing"
 	"time"
-)
-
-var (
-	encipherClient = sdk.NewEncipherClient("http://localhost:4141")
 )
 
 func TestEncPublicKey(t *testing.T) {

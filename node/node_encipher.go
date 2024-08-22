@@ -21,16 +21,18 @@ var (
 		utils.RandStr(16): utils.RandStr(32),
 	}
 	defaultEcc   = crypto.NewEccObject()
-	defaultCache = cache.NewLocalCache(10, 10)
+	defaultCache = cache.NewLocalCache(60, 10)
 )
 
 type EncipherParam struct {
+	EncryptKey string
 	SignKey    string
 	SignDepth  int
-	EncryptKey string
 }
 
 type Encipher interface {
+	// LoadConfig 读取配置
+	LoadConfig(keyfile string) (EncipherParam, error)
 	// Signature 数据签名
 	Signature(input string) string
 	// VerifySignature 数据签名验证
@@ -45,46 +47,16 @@ type DefaultEncipher struct {
 	param *EncipherParam
 }
 
-func config() EncipherParam {
-	keyfile := "keyfile"
-	if _, err := os.Stat(keyfile); os.IsNotExist(err) {
-		file, err := os.Create(keyfile)
-		if err != nil {
-			panic("create file fail: " + err.Error())
-		}
-		defer file.Close()
-		param := EncipherParam{
-			SignDepth:  8,
-			SignKey:    utils.RandStr(keyfileLen, true),
-			EncryptKey: utils.RandStr(keyfileLen, true),
-		}
-		str, err := utils.JsonMarshal(&param)
-		if err != nil {
-			panic(err)
-		}
-		if _, err := file.WriteString(string(str)); err != nil {
-			panic("write file fail: " + err.Error())
-		}
-		return param
-	} else {
-		file, err := os.Open(keyfile)
-		if err != nil {
-			panic("open file fail: " + err.Error())
-		}
-		defer file.Close()
-		data, err := ioutil.ReadAll(file)
-		param := EncipherParam{}
-		if err := utils.JsonUnmarshal(data, &param); err != nil {
-			panic("read file json failed: " + err.Error())
-		}
-		return param
+func NewDefaultEncipher(keyfile string) *DefaultEncipher {
+	if len(keyfile) == 0 {
+		panic("keyfile path is nil")
 	}
-}
-
-func NewDefaultEncipher() *DefaultEncipher {
-	object := config()
 	newEncipher := &DefaultEncipher{
 		param: &EncipherParam{},
+	}
+	object, err := newEncipher.LoadConfig(keyfile)
+	if err != nil {
+		panic(err)
 	}
 	for _, v := range defaultMap {
 		key := utils.SHA256(v)
@@ -111,6 +83,41 @@ func (s *DefaultEncipher) getEncryptKey() string {
 }
 func (s *DefaultEncipher) getSignDepth() int {
 	return s.param.SignDepth
+}
+
+func (s *DefaultEncipher) LoadConfig(keyfile string) (EncipherParam, error) {
+	if _, err := os.Stat(keyfile); os.IsNotExist(err) {
+		file, err := os.Create(keyfile)
+		if err != nil {
+			return EncipherParam{}, errors.New("create file fail: " + err.Error())
+		}
+		defer file.Close()
+		param := EncipherParam{
+			SignDepth:  8,
+			SignKey:    utils.RandStr(keyfileLen, true),
+			EncryptKey: utils.RandStr(keyfileLen, true),
+		}
+		str, err := utils.JsonMarshal(&param)
+		if err != nil {
+			panic(err)
+		}
+		if _, err := file.WriteString(string(str)); err != nil {
+			return EncipherParam{}, errors.New("write file fail: " + err.Error())
+		}
+		return param, nil
+	} else {
+		file, err := os.Open(keyfile)
+		if err != nil {
+			return EncipherParam{}, errors.New("open file fail: " + err.Error())
+		}
+		defer file.Close()
+		data, err := ioutil.ReadAll(file)
+		param := EncipherParam{}
+		if err := utils.JsonUnmarshal(data, &param); err != nil {
+			return EncipherParam{}, errors.New("read file json failed: " + err.Error())
+		}
+		return param, nil
+	}
 }
 
 func (s *DefaultEncipher) Signature(input string) string {
@@ -208,7 +215,7 @@ func StartNodeEncipher(addr string, enc Encipher) {
 			_, _ = ctx.WriteString("")
 			return
 		}
-		if err := defaultCache.Put(utils.MD5(utils.Bytes2Str(pub)), sharedKey); err != nil {
+		if err := defaultCache.Put(utils.MD5(utils.Bytes2Str(pub)), sharedKey, 86400000); err != nil {
 			zlog.Error("cache pub fail", 0, zlog.AddError(err))
 			_, _ = ctx.WriteString("")
 			return
