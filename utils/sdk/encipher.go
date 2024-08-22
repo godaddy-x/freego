@@ -181,20 +181,25 @@ func (s *EncipherClient) Signature(input string) (string, error) {
 	if err := fasthttp.DoTimeout(request, response, timeout); err != nil {
 		return "", err
 	}
-	if err != nil {
-		return "", err
+	sign := response.Header.Peek("sign")
+	if len(sign) == 0 {
+		return "", errors.New("sign is nil")
 	}
-	return utils.Bytes2Str(response.Body()), nil
+	res := utils.Bytes2Str(response.Body())
+	if utils.Bytes2Str(sign) != utils.HMAC_SHA256(res, s.shared) {
+		return "", errors.New("sign invalid")
+	}
+	return res, nil
 }
 
-func (s *EncipherClient) SignatureVerify(input, sign string) (bool, error) {
+func (s *EncipherClient) SignatureVerify(input, target string) (bool, error) {
 	body, err := s.encryptBody(input, false)
 	if err != nil {
 		return false, err
 	}
 	request := fasthttp.AcquireRequest()
 	request.Header.Set("pub", s.getPublic())
-	request.Header.Set("sign", sign)
+	request.Header.Set("sign", target)
 	request.Header.SetMethod("POST")
 	request.SetRequestURI(utils.AddStr(s.Host, "/api/signature/verify"))
 	request.SetBody(utils.Str2Bytes(body))
@@ -204,7 +209,15 @@ func (s *EncipherClient) SignatureVerify(input, sign string) (bool, error) {
 	if err := fasthttp.DoTimeout(request, response, timeout); err != nil {
 		return false, err
 	}
-	if utils.Bytes2Str(response.Body()) == "success" {
+	sign := response.Header.Peek("sign")
+	if len(sign) == 0 {
+		return false, errors.New("sign is nil")
+	}
+	res := utils.Bytes2Str(response.Body())
+	if utils.Bytes2Str(sign) != utils.HMAC_SHA256(res, s.shared) {
+		return false, errors.New("sign invalid")
+	}
+	if res == "success" {
 		return true, nil
 	}
 	return false, nil
@@ -226,7 +239,15 @@ func (s *EncipherClient) Encrypt(input string) (string, error) {
 	if err := fasthttp.DoTimeout(request, response, timeout); err != nil {
 		return "", err
 	}
-	res, err := s.decryptBody(s.shared, response.Body())
+	sign := response.Header.Peek("sign")
+	if len(sign) == 0 {
+		return "", errors.New("sign is nil")
+	}
+	res := utils.Bytes2Str(response.Body())
+	if utils.Bytes2Str(sign) != utils.HMAC_SHA256(res, s.shared) {
+		return "", errors.New("sign invalid")
+	}
+	res, err = s.decryptBody(s.shared, utils.Str2Bytes(res))
 	if err != nil {
 		return "", err
 	}
@@ -249,7 +270,15 @@ func (s *EncipherClient) Decrypt(input string) (string, error) {
 	if err := fasthttp.DoTimeout(request, response, timeout); err != nil {
 		return "", err
 	}
-	res, err := s.decryptBody(s.shared, response.Body())
+	sign := response.Header.Peek("sign")
+	if len(sign) == 0 {
+		return "", errors.New("sign is nil")
+	}
+	res := utils.Bytes2Str(response.Body())
+	if utils.Bytes2Str(sign) != utils.HMAC_SHA256(res, s.shared) {
+		return "", errors.New("sign invalid")
+	}
+	res, err = s.decryptBody(s.shared, utils.Str2Bytes(res))
 	if err != nil {
 		return "", err
 	}

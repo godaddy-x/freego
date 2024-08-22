@@ -225,20 +225,22 @@ func StartNodeEncipher(addr string, enc Encipher) {
 	router.POST("/api/signature", func(ctx *fasthttp.RequestCtx) {
 		pub := ctx.Request.Header.Peek("pub")
 		body := ctx.PostBody()
-		decodeBody, _ := decryptBody(pub, body)
-		_, _ = ctx.WriteString(enc.Signature(decodeBody))
+		decodeBody, sharedKey := decryptBody(pub, body)
+		result := enc.Signature(decodeBody)
+		ctx.Response.Header.Set("sign", utils.HMAC_SHA256(result, sharedKey))
+		_, _ = ctx.WriteString(result)
 	})
 	router.POST("/api/signature/verify", func(ctx *fasthttp.RequestCtx) {
 		pub := ctx.Request.Header.Peek("pub")
 		sign := utils.Bytes2Str(ctx.Request.Header.Peek("sign"))
 		body := ctx.PostBody()
-		decodeBody, _ := decryptBody(pub, body)
-		res := enc.VerifySignature(decodeBody, sign)
-		if res {
-			_, _ = ctx.WriteString("success")
-		} else {
-			_, _ = ctx.WriteString("fail")
+		decodeBody, sharedKey := decryptBody(pub, body)
+		result := "fail"
+		if enc.VerifySignature(decodeBody, sign) {
+			result = "success"
 		}
+		ctx.Response.Header.Set("sign", utils.HMAC_SHA256(result, sharedKey))
+		_, _ = ctx.WriteString(result)
 	})
 	router.POST("/api/encrypt", func(ctx *fasthttp.RequestCtx) {
 		pub := ctx.Request.Header.Peek("pub")
@@ -248,7 +250,9 @@ func StartNodeEncipher(addr string, enc Encipher) {
 		if err != nil {
 			zlog.Error("encrypt fail", 0, zlog.AddError(err))
 		}
-		_, _ = ctx.WriteString(encryptBody(res, sharedKey))
+		result := encryptBody(res, sharedKey)
+		ctx.Response.Header.Set("sign", utils.HMAC_SHA256(result, sharedKey))
+		_, _ = ctx.WriteString(result)
 	})
 	router.POST("/api/decrypt", func(ctx *fasthttp.RequestCtx) {
 		pub := ctx.Request.Header.Peek("pub")
@@ -258,7 +262,9 @@ func StartNodeEncipher(addr string, enc Encipher) {
 		if err != nil {
 			zlog.Error("decrypt fail", 0, zlog.AddError(err))
 		}
-		_, _ = ctx.WriteString(encryptBody(res, sharedKey))
+		result := encryptBody(res, sharedKey)
+		ctx.Response.Header.Set("sign", utils.HMAC_SHA256(result, sharedKey))
+		_, _ = ctx.WriteString(result)
 	})
 	// 开启服务器
 	zlog.Info("Encipher service is running on "+addr, 0)
