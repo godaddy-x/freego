@@ -40,6 +40,11 @@ func Time2DateStr(t int64) string {
 	return Int2Time(t).In(cst_sh).Format(date_fmt)
 }
 
+// 时间戳转格式字符串/毫秒
+func Time2FormatStr(t int64, fmt string) string {
+	return Int2Time(t).In(cst_sh).Format(fmt)
+}
+
 // 格式字符串转时间戳/毫秒
 // 2023-07-22 08:47:27.379
 // 2023-07-22 08:47:27

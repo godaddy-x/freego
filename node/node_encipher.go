@@ -3,6 +3,7 @@ package node
 import (
 	"errors"
 	"github.com/buaazp/fasthttprouter"
+	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/crypto"
 	"github.com/godaddy-x/freego/zlog"
@@ -11,11 +12,16 @@ import (
 	"os"
 )
 
+const (
+	keyfileLen = 128
+)
+
 var (
 	defaultMap = map[string]string{
 		utils.RandStr(16): utils.RandStr(32),
 	}
-	eccObject = crypto.NewEccObject()
+	defaultEcc   = crypto.NewEccObject()
+	defaultCache = cache.NewLocalCache(10, 10)
 )
 
 type EncipherParam struct {
@@ -49,8 +55,8 @@ func config() EncipherParam {
 		defer file.Close()
 		param := EncipherParam{
 			SignDepth:  8,
-			SignKey:    utils.RandStr(96, true),
-			EncryptKey: utils.RandStr(96, true),
+			SignKey:    utils.RandStr(keyfileLen, true),
+			EncryptKey: utils.RandStr(keyfileLen, true),
 		}
 		str, err := utils.JsonMarshal(&param)
 		if err != nil {
@@ -142,7 +148,28 @@ func decryptBody(pub, body []byte) (string, string) {
 	if len(pub) == 0 || len(body) == 0 {
 		return "", ""
 	}
-	key, err := eccObject.GenSharedKey(utils.Bytes2Str(pub))
+	key, err := defaultCache.GetString(utils.MD5(utils.Bytes2Str(pub)))
+	if err != nil {
+		zlog.Error("cache load pub shared fail", 0, zlog.AddError(err))
+		return "", ""
+	}
+	if len(key) == 0 {
+		zlog.Error("cache load pub shared is nil", 0, zlog.AddError(err))
+		return "", ""
+	}
+	res, err := utils.AesDecrypt2(utils.Bytes2Str(body), key)
+	if err != nil {
+		zlog.Error("decrypt fail", 0, zlog.AddError(err))
+		return "", ""
+	}
+	return utils.Bytes2Str(res), key
+}
+
+func decryptSharedBody(pub, body []byte) (string, string) {
+	if len(pub) == 0 || len(body) == 0 {
+		return "", ""
+	}
+	key, err := defaultEcc.GenSharedKey(utils.Bytes2Str(pub))
 	if err != nil {
 		zlog.Error("shared fail", 0, zlog.AddError(err))
 		return "", ""
@@ -166,18 +193,33 @@ func StartNodeEncipher(addr string, enc Encipher) {
 	// 创建一个新的路由器
 	router := fasthttprouter.New()
 	// 设置路由处理函数
-	router.GET("/api/publicKey", func(ctx *fasthttp.RequestCtx) {
-		_, pub := eccObject.GetPublicKey()
+	router.GET("/api/keystore", func(ctx *fasthttp.RequestCtx) {
+		_, pub := defaultEcc.GetPublicKey()
 		_, _ = ctx.WriteString(pub)
 	})
-	router.GET("/api/nextId", func(ctx *fasthttp.RequestCtx) {
+	router.GET("/api/identify", func(ctx *fasthttp.RequestCtx) {
 		_, _ = ctx.WriteString(utils.NextSID())
+	})
+	router.POST("/api/handshake", func(ctx *fasthttp.RequestCtx) {
+		pub := ctx.Request.Header.Peek("pub")
+		body := ctx.PostBody()
+		decodeBody, sharedKey := decryptSharedBody(pub, body)
+		if len(decodeBody) == 0 {
+			_, _ = ctx.WriteString("")
+			return
+		}
+		if err := defaultCache.Put(utils.MD5(utils.Bytes2Str(pub)), sharedKey); err != nil {
+			zlog.Error("cache pub fail", 0, zlog.AddError(err))
+			_, _ = ctx.WriteString("")
+			return
+		}
+		_, _ = ctx.WriteString(encryptBody(decodeBody, sharedKey))
 	})
 	router.POST("/api/signature", func(ctx *fasthttp.RequestCtx) {
 		pub := ctx.Request.Header.Peek("pub")
 		body := ctx.PostBody()
-		decodeBody, sharedKey := decryptBody(pub, body)
-		_, _ = ctx.WriteString(encryptBody(enc.Signature(decodeBody), sharedKey))
+		decodeBody, _ := decryptBody(pub, body)
+		_, _ = ctx.WriteString(enc.Signature(decodeBody))
 	})
 	router.POST("/api/signature/verify", func(ctx *fasthttp.RequestCtx) {
 		pub := ctx.Request.Header.Peek("pub")

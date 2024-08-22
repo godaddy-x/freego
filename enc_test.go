@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/godaddy-x/freego/utils/sdk"
 	"testing"
+	"time"
 )
 
 var (
@@ -26,16 +27,26 @@ func TestEncNextId(t *testing.T) {
 	fmt.Println(pub)
 }
 
-func TestSignature(t *testing.T) {
-	res, err := encipherClient.Signature("input123456")
+func TestEncHandshake(t *testing.T) {
+	err := encipherClient.Handshake()
 	if err != nil {
 		fmt.Println(err)
 	}
-	fmt.Println(res)
+}
+
+func TestSignature(t *testing.T) {
+	for {
+		res, err := encipherClient.Signature("input123456")
+		if err != nil {
+			fmt.Println(err)
+		}
+		fmt.Println(res)
+		time.Sleep(5 * time.Second)
+	}
 }
 
 func TestSignatureVerify(t *testing.T) {
-	pub, err := encipherClient.SignatureVerify("input1234561", "3c0b083324cf06bba43a4ce77bd0455411f5594301375ff1f3e29ac10ac89fc6d5057d73ec036da43fe891e822bee8f1")
+	pub, err := encipherClient.SignatureVerify("input123456", "1e4c5b4834bc64d4f4f5ce6ec26fa53cfca014ccbfb2f1ec8a544269ff8832041c5afa155ccda6c4dc791aa455c54b9a")
 	if err != nil {
 		fmt.Println(err)
 	}
@@ -51,14 +62,14 @@ func TestEncrypt(t *testing.T) {
 }
 
 func TestDecrypt(t *testing.T) {
-	res, err := encipherClient.Decrypt("dXhIVVVGck43OUFKSFlBdHBlZU9xVHNKfDMHzHMkJOxR4r9S7fT9ig==")
+	res, err := encipherClient.Decrypt("WUtLWTZZekYySDh2d3NPN3c1NXR1VWpwSPa4FjwuVFI618sR+jamBw==")
 	if err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println(res)
 }
 
-func BenchmarkEnc(b *testing.B) {
+func BenchmarkEncSignature(b *testing.B) {
 	b.StopTimer()
 	b.StartTimer()
 	for i := 0; i < b.N; i++ { //use b.N for looping
@@ -98,7 +109,7 @@ func BenchmarkEncVerify(b *testing.B) {
 	b.StopTimer()
 	b.StartTimer()
 	for i := 0; i < b.N; i++ { //use b.N for looping
-		encipherClient.SignatureVerify("input123456", "3c0b083324cf06bba43a4ce77bd0455411f5594301375ff1f3e29ac10ac89fc6d5057d73ec036da43fe891e822bee8f1")
+		encipherClient.SignatureVerify("input123456", "1e4c5b4834bc64d4f4f5ce6ec26fa53cfca014ccbfb2f1ec8a544269ff8832041c5afa155ccda6c4dc791aa455c54b9a")
 		//fmt.Println(pub)
 	}
 }
@@ -108,5 +119,13 @@ func BenchmarkEncEncrypt(b *testing.B) {
 	b.StartTimer()
 	for i := 0; i < b.N; i++ { //use b.N for looping
 		encipherClient.Encrypt("input123456")
+	}
+}
+
+func BenchmarkEncDecrypt(b *testing.B) {
+	b.StopTimer()
+	b.StartTimer()
+	for i := 0; i < b.N; i++ { //use b.N for looping
+		encipherClient.Decrypt("WUtLWTZZekYySDh2d3NPN3c1NXR1VWpwSPa4FjwuVFI618sR+jamBw==")
 	}
 }
