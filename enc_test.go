@@ -29,6 +29,14 @@ func TestEncHandshake(t *testing.T) {
 	}
 }
 
+func TestEncConfig(t *testing.T) {
+	data, err := encipherClient.Config("redis")
+	if err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println(data)
+}
+
 func TestSignature(t *testing.T) {
 	for {
 		res, err := encipherClient.Signature(msg)

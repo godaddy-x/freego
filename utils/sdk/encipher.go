@@ -223,6 +223,37 @@ func (s *EncipherClient) SignatureVerify(input, target string) (bool, error) {
 	return false, nil
 }
 
+func (s *EncipherClient) Config(input string) (string, error) {
+	body, err := s.encryptBody(input, false)
+	if err != nil {
+		return "", err
+	}
+	request := fasthttp.AcquireRequest()
+	request.Header.Set("pub", s.getPublic())
+	request.Header.SetMethod("POST")
+	request.SetRequestURI(utils.AddStr(s.Host, "/api/config"))
+	request.SetBody(utils.Str2Bytes(body))
+	defer fasthttp.ReleaseRequest(request)
+	response := fasthttp.AcquireResponse()
+	defer fasthttp.ReleaseResponse(response)
+	if err := fasthttp.DoTimeout(request, response, timeout); err != nil {
+		return "", err
+	}
+	sign := response.Header.Peek("sign")
+	if len(sign) == 0 {
+		return "", errors.New("sign is nil")
+	}
+	res := utils.Bytes2Str(response.Body())
+	if utils.Bytes2Str(sign) != utils.HMAC_SHA256(res, s.shared) {
+		return "", errors.New("sign invalid")
+	}
+	res, err = s.decryptBody(s.shared, utils.Str2Bytes(res))
+	if err != nil {
+		return "", err
+	}
+	return res, nil
+}
+
 func (s *EncipherClient) Encrypt(input string) (string, error) {
 	body, err := s.encryptBody(input, false)
 	if err != nil {

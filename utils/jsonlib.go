@@ -18,6 +18,14 @@ func JsonMarshal(v interface{}) ([]byte, error) {
 	return json.Marshal(v)
 }
 
+// 对象转JSON字符串,格式化
+func JsonMarshalIndent(v interface{}, p, indent string) ([]byte, error) {
+	if v == nil {
+		return nil, errors.New("data is nil")
+	}
+	return json.MarshalIndent(v, p, indent)
+}
+
 // 校验JSON格式是否合法
 func JsonValid(b []byte) bool {
 	//return json.Valid(b) // fastjson > default json 2倍

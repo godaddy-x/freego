@@ -17,11 +17,13 @@ const (
 )
 
 var (
-	defaultMap = map[string]string{
+	defaultFile = []string{"keystore", "mysql", "mongo", "redis"}
+	defaultMap  = map[string]string{
 		utils.RandStr(16): utils.RandStr(32),
 	}
-	defaultEcc   = crypto.NewEccObject()
-	defaultCache = cache.NewLocalCache(60, 10)
+	defaultEcc    = crypto.NewEccObject()
+	defaultCache  = cache.NewLocalCache(60, 10)
+	defaultConfig = map[string]string{}
 )
 
 type EncipherParam struct {
@@ -32,7 +34,9 @@ type EncipherParam struct {
 
 type Encipher interface {
 	// LoadConfig 读取配置
-	LoadConfig(keyfile string) (EncipherParam, error)
+	LoadConfig(path string) (EncipherParam, error)
+	// ReadConfig 读取加密配置
+	ReadConfig(key string) string
 	// Signature 数据签名
 	Signature(input string) string
 	// VerifySignature 数据签名验证
@@ -47,6 +51,13 @@ type DefaultEncipher struct {
 	param *EncipherParam
 }
 
+func randomKey() string {
+	for _, v := range defaultMap {
+		return v
+	}
+	return ""
+}
+
 func NewDefaultEncipher(keyfile string) *DefaultEncipher {
 	if len(keyfile) == 0 {
 		panic("keyfile path is nil")
@@ -58,36 +69,32 @@ func NewDefaultEncipher(keyfile string) *DefaultEncipher {
 	if err != nil {
 		panic(err)
 	}
-	for _, v := range defaultMap {
-		key := utils.SHA256(v)
-		newEncipher.param.SignKey = utils.AesEncrypt2(utils.Str2Bytes(object.SignKey), key)
-		newEncipher.param.SignDepth = object.SignDepth
-		newEncipher.param.EncryptKey = utils.AesEncrypt2(utils.Str2Bytes(object.EncryptKey), key)
-	}
+	key := utils.SHA256(randomKey())
+	newEncipher.param.SignKey = utils.AesEncrypt2(utils.Str2Bytes(object.SignKey), key)
+	newEncipher.param.SignDepth = object.SignDepth
+	newEncipher.param.EncryptKey = utils.AesEncrypt2(utils.Str2Bytes(object.EncryptKey), key)
 	return newEncipher
 }
 
-func (s *DefaultEncipher) decodeKey(key string) string {
-	for _, v := range defaultMap {
-		r, _ := utils.AesDecrypt2(key, utils.SHA256(v))
-		return utils.Bytes2Str(r)
-	}
-	return ""
+func (s *DefaultEncipher) decodeData(data string) string {
+	r, _ := utils.AesDecrypt2(data, utils.SHA256(randomKey()))
+	return utils.Bytes2Str(r)
 }
 
 func (s *DefaultEncipher) getSignKey() string {
-	return s.decodeKey(s.param.SignKey)
+	return s.decodeData(s.param.SignKey)
 }
 func (s *DefaultEncipher) getEncryptKey() string {
-	return s.decodeKey(s.param.EncryptKey)
+	return s.decodeData(s.param.EncryptKey)
 }
 func (s *DefaultEncipher) getSignDepth() int {
 	return s.param.SignDepth
 }
 
-func (s *DefaultEncipher) LoadConfig(keyfile string) (EncipherParam, error) {
-	if _, err := os.Stat(keyfile); os.IsNotExist(err) {
-		file, err := os.Create(keyfile)
+func createKeystore(path string) (EncipherParam, error) {
+	fileName := utils.AddStr(path, "/keystore")
+	if _, err := os.Stat(fileName); os.IsNotExist(err) {
+		file, err := os.Create(fileName)
 		if err != nil {
 			return EncipherParam{}, errors.New("create file fail: " + err.Error())
 		}
@@ -97,27 +104,158 @@ func (s *DefaultEncipher) LoadConfig(keyfile string) (EncipherParam, error) {
 			SignKey:    utils.RandStr(keyfileLen, true),
 			EncryptKey: utils.RandStr(keyfileLen, true),
 		}
-		str, err := utils.JsonMarshal(&param)
+		str, err := utils.JsonMarshalIndent(&param, "", "    ")
 		if err != nil {
-			panic(err)
+			return EncipherParam{}, err
 		}
 		if _, err := file.WriteString(string(str)); err != nil {
 			return EncipherParam{}, errors.New("write file fail: " + err.Error())
 		}
 		return param, nil
 	} else {
-		file, err := os.Open(keyfile)
+		data, err := ioutil.ReadFile(fileName)
 		if err != nil {
-			return EncipherParam{}, errors.New("open file fail: " + err.Error())
+			return EncipherParam{}, errors.New("read file fail: " + err.Error())
 		}
-		defer file.Close()
-		data, err := ioutil.ReadAll(file)
 		param := EncipherParam{}
 		if err := utils.JsonUnmarshal(data, &param); err != nil {
 			return EncipherParam{}, errors.New("read file json failed: " + err.Error())
 		}
 		return param, nil
 	}
+}
+
+func createMysql(path string) error {
+	fileName := utils.AddStr(path, "/mysql")
+	if _, err := os.Stat(fileName); os.IsNotExist(err) {
+		file, err := os.Create(fileName)
+		if err != nil {
+			return errors.New("create file fail: " + err.Error())
+		}
+		defer file.Close()
+		str := `[
+    {
+        "DsName": "",
+        "Host": "127.0.0.1",
+        "Port": 3306,
+        "Database": "your db name",
+        "Username": "your db user",
+        "Password": "your db password",
+        "MongoSync": false,
+        "MaxIdleConns": 500,
+        "MaxOpenConns": 500,
+        "ConnMaxLifetime": 10,
+        "ConnMaxIdleTime": 10
+    }
+]
+`
+		if _, err := file.WriteString(str); err != nil {
+			return errors.New("write file fail: " + err.Error())
+		}
+		return nil
+	}
+	return nil
+}
+
+func createMongo(path string) error {
+	fileName := utils.AddStr(path, "/mongo")
+	if _, err := os.Stat(fileName); os.IsNotExist(err) {
+		file, err := os.Create(fileName)
+		if err != nil {
+			return errors.New("create file fail: " + err.Error())
+		}
+		defer file.Close()
+		str := `[
+    {
+        "DsName": "",
+        "Addrs": [
+            "127.0.0.1:27017"
+        ],
+        "Direct": true,
+        "ConnectTimeout": 5,
+        "SocketTimeout": 5,
+        "Database": "your db name",
+        "Username": "your db user",
+        "Password": "your db password",
+        "PoolLimit": 4096,
+        "Debug": false,
+		"ConnectionURI": ""
+    }
+]`
+		if _, err := file.WriteString(str); err != nil {
+			return errors.New("write file fail: " + err.Error())
+		}
+		return nil
+	}
+	return nil
+}
+
+func createRedis(path string) error {
+	fileName := utils.AddStr(path, "/redis")
+	if _, err := os.Stat(fileName); os.IsNotExist(err) {
+		file, err := os.Create(fileName)
+		if err != nil {
+			return errors.New("create file fail: " + err.Error())
+		}
+		defer file.Close()
+		str := `{
+    "Host": "127.0.0.1",
+    "Port": 6379,
+    "Password": "your password",
+    "MaxIdle": 512,
+    "MaxActive": 2048,
+    "IdleTimeout": 60,
+    "Network": "tcp",
+    "LockTimeout": 30
+}`
+		if _, err := file.WriteString(str); err != nil {
+			return errors.New("write file fail: " + err.Error())
+		}
+		return nil
+	}
+	return nil
+}
+
+func (s *DefaultEncipher) LoadConfig(path string) (EncipherParam, error) {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return EncipherParam{}, errors.New("folder does not exist: " + path)
+	}
+	defaultParam, err := createKeystore(path)
+	if err != nil {
+		return EncipherParam{}, err
+	}
+	if err := createMysql(path); err != nil {
+		return EncipherParam{}, err
+	}
+	if err := createMongo(path); err != nil {
+		return EncipherParam{}, err
+	}
+	if err := createRedis(path); err != nil {
+		return EncipherParam{}, err
+	}
+	files, err := os.ReadDir(path)
+	if err != nil {
+		return EncipherParam{}, errors.New("read folder fail: <" + path + "> " + err.Error())
+	}
+	for _, file := range files {
+		if file.IsDir() || file.Name() == "keystore" {
+			continue
+		}
+		data, err := ioutil.ReadFile(utils.AddStr(path, "/", file.Name()))
+		if err != nil {
+			return EncipherParam{}, errors.New("read file fail: <" + file.Name() + "> " + err.Error())
+		}
+		defaultConfig[file.Name()] = utils.AesEncrypt2(data, utils.SHA256(randomKey()))
+	}
+	return defaultParam, nil
+}
+
+func (s *DefaultEncipher) ReadConfig(key string) string {
+	data, b := defaultConfig[key]
+	if !b || len(data) == 0 {
+		return ""
+	}
+	return s.decodeData(data)
 }
 
 func (s *DefaultEncipher) Signature(input string) string {
@@ -239,6 +377,15 @@ func StartNodeEncipher(addr string, enc Encipher) {
 		if enc.VerifySignature(decodeBody, sign) {
 			result = "success"
 		}
+		ctx.Response.Header.Set("sign", utils.HMAC_SHA256(result, sharedKey))
+		_, _ = ctx.WriteString(result)
+	})
+	router.POST("/api/config", func(ctx *fasthttp.RequestCtx) {
+		pub := ctx.Request.Header.Peek("pub")
+		body := ctx.PostBody()
+		decodeBody, sharedKey := decryptBody(pub, body)
+		res := enc.ReadConfig(decodeBody)
+		result := encryptBody(res, sharedKey)
 		ctx.Response.Header.Set("sign", utils.HMAC_SHA256(result, sharedKey))
 		_, _ = ctx.WriteString(result)
 	})

@@ -17,7 +17,7 @@ func http_test() {
 	//go http_web.StartHttpNode2()
 	//sqld.RebuildMongoDBIndex()
 	//http_web.StartHttpNode()
-	node.StartNodeEncipher(":4141", node.NewDefaultEncipher("keyfile"))
+	node.StartNodeEncipher(":4141", node.NewDefaultEncipher("test/config/"))
 }
 
 func initConsul() {
