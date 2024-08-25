@@ -319,8 +319,8 @@ func (self *Context) validJsonBody() error {
 	if !utils.CheckInt64(body.Plan, 0, 1, 2, 3) {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request plan invalid"}
 	}
-	if !utils.CheckLen(body.Nonce, 8, 32) {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "request nonce invalid"}
+	if !utils.CheckLen(body.Nonce, 32, 96) {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "request nonce length invalid [32-96]"}
 	}
 	if body.Time <= 0 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request time must be > 0"}
@@ -331,8 +331,8 @@ func (self *Context) validJsonBody() error {
 	if self.RouterConfig.AesRequest && body.Plan != 1 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters must use AES encryption"}
 	}
-	if !utils.CheckStrLen(body.Sign, 32, 64) {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature length invalid"}
+	if !utils.CheckStrLen(body.Sign, 32, 96) {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature length invalid [32-96]"}
 	}
 	if utils.CheckInt64(body.Plan, 0, 1) && len(self.Subject.GetRawBytes()) == 0 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request header token is nil"}
