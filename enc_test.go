@@ -2,9 +2,14 @@ package main
 
 import (
 	"fmt"
+	"github.com/godaddy-x/freego/node"
 	"testing"
 	"time"
 )
+
+func TestStartNode(t *testing.T) {
+	node.StartNodeEncipher(":4141", node.NewDefaultEncipher("test/config/"))
+}
 
 func TestEncPublicKey(t *testing.T) {
 	pub, err := encipherClient.PublicKey()

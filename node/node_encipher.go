@@ -482,7 +482,7 @@ func StartNodeEncipher(addr string, enc Encipher) {
 		_, _ = ctx.WriteString(result)
 	})
 	// 开启服务器
-	zlog.Info("Encipher service is running on "+addr, 0)
+	zlog.Printf("encipher【" + addr + "】service has been started successful")
 	if err := fasthttp.ListenAndServe(addr, router.Handler); err != nil {
 		panic(err)
 	}
