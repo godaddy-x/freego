@@ -412,7 +412,7 @@ func callLogin(appId string) (string, int64, error) {
 	}
 	authObject := &AuthObject{
 		AppId: appId,
-		Nonce: utils.RandStr(16),
+		Nonce: utils.RandNonce(),
 		Time:  utils.UnixSecond(),
 	}
 	authObject.Signature = utils.HMAC_SHA256(utils.AddStr(authObject.AppId, authObject.Nonce, authObject.Time), appConfig.AppKey, true)

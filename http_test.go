@@ -15,10 +15,11 @@ const token_secret = "uHsLjyEFQ8Ik4X+Hy*kT^j#lKHDxs9XcK/wAWhc8#lK!ZC@diQSvcunC5K
 const token_expire = 1689782788
 
 var httpSDK = &sdk.HttpSDK{
-	Debug:     false,
-	Domain:    domain,
-	KeyPath:   "/key",
-	LoginPath: "/login",
+	Debug:      false,
+	Domain:     domain,
+	AuthDomain: domain,
+	KeyPath:    "/key",
+	LoginPath:  "/login",
 }
 
 func TestGetPublicKey(t *testing.T) {

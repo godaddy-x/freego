@@ -121,16 +121,17 @@ func (ctx *Context) writeError(ws *websocket.Conn, err error) error {
 		Code:    out.Code,
 		Message: out.Msg,
 		Time:    utils.UnixMilli(),
+		Nonce:   utils.RandNonce(),
 	}
-	if !ctx.Authenticated() {
-		resp.Nonce = utils.RandNonce()
-	} else {
-		if ctx.JsonBody == nil || len(ctx.JsonBody.Nonce) == 0 {
-			resp.Nonce = utils.RandNonce()
-		} else {
-			resp.Nonce = ctx.JsonBody.Nonce
-		}
-	}
+	//if !ctx.Authenticated() {
+	//	resp.Nonce = utils.RandNonce()
+	//} else {
+	//	if ctx.JsonBody == nil || len(ctx.JsonBody.Nonce) == 0 {
+	//		resp.Nonce = utils.RandNonce()
+	//	} else {
+	//		resp.Nonce = ctx.JsonBody.Nonce
+	//	}
+	//}
 	if ctx.RouterConfig.Guest {
 		if out.Code <= 600 {
 			ctx.Response.StatusCode = out.Code

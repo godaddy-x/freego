@@ -95,7 +95,7 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	if err != nil {
 		return err
 	}
-	clientSecretKey := utils.RandStr(24)
+	clientSecretKey := utils.RandStr2(16)
 	_, pubBs, err := ecc.LoadBase64PublicKey(publicKey)
 	if err != nil {
 		return ex.Throw{Msg: "load ECC public key failed"}

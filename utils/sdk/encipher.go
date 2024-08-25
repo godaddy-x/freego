@@ -138,7 +138,7 @@ func (s *EncipherClient) PublicKey() (string, error) {
 }
 
 func (s *EncipherClient) Handshake() error {
-	input := utils.RandStr(32, true)
+	input := utils.RandStr2(32)
 	body, err := s.encryptBody(input, true)
 	if err != nil {
 		return err

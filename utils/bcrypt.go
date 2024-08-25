@@ -1,7 +1,7 @@
 package utils
 
 func newKey() string {
-	return MD5(AddStr(GetUUID(), AnyToStr(UnixNano()), RandStr(32)))
+	return MD5(AddStr(GetUUID(), AnyToStr(UnixNano()), RandNonce()))
 }
 
 func newHash(password, salt, key string) string {

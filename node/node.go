@@ -386,8 +386,12 @@ func (self *Context) validJsonBody() error {
 		if err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "server private-key decrypt failed", Err: err}
 		}
-		if len(code) == 0 {
+		codeLen := len(code)
+		if codeLen == 0 {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "server private-key decrypt data is nil", Err: err}
+		}
+		if codeLen < 32 || codeLen > 96 {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "client random code length must >= 32 and <= 96"}
 		}
 		rawData, err = utils.AesDecrypt(d, code, code)
 		if err != nil {

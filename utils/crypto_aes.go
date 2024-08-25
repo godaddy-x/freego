@@ -8,7 +8,8 @@ import (
 )
 
 const (
-	keyLen = 24
+	keyLen16 = 16
+	keyLen32 = 32
 )
 
 func PKCS7Padding(ciphertext []byte, blockSize int) []byte {
@@ -65,7 +66,7 @@ func AesEncrypt2(plantText []byte, key string) string {
 	if err != nil {
 		return ""
 	}
-	iv := RandStr(keyLen)
+	iv := RandStr2(keyLen16)
 	plantText = PKCS7Padding(plantText, block.BlockSize())
 	blockModel := cipher.NewCBCEncrypter(block, GetAesIV(iv))
 	ciphertext := make([]byte, len(plantText))
@@ -79,11 +80,11 @@ func AesDecrypt2(msg, key string) ([]byte, error) {
 		return nil, err
 	}
 	bs := Base64Decode(msg)
-	if bs == nil || len(bs) <= keyLen {
+	if bs == nil || len(bs) <= keyLen32 {
 		return nil, errors.New("msg bs invalid")
 	}
-	iv := Bytes2Str(bs[:keyLen])
-	ciphertext := bs[keyLen:]
+	iv := Bytes2Str(bs[:keyLen32])
+	ciphertext := bs[keyLen32:]
 	blockModel := cipher.NewCBCDecrypter(block, GetAesIV(iv))
 	plantText := make([]byte, len(ciphertext))
 	blockModel.CryptBlocks(plantText, ciphertext)

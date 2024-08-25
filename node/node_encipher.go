@@ -1,8 +1,10 @@
 package node
 
 import (
+	"crypto/ecdsa"
 	"errors"
 	"github.com/buaazp/fasthttprouter"
+	ecc "github.com/godaddy-x/eccrypto"
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/crypto"
@@ -13,13 +15,13 @@ import (
 )
 
 const (
-	keyfileLen = 128
+	keyfileLen = 64
 )
 
 var (
 	defaultFile = []string{"keystore", "mysql", "mongo", "redis"}
 	defaultMap  = map[string]string{
-		utils.RandStr(16): utils.RandStr(32),
+		utils.RandNonce(): utils.RandNonce(),
 	}
 	defaultEcc    = crypto.NewEccObject()
 	defaultCache  = cache.NewLocalCache(60, 10)
@@ -101,8 +103,8 @@ func createKeystore(path string) (EncipherParam, error) {
 		defer file.Close()
 		param := EncipherParam{
 			SignDepth:  8,
-			SignKey:    utils.RandStr(keyfileLen, true),
-			EncryptKey: utils.RandStr(keyfileLen, true),
+			SignKey:    utils.RandStr2(keyfileLen),
+			EncryptKey: utils.RandStr2(keyfileLen),
 		}
 		str, err := utils.JsonMarshalIndent(&param, "", "    ")
 		if err != nil {
@@ -123,6 +125,37 @@ func createKeystore(path string) (EncipherParam, error) {
 		}
 		return param, nil
 	}
+}
+
+func createEcdsa(path string) error {
+	fileName := utils.AddStr(path, "/ecdsa")
+	if _, err := os.Stat(fileName); os.IsNotExist(err) {
+		file, err := os.Create(fileName)
+		if err != nil {
+			errors.New("create file fail: " + err.Error())
+		}
+		defer file.Close()
+		eccObject := crypto.EccObj{}
+		eccObject.CreateS256ECC()
+		key, _ := eccObject.GetPrivateKey()
+		key64, _, err := ecc.GetObjectBase64(key.(*ecdsa.PrivateKey), nil)
+		if err != nil {
+			return err
+		}
+		param := map[string]string{
+			"PrivateKey": key64,
+			"PublicKey":  eccObject.PublicKeyBase64,
+		}
+		str, err := utils.JsonMarshalIndent(&param, "", "    ")
+		if err != nil {
+			return err
+		}
+		if _, err := file.WriteString(string(str)); err != nil {
+			return errors.New("write file fail: " + err.Error())
+		}
+		return nil
+	}
+	return nil
 }
 
 func createMysql(path string) error {
@@ -254,6 +287,9 @@ func (s *DefaultEncipher) LoadConfig(path string) (EncipherParam, error) {
 		return EncipherParam{}, err
 	}
 	if err := createMysql(path); err != nil {
+		return EncipherParam{}, err
+	}
+	if err := createEcdsa(path); err != nil {
 		return EncipherParam{}, err
 	}
 	if err := createMongo(path); err != nil {

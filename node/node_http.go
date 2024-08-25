@@ -333,16 +333,17 @@ func defaultRenderError(ctx *Context, err error) error {
 		Code:    out.Code,
 		Message: ErrorMsgToLang(ctx, out.Msg, out.Arg...),
 		Time:    utils.UnixMilli(),
+		Nonce:   utils.RandNonce(),
 	}
-	if !ctx.Authenticated() {
-		resp.Nonce = utils.RandNonce()
-	} else {
-		if ctx.JsonBody == nil || len(ctx.JsonBody.Nonce) == 0 {
-			resp.Nonce = utils.RandNonce()
-		} else {
-			resp.Nonce = ctx.JsonBody.Nonce
-		}
-	}
+	//if !ctx.Authenticated() {
+	//	resp.Nonce = utils.RandNonce()
+	//} else {
+	//	if ctx.JsonBody == nil || len(ctx.JsonBody.Nonce) == 0 {
+	//		resp.Nonce = utils.RandNonce()
+	//	} else {
+	//		resp.Nonce = ctx.JsonBody.Nonce
+	//	}
+	//}
 	if ctx.RouterConfig.Guest {
 		if out.Code <= 600 {
 			ctx.Response.StatusCode = out.Code
@@ -402,14 +403,15 @@ func defaultRenderPre(ctx *Context) error {
 			return ex.Throw{Code: http.StatusInternalServerError, Msg: "response conversion JSON failed", Err: err}
 		}
 		resp := &JsonResp{
-			Code: http.StatusOK,
-			Time: utils.UnixMilli(),
+			Code:  http.StatusOK,
+			Time:  utils.UnixMilli(),
+			Nonce: utils.RandNonce(),
 		}
-		if ctx.JsonBody == nil || len(ctx.JsonBody.Nonce) == 0 {
-			resp.Nonce = utils.RandNonce()
-		} else {
-			resp.Nonce = ctx.JsonBody.Nonce
-		}
+		//if ctx.JsonBody == nil || len(ctx.JsonBody.Nonce) == 0 {
+		//	resp.Nonce = utils.RandNonce()
+		//} else {
+		//	resp.Nonce = ctx.JsonBody.Nonce
+		//}
 		var key string
 		if routerConfig.UseRSA || routerConfig.UseHAX { // 非登录状态响应
 			if ctx.JsonBody.Plan == 2 {
