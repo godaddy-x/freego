@@ -279,6 +279,29 @@ func createRedis(path string) error {
 	return nil
 }
 
+func createRabbitmq(path string) error {
+	fileName := utils.AddStr(path, "/rabbitmq")
+	if _, err := os.Stat(fileName); os.IsNotExist(err) {
+		file, err := os.Create(fileName)
+		if err != nil {
+			return errors.New("create file fail: " + err.Error())
+		}
+		defer file.Close()
+		str := `{
+    "Username": "guest",
+    "Password": "guest",
+    "Host": "127.0.0.1",
+    "Port": 5672
+}
+`
+		if _, err := file.WriteString(str); err != nil {
+			return errors.New("write file fail: " + err.Error())
+		}
+		return nil
+	}
+	return nil
+}
+
 func createConsul(path string) error {
 	fileName := utils.AddStr(path, "/consul")
 	if _, err := os.Stat(fileName); os.IsNotExist(err) {
@@ -395,6 +418,9 @@ func (s *DefaultEncipher) LoadConfig(path string) (EncipherParam, error) {
 		return EncipherParam{}, err
 	}
 	if err := createRedis(path); err != nil {
+		return EncipherParam{}, err
+	}
+	if err := createRabbitmq(path); err != nil {
 		return EncipherParam{}, err
 	}
 	if err := createConsul(path); err != nil {
