@@ -3,6 +3,7 @@ package node
 import (
 	"crypto/ecdsa"
 	"errors"
+	"fmt"
 	"github.com/buaazp/fasthttprouter"
 	ecc "github.com/godaddy-x/eccrypto"
 	"github.com/godaddy-x/freego/cache"
@@ -16,11 +17,26 @@ import (
 
 const (
 	keyfileLen = 64
+	jwtStr     = `{
+    "TokenKey": "%s",
+    "TokenAlg": "%s",
+    "TokenTyp": "%s",
+    "TokenExp": %d
+}`
+	ecdsaStr = `{
+    "PrivateKey": "%s",
+    "PublicKey": "%s"
+}`
+	keystoreStr = `{
+    "EncryptKey": "%s",
+    "SignKey": "%s",
+    "SignDepth": %d
+}`
 )
 
 var (
-	defaultFile = []string{"keystore", "mysql", "mongo", "redis"}
-	defaultMap  = map[string]string{
+	defaultKey = utils.SHA512("encipher")
+	defaultMap = map[string]string{
 		utils.RandNonce(): utils.RandNonce(),
 	}
 	defaultEcc    = crypto.NewEccObject()
@@ -93,6 +109,25 @@ func (s *DefaultEncipher) getSignDepth() int {
 	return s.param.SignDepth
 }
 
+func createRandom() string {
+	s := utils.CreateSafeRandom(4, 10)
+	k := utils.CreateSafeRandom(4, 10)
+	return utils.HMAC_SHA512(s, k)
+}
+
+func encryptRandom(s, key string) string {
+	return utils.AesEncrypt2(utils.Str2Bytes(s), utils.SHA512(utils.GetLocalSecretKey()+key))
+}
+
+func decryptRandom(s, key string) string {
+	b, err := utils.AesDecrypt2(s, utils.SHA512(utils.GetLocalSecretKey()+key))
+	if err != nil {
+		fmt.Println("decrypt random fail: " + err.Error())
+		return ""
+	}
+	return utils.Bytes2Str(b)
+}
+
 func createKeystore(path string) (EncipherParam, error) {
 	fileName := utils.AddStr(path, "/keystore")
 	if _, err := os.Stat(fileName); os.IsNotExist(err) {
@@ -106,11 +141,7 @@ func createKeystore(path string) (EncipherParam, error) {
 			SignKey:    utils.RandStr2(keyfileLen),
 			EncryptKey: utils.RandStr2(keyfileLen),
 		}
-		str, err := utils.JsonMarshalIndent(&param, "", "    ")
-		if err != nil {
-			return EncipherParam{}, err
-		}
-		if _, err := file.WriteString(string(str)); err != nil {
+		if _, err := file.WriteString(fmt.Sprintf(keystoreStr, encryptRandom(param.EncryptKey, defaultKey), encryptRandom(param.SignKey, defaultKey), param.SignDepth)); err != nil {
 			return EncipherParam{}, errors.New("write file fail: " + err.Error())
 		}
 		return param, nil
@@ -123,6 +154,8 @@ func createKeystore(path string) (EncipherParam, error) {
 		if err := utils.JsonUnmarshal(data, &param); err != nil {
 			return EncipherParam{}, errors.New("read file json failed: " + err.Error())
 		}
+		param.EncryptKey = decryptRandom(param.EncryptKey, defaultKey)
+		param.SignKey = decryptRandom(param.SignKey, defaultKey)
 		return param, nil
 	}
 }
@@ -136,21 +169,16 @@ func createEcdsa(path string) error {
 		}
 		defer file.Close()
 		eccObject := crypto.EccObj{}
-		eccObject.CreateS256ECC()
+		if err := eccObject.CreateS256ECC(); err != nil {
+			return err
+		}
 		key, _ := eccObject.GetPrivateKey()
 		key64, _, err := ecc.GetObjectBase64(key.(*ecdsa.PrivateKey), nil)
 		if err != nil {
 			return err
 		}
-		param := map[string]string{
-			"PrivateKey": key64,
-			"PublicKey":  eccObject.PublicKeyBase64,
-		}
-		str, err := utils.JsonMarshalIndent(&param, "", "    ")
-		if err != nil {
-			return err
-		}
-		if _, err := file.WriteString(string(str)); err != nil {
+		privateKey := encryptRandom(key64, defaultKey)
+		if _, err := file.WriteString(fmt.Sprintf(ecdsaStr, privateKey, eccObject.PublicKeyBase64)); err != nil {
 			return errors.New("write file fail: " + err.Error())
 		}
 		return nil
@@ -278,6 +306,77 @@ func createConsul(path string) error {
 	return nil
 }
 
+func createGeetest(path string) error {
+	fileName := utils.AddStr(path, "/geetest")
+	if _, err := os.Stat(fileName); os.IsNotExist(err) {
+		file, err := os.Create(fileName)
+		if err != nil {
+			return errors.New("create file fail: " + err.Error())
+		}
+		defer file.Close()
+		str := `{
+    "geetestID": "%s",
+    "geetestKey": "%s",
+    "boundary": 0,
+    "debug": false
+}`
+
+		if _, err := file.WriteString(fmt.Sprintf(str, utils.RandStr2(16), utils.RandStr2(16))); err != nil {
+			return errors.New("write file fail: " + err.Error())
+		}
+		return nil
+		return nil
+	}
+	return nil
+}
+
+func createLogger(path string) error {
+	fileName := utils.AddStr(path, "/logger")
+	if _, err := os.Stat(fileName); os.IsNotExist(err) {
+		file, err := os.Create(fileName)
+		if err != nil {
+			return errors.New("create file fail: " + err.Error())
+		}
+		defer file.Close()
+		str := `{
+    "admin_main": {
+        "dir": "logs/",
+        "name": "admin_main.log",
+        "level": "info",
+        "console": true
+    },
+    "api_main": {
+        "dir": "logs/",
+        "name": "api_main.log",
+        "level": "info",
+        "console": true
+    }
+}`
+		if _, err := file.WriteString(str); err != nil {
+			return errors.New("write file fail: " + err.Error())
+		}
+		return nil
+	}
+	return nil
+}
+
+func createJWT(path string) error {
+	fileName := utils.AddStr(path, "/jwt")
+	if _, err := os.Stat(fileName); os.IsNotExist(err) {
+		file, err := os.Create(fileName)
+		if err != nil {
+			return errors.New("create file fail: " + err.Error())
+		}
+		defer file.Close()
+		key := encryptRandom(createRandom(), defaultKey)
+		if _, err := file.WriteString(fmt.Sprintf(jwtStr, key, "HS256", "JWT", 1209600)); err != nil {
+			return errors.New("write file fail: " + err.Error())
+		}
+		return nil
+	}
+	return nil
+}
+
 func (s *DefaultEncipher) LoadConfig(path string) (EncipherParam, error) {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return EncipherParam{}, errors.New("folder does not exist: " + path)
@@ -299,6 +398,15 @@ func (s *DefaultEncipher) LoadConfig(path string) (EncipherParam, error) {
 		return EncipherParam{}, err
 	}
 	if err := createConsul(path); err != nil {
+		return EncipherParam{}, err
+	}
+	if err := createGeetest(path); err != nil {
+		return EncipherParam{}, err
+	}
+	if err := createLogger(path); err != nil {
+		return EncipherParam{}, err
+	}
+	if err := createJWT(path); err != nil {
 		return EncipherParam{}, err
 	}
 	files, err := os.ReadDir(path)
@@ -323,7 +431,21 @@ func (s *DefaultEncipher) ReadConfig(key string) string {
 	if !b || len(data) == 0 {
 		return ""
 	}
-	return s.decodeData(data)
+	dec := s.decodeData(data)
+	if key == "ecdsa" {
+		bs := utils.Str2Bytes(dec)
+		privateKey := decryptRandom(utils.GetJsonString(bs, "PrivateKey"), defaultKey)
+		publicKey := utils.GetJsonString(bs, "PublicKey")
+		return fmt.Sprintf(ecdsaStr, privateKey, publicKey)
+	} else if key == "jwt" {
+		bs := utils.Str2Bytes(dec)
+		tokenKey := decryptRandom(utils.GetJsonString(bs, "TokenKey"), defaultKey)
+		tokenAlg := utils.GetJsonString(bs, "TokenAlg")
+		tokenTyp := utils.GetJsonString(bs, "TokenTyp")
+		tokenExp := utils.GetJsonInt(bs, "TokenExp")
+		return fmt.Sprintf(jwtStr, tokenKey, tokenAlg, tokenTyp, tokenExp)
+	}
+	return dec
 }
 
 func (s *DefaultEncipher) Signature(input string) string {
@@ -332,6 +454,7 @@ func (s *DefaultEncipher) Signature(input string) string {
 	}
 	return utils.PasswordHash(input, s.getSignKey(), s.getSignDepth())
 }
+
 func (s *DefaultEncipher) VerifySignature(input, sign string) bool {
 	if len(input) == 0 || len(sign) == 0 {
 		return false

@@ -869,3 +869,11 @@ func DeepCopy(dst, src interface{}) error {
 	}
 	return nil
 }
+
+// CreateSafeRandom sl:随机字节和密钥长度 1024*sl dl:哈希深度次数 1024*dl
+func CreateSafeRandom(sl, dl int) string {
+	l := 1024
+	s := RandStr2(l * sl)
+	k := RandStr2(l * sl)
+	return HMAC_SHA512(PasswordHash(s, k, l*10), s+k)
+}
