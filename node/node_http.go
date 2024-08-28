@@ -483,3 +483,42 @@ func (self *HttpNode) OPTIONS(path string, handle func(ctx *Context) error, rout
 func (self *HttpNode) HEAD(path string, handle func(ctx *Context) error, routerConfig *RouterConfig) {
 	self.addRouter(HEAD, path, handle, routerConfig)
 }
+
+// ProxyRequest ctx: 上下文实例 proxy: 代理客户端 uri: 目标请求URI host: 目标域名
+func (self *HttpNode) ProxyRequest(ctx *Context, proxy *fasthttp.HostClient, uri, host string) error {
+
+	//proxy := &fasthttp.HostClient{
+	//	Addr: "b-service:8081",
+	//}
+
+	fastCtx := ctx.RequestCtx
+
+	// 创建一个新的请求对象
+	req := fasthttp.AcquireRequest()
+	defer fasthttp.ReleaseRequest(req)
+
+	// 设置请求方法、URL、头部和请求体
+	req.Header.SetMethodBytes(fastCtx.Method())
+	req.SetRequestURI(uri)
+	req.Header.Set("Host", host) // 设置Host头部
+	req.SetBody(ctx.JsonBody.RawData())
+
+	// 创建一个新的响应对象
+	resp := fasthttp.AcquireResponse()
+	defer fasthttp.ReleaseResponse(resp)
+
+	// 发送请求给b服务
+	if err := proxy.Do(req, resp); err != nil {
+		return err
+	}
+
+	// 设置b服务的响应内容到a服务的响应中
+	fastCtx.Response.SetStatusCode(resp.StatusCode())
+	fastCtx.Response.SetBody(resp.Body())
+	fastCtx.Response.Header.SetContentType(utils.Bytes2Str(resp.Header.ContentType()))
+	fastCtx.Response.Header.SetContentLength(len(resp.Body()))
+	fastCtx.Response.Header.VisitAll(func(key, value []byte) {
+		fastCtx.Response.Header.Set(utils.Bytes2Str(key), utils.Bytes2Str(value))
+	})
+	return nil
+}

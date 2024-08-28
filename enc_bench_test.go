@@ -8,12 +8,24 @@ import (
 // go test .\enc_bench_test.go -bench BenchmarkEncPublicKey  -benchmem -count=5
 
 var (
-	encipherClient = sdk.NewEncipherClient("http://localhost:4141")
+	run            = false
+	encipherClient *sdk.EncipherClient
 )
+
+func init() {
+	newEncClient()
+}
 
 const (
 	msg = "35JA1BaJJpzbLMcD07a!mJNF%#dKi5JSjyR&zCGQ%Ap*g02Qgf!fhvzYpI0@rPBCCGWzD5of7wCU$e7O&B0aLID5oMHDjS4b%PyOA5ycDQb759Pr&WRgJdIBC7ButDp#9Do%UKqV0r6KJca*FTd3Jao*W1mcv$*q&5aEj7IVSlA4q0aAZr1L#y7p1zHO1km^m#WUByo$9d^rj1NFNt2gwJ11T#5!iyrR#GVd0#C9G^^ws8N0!k$vKxl!QP!QeuYBRDXfTSgL#b^70ckWK17baD3RuXL9zE6ZxO7EKE48whMRaSCrLC9!^K5EzcDJo8j27USzF*$YursdoAalqvA89lRLRd2&Uz2bZHs7s&!bSnHHbSJZYQhlAAjpLLJvGdTLs8Oz3#^^MzgGo3cY%K7!bd%N%VkJk0mpPBRsFHcaSpJATn4tfC0&z&st^zO3G1QBE93*Wqj292!6wOJhi^W@mUVnuNlfeO3TTgn5MdDZFNZRVHNohN*HXbo9s5&SRH*3X7gvb6sVrs7widS0%UAg88i%Q^v9yRBRo12PgO5pTFS9%s0OdhDqDHhDAaY&l*rpMoZU!dDNEX@Bp$GLz^v%!c#EAuqLx!#PA5rTMxnKqBoLfohBCp&SEgH9spbTHoytz!T5pKWAgT!Wt&D@PQU5lV6jMWU*C*iRu4%vhB#*Z9C#1KUGYkl^8CEKT7OTih6BcnKyG#YH0JndHGuhAGH0Y*1@dvVaAla8jKCh85zw2@n^xf!$66COp2EQndGn@or4mjbkkBQtiyW#JmRgxRImh3Tugf3zK1p6bcHJOY6R^sta8mTyxX7H2Au#qLmmlFD@Jd9Yrmf*ONPglXEK*0RSA%Zz3vKK490t1dw8kPp&Y$g$MvCK*$5c^BjFu#RRhn^ne97kw9MELO%Ho0G2X2qmSM*q1yCpyu1H1Y0Bp^y%0z3ZWseJvyBd!p$qEQy%$6Z9jc3DA6iK*q5TQJSjT8zTZX^58##M@XT$frKg$aDH!Gdh$2jEHdO73kpI%zkr*oAoh#pbC@X*Q^#uLtx5XHIVxukhN*sWgva^SC^J2rhxpt0C3B&DDGJ!grRTbKrCe16cWagif681ttOA&zj1*UXEiW*0lq@x2KiS^Hus9Icmx*A8cCliaYpKVMeJGhfrdS^pzm#aBa&6UcA3kjHNL0ie*qr4FgIDCMzk*vr0jPdVmL9PB!FTzzKEJ5V0Z5$aT!jrsLIR@rFhb5XccG0wQqwA&Q!N2xVj50C0L&#eRj4Q*J0uuuSo*CnN#tJoYpOe$^jUTr#STmXVqu8HLoJz6v%A@%KkXDQCv7%L$T^sZ7H2Xyzyxec$zDGhYiQL9J0*aIq5#MQwxv2bRGAEVJx9Nf2cf7Nma1cvb#j9m@ol$AtlCj^NpDZAs*L8Ivm#@bN2%VSxsW*QHAkilY#RSz$aPIj3KB^vb9Z$veN1A0IdI#9pdGSiskm5#Mmb4vONhczLog3Na9pD^D&BBHVH6lyyqnFvVqCQ$eJabdZwK!ldL5sZHzO1LIeyc2ROkzDr5a3kykje*r35F8VYefVr&^lKCYFGhlec3CFC$JjBlNTUXhNzBx!W!#L#gh#f#j&e#qc02nW8Lsi07am85!o0CZ10uq$!V9P^6ph7p&0*jn@sewwQxgzbRX7fbsgDq!atTGctJ0PNvFdDpxKt2xPjCLU*qE5jrKjGT#1piu#GNpUvlq5KbkF!ic6x0esCIMNXK&#XSvuc%s5@8^tRbRP4MkB9#oYgsT20vNE4t7HGG%wFePC0tcwFfALZW!Kjp70C4ph@cpzxcP*438lJL1@qWG@1mA^IbeWMHkBPY!3KXvC*R%AZdVjbsSjIZy1NaIZ0ku6AVf5E4I3C1L4!*2RZQb^M^zkqcI7yHuy8Q924NQbsc8DO!#T4ObaS--- PASS: TestSignature (0.00s)"
 )
+
+func newEncClient() {
+	if !run {
+		return
+	}
+	encipherClient = sdk.NewEncipherClient("http://localhost:4141")
+}
 
 func BenchmarkEncSignature(b *testing.B) {
 	b.StopTimer()

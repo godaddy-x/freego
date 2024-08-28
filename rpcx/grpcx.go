@@ -33,7 +33,8 @@ var (
 	authorizeTLS    *crypto.RsaObj
 	accessToken     = ""
 	clientOptions   []grpc.DialOption
-	clientConnPools = ClientConnPool{pools: make(map[string]pool.Pool, 0)}
+	clientConnPools = ClientConnPool{pools: make(map[string]pool.Pool)}
+	serverAddress   = ""
 )
 
 type ClientConnPool struct {
@@ -74,6 +75,7 @@ type GRPC struct {
 	Cache   int                       // 服务缓存时间/秒
 	Timeout int                       // context timeout/毫秒
 	AddRPC  func(server *grpc.Server) // grpc注册proto服务
+	Center  bool                      // false: 非注册中心 true: consul注册中心获取
 }
 
 type AuthObject struct {
@@ -359,6 +361,58 @@ func RunServer(consulDs string, authenticate bool, objects ...*GRPC) {
 	}
 }
 
+type InitParam struct {
+	Addr   string
+	Port   int
+	Auth   bool
+	Object []*GRPC
+}
+
+func RunOnlyServer(param InitParam) {
+	if len(param.Object) == 0 {
+		panic("rpc objects is nil...")
+	}
+	opts := []grpc.ServerOption{
+		grpc.InitialWindowSize(pool.InitialWindowSize),
+		grpc.InitialConnWindowSize(pool.InitialConnWindowSize),
+		grpc.MaxSendMsgSize(pool.MaxSendMsgSize),
+		grpc.MaxRecvMsgSize(pool.MaxRecvMsgSize),
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+			PermitWithoutStream: true,
+		}),
+		grpc.KeepaliveParams(keepalive.ServerParameters{
+			Time:    pool.KeepAliveTime,
+			Timeout: pool.KeepAliveTimeout,
+		}),
+		//grpc.UnaryInterceptor(self.ServerInterceptor),
+	}
+	if serverDialTLS != nil {
+		opts = append(opts, serverDialTLS)
+	}
+	grpcServer := grpc.NewServer(opts...)
+	for _, object := range param.Object {
+		address := utils.GetLocalIP()
+		if len(address) == 0 {
+			panic("local address reading failed")
+		}
+		if len(object.Address) == 0 {
+			object.Address = address
+		}
+		if len(object.Service) == 0 || len(object.Service) > 100 {
+			panic("rpc service invalid")
+		}
+		object.AddRPC(grpcServer)
+	}
+	l, err := net.Listen("tcp", utils.AddStr(param.Addr, ":", param.Port))
+	if err != nil {
+		panic(err)
+	}
+	zlog.Println(utils.AddStr("grpc server【", utils.AddStr(param.Addr, ":", param.Port), "】has been started successful"))
+	if err := grpcServer.Serve(l); err != nil {
+		panic(err)
+	}
+}
+
 // RunClient Important: ensure that the service starts only once
 // JWT Token expires in 1 hour
 // The remaining 1200s will be automatically renewed and detected every 15s
@@ -400,6 +454,33 @@ func RunClient(appId ...string) {
 		break
 	}
 	go renewClientToken(appId[0], expired)
+}
+
+// CreateClientOpts serverAddr: 服务端地址 interceptor: 客户端拦截器
+func CreateClientOpts(serverAddr string, interceptor grpc.UnaryClientInterceptor) {
+	if len(serverAddress) == 0 {
+		serverAddress = serverAddr
+	}
+	if len(clientOptions) == 0 {
+		clientOptions = append(clientOptions, grpc.WithInitialWindowSize(pool.InitialWindowSize))
+		clientOptions = append(clientOptions, grpc.WithInitialConnWindowSize(pool.InitialConnWindowSize))
+		clientOptions = append(clientOptions, grpc.WithDefaultCallOptions(grpc.MaxCallSendMsgSize(pool.MaxSendMsgSize)))
+		clientOptions = append(clientOptions, grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(pool.MaxRecvMsgSize)))
+		clientOptions = append(clientOptions, grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:                pool.KeepAliveTime,
+			Timeout:             pool.KeepAliveTimeout,
+			PermitWithoutStream: true,
+		}))
+		if interceptor != nil {
+			clientOptions = append(clientOptions, grpc.WithUnaryInterceptor(interceptor))
+		}
+		if clientDialTLS != nil {
+			clientOptions = append(clientOptions, clientDialTLS)
+		} else {
+			clientOptions = append(clientOptions, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		}
+	}
+	zlog.Info("GRPC client options init success", 0)
 }
 
 func callLogin(appId string) (string, int64, error) {
@@ -495,13 +576,9 @@ func NewClientConn(object GRPC) (pool.Conn, error) {
 	return clientConnPools.getClientConn(utils.AddStr(service.Address, ":", service.Port), timeout)
 }
 
-//func AddClientPool(host string) error {
-//	_, err := clientConnPools.readyPool(host)
-//	if err != nil {
-//		return err
-//	}
-//	return nil
-//}
+func NewOnlyClientConn() (pool.Conn, error) {
+	return clientConnPools.getClientConn(serverAddress, 60000)
+}
 
 func (self *ClientConnPool) getClientConn(host string, timeout int) (conn pool.Conn, err error) {
 	p, b := self.pools[host]
@@ -537,18 +614,6 @@ func (self *ClientConnPool) readyPool(host string) (pool.Pool, error) {
 		zlog.Info("client connection pool create successful", 0, zlog.String("host", host))
 		return pool, nil
 	}
-	//_, err := self.once.Do(func() (interface{}, error) {
-	//	pool, err := pool.NewPool(pool.DefaultOptions, pool.ConnConfig{Address: host, Timeout: 10, Opts: clientOptions})
-	//	if err != nil {
-	//		return nil, err
-	//	}
-	//	self.pools[host] = pool
-	//	zlog.Info("client connection pool create successful", 0, zlog.String("host", host))
-	//	return pool, nil
-	//})
-	//if err != nil {
-	//	return nil, err
-	//}
 	p, b = self.pools[host]
 	if !b || p == nil {
 		return nil, utils.Error("pool connection create failed")

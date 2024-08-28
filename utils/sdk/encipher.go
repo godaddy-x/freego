@@ -88,14 +88,14 @@ func (s *EncipherClient) encryptBody(body string, load bool) (string, error) {
 		}
 		s.shared = shared
 	} else {
-		if err := s.checkReady(); err != nil {
+		if err := s.CheckReady(); err != nil {
 			return "", err
 		}
 	}
 	return utils.AesEncrypt2(utils.Str2Bytes(body), s.shared), nil
 }
 
-func (s *EncipherClient) checkReady() error {
+func (s *EncipherClient) CheckReady() error {
 	if s.ready {
 		return nil
 	}
@@ -103,7 +103,7 @@ func (s *EncipherClient) checkReady() error {
 }
 
 func (s *EncipherClient) NextId() (string, error) {
-	if err := s.checkReady(); err != nil {
+	if err := s.CheckReady(); err != nil {
 		return "", err
 	}
 	request := fasthttp.AcquireRequest()

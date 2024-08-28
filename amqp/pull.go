@@ -120,9 +120,9 @@ func (self *PullManager) listen(receiver *PullReceiver) {
 	if !utils.CheckInt(receiver.Config.Option.SigTyp, 0, 1) {
 		receiver.Config.Option.SigTyp = 1
 	}
-	if len(receiver.Config.Option.SigKey) < 32 {
-		receiver.Config.Option.SigKey = utils.AddStr(utils.GetLocalSecretKey(), self.conf.SecretKey)
-	}
+
+	receiver.Config.Option.SigKey = utils.HMAC_SHA512(self.conf.SecretKey, utils.GetLocalSecretKey())
+
 	if len(kind) == 0 {
 		kind = direct
 	}
@@ -242,7 +242,7 @@ func (self *PullReceiver) OnReceive(b []byte) bool {
 		return true
 	}
 	if sigTyp == 1 {
-		aesContent, err := utils.AesDecrypt(v, sigKey, sigKey)
+		aesContent, err := utils.AesDecrypt2(v, sigKey)
 		if err != nil {
 			zlog.Error("rabbitmq consumption data aes decrypt failed", 0, zlog.Any("option", self.Config.Option), zlog.Any("message", msg))
 			return true

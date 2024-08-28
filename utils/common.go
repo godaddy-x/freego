@@ -875,5 +875,5 @@ func CreateSafeRandom(sl, dl int) string {
 	l := 1024
 	s := RandStr2(l * sl)
 	k := RandStr2(l * sl)
-	return HMAC_SHA512(PasswordHash(s, k, l*10), s+k)
+	return HMAC_SHA512(PasswordHash(s+NextSID()+GetUUID(), k, dl*l), s+k)
 }

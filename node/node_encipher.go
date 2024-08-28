@@ -287,14 +287,18 @@ func createRabbitmq(path string) error {
 			return errors.New("create file fail: " + err.Error())
 		}
 		defer file.Close()
-		str := `{
-    "Username": "guest",
-    "Password": "guest",
-    "Host": "127.0.0.1",
-    "Port": 5672
-}
+		str := `[
+    {
+        "DsName": "",
+        "Username": "guest",
+        "Password": "guest",
+        "Host": "127.0.0.1",
+        "Port": 5672,
+        "SecretKey": "%s"
+    }
+]
 `
-		if _, err := file.WriteString(str); err != nil {
+		if _, err := file.WriteString(fmt.Sprintf(str, createRandom())); err != nil {
 			return errors.New("write file fail: " + err.Error())
 		}
 		return nil
@@ -311,15 +315,35 @@ func createConsul(path string) error {
 		}
 		defer file.Close()
 		str := `{
-    "Host": "consulx.com:8500",
-    "CheckPort": 20999,
-    "RpcPort": 20998,
+    "Host": "127.0.0.1:8500",
+    "CheckPort": %d,
+    "RpcPort": %d,
     "Protocol": "tcp",
-    "Debug": true,
+    "Debug": false,
     "Timeout": "3s",
     "Interval": "5s",
-    "DestroyAfter": "30s",
-    "CheckPath": "/consul/check"
+    "DestroyAfter": "120s",
+    "CheckPath": "%s",
+	"RpcAddress": "%s"
+}`
+		if _, err := file.WriteString(str); err != nil {
+			return errors.New("write file fail: " + err.Error())
+		}
+		return nil
+	}
+	return nil
+}
+
+func createConsulHost(path string) error {
+	fileName := utils.AddStr(path, "/consulHost")
+	if _, err := os.Stat(fileName); os.IsNotExist(err) {
+		file, err := os.Create(fileName)
+		if err != nil {
+			return errors.New("create file fail: " + err.Error())
+		}
+		defer file.Close()
+		str := `{
+    "Host": "127.0.0.1:8500"
 }`
 		if _, err := file.WriteString(str); err != nil {
 			return errors.New("write file fail: " + err.Error())
@@ -348,7 +372,6 @@ func createGeetest(path string) error {
 			return errors.New("write file fail: " + err.Error())
 		}
 		return nil
-		return nil
 	}
 	return nil
 }
@@ -362,18 +385,10 @@ func createLogger(path string) error {
 		}
 		defer file.Close()
 		str := `{
-    "admin_main": {
-        "dir": "logs/",
-        "name": "admin_main.log",
-        "level": "info",
-        "console": true
-    },
-    "api_main": {
-        "dir": "logs/",
-        "name": "api_main.log",
-        "level": "info",
-        "console": true
-    }
+    "dir": "logs/",
+    "name": "%s.log",
+    "level": "info",
+    "console": true
 }`
 		if _, err := file.WriteString(str); err != nil {
 			return errors.New("write file fail: " + err.Error())
@@ -424,6 +439,9 @@ func (s *DefaultEncipher) LoadConfig(path string) (EncipherParam, error) {
 		return EncipherParam{}, err
 	}
 	if err := createConsul(path); err != nil {
+		return EncipherParam{}, err
+	}
+	if err := createConsulHost(path); err != nil {
 		return EncipherParam{}, err
 	}
 	if err := createGeetest(path); err != nil {

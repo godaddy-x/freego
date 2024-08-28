@@ -149,10 +149,6 @@ func (self *TestFilter) DoFilter(chain node.Filter, ctx *node.Context, args ...i
 	return chain.DoFilter(chain, ctx, args...)
 }
 
-const (
-	privateKey = "MHcCAQEEIEpXwxicdbb4DM+EW/cJVvoTSubRHIKB6kai/1qgaWnNoAoGCCqGSM49AwEHoUQDQgAEo2hpVqkCUrLC/mxd9qD8sdryanqx0YVfpAfN9ciMGiOSgJ8KBmDpE8FfAtRSk8PM4Le6EMLrQQLPaLURshOwZg=="
-)
-
 func roleRealm(ctx *node.Context, onlyRole bool) (*node.Permission, error) {
 	permission := &node.Permission{}
 	if onlyRole {
@@ -171,9 +167,18 @@ func NewHTTP() *MyWebNode {
 	my.AddJwtConfig(jwt.JwtConfig{
 		TokenTyp: jwt.JWT,
 		TokenAlg: jwt.HS256,
-		TokenKey: "123456" + utils.CreateLocalSecretKey(12, 45, 23, 60, 58, 30),
+		TokenKey: "1234567890",
 		TokenExp: jwt.TWO_WEEK,
 	})
+	encipher := sdk.NewEncipherClient("http://localhost:4141")
+	ecdsa, err := encipher.Config("ecdsa")
+	if err != nil {
+		panic(err)
+	}
+	privateKey := utils.GetJsonString(utils.Str2Bytes(ecdsa), "PrivateKey")
+	if len(privateKey) == 0 {
+		panic("ecdsa privateKey is nil")
+	}
 	cipher := &crypto.EccObj{}
 	if err := cipher.LoadS256ECC(privateKey); err != nil {
 		panic("ECC certificate generation failed")
@@ -207,6 +212,13 @@ func StartHttpNode() {
 
 	my.POST("/geetest/register", my.FirstRegister, &node.RouterConfig{UseRSA: true})
 	my.POST("/geetest/validate", my.SecondValidate, &node.RouterConfig{UseRSA: true})
+
+	//my.POST("/geetest/validate", func(ctx *node.Context) error {
+	//	proxy := &fasthttp.HostClient{
+	//		Addr: "b-service:8081",
+	//	}
+	//	return my.ProxyRequest(ctx, proxy, "", "")
+	//}, &node.RouterConfig{Guest: true})
 
 	my.AddLanguageByJson("en", []byte(`{"test":"测试$1次 我是$4岁"}`))
 	my.StartServer(":8090")

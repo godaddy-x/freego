@@ -23,6 +23,7 @@ type HttpSDK struct {
 	AuthDomain string
 	KeyPath    string
 	LoginPath  string
+	publicKey  string
 	language   string
 	timeout    int64
 	authObject interface{}
@@ -40,6 +41,10 @@ func (s *HttpSDK) AuthToken(object AuthToken) {
 
 func (s *HttpSDK) SetTimeout(timeout int64) {
 	s.timeout = timeout
+}
+
+func (s *HttpSDK) SetPublicKey(publicKey string) {
+	s.publicKey = publicKey
 }
 
 func (s *HttpSDK) SetLanguage(language string) {
@@ -61,6 +66,9 @@ func (s *HttpSDK) getURI(path string) string {
 }
 
 func (s *HttpSDK) GetPublicKey() (string, error) {
+	if len(s.publicKey) > 0 {
+		return s.publicKey, nil
+	}
 	request := fasthttp.AcquireRequest()
 	request.Header.SetMethod("GET")
 	defer fasthttp.ReleaseRequest(request)
@@ -95,7 +103,7 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	if err != nil {
 		return err
 	}
-	clientSecretKey := utils.HMAC_SHA256(utils.RandStr2(32), utils.RandStr2(32))
+	clientSecretKey := utils.CreateSafeRandom(4, 4)
 	_, pubBs, err := ecc.LoadBase64PublicKey(publicKey)
 	if err != nil {
 		return ex.Throw{Msg: "load ECC public key failed"}

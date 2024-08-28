@@ -129,9 +129,12 @@ func (self *PublishManager) initQueue(data *MsgData) (*PublishMQ, error) {
 	if !utils.CheckInt(data.Option.SigTyp, 0, 1) {
 		data.Option.SigTyp = 1
 	}
-	if len(data.Option.SigKey) < 32 {
-		data.Option.SigKey = utils.AddStr(utils.GetLocalSecretKey(), self.conf.SecretKey)
+	if len(self.conf.SecretKey) == 0 {
+		return nil, utils.Error("rabbitmq publish SecretKey is nil")
 	}
+
+	data.Option.SigKey = utils.HMAC_SHA512(self.conf.SecretKey, utils.GetLocalSecretKey())
+
 	if len(data.Nonce) == 0 {
 		data.Nonce = utils.RandNonce()
 	}
@@ -233,10 +236,10 @@ func (self *PublishManager) PublishMsgData(data *MsgData) error {
 	if len(content) == 0 {
 		return utils.Error("rabbitmq publish content is nil")
 	}
-	if sigTyp == 1 {
-		aesContent, err := utils.AesEncrypt(utils.Str2Bytes(content), sigKey, sigKey)
-		if err != nil {
-			return utils.Error("rabbitmq publish content aes encrypt failed: ", err)
+	if sigTyp == 1 { // aes加密数据源
+		aesContent := utils.AesEncrypt2(utils.Str2Bytes(content), sigKey)
+		if len(aesContent) == 0 {
+			return utils.Error("rabbitmq publish content aes encrypt failed: ")
 		}
 		content = aesContent
 	}
