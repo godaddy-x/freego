@@ -8,6 +8,7 @@ import (
 	"github.com/godaddy-x/freego/node/common"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/crypto"
+	"github.com/godaddy-x/freego/utils/encipher"
 	"github.com/godaddy-x/freego/utils/jwt"
 	"github.com/godaddy-x/freego/zlog"
 	"github.com/valyala/fasthttp"
@@ -122,7 +123,7 @@ type Context struct {
 	postCompleted bool
 	postHandle    PostHandle
 	errorHandle   ErrorHandle
-	Encipher      *EncipherClient
+	Encipher      encipher.Client
 }
 
 type Response struct {
@@ -218,7 +219,8 @@ func (self *Context) Parser(dst interface{}) error {
 		Path:       self.Path,
 		System:     &common.System{Name: self.System.Name, Version: self.System.Version},
 		CacheAware: self.CacheAware,
-		RSA:        self.RSA,
+		//RSA:        self.RSA,
+		Encipher: self.Encipher,
 	}
 	src := utils.GetPtr(dst, 0)
 	req := common.GetBasePtrReq(src)
@@ -348,34 +350,25 @@ func (self *Context) validJsonBody() error {
 	var key string
 	var anonymous bool // true.匿名状态
 	if self.RouterConfig.UseRSA {
-		if self.Encipher == nil {
-			_, key = self.RSA.GetPublicKey()
-		} else {
-			var err error
-			key, err = self.Encipher.Config("ecdsa")
-			if err != nil {
-				return ex.Throw{Msg: "publicKey is nil", Err: err}
-			}
+		var err error
+		key, err = self.Encipher.Config("ecdsa")
+		if err != nil {
+			return ex.Throw{Msg: "publicKey is nil", Err: err}
 		}
 		anonymous = true
 	}
 
 	checkBody := utils.AddStr(self.Path, d, body.Nonce, body.Time, body.Plan)
-	if len(key) == 0 { // 非登录状态
-		var checkSign string
-		if self.Encipher == nil { // 本地化验证数据
-			checkSign = utils.HMAC_SHA256(checkBody, self.GetTokenSecret(), true)
-		} else { // 远程加密器验证数据
-			var err error
-			checkSign, err = self.Encipher.TokenSignature(checkBody, checkSign)
-			if err != nil {
-				return ex.Throw{Code: http.StatusBadRequest, Msg: "encipher request signature invalid", Err: err}
-			}
+	if len(key) == 0 { // 已登录状态
+		var err error
+		checkSign, err := self.Encipher.TokenSignature(utils.Bytes2Str(self.Subject.GetRawBytes()), checkBody)
+		if err != nil {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "encipher request signature invalid", Err: err}
 		}
 		if checkSign != body.Sign {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature invalid"}
 		}
-	} else {
+	} else { // 非登录状态,使用公钥验签
 		if utils.HMAC_SHA256(checkBody, key, true) != body.Sign {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature invalid"}
 		}
@@ -386,28 +379,17 @@ func (self *Context) validJsonBody() error {
 	}
 
 	var rawData []byte
-	var err error
 	if body.Plan == 0 && !anonymous { // 登录状态 P0 Base64
 		rawData = utils.Base64Decode(d)
 		if rawData == nil || len(rawData) == 0 {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter Base64 parsing failed"}
 		}
 	} else if body.Plan == 1 && !anonymous { // 登录状态 P1 AES
-		if self.Encipher == nil {
-			rawData, err = utils.AesDecrypt2(d, self.GetTokenSecret())
-			if err != nil {
-				return ex.Throw{Code: http.StatusBadRequest, Msg: "AES failed to parse data", Err: err}
-			}
-			if len(rawData) == 0 {
-				return ex.Throw{Code: http.StatusBadRequest, Msg: "AES failed to parse data is nil", Err: err}
-			}
-		} else {
-			res, err := self.Encipher.TokenDecrypt(utils.Bytes2Str(self.Subject.GetRawBytes()), d)
-			if err != nil {
-				return ex.Throw{Code: http.StatusBadRequest, Msg: "AES failed to parse data", Err: err}
-			}
-			rawData = utils.Str2Bytes(res)
+		res, err := self.Encipher.TokenDecrypt(utils.Bytes2Str(self.Subject.GetRawBytes()), d)
+		if err != nil {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "AES failed to parse data", Err: err}
 		}
+		rawData = utils.Str2Bytes(res)
 	} else if body.Plan == 2 && self.RouterConfig.UseRSA && anonymous { // 非登录状态 P2 RSA+AES
 		codeBs := self.RequestCtx.Request.Header.Peek(RandomCode)
 		if len(codeBs) > MAX_CODE_LEN {
@@ -417,47 +399,25 @@ func (self *Context) validJsonBody() error {
 		if len(randomCode) == 0 {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "client random code invalid"}
 		}
-		if self.Encipher == nil { // 本地化验签客户端随机码
-			code, err := self.RSA.Decrypt(randomCode)
-			if err != nil {
-				return ex.Throw{Code: http.StatusBadRequest, Msg: "server private-key decrypt failed", Err: err}
-			}
-			codeLen := len(code)
-			if codeLen == 0 {
-				return ex.Throw{Code: http.StatusBadRequest, Msg: "server private-key decrypt data is nil", Err: err}
-			}
-			if codeLen < 64 || codeLen > 128 {
-				return ex.Throw{Code: http.StatusBadRequest, Msg: "client random code length must >= 64 and <= 128"}
-			}
-			rawData, err = utils.AesDecrypt2(d, code)
-			if err != nil {
-				return ex.Throw{Code: http.StatusBadRequest, Msg: "AES failed to parse data", Err: err}
-			}
-			if len(rawData) == 0 {
-				return ex.Throw{Code: http.StatusBadRequest, Msg: "AES failed to parse data is nil", Err: err}
-			}
-			self.AddStorage(RandomCode, code)
-		} else { // 加密器验证客户端随机码
-			code, err := self.Encipher.EccDecrypt(randomCode)
-			if err != nil || len(code) == 0 {
-				return ex.Throw{Code: http.StatusBadRequest, Msg: "server private-key decrypt failed", Err: err}
-			}
-			codeLen := len(code)
-			if codeLen == 0 {
-				return ex.Throw{Code: http.StatusBadRequest, Msg: "server private-key decrypt data is nil", Err: err}
-			}
-			if codeLen < 64 || codeLen > 128 {
-				return ex.Throw{Code: http.StatusBadRequest, Msg: "client random code length must >= 64 and <= 128"}
-			}
-			rawData, err = utils.AesDecrypt2(d, code)
-			if err != nil {
-				return ex.Throw{Code: http.StatusBadRequest, Msg: "AES failed to parse data", Err: err}
-			}
-			if len(rawData) == 0 {
-				return ex.Throw{Code: http.StatusBadRequest, Msg: "AES failed to parse data is nil", Err: err}
-			}
-			self.AddStorage(RandomCode, code)
+		code, err := self.Encipher.EccDecrypt(randomCode)
+		if err != nil || len(code) == 0 {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "server private-key decrypt failed", Err: err}
 		}
+		codeLen := len(code)
+		if codeLen == 0 {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "server private-key decrypt data is nil", Err: err}
+		}
+		if codeLen < 64 || codeLen > 128 {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "client random code length must >= 64 and <= 128"}
+		}
+		rawData, err = utils.AesDecrypt2(d, code)
+		if err != nil {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "AES failed to parse data", Err: err}
+		}
+		if len(rawData) == 0 {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "AES failed to parse data is nil", Err: err}
+		}
+		self.AddStorage(RandomCode, code)
 	} else {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters plan invalid"}
 	}

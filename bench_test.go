@@ -272,9 +272,9 @@ func BenchmarkMongoFindOne(b *testing.B) {
 	b.StopTimer()              //调用该函数停止压力测试的时间计数go test -run="webbench_test.go" -test.bench="."*
 	b.StartTimer()             //重新开始时间
 	for i := 0; i < b.N; i++ { //use b.N for looping
-		obj := &crypto.EccObj{}
+		obj := &crypto.EccObject{}
 		obj.CreateS256ECC()
-		obj1 := &crypto.EccObj{}
+		obj1 := &crypto.EccObject{}
 		obj1.CreateS256ECC()
 		_, pub := obj1.GetPublicKey()
 		obj.GenSharedKey(pub)

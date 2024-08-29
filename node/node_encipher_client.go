@@ -6,6 +6,7 @@ import (
 	"github.com/godaddy-x/freego/utils/crypto"
 	"github.com/godaddy-x/freego/zlog"
 	"github.com/valyala/fasthttp"
+	"strings"
 	"time"
 )
 
@@ -13,16 +14,16 @@ var (
 	timeout = 60 * time.Second
 )
 
-type EncipherClient struct {
+type DefaultEncipherClient struct {
 	Host      string
-	EccObject *crypto.EccObj
+	EccObject *crypto.EccObject
 	keystore  string
 	shared    string
 	ready     bool
 }
 
-func NewEncipherClient(host string) *EncipherClient {
-	client := &EncipherClient{
+func NewDefaultEncipherClient(host string) *DefaultEncipherClient {
+	client := &DefaultEncipherClient{
 		Host:      host,
 		EccObject: crypto.NewEccObject(),
 	}
@@ -33,7 +34,7 @@ func NewEncipherClient(host string) *EncipherClient {
 	return client
 }
 
-func (s *EncipherClient) checkServerKey() {
+func (s *DefaultEncipherClient) checkServerKey() {
 	for {
 		key, err := s.PublicKey()
 		if err != nil {
@@ -54,12 +55,12 @@ func (s *EncipherClient) checkServerKey() {
 	}
 }
 
-func (s *EncipherClient) getPublic() string {
+func (s *DefaultEncipherClient) getPublic() string {
 	_, b64 := s.EccObject.GetPublicKey()
 	return b64
 }
 
-func (s *EncipherClient) decryptBody(shared string, body []byte) (string, error) {
+func (s *DefaultEncipherClient) decryptBody(shared string, body []byte) (string, error) {
 	if len(body) == 0 {
 		return "", errors.New("body is nil")
 	}
@@ -73,7 +74,7 @@ func (s *EncipherClient) decryptBody(shared string, body []byte) (string, error)
 	return utils.Bytes2Str(res), nil
 }
 
-func (s *EncipherClient) encryptBody(body string, load bool) (string, error) {
+func (s *DefaultEncipherClient) encryptBody(body string, load bool) (string, error) {
 	if load {
 		pub, err := s.PublicKey()
 		if err != nil {
@@ -93,16 +94,16 @@ func (s *EncipherClient) encryptBody(body string, load bool) (string, error) {
 	return utils.AesEncrypt2(utils.Str2Bytes(body), s.shared), nil
 }
 
-func (s *EncipherClient) CheckReady() error {
+func (s *DefaultEncipherClient) CheckReady() error {
 	if s.ready {
 		return nil
 	}
 	return errors.New("encipher handshake not ready")
 }
 
-func (s *EncipherClient) NextId() (string, error) {
+func (s *DefaultEncipherClient) NextId() (int64, error) {
 	if err := s.CheckReady(); err != nil {
-		return "", err
+		return 0, err
 	}
 	request := fasthttp.AcquireRequest()
 	request.Header.SetMethod("GET")
@@ -111,15 +112,19 @@ func (s *EncipherClient) NextId() (string, error) {
 	defer fasthttp.ReleaseResponse(response)
 	_, b, err := fasthttp.Get(nil, utils.AddStr(s.Host, "/api/identify"))
 	if err != nil {
-		return "", errors.New("load next id fail: " + err.Error())
+		return 0, errors.New("load next id fail: " + err.Error())
 	}
 	if len(b) == 0 {
-		return "", errors.New("load next id fail: nil")
+		return 0, errors.New("load next id fail: nil")
 	}
-	return utils.Bytes2Str(b), nil
+	id, err := utils.StrToInt64(utils.Bytes2Str(b))
+	if err != nil {
+		return 0, errors.New("next id invalid")
+	}
+	return id, nil
 }
 
-func (s *EncipherClient) PublicKey() (string, error) {
+func (s *DefaultEncipherClient) PublicKey() (string, error) {
 	request := fasthttp.AcquireRequest()
 	request.Header.SetMethod("GET")
 	defer fasthttp.ReleaseRequest(request)
@@ -135,7 +140,7 @@ func (s *EncipherClient) PublicKey() (string, error) {
 	return utils.Bytes2Str(b), nil
 }
 
-func (s *EncipherClient) Handshake() error {
+func (s *DefaultEncipherClient) Handshake() error {
 	input := utils.RandStr2(32)
 	body, err := s.encryptBody(input, true)
 	if err != nil {
@@ -163,7 +168,7 @@ func (s *EncipherClient) Handshake() error {
 	return nil
 }
 
-func (s *EncipherClient) Signature(input string) (string, error) {
+func (s *DefaultEncipherClient) Signature(input string) (string, error) {
 	body, err := s.encryptBody(input, false)
 	if err != nil {
 		return "", err
@@ -190,7 +195,7 @@ func (s *EncipherClient) Signature(input string) (string, error) {
 	return res, nil
 }
 
-func (s *EncipherClient) TokenSignature(token, input string) (string, error) {
+func (s *DefaultEncipherClient) TokenSignature(token, input string) (string, error) {
 	body, err := s.encryptBody(input, false)
 	if err != nil {
 		return "", err
@@ -218,7 +223,7 @@ func (s *EncipherClient) TokenSignature(token, input string) (string, error) {
 	return res, nil
 }
 
-func (s *EncipherClient) SignatureVerify(input, target string) (bool, error) {
+func (s *DefaultEncipherClient) SignatureVerify(input, target string) (bool, error) {
 	body, err := s.encryptBody(input, false)
 	if err != nil {
 		return false, err
@@ -249,7 +254,7 @@ func (s *EncipherClient) SignatureVerify(input, target string) (bool, error) {
 	return false, nil
 }
 
-func (s *EncipherClient) TokenSignatureVerify(token, input, target string) (bool, error) {
+func (s *DefaultEncipherClient) TokenSignatureVerify(token, input, target string) (bool, error) {
 	body, err := s.encryptBody(input, false)
 	if err != nil {
 		return false, err
@@ -281,7 +286,7 @@ func (s *EncipherClient) TokenSignatureVerify(token, input, target string) (bool
 	return false, nil
 }
 
-func (s *EncipherClient) Config(input string) (string, error) {
+func (s *DefaultEncipherClient) Config(input string) (string, error) {
 	body, err := s.encryptBody(input, false)
 	if err != nil {
 		return "", err
@@ -312,7 +317,7 @@ func (s *EncipherClient) Config(input string) (string, error) {
 	return res, nil
 }
 
-func (s *EncipherClient) AesEncrypt(input string) (string, error) {
+func (s *DefaultEncipherClient) AesEncrypt(input string) (string, error) {
 	body, err := s.encryptBody(input, false)
 	if err != nil {
 		return "", err
@@ -343,7 +348,7 @@ func (s *EncipherClient) AesEncrypt(input string) (string, error) {
 	return res, nil
 }
 
-func (s *EncipherClient) AesDecrypt(input string) (string, error) {
+func (s *DefaultEncipherClient) AesDecrypt(input string) (string, error) {
 	body, err := s.encryptBody(input, false)
 	if err != nil {
 		return "", err
@@ -374,7 +379,7 @@ func (s *EncipherClient) AesDecrypt(input string) (string, error) {
 	return res, nil
 }
 
-func (s *EncipherClient) EccEncrypt(input, publicTo string) (string, error) {
+func (s *DefaultEncipherClient) EccEncrypt(input, publicTo string) (string, error) {
 	body, err := s.encryptBody(input, false)
 	if err != nil {
 		return "", err
@@ -406,7 +411,7 @@ func (s *EncipherClient) EccEncrypt(input, publicTo string) (string, error) {
 	return res, nil
 }
 
-func (s *EncipherClient) EccDecrypt(input string) (string, error) {
+func (s *DefaultEncipherClient) EccDecrypt(input string) (string, error) {
 	body, err := s.encryptBody(input, false)
 	if err != nil {
 		return "", err
@@ -437,7 +442,7 @@ func (s *EncipherClient) EccDecrypt(input string) (string, error) {
 	return res, nil
 }
 
-func (s *EncipherClient) TokenEncrypt(token, input string) (string, error) {
+func (s *DefaultEncipherClient) TokenEncrypt(token, input string) (string, error) {
 	body, err := s.encryptBody(input, false)
 	if err != nil {
 		return "", err
@@ -469,7 +474,7 @@ func (s *EncipherClient) TokenEncrypt(token, input string) (string, error) {
 	return res, nil
 }
 
-func (s *EncipherClient) TokenDecrypt(token, input string) (string, error) {
+func (s *DefaultEncipherClient) TokenDecrypt(token, input string) (string, error) {
 	body, err := s.encryptBody(input, false)
 	if err != nil {
 		return "", err
@@ -501,7 +506,7 @@ func (s *EncipherClient) TokenDecrypt(token, input string) (string, error) {
 	return res, nil
 }
 
-func (s *EncipherClient) TokenCreate(input string) (string, error) {
+func (s *DefaultEncipherClient) TokenCreate(input string) (interface{}, error) {
 	body, err := s.encryptBody(input, false)
 	if err != nil {
 		return "", err
@@ -529,10 +534,15 @@ func (s *EncipherClient) TokenCreate(input string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return res, nil
+	part := strings.Split(res, ";")
+	if len(part) != 3 {
+		return "", errors.New("token result invalid")
+	}
+	expired, _ := utils.StrToInt64(part[2])
+	return map[string]interface{}{"token": part[0], "secret": part[1], "expired": expired}, nil
 }
 
-func (s *EncipherClient) TokenVerify(input string) (string, error) {
+func (s *DefaultEncipherClient) TokenVerify(input string) (string, error) {
 	body, err := s.encryptBody(input, false)
 	if err != nil {
 		return "", err

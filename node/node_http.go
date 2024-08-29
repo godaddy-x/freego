@@ -7,6 +7,7 @@ import (
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/crypto"
+	"github.com/godaddy-x/freego/utils/encipher"
 	"github.com/godaddy-x/freego/utils/jwt"
 	"github.com/godaddy-x/freego/zlog"
 	"github.com/valyala/fasthttp"
@@ -49,6 +50,9 @@ func (self *HttpNode) proxy(handle PostHandle, ctx *fasthttp.RequestCtx) {
 
 func (self *HttpNode) StartServer(addr string, timeout ...int) {
 	go func() {
+		if self.Context.Encipher == nil {
+			panic("encipher is nil")
+		}
 		if self.Context.CacheAware != nil {
 			zlog.Printf("cache service has been started successful")
 		}
@@ -162,7 +166,7 @@ func (self *HttpNode) AddCipher(cipher crypto.Cipher) {
 	if self.Context.RSA == nil {
 		if cipher == nil {
 			if self.Context.System.enableECC {
-				defaultECC := &crypto.EccObj{}
+				defaultECC := &crypto.EccObject{}
 				if err := defaultECC.CreateS256ECC(); err != nil {
 					panic("ECC certificate generation failed")
 				}
@@ -256,10 +260,10 @@ func (self *HttpNode) AddJwtConfig(config jwt.JwtConfig) {
 	self.Context.configs.jwtConfig.TokenExp = config.TokenExp
 }
 
-func (self *HttpNode) EnableECC(enable bool) {
-	self.readyContext()
-	self.Context.System.enableECC = enable
-}
+//func (self *HttpNode) EnableECC(enable bool) {
+//	self.readyContext()
+//	self.Context.System.enableECC = true
+//}
 
 func (self *HttpNode) SetSystem(name, version string) {
 	self.readyContext()
@@ -267,8 +271,9 @@ func (self *HttpNode) SetSystem(name, version string) {
 	self.Context.System.Version = version
 }
 
-func (self *HttpNode) SetEncipher(client *EncipherClient) {
+func (self *HttpNode) SetEncipher(client encipher.Client) {
 	self.readyContext()
+	self.Context.System.enableECC = true
 	self.Context.Encipher = client
 }
 
@@ -432,33 +437,23 @@ func defaultRenderPre(ctx *Context) error {
 				return ex.Throw{Msg: "anonymous response plan invalid"}
 			}
 		} else if routerConfig.AesResponse {
-			resp.Plan = 1
-			var aesData string
-			if ctx.Encipher == nil {
-				aesData = utils.AesEncrypt2(data, ctx.GetTokenSecret())
-				resp.Sign = ctx.GetHmac256Sign(aesData, resp.Nonce, resp.Time, resp.Plan, key) // 使用token生成密钥进行签名
-			} else {
-				aesData, err = ctx.Encipher.TokenEncrypt(utils.Bytes2Str(ctx.Subject.GetRawBytes()), utils.Bytes2Str(data))
-				if err != nil {
-					return ex.Throw{Code: http.StatusInternalServerError, Msg: "AES encryption response data failed", Err: err}
-				}
-				checkBody := utils.AddStr(ctx.Path, aesData, resp.Nonce, resp.Time, resp.Plan)
-				resp.Sign, err = ctx.Encipher.TokenSignature(utils.Bytes2Str(ctx.Subject.GetRawBytes()), checkBody)
-				if err != nil {
-					return ex.Throw{Code: http.StatusInternalServerError, Msg: "encipher encryption response data failed", Err: err}
-				}
+			aesData, err := ctx.Encipher.TokenEncrypt(utils.Bytes2Str(ctx.Subject.GetRawBytes()), utils.Bytes2Str(data))
+			if err != nil {
+				return ex.Throw{Code: http.StatusInternalServerError, Msg: "AES encryption response data failed", Err: err}
 			}
+			resp.Plan = 1
 			resp.Data = aesData
+			checkBody := utils.AddStr(ctx.Path, aesData, resp.Nonce, resp.Time, resp.Plan)
+			resp.Sign, err = ctx.Encipher.TokenSignature(utils.Bytes2Str(ctx.Subject.GetRawBytes()), checkBody)
+			if err != nil {
+				return ex.Throw{Code: http.StatusInternalServerError, Msg: "encipher encryption response data failed", Err: err}
+			}
 		} else {
 			resp.Data = utils.Base64Encode(data)
-			if ctx.Encipher == nil {
-				resp.Sign = ctx.GetHmac256Sign(resp.Data.(string), resp.Nonce, resp.Time, resp.Plan, key) // 使用token生成密钥进行签名
-			} else {
-				checkBody := utils.AddStr(ctx.Path, resp.Data.(string), resp.Nonce, resp.Time, resp.Plan)
-				resp.Sign, err = ctx.Encipher.TokenSignature(utils.Bytes2Str(ctx.Subject.GetRawBytes()), checkBody)
-				if err != nil {
-					return ex.Throw{Code: http.StatusInternalServerError, Msg: "encipher encryption response data failed", Err: err}
-				}
+			checkBody := utils.AddStr(ctx.Path, resp.Data.(string), resp.Nonce, resp.Time, resp.Plan)
+			resp.Sign, err = ctx.Encipher.TokenSignature(utils.Bytes2Str(ctx.Subject.GetRawBytes()), checkBody)
+			if err != nil {
+				return ex.Throw{Code: http.StatusInternalServerError, Msg: "encipher encryption response data failed", Err: err}
 			}
 		}
 		if result, err := utils.JsonMarshal(resp); err != nil {

@@ -19,7 +19,7 @@ func http_test() {
 	//go http_web.StartHttpNode2()
 	//sqld.RebuildMongoDBIndex()
 
-	go node.StartNodeEncipher(":4141", node.NewDefaultEncipher("test/config/"))
+	go node.StartNodeEncipher(":4141", node.NewDefaultEncipherServer("test/config/"))
 	time.Sleep(2 * time.Second)
 	http_web.StartHttpNode()
 }

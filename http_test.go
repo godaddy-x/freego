@@ -46,7 +46,7 @@ func TestGetUser(t *testing.T) {
 	httpSDK.AuthToken(sdk.AuthToken{Token: access_token, Secret: token_secret, Expired: token_expire})
 	requestObj := map[string]interface{}{"uid": 123, "name": "我爱中国/+_=/1df", "limit": 20, "offset": 5}
 	responseData := map[string]string{}
-	if err := httpSDK.PostByAuth("/getUser", &requestObj, &responseData, false); err != nil {
+	if err := httpSDK.PostByAuth("/getUser", &requestObj, &responseData, true); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println(responseData)
@@ -62,6 +62,7 @@ func BenchmarkGetUser(b *testing.B) {
 		if err := httpSDK.PostByAuth("/getUser", &requestObj, &responseData, false); err != nil {
 			fmt.Println(err)
 		}
+		//fmt.Println(responseData)
 	}
 }
 
@@ -73,6 +74,7 @@ func BenchmarkECCLogin(b *testing.B) {
 	for i := 0; i < b.N; i++ { //use b.N for looping
 		requestData := map[string]string{"username": "1234567890123456", "password": "1234567890123456"}
 		responseData := sdk.AuthToken{}
+		httpSDK.SetPublicKey("BPrRMrc3nv9SGVsj0eMwgPnLfKr6HTWLVJ2f9QcHH6qOEpsgpUkBKhNY6G4J7LmdD9l+ruLMn3Zn/Fwi+h80dM0=")
 		if err := httpSDK.PostByECC("/login", &requestData, &responseData); err != nil {
 			fmt.Println(err)
 		}

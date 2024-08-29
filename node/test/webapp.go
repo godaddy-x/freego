@@ -9,9 +9,7 @@ import (
 	"github.com/godaddy-x/freego/rpcx"
 	"github.com/godaddy-x/freego/rpcx/pb"
 	"github.com/godaddy-x/freego/utils"
-	"github.com/godaddy-x/freego/utils/jwt"
-	"github.com/godaddy-x/freego/utils/sdk"
-	"strings"
+	"github.com/godaddy-x/freego/utils/encipher"
 	"time"
 )
 
@@ -59,28 +57,11 @@ func testCallRPC() {
 }
 
 func (self *MyWebNode) login(ctx *node.Context) error {
-	//fmt.Println("-----", ctx.GetHeader("Language"))
-	//fmt.Println("-----", ctx.GetPostBody())
-	//// {"test":"测试$1次 我是$4岁"}
-	//return ex.Throw{Msg: "${test}", Arg: []string{"1", "2", "123", "99"}}
-	//self.LoginBySubject(subject, exp)
-	//config := ctx.GetJwtConfig()
-	//token := ctx.Subject.Create(utils.NextSID()).Dev("APP").Generate(config)
-	//secret := jwt.GetTokenSecret(token, config.TokenKey)
-	//if ctx.Encipher == nil {
-	//	return ex.Throw{Msg: "encipher is nil"}
-	//}
 	data, err := ctx.Encipher.TokenCreate(utils.AddStr(utils.NextSID(), ";", "WEB"))
 	if err != nil {
 		return ex.Throw{Msg: "create token fail", Err: err}
 	}
-	part := strings.Split(data, ";")
-	expired, _ := utils.StrToInt64(part[2])
-	return self.Json(ctx, &sdk.AuthToken{
-		Token:   part[0],
-		Secret:  part[1],
-		Expired: expired,
-	})
+	return self.Json(ctx, data)
 	//return self.Html(ctx, "/web/index.html", map[string]interface{}{"tewt": 1})
 }
 
@@ -97,11 +78,6 @@ func (self *MyWebNode) publicKey(ctx *node.Context) error {
 func (self *MyWebNode) testGuestPost(ctx *node.Context) error {
 	fmt.Println(string(ctx.JsonBody.RawData()))
 	return self.Json(ctx, map[string]string{"res": "中文测试下Guest响应"})
-}
-
-func (self *MyWebNode) testHAX(ctx *node.Context) error {
-	fmt.Println(string(ctx.JsonBody.RawData()))
-	return self.Json(ctx, map[string]string{"res": "中文测试下HAX响应"})
 }
 
 func (self *MyWebNode) FirstRegister(ctx *node.Context) error {
@@ -175,11 +151,11 @@ func roleRealm(ctx *node.Context, onlyRole bool) (*node.Permission, error) {
 	return permission, nil
 }
 
-func createEncipher(addr string) *node.EncipherClient {
+func createEncipher(addr string) encipher.Client {
 	if len(addr) == 0 {
 		panic("encipher host is nil")
 	}
-	client := node.NewEncipherClient(addr)
+	client := node.NewDefaultEncipherClient(addr)
 	for {
 		if err := client.CheckReady(); err != nil {
 			time.Sleep(2 * time.Second)
@@ -192,32 +168,6 @@ func createEncipher(addr string) *node.EncipherClient {
 
 func NewHTTP() *MyWebNode {
 	var my = &MyWebNode{}
-	my.EnableECC(true)
-	my.AddJwtConfig(jwt.JwtConfig{
-		TokenTyp: jwt.JWT,
-		TokenAlg: jwt.HS256,
-		TokenKey: "1234567890",
-		TokenExp: jwt.TWO_WEEK,
-	})
-	//encipher := node.NewEncipherClient("http://localhost:4141")
-	//ecdsa, err := encipher.Config("ecdsa")
-	//if err != nil {
-	//	panic(err)
-	//}
-	//privateKey := utils.GetJsonString(utils.Str2Bytes(ecdsa), "PrivateKey")
-	//if len(privateKey) == 0 {
-	//	panic("ecdsa privateKey is nil")
-	//}
-	//cipher := &crypto.EccObj{}
-	//if err := cipher.LoadS256ECC(privateKey); err != nil {
-	//	panic("ECC certificate generation failed")
-	//}
-	//cipher := crypto.NewEccObject()
-	//my.AddCipher(cipher)
-	//my.AddCache(func(ds ...string) (cache.Cache, error) {
-	//	rds, err := cache.NewRedis(ds...)
-	//	return rds, err
-	//})
 	my.SetEncipher(createEncipher("http://localhost:4141"))
 	my.SetSystem("test", "1.0.0")
 	my.AddRoleRealm(roleRealm)
@@ -235,7 +185,7 @@ func StartHttpNode() {
 	go geetest.CheckServerStatus(geetest.Config{})
 	my := NewHTTP()
 	my.POST("/test1", my.test, nil)
-	my.POST("/getUser", my.getUser, &node.RouterConfig{AesResponse: false})
+	my.POST("/getUser", my.getUser, &node.RouterConfig{AesResponse: true})
 	my.POST("/testGuestPost", my.testGuestPost, &node.RouterConfig{Guest: true})
 	my.GET("/key", my.publicKey, &node.RouterConfig{Guest: true})
 	my.POST("/login", my.login, &node.RouterConfig{UseRSA: true})

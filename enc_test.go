@@ -11,7 +11,7 @@ import (
 )
 
 func TestStartNode(t *testing.T) {
-	node.StartNodeEncipher(":4141", node.NewDefaultEncipher("test/config/"))
+	node.StartNodeEncipher(":4141", node.NewDefaultEncipherServer("test/config/"))
 }
 
 func TestEncPublicKey(t *testing.T) {
@@ -28,13 +28,6 @@ func TestEncNextId(t *testing.T) {
 		fmt.Println(err)
 	}
 	fmt.Println(pub)
-}
-
-func TestEncHandshake(t *testing.T) {
-	err := encipherClient.Handshake()
-	if err != nil {
-		fmt.Println(err)
-	}
 }
 
 func TestEncConfig(t *testing.T) {

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/utils"
-	"github.com/godaddy-x/freego/utils/crypto"
+	"github.com/godaddy-x/freego/utils/encipher"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"unsafe"
 )
@@ -64,9 +64,10 @@ type System struct {
 type Context struct {
 	Identify   *Identify
 	CacheAware func(ds ...string) (cache.Cache, error)
-	RSA        crypto.Cipher
-	Path       string
-	System     *System
+	//RSA        crypto.Cipher
+	Path     string
+	System   *System
+	Encipher encipher.Client
 }
 
 type BaseReq struct {

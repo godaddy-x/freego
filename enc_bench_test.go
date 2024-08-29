@@ -3,6 +3,7 @@ package main
 import (
 	"github.com/godaddy-x/freego/node"
 	"github.com/godaddy-x/freego/utils/crypto"
+	"github.com/godaddy-x/freego/utils/encipher"
 	"testing"
 )
 
@@ -10,7 +11,7 @@ import (
 
 var (
 	run            = true
-	encipherClient *node.EncipherClient
+	encipherClient encipher.Client
 	eccObject      = crypto.NewEccObject()
 )
 
@@ -26,7 +27,7 @@ func newEncClient() {
 	if !run {
 		return
 	}
-	encipherClient = node.NewEncipherClient("http://localhost:4141")
+	encipherClient = node.NewDefaultEncipherClient("http://localhost:4141")
 }
 
 func BenchmarkEncSignature(b *testing.B) {
