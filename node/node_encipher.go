@@ -9,10 +9,12 @@ import (
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/crypto"
+	"github.com/godaddy-x/freego/utils/jwt"
 	"github.com/godaddy-x/freego/zlog"
 	"github.com/valyala/fasthttp"
 	"io/ioutil"
 	"os"
+	"strings"
 )
 
 const (
@@ -30,7 +32,9 @@ const (
 	keystoreStr = `{
     "EncryptKey": "%s",
     "SignKey": "%s",
-    "SignDepth": %d
+    "SignDepth": %d,
+	"EcdsaPrivateKey": "%s",
+	"EcdsaPublicKey": "%s"
 }`
 )
 
@@ -45,9 +49,13 @@ var (
 )
 
 type EncipherParam struct {
-	EncryptKey string
-	SignKey    string
-	SignDepth  int
+	EncryptKey      string
+	SignKey         string
+	SignDepth       int
+	EcdsaPrivateKey string
+	EcdsaPublicKey  string
+	eccObject       *crypto.EccObj
+	jwtConfig       jwt.JwtConfig
 }
 
 type Encipher interface {
@@ -57,12 +65,28 @@ type Encipher interface {
 	ReadConfig(key string) string
 	// Signature 数据签名
 	Signature(input string) string
+	// TokenSignature JWT令牌数据签名
+	TokenSignature(token, input string) string
 	// VerifySignature 数据签名验证
 	VerifySignature(input, sign string) bool
-	// Encrypt 数据加密
-	Encrypt(input string) (string, error)
-	// Decrypt 数据解密
-	Decrypt(input string) (string, error)
+	// TokenVerifySignature JWT令牌数据签名验证
+	TokenVerifySignature(token, input, sign string) bool
+	// AesEncrypt AES数据加密
+	AesEncrypt(input string) (string, error)
+	// AesDecrypt AES数据解密
+	AesDecrypt(input string) (string, error)
+	// EccEncrypt 私钥和客户端公钥协商加密
+	EccEncrypt(input, publicTo string) (string, error)
+	// EccDecrypt 私钥和客户端公钥协商解密
+	EccDecrypt(input string) (string, error)
+	// TokenEncrypt JWT令牌加密数据
+	TokenEncrypt(token, input string) (string, error)
+	// TokenDecrypt JWT令牌解密数据
+	TokenDecrypt(token, input string) (string, error)
+	// TokenCreate JWT令牌生成
+	TokenCreate(input string) (string, error)
+	// TokenVerify JWT令牌校验
+	TokenVerify(input string) (string, error)
 }
 
 type DefaultEncipher struct {
@@ -91,6 +115,8 @@ func NewDefaultEncipher(keyfile string) *DefaultEncipher {
 	newEncipher.param.SignKey = utils.AesEncrypt2(utils.Str2Bytes(object.SignKey), key)
 	newEncipher.param.SignDepth = object.SignDepth
 	newEncipher.param.EncryptKey = utils.AesEncrypt2(utils.Str2Bytes(object.EncryptKey), key)
+	newEncipher.param.eccObject = object.eccObject
+	newEncipher.param.EcdsaPublicKey = object.EcdsaPublicKey
 	return newEncipher
 }
 
@@ -136,12 +162,17 @@ func createKeystore(path string) (EncipherParam, error) {
 			return EncipherParam{}, errors.New("create file fail: " + err.Error())
 		}
 		defer file.Close()
+		eccObject := crypto.NewEccObject()
 		param := EncipherParam{
-			SignDepth:  8,
-			SignKey:    utils.RandStr2(keyfileLen),
-			EncryptKey: utils.RandStr2(keyfileLen),
+			SignDepth:      8,
+			SignKey:        utils.RandStr2(keyfileLen),
+			EncryptKey:     utils.RandStr2(keyfileLen),
+			eccObject:      eccObject,
+			EcdsaPublicKey: eccObject.PublicKeyBase64,
 		}
-		if _, err := file.WriteString(fmt.Sprintf(keystoreStr, encryptRandom(param.EncryptKey, defaultKey), encryptRandom(param.SignKey, defaultKey), param.SignDepth)); err != nil {
+		prk, _ := eccObject.GetPrivateKey()
+		privateKey, _, _ := ecc.GetObjectBase64(prk.(*ecdsa.PrivateKey), nil)
+		if _, err := file.WriteString(fmt.Sprintf(keystoreStr, encryptRandom(param.EncryptKey, defaultKey), encryptRandom(param.SignKey, defaultKey), param.SignDepth, encryptRandom(privateKey, defaultKey), eccObject.PublicKeyBase64)); err != nil {
 			return EncipherParam{}, errors.New("write file fail: " + err.Error())
 		}
 		return param, nil
@@ -156,34 +187,14 @@ func createKeystore(path string) (EncipherParam, error) {
 		}
 		param.EncryptKey = decryptRandom(param.EncryptKey, defaultKey)
 		param.SignKey = decryptRandom(param.SignKey, defaultKey)
+		decKey := decryptRandom(param.EcdsaPrivateKey, defaultKey)
+		eccObject := crypto.LoadEccObject(decKey)
+		if eccObject == nil {
+			return EncipherParam{}, errors.New("create ecc object fail")
+		}
+		param.eccObject = eccObject
 		return param, nil
 	}
-}
-
-func createEcdsa(path string) error {
-	fileName := utils.AddStr(path, "/ecdsa")
-	if _, err := os.Stat(fileName); os.IsNotExist(err) {
-		file, err := os.Create(fileName)
-		if err != nil {
-			errors.New("create file fail: " + err.Error())
-		}
-		defer file.Close()
-		eccObject := crypto.EccObj{}
-		if err := eccObject.CreateS256ECC(); err != nil {
-			return err
-		}
-		key, _ := eccObject.GetPrivateKey()
-		key64, _, err := ecc.GetObjectBase64(key.(*ecdsa.PrivateKey), nil)
-		if err != nil {
-			return err
-		}
-		privateKey := encryptRandom(key64, defaultKey)
-		if _, err := file.WriteString(fmt.Sprintf(ecdsaStr, privateKey, eccObject.PublicKeyBase64)); err != nil {
-			return errors.New("write file fail: " + err.Error())
-		}
-		return nil
-	}
-	return nil
 }
 
 func createMysql(path string) error {
@@ -415,6 +426,11 @@ func createJWT(path string) error {
 	return nil
 }
 
+func getTokenSecret(token, secret string) string {
+	res := utils.HMAC_SHA512(utils.AddStr(token, utils.GetLocalTokenSecretKey(), utils.GetLocalSecretKey()), secret)
+	return utils.AddStr(utils.HMAC_SHA256(res, secret), res)
+}
+
 func (s *DefaultEncipher) LoadConfig(path string) (EncipherParam, error) {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return EncipherParam{}, errors.New("folder does not exist: " + path)
@@ -426,9 +442,6 @@ func (s *DefaultEncipher) LoadConfig(path string) (EncipherParam, error) {
 	if err := createMysql(path); err != nil {
 		return EncipherParam{}, err
 	}
-	if err := createEcdsa(path); err != nil {
-		return EncipherParam{}, err
-	}
 	if err := createMongo(path); err != nil {
 		return EncipherParam{}, err
 	}
@@ -438,15 +451,15 @@ func (s *DefaultEncipher) LoadConfig(path string) (EncipherParam, error) {
 	if err := createRabbitmq(path); err != nil {
 		return EncipherParam{}, err
 	}
-	if err := createConsul(path); err != nil {
-		return EncipherParam{}, err
-	}
-	if err := createConsulHost(path); err != nil {
-		return EncipherParam{}, err
-	}
-	if err := createGeetest(path); err != nil {
-		return EncipherParam{}, err
-	}
+	//if err := createConsul(path); err != nil {
+	//	return EncipherParam{}, err
+	//}
+	//if err := createConsulHost(path); err != nil {
+	//	return EncipherParam{}, err
+	//}
+	//if err := createGeetest(path); err != nil {
+	//	return EncipherParam{}, err
+	//}
 	if err := createLogger(path); err != nil {
 		return EncipherParam{}, err
 	}
@@ -466,22 +479,27 @@ func (s *DefaultEncipher) LoadConfig(path string) (EncipherParam, error) {
 			return EncipherParam{}, errors.New("read file fail: <" + file.Name() + "> " + err.Error())
 		}
 		defaultConfig[file.Name()] = utils.AesEncrypt2(data, utils.SHA256(randomKey()))
+		if file.Name() == "jwt" {
+			config := jwt.JwtConfig{}
+			if err := utils.JsonUnmarshal(data, &config); err != nil {
+				return EncipherParam{}, err
+			}
+			defaultParam.jwtConfig = config
+		}
 	}
 	return defaultParam, nil
 }
 
 func (s *DefaultEncipher) ReadConfig(key string) string {
+	if key == "ecdsa" {
+		return s.param.EcdsaPublicKey
+	}
 	data, b := defaultConfig[key]
 	if !b || len(data) == 0 {
 		return ""
 	}
 	dec := s.decodeData(data)
-	if key == "ecdsa" {
-		bs := utils.Str2Bytes(dec)
-		privateKey := decryptRandom(utils.GetJsonString(bs, "PrivateKey"), defaultKey)
-		publicKey := utils.GetJsonString(bs, "PublicKey")
-		return fmt.Sprintf(ecdsaStr, privateKey, publicKey)
-	} else if key == "jwt" {
+	if key == "jwt" {
 		bs := utils.Str2Bytes(dec)
 		tokenKey := decryptRandom(utils.GetJsonString(bs, "TokenKey"), defaultKey)
 		tokenAlg := utils.GetJsonString(bs, "TokenAlg")
@@ -499,6 +517,16 @@ func (s *DefaultEncipher) Signature(input string) string {
 	return utils.PasswordHash(input, s.getSignKey(), s.getSignDepth())
 }
 
+func (s *DefaultEncipher) TokenSignature(token, input string) string {
+	if len(input) == 0 {
+		return ""
+	}
+	if len(token) == 0 {
+		return ""
+	}
+	return utils.HMAC_SHA256(input, getTokenSecret(token, s.getSignKey()), true)
+}
+
 func (s *DefaultEncipher) VerifySignature(input, sign string) bool {
 	if len(input) == 0 || len(sign) == 0 {
 		return false
@@ -506,14 +534,27 @@ func (s *DefaultEncipher) VerifySignature(input, sign string) bool {
 	return utils.PasswordVerify(input, s.getSignKey(), sign, s.getSignDepth())
 }
 
-func (s *DefaultEncipher) Encrypt(input string) (string, error) {
+func (s *DefaultEncipher) TokenVerifySignature(token, input, sign string) bool {
+	if len(input) == 0 {
+		return false
+	}
+	if len(token) == 0 {
+		return false
+	}
+	if len(sign) == 0 {
+		return false
+	}
+	return s.TokenSignature(token, input) == sign
+}
+
+func (s *DefaultEncipher) AesEncrypt(input string) (string, error) {
 	if len(input) == 0 {
 		return "", errors.New("input is nil")
 	}
 	return utils.AesEncrypt2(utils.Str2Bytes(input), s.getEncryptKey()), nil
 }
 
-func (s *DefaultEncipher) Decrypt(input string) (string, error) {
+func (s *DefaultEncipher) AesDecrypt(input string) (string, error) {
 	if len(input) == 0 {
 		return "", errors.New("input is nil")
 	}
@@ -522,6 +563,100 @@ func (s *DefaultEncipher) Decrypt(input string) (string, error) {
 		return "", err
 	}
 	return utils.Bytes2Str(res), nil
+}
+
+func (s *DefaultEncipher) EccEncrypt(input, publicTo string) (string, error) {
+	if len(input) == 0 {
+		return "", errors.New("input is nil")
+	}
+	if len(publicTo) == 0 {
+		return "", errors.New("public is nil")
+	}
+	ret, err := s.param.eccObject.Encrypt(utils.Base64Decode(publicTo), utils.Str2Bytes(input))
+	if err != nil {
+		return "", err
+	}
+	return utils.Base64Encode(ret), nil
+}
+
+func (s *DefaultEncipher) EccDecrypt(input string) (string, error) {
+	if len(input) == 0 {
+		return "", errors.New("input is nil")
+	}
+	ret, err := s.param.eccObject.Decrypt(input)
+	if err != nil {
+		return "", err
+	}
+	return ret, nil
+}
+
+func (s *DefaultEncipher) TokenEncrypt(token, input string) (string, error) {
+	if len(input) == 0 {
+		return "", errors.New("input is nil")
+	}
+	if len(token) == 0 {
+		return "", errors.New("token is nil")
+	}
+	return utils.AesEncrypt2(utils.Str2Bytes(input), getTokenSecret(token, s.getSignKey())), nil
+}
+
+func (s *DefaultEncipher) TokenDecrypt(token, input string) (string, error) {
+	if len(input) == 0 {
+		return "", errors.New("input is nil")
+	}
+	if len(token) == 0 {
+		return "", errors.New("token is nil")
+	}
+	b, err := utils.AesDecrypt2(input, getTokenSecret(token, s.getSignKey()))
+	if err != nil {
+		return "", err
+	}
+	return utils.Bytes2Str(b), nil
+}
+
+func (s *DefaultEncipher) TokenCreate(input string) (string, error) {
+	if len(input) == 0 {
+		return "", errors.New("input is nil")
+	}
+	part := strings.Split(input, ";")
+	if len(part) != 2 {
+		return "", errors.New("input invalid")
+	}
+	subject := &jwt.Subject{}
+	pre := subject.Create(part[0]).Dev(part[1]).Generate2(s.param.jwtConfig)
+	sign := utils.HMAC_SHA256(pre, utils.AddStr(utils.GetLocalSecretKey(), s.getSignKey()), true)
+	token := utils.AddStr(pre, ".", sign)
+	secret := getTokenSecret(token, s.getSignKey())
+	expired := subject.Payload.Exp
+	return utils.AddStr(token, ";", secret, ";", expired), nil
+}
+
+func (s *DefaultEncipher) TokenVerify(input string) (string, error) {
+	if len(input) == 0 {
+		return "", errors.New("input is nil")
+	}
+	part := strings.Split(input, ".")
+	if part == nil || len(part) != 3 {
+		return "", errors.New("token part length invalid")
+	}
+	part0 := part[0]
+	part1 := part[1]
+	part2 := part[2]
+	if utils.HMAC_SHA256(utils.AddStr(part0, ".", part1), utils.AddStr(utils.GetLocalSecretKey(), s.getSignKey()), true) != part2 {
+		return "", errors.New("token signature invalid")
+	}
+	b64 := utils.Base64Decode(part1)
+	if b64 == nil || len(b64) == 0 {
+		return "", utils.Error("token part base64 data decode failed")
+	}
+	if int64(utils.GetJsonInt(b64, "exp")) <= utils.UnixSecond() {
+		return "", errors.New("token expired or invalid")
+	}
+	sub := utils.GetJsonString(b64, "sub")
+	if len(sub) == 0 {
+		return "", errors.New("token sub invalid")
+	}
+	return sub, nil
 }
 
 func decryptBody(pub, body []byte) (string, string) {
@@ -603,13 +738,35 @@ func StartNodeEncipher(addr string, enc Encipher) {
 		ctx.Response.Header.Set("sign", utils.HMAC_SHA256(result, sharedKey))
 		_, _ = ctx.WriteString(result)
 	})
-	router.POST("/api/signature/verify", func(ctx *fasthttp.RequestCtx) {
+	router.POST("/api/tokenSignature", func(ctx *fasthttp.RequestCtx) {
+		pub := ctx.Request.Header.Peek("pub")
+		token := utils.Bytes2Str(ctx.Request.Header.Peek("token"))
+		body := ctx.PostBody()
+		decodeBody, sharedKey := decryptBody(pub, body)
+		result := enc.TokenSignature(token, decodeBody)
+		ctx.Response.Header.Set("sign", utils.HMAC_SHA256(result, sharedKey))
+		_, _ = ctx.WriteString(result)
+	})
+	router.POST("/api/signatureVerify", func(ctx *fasthttp.RequestCtx) {
 		pub := ctx.Request.Header.Peek("pub")
 		sign := utils.Bytes2Str(ctx.Request.Header.Peek("sign"))
 		body := ctx.PostBody()
 		decodeBody, sharedKey := decryptBody(pub, body)
 		result := "fail"
 		if enc.VerifySignature(decodeBody, sign) {
+			result = "success"
+		}
+		ctx.Response.Header.Set("sign", utils.HMAC_SHA256(result, sharedKey))
+		_, _ = ctx.WriteString(result)
+	})
+	router.POST("/api/tokenSignatureVerify", func(ctx *fasthttp.RequestCtx) {
+		pub := ctx.Request.Header.Peek("pub")
+		sign := utils.Bytes2Str(ctx.Request.Header.Peek("sign"))
+		token := utils.Bytes2Str(ctx.Request.Header.Peek("token"))
+		body := ctx.PostBody()
+		decodeBody, sharedKey := decryptBody(pub, body)
+		result := "fail"
+		if enc.TokenVerifySignature(token, decodeBody, sign) {
 			result = "success"
 		}
 		ctx.Response.Header.Set("sign", utils.HMAC_SHA256(result, sharedKey))
@@ -624,11 +781,11 @@ func StartNodeEncipher(addr string, enc Encipher) {
 		ctx.Response.Header.Set("sign", utils.HMAC_SHA256(result, sharedKey))
 		_, _ = ctx.WriteString(result)
 	})
-	router.POST("/api/encrypt", func(ctx *fasthttp.RequestCtx) {
+	router.POST("/api/aesEncrypt", func(ctx *fasthttp.RequestCtx) {
 		pub := ctx.Request.Header.Peek("pub")
 		body := ctx.PostBody()
 		decodeBody, sharedKey := decryptBody(pub, body)
-		res, err := enc.Encrypt(decodeBody)
+		res, err := enc.AesEncrypt(decodeBody)
 		if err != nil {
 			zlog.Error("encrypt fail", 0, zlog.AddError(err))
 		}
@@ -636,13 +793,88 @@ func StartNodeEncipher(addr string, enc Encipher) {
 		ctx.Response.Header.Set("sign", utils.HMAC_SHA256(result, sharedKey))
 		_, _ = ctx.WriteString(result)
 	})
-	router.POST("/api/decrypt", func(ctx *fasthttp.RequestCtx) {
+	router.POST("/api/aesDecrypt", func(ctx *fasthttp.RequestCtx) {
 		pub := ctx.Request.Header.Peek("pub")
 		body := ctx.PostBody()
 		decodeBody, sharedKey := decryptBody(pub, body)
-		res, err := enc.Decrypt(decodeBody)
+		res, err := enc.AesDecrypt(decodeBody)
 		if err != nil {
 			zlog.Error("decrypt fail", 0, zlog.AddError(err))
+		}
+		result := encryptBody(res, sharedKey)
+		ctx.Response.Header.Set("sign", utils.HMAC_SHA256(result, sharedKey))
+		_, _ = ctx.WriteString(result)
+	})
+	router.POST("/api/eccEncrypt", func(ctx *fasthttp.RequestCtx) {
+		pub := ctx.Request.Header.Peek("pub")
+		pubTo := utils.Bytes2Str(ctx.Request.Header.Peek("publicTo"))
+		body := ctx.PostBody()
+		decodeBody, sharedKey := decryptBody(pub, body)
+		res, err := enc.EccEncrypt(decodeBody, pubTo)
+		if err != nil {
+			zlog.Error("encrypt fail", 0, zlog.AddError(err))
+		}
+		result := encryptBody(res, sharedKey)
+		ctx.Response.Header.Set("sign", utils.HMAC_SHA256(result, sharedKey))
+		_, _ = ctx.WriteString(result)
+	})
+	router.POST("/api/eccDecrypt", func(ctx *fasthttp.RequestCtx) {
+		pub := ctx.Request.Header.Peek("pub")
+		body := ctx.PostBody()
+		decodeBody, sharedKey := decryptBody(pub, body)
+		res, err := enc.EccDecrypt(decodeBody)
+		if err != nil {
+			zlog.Error("decrypt fail", 0, zlog.AddError(err))
+		}
+		result := encryptBody(res, sharedKey)
+		ctx.Response.Header.Set("sign", utils.HMAC_SHA256(result, sharedKey))
+		_, _ = ctx.WriteString(result)
+	})
+	router.POST("/api/tokenEncrypt", func(ctx *fasthttp.RequestCtx) {
+		pub := ctx.Request.Header.Peek("pub")
+		token := utils.Bytes2Str(ctx.Request.Header.Peek("token"))
+		body := ctx.PostBody()
+		decodeBody, sharedKey := decryptBody(pub, body)
+		res, err := enc.TokenEncrypt(token, decodeBody)
+		if err != nil {
+			zlog.Error("encrypt fail", 0, zlog.AddError(err))
+		}
+		result := encryptBody(res, sharedKey)
+		ctx.Response.Header.Set("sign", utils.HMAC_SHA256(result, sharedKey))
+		_, _ = ctx.WriteString(result)
+	})
+	router.POST("/api/tokenDecrypt", func(ctx *fasthttp.RequestCtx) {
+		pub := ctx.Request.Header.Peek("pub")
+		token := utils.Bytes2Str(ctx.Request.Header.Peek("token"))
+		body := ctx.PostBody()
+		decodeBody, sharedKey := decryptBody(pub, body)
+		res, err := enc.TokenDecrypt(token, decodeBody)
+		if err != nil {
+			zlog.Error("decrypt fail", 0, zlog.AddError(err))
+		}
+		result := encryptBody(res, sharedKey)
+		ctx.Response.Header.Set("sign", utils.HMAC_SHA256(result, sharedKey))
+		_, _ = ctx.WriteString(result)
+	})
+	router.POST("/api/tokenCreate", func(ctx *fasthttp.RequestCtx) {
+		pub := ctx.Request.Header.Peek("pub")
+		body := ctx.PostBody()
+		decodeBody, sharedKey := decryptBody(pub, body)
+		res, err := enc.TokenCreate(decodeBody)
+		if err != nil {
+			zlog.Error("token create fail", 0, zlog.AddError(err))
+		}
+		result := encryptBody(res, sharedKey)
+		ctx.Response.Header.Set("sign", utils.HMAC_SHA256(result, sharedKey))
+		_, _ = ctx.WriteString(result)
+	})
+	router.POST("/api/tokenVerify", func(ctx *fasthttp.RequestCtx) {
+		pub := ctx.Request.Header.Peek("pub")
+		body := ctx.PostBody()
+		decodeBody, sharedKey := decryptBody(pub, body)
+		res, err := enc.TokenVerify(decodeBody)
+		if err != nil {
+			zlog.Error("token verify fail", 0, zlog.AddError(err))
 		}
 		result := encryptBody(res, sharedKey)
 		ctx.Response.Header.Set("sign", utils.HMAC_SHA256(result, sharedKey))

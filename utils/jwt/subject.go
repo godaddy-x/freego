@@ -119,12 +119,33 @@ func (self *Subject) Generate(config JwtConfig) string {
 	return part1 + "." + self.Signature(part1, config.TokenKey)
 }
 
+func (self *Subject) Generate2(config JwtConfig) string {
+	self.AddHeader(config)
+	header, err := utils.ToJsonBase64(self.Header)
+	if err != nil {
+		return ""
+	}
+	if config.TokenExp > 0 {
+		if self.Payload.Iat > 0 {
+			self.Payload.Exp = self.Payload.Iat + config.TokenExp
+		} else {
+			self.Payload.Exp = utils.UnixSecond() + config.TokenExp
+		}
+	}
+	payload, err := utils.ToJsonBase64(self.Payload)
+	if err != nil {
+		return ""
+	}
+	return utils.AddStr(header, ".", payload)
+}
+
 func (self *Subject) Signature(text, key string) string {
 	return utils.HMAC_SHA256(text, utils.AddStr(utils.GetLocalSecretKey(), key), true)
 }
 
 func (self *Subject) GetTokenSecret(token, secret string) string {
-	return utils.HMAC_SHA512(utils.AddStr(token, utils.GetLocalTokenSecretKey(), utils.GetLocalSecretKey()), secret, true)
+	res := utils.HMAC_SHA512(utils.AddStr(token, utils.GetLocalTokenSecretKey(), utils.GetLocalSecretKey()), secret)
+	return utils.AddStr(utils.HMAC_SHA256(res, secret), res)
 }
 
 func (self *Subject) Verify(token, key string, decode bool) error {

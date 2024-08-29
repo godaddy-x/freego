@@ -1,4 +1,4 @@
-package sdk
+package node
 
 import (
 	"errors"
@@ -22,11 +22,9 @@ type EncipherClient struct {
 }
 
 func NewEncipherClient(host string) *EncipherClient {
-	eccObj := &crypto.EccObj{}
-	_ = eccObj.CreateS256ECC()
 	client := &EncipherClient{
 		Host:      host,
-		EccObject: eccObj,
+		EccObject: crypto.NewEccObject(),
 	}
 	if err := client.Handshake(); err != nil {
 		zlog.Error("create encipher handshake fail", 0, zlog.AddError(err))
@@ -192,6 +190,34 @@ func (s *EncipherClient) Signature(input string) (string, error) {
 	return res, nil
 }
 
+func (s *EncipherClient) TokenSignature(token, input string) (string, error) {
+	body, err := s.encryptBody(input, false)
+	if err != nil {
+		return "", err
+	}
+	request := fasthttp.AcquireRequest()
+	request.Header.Set("pub", s.getPublic())
+	request.Header.Set("token", token)
+	request.Header.SetMethod("POST")
+	request.SetRequestURI(utils.AddStr(s.Host, "/api/tokenSignature"))
+	request.SetBody(utils.Str2Bytes(body))
+	defer fasthttp.ReleaseRequest(request)
+	response := fasthttp.AcquireResponse()
+	defer fasthttp.ReleaseResponse(response)
+	if err := fasthttp.DoTimeout(request, response, timeout); err != nil {
+		return "", err
+	}
+	sign := response.Header.Peek("sign")
+	if len(sign) == 0 {
+		return "", errors.New("sign is nil")
+	}
+	res := utils.Bytes2Str(response.Body())
+	if utils.Bytes2Str(sign) != utils.HMAC_SHA256(res, s.shared) {
+		return "", errors.New("sign invalid")
+	}
+	return res, nil
+}
+
 func (s *EncipherClient) SignatureVerify(input, target string) (bool, error) {
 	body, err := s.encryptBody(input, false)
 	if err != nil {
@@ -201,7 +227,39 @@ func (s *EncipherClient) SignatureVerify(input, target string) (bool, error) {
 	request.Header.Set("pub", s.getPublic())
 	request.Header.Set("sign", target)
 	request.Header.SetMethod("POST")
-	request.SetRequestURI(utils.AddStr(s.Host, "/api/signature/verify"))
+	request.SetRequestURI(utils.AddStr(s.Host, "/api/signatureVerify"))
+	request.SetBody(utils.Str2Bytes(body))
+	defer fasthttp.ReleaseRequest(request)
+	response := fasthttp.AcquireResponse()
+	defer fasthttp.ReleaseResponse(response)
+	if err := fasthttp.DoTimeout(request, response, timeout); err != nil {
+		return false, err
+	}
+	sign := response.Header.Peek("sign")
+	if len(sign) == 0 {
+		return false, errors.New("sign is nil")
+	}
+	res := utils.Bytes2Str(response.Body())
+	if utils.Bytes2Str(sign) != utils.HMAC_SHA256(res, s.shared) {
+		return false, errors.New("sign invalid")
+	}
+	if res == "success" {
+		return true, nil
+	}
+	return false, nil
+}
+
+func (s *EncipherClient) TokenSignatureVerify(token, input, target string) (bool, error) {
+	body, err := s.encryptBody(input, false)
+	if err != nil {
+		return false, err
+	}
+	request := fasthttp.AcquireRequest()
+	request.Header.Set("pub", s.getPublic())
+	request.Header.Set("sign", target)
+	request.Header.Set("token", token)
+	request.Header.SetMethod("POST")
+	request.SetRequestURI(utils.AddStr(s.Host, "/api/tokenSignatureVerify"))
 	request.SetBody(utils.Str2Bytes(body))
 	defer fasthttp.ReleaseRequest(request)
 	response := fasthttp.AcquireResponse()
@@ -254,7 +312,7 @@ func (s *EncipherClient) Config(input string) (string, error) {
 	return res, nil
 }
 
-func (s *EncipherClient) Encrypt(input string) (string, error) {
+func (s *EncipherClient) AesEncrypt(input string) (string, error) {
 	body, err := s.encryptBody(input, false)
 	if err != nil {
 		return "", err
@@ -262,7 +320,7 @@ func (s *EncipherClient) Encrypt(input string) (string, error) {
 	request := fasthttp.AcquireRequest()
 	request.Header.Set("pub", s.getPublic())
 	request.Header.SetMethod("POST")
-	request.SetRequestURI(utils.AddStr(s.Host, "/api/encrypt"))
+	request.SetRequestURI(utils.AddStr(s.Host, "/api/aesEncrypt"))
 	request.SetBody(utils.Str2Bytes(body))
 	defer fasthttp.ReleaseRequest(request)
 	response := fasthttp.AcquireResponse()
@@ -285,7 +343,7 @@ func (s *EncipherClient) Encrypt(input string) (string, error) {
 	return res, nil
 }
 
-func (s *EncipherClient) Decrypt(input string) (string, error) {
+func (s *EncipherClient) AesDecrypt(input string) (string, error) {
 	body, err := s.encryptBody(input, false)
 	if err != nil {
 		return "", err
@@ -293,7 +351,196 @@ func (s *EncipherClient) Decrypt(input string) (string, error) {
 	request := fasthttp.AcquireRequest()
 	request.Header.Set("pub", s.getPublic())
 	request.Header.SetMethod("POST")
-	request.SetRequestURI(utils.AddStr(s.Host, "/api/decrypt"))
+	request.SetRequestURI(utils.AddStr(s.Host, "/api/aesDecrypt"))
+	request.SetBody(utils.Str2Bytes(body))
+	defer fasthttp.ReleaseRequest(request)
+	response := fasthttp.AcquireResponse()
+	defer fasthttp.ReleaseResponse(response)
+	if err := fasthttp.DoTimeout(request, response, timeout); err != nil {
+		return "", err
+	}
+	sign := response.Header.Peek("sign")
+	if len(sign) == 0 {
+		return "", errors.New("sign is nil")
+	}
+	res := utils.Bytes2Str(response.Body())
+	if utils.Bytes2Str(sign) != utils.HMAC_SHA256(res, s.shared) {
+		return "", errors.New("sign invalid")
+	}
+	res, err = s.decryptBody(s.shared, utils.Str2Bytes(res))
+	if err != nil {
+		return "", err
+	}
+	return res, nil
+}
+
+func (s *EncipherClient) EccEncrypt(input, publicTo string) (string, error) {
+	body, err := s.encryptBody(input, false)
+	if err != nil {
+		return "", err
+	}
+	request := fasthttp.AcquireRequest()
+	request.Header.Set("pub", s.getPublic())
+	request.Header.Set("publicTo", publicTo)
+	request.Header.SetMethod("POST")
+	request.SetRequestURI(utils.AddStr(s.Host, "/api/eccEncrypt"))
+	request.SetBody(utils.Str2Bytes(body))
+	defer fasthttp.ReleaseRequest(request)
+	response := fasthttp.AcquireResponse()
+	defer fasthttp.ReleaseResponse(response)
+	if err := fasthttp.DoTimeout(request, response, timeout); err != nil {
+		return "", err
+	}
+	sign := response.Header.Peek("sign")
+	if len(sign) == 0 {
+		return "", errors.New("sign is nil")
+	}
+	res := utils.Bytes2Str(response.Body())
+	if utils.Bytes2Str(sign) != utils.HMAC_SHA256(res, s.shared) {
+		return "", errors.New("sign invalid")
+	}
+	res, err = s.decryptBody(s.shared, utils.Str2Bytes(res))
+	if err != nil {
+		return "", err
+	}
+	return res, nil
+}
+
+func (s *EncipherClient) EccDecrypt(input string) (string, error) {
+	body, err := s.encryptBody(input, false)
+	if err != nil {
+		return "", err
+	}
+	request := fasthttp.AcquireRequest()
+	request.Header.Set("pub", s.getPublic())
+	request.Header.SetMethod("POST")
+	request.SetRequestURI(utils.AddStr(s.Host, "/api/eccDecrypt"))
+	request.SetBody(utils.Str2Bytes(body))
+	defer fasthttp.ReleaseRequest(request)
+	response := fasthttp.AcquireResponse()
+	defer fasthttp.ReleaseResponse(response)
+	if err := fasthttp.DoTimeout(request, response, timeout); err != nil {
+		return "", err
+	}
+	sign := response.Header.Peek("sign")
+	if len(sign) == 0 {
+		return "", errors.New("sign is nil")
+	}
+	res := utils.Bytes2Str(response.Body())
+	if utils.Bytes2Str(sign) != utils.HMAC_SHA256(res, s.shared) {
+		return "", errors.New("sign invalid")
+	}
+	res, err = s.decryptBody(s.shared, utils.Str2Bytes(res))
+	if err != nil {
+		return "", err
+	}
+	return res, nil
+}
+
+func (s *EncipherClient) TokenEncrypt(token, input string) (string, error) {
+	body, err := s.encryptBody(input, false)
+	if err != nil {
+		return "", err
+	}
+	request := fasthttp.AcquireRequest()
+	request.Header.Set("pub", s.getPublic())
+	request.Header.Set("token", token)
+	request.Header.SetMethod("POST")
+	request.SetRequestURI(utils.AddStr(s.Host, "/api/tokenEncrypt"))
+	request.SetBody(utils.Str2Bytes(body))
+	defer fasthttp.ReleaseRequest(request)
+	response := fasthttp.AcquireResponse()
+	defer fasthttp.ReleaseResponse(response)
+	if err := fasthttp.DoTimeout(request, response, timeout); err != nil {
+		return "", err
+	}
+	sign := response.Header.Peek("sign")
+	if len(sign) == 0 {
+		return "", errors.New("sign is nil")
+	}
+	res := utils.Bytes2Str(response.Body())
+	if utils.Bytes2Str(sign) != utils.HMAC_SHA256(res, s.shared) {
+		return "", errors.New("sign invalid")
+	}
+	res, err = s.decryptBody(s.shared, utils.Str2Bytes(res))
+	if err != nil {
+		return "", err
+	}
+	return res, nil
+}
+
+func (s *EncipherClient) TokenDecrypt(token, input string) (string, error) {
+	body, err := s.encryptBody(input, false)
+	if err != nil {
+		return "", err
+	}
+	request := fasthttp.AcquireRequest()
+	request.Header.Set("pub", s.getPublic())
+	request.Header.Set("token", token)
+	request.Header.SetMethod("POST")
+	request.SetRequestURI(utils.AddStr(s.Host, "/api/tokenDecrypt"))
+	request.SetBody(utils.Str2Bytes(body))
+	defer fasthttp.ReleaseRequest(request)
+	response := fasthttp.AcquireResponse()
+	defer fasthttp.ReleaseResponse(response)
+	if err := fasthttp.DoTimeout(request, response, timeout); err != nil {
+		return "", err
+	}
+	sign := response.Header.Peek("sign")
+	if len(sign) == 0 {
+		return "", errors.New("sign is nil")
+	}
+	res := utils.Bytes2Str(response.Body())
+	if utils.Bytes2Str(sign) != utils.HMAC_SHA256(res, s.shared) {
+		return "", errors.New("sign invalid")
+	}
+	res, err = s.decryptBody(s.shared, utils.Str2Bytes(res))
+	if err != nil {
+		return "", err
+	}
+	return res, nil
+}
+
+func (s *EncipherClient) TokenCreate(input string) (string, error) {
+	body, err := s.encryptBody(input, false)
+	if err != nil {
+		return "", err
+	}
+	request := fasthttp.AcquireRequest()
+	request.Header.Set("pub", s.getPublic())
+	request.Header.SetMethod("POST")
+	request.SetRequestURI(utils.AddStr(s.Host, "/api/tokenCreate"))
+	request.SetBody(utils.Str2Bytes(body))
+	defer fasthttp.ReleaseRequest(request)
+	response := fasthttp.AcquireResponse()
+	defer fasthttp.ReleaseResponse(response)
+	if err := fasthttp.DoTimeout(request, response, timeout); err != nil {
+		return "", err
+	}
+	sign := response.Header.Peek("sign")
+	if len(sign) == 0 {
+		return "", errors.New("sign is nil")
+	}
+	res := utils.Bytes2Str(response.Body())
+	if utils.Bytes2Str(sign) != utils.HMAC_SHA256(res, s.shared) {
+		return "", errors.New("sign invalid")
+	}
+	res, err = s.decryptBody(s.shared, utils.Str2Bytes(res))
+	if err != nil {
+		return "", err
+	}
+	return res, nil
+}
+
+func (s *EncipherClient) TokenVerify(input string) (string, error) {
+	body, err := s.encryptBody(input, false)
+	if err != nil {
+		return "", err
+	}
+	request := fasthttp.AcquireRequest()
+	request.Header.Set("pub", s.getPublic())
+	request.Header.SetMethod("POST")
+	request.SetRequestURI(utils.AddStr(s.Host, "/api/tokenVerify"))
 	request.SetBody(utils.Str2Bytes(body))
 	defer fasthttp.ReleaseRequest(request)
 	response := fasthttp.AcquireResponse()

@@ -22,6 +22,15 @@ func NewEccObject() *EccObj {
 	return obj
 }
 
+func LoadEccObject(b64 string) *EccObj {
+	prk, err := ecc.LoadBase64PrivateKey(b64)
+	if err != nil {
+		return nil
+	}
+	_, pub, _ := ecc.GetObjectBase64(nil, &prk.PublicKey)
+	return &EccObj{privateKey: prk, publicKey: &prk.PublicKey, PublicKeyBase64: pub}
+}
+
 func (self *EccObj) CreateS256ECC() error {
 	prk, err := ecc.CreateECDSA()
 	if err != nil {
@@ -70,8 +79,12 @@ func (self *EccObj) GetPublicKey() (interface{}, string) {
 	return self.publicKey, self.PublicKeyBase64
 }
 
-func (self *EccObj) Encrypt(msg []byte) (string, error) {
-	return "", nil
+func (self *EccObj) Encrypt(publicTo, msg []byte) (string, error) {
+	b, err := ecc.Encrypt(nil, publicTo, msg)
+	if err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(b), err
 }
 
 func (self *EccObj) Decrypt(msg string) (string, error) {

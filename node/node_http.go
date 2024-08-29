@@ -267,6 +267,11 @@ func (self *HttpNode) SetSystem(name, version string) {
 	self.Context.System.Version = version
 }
 
+func (self *HttpNode) SetEncipher(client *EncipherClient) {
+	self.readyContext()
+	self.Context.Encipher = client
+}
+
 func (self *HttpNode) ClearFilterChain() {
 	for k, _ := range filterMap {
 		delete(filterMap, k)
@@ -407,44 +412,55 @@ func defaultRenderPre(ctx *Context) error {
 			Time:  utils.UnixMilli(),
 			Nonce: utils.RandNonce(),
 		}
-		//if ctx.JsonBody == nil || len(ctx.JsonBody.Nonce) == 0 {
-		//	resp.Nonce = utils.RandNonce()
-		//} else {
-		//	resp.Nonce = ctx.JsonBody.Nonce
-		//}
 		var key string
-		if routerConfig.UseRSA || routerConfig.UseHAX { // 非登录状态响应
+		if routerConfig.UseRSA { // 非登录状态响应
 			if ctx.JsonBody.Plan == 2 {
 				v := ctx.GetStorage(RandomCode)
 				if v == nil {
 					return ex.Throw{Msg: "encryption random code is nil"}
 				}
 				key, _ = v.(string)
-				data, err := utils.AesEncrypt(data, key, key)
+				aesData := utils.AesEncrypt2(data, key)
 				if err != nil {
 					return ex.Throw{Code: http.StatusInternalServerError, Msg: "AES encryption response data failed", Err: err}
 				}
-				resp.Data = data
+				resp.Data = aesData
 				resp.Plan = 2
 				ctx.DelStorage(RandomCode)
-			} else if ctx.JsonBody.Plan == 3 {
-				resp.Data = utils.Base64Encode(data)
-				_, key = ctx.RSA.GetPublicKey()
-				resp.Plan = 3
+				resp.Sign = ctx.GetHmac256Sign(aesData, resp.Nonce, resp.Time, resp.Plan, key) // 使用客户端随机码进行本地签名
 			} else {
 				return ex.Throw{Msg: "anonymous response plan invalid"}
 			}
 		} else if routerConfig.AesResponse {
-			data, err := utils.AesEncrypt(data, ctx.GetTokenSecret(), utils.AddStr(resp.Nonce, resp.Time))
-			if err != nil {
-				return ex.Throw{Code: http.StatusInternalServerError, Msg: "AES encryption response data failed", Err: err}
-			}
-			resp.Data = data
 			resp.Plan = 1
+			var aesData string
+			if ctx.Encipher == nil {
+				aesData = utils.AesEncrypt2(data, ctx.GetTokenSecret())
+				resp.Sign = ctx.GetHmac256Sign(aesData, resp.Nonce, resp.Time, resp.Plan, key) // 使用token生成密钥进行签名
+			} else {
+				aesData, err = ctx.Encipher.TokenEncrypt(utils.Bytes2Str(ctx.Subject.GetRawBytes()), utils.Bytes2Str(data))
+				if err != nil {
+					return ex.Throw{Code: http.StatusInternalServerError, Msg: "AES encryption response data failed", Err: err}
+				}
+				checkBody := utils.AddStr(ctx.Path, aesData, resp.Nonce, resp.Time, resp.Plan)
+				resp.Sign, err = ctx.Encipher.TokenSignature(utils.Bytes2Str(ctx.Subject.GetRawBytes()), checkBody)
+				if err != nil {
+					return ex.Throw{Code: http.StatusInternalServerError, Msg: "encipher encryption response data failed", Err: err}
+				}
+			}
+			resp.Data = aesData
 		} else {
 			resp.Data = utils.Base64Encode(data)
+			if ctx.Encipher == nil {
+				resp.Sign = ctx.GetHmac256Sign(resp.Data.(string), resp.Nonce, resp.Time, resp.Plan, key) // 使用token生成密钥进行签名
+			} else {
+				checkBody := utils.AddStr(ctx.Path, resp.Data.(string), resp.Nonce, resp.Time, resp.Plan)
+				resp.Sign, err = ctx.Encipher.TokenSignature(utils.Bytes2Str(ctx.Subject.GetRawBytes()), checkBody)
+				if err != nil {
+					return ex.Throw{Code: http.StatusInternalServerError, Msg: "encipher encryption response data failed", Err: err}
+				}
+			}
 		}
-		resp.Sign = ctx.GetHmac256Sign(resp.Data.(string), resp.Nonce, resp.Time, resp.Plan, key)
 		if result, err := utils.JsonMarshal(resp); err != nil {
 			return ex.Throw{Code: http.StatusInternalServerError, Msg: "response JSON data failed", Err: err}
 		} else {

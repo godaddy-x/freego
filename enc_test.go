@@ -1,8 +1,11 @@
 package main
 
 import (
+	"crypto/ecdsa"
 	"fmt"
+	ecc "github.com/godaddy-x/eccrypto"
 	"github.com/godaddy-x/freego/node"
+	"github.com/godaddy-x/freego/utils"
 	"testing"
 	"time"
 )
@@ -61,16 +64,53 @@ func TestSignatureVerify(t *testing.T) {
 	fmt.Println(pub)
 }
 
-func TestEncrypt(t *testing.T) {
-	res, err := encipherClient.Encrypt(msg)
+func TestAesEncrypt(t *testing.T) {
+	res, err := encipherClient.AesEncrypt(msg)
 	if err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println(res)
 }
 
-func TestDecrypt(t *testing.T) {
-	res, err := encipherClient.Decrypt("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")
+func TestAesDecrypt(t *testing.T) {
+	res, err := encipherClient.AesDecrypt("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")
+	if err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println(res)
+}
+
+func TestEccEncrypt(t *testing.T) {
+	res, err := encipherClient.EccEncrypt("123456", eccObject.PublicKeyBase64)
+	if err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println(res)
+}
+
+func TestEccDecrypt(t *testing.T) {
+	publicTo := "BPrRMrc3nv9SGVsj0eMwgPnLfKr6HTWLVJ2f9QcHH6qOEpsgpUkBKhNY6G4J7LmdD9l+ruLMn3Zn/Fwi+h80dM0="
+	prk, _ := eccObject.GetPrivateKey()
+	a, _ := ecc.Encrypt(prk.(*ecdsa.PrivateKey), utils.Base64Decode(publicTo), utils.Str2Bytes("123465"))
+	fmt.Println(utils.Base64Encode(a))
+	res, err := encipherClient.EccDecrypt(utils.Base64Encode(a))
+	if err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println(res)
+}
+
+func TestEccTokenCreate(t *testing.T) {
+	res, err := encipherClient.TokenCreate(utils.NextSID() + ";dev")
+	if err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println(res)
+}
+
+func TestEccTokenVerify(t *testing.T) {
+	s := "eyJhbGciOiIiLCJ0eXAiOiIifQ==.eyJzdWIiOiIxODI4OTk1NDE5MzIxOTI1NjMyIiwiYXVkIjoiIiwiaXNzIjoiIiwiaWF0IjowLCJleHAiOjE3MjYxMTEwNjYsImRldiI6ImRldiIsImp0aSI6IllnZzM5UGVWL1RHWS84WFpYSFhtRnc9PSIsImV4dCI6IiJ9.yChkQlYXhA9TWCyIQ3UlB4Q2Rznjijr5Z9bw/51zg2g="
+	res, err := encipherClient.TokenVerify(s)
 	if err != nil {
 		fmt.Println(err)
 	}

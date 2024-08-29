@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"fmt"
+	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/crypto"
 	"testing"
 )
@@ -38,7 +39,7 @@ func BenchmarkRSA(b *testing.B) {
 		if err := obj.LoadRsaKeyFileBase64(prikeybase64); err != nil {
 			panic(err)
 		}
-		res, err := obj.Encrypt([]byte(testmsg))
+		res, err := obj.Encrypt(nil, []byte(testmsg))
 		if err != nil {
 			panic(err)
 		}
@@ -52,8 +53,9 @@ func BenchmarkRSA(b *testing.B) {
 }
 
 func TestRsaCreateFile(t *testing.T) {
-	obj := &crypto.RsaObj{}
-	obj.CreateRsaFile(keyfile, pemfile)
+	//obj := &crypto.RsaObj{}
+	//obj.CreateRsaFile(keyfile, pemfile)
+	fmt.Println(utils.PasswordHash("123456", "123456"))
 }
 
 func TestRsaCreateFileBase64(t *testing.T) {
@@ -124,7 +126,7 @@ func TestRsaPubkeyEncrypt(t *testing.T) {
 	if err := obj.LoadRsaFile(keyfile); err != nil {
 		panic(err)
 	}
-	res, err := obj.Encrypt([]byte(testmsg))
+	res, err := obj.Encrypt(nil, []byte(testmsg))
 	if err != nil {
 		panic(err)
 	}
@@ -136,7 +138,7 @@ func TestRsaPrikeyDecrypt(t *testing.T) {
 	if err := obj.LoadRsaFile(keyfile); err != nil {
 		panic(err)
 	}
-	res, err := obj.Encrypt([]byte(testmsg))
+	res, err := obj.Encrypt(nil, []byte(testmsg))
 	if err != nil {
 		panic(err)
 	}

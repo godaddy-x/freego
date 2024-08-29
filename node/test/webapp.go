@@ -9,9 +9,10 @@ import (
 	"github.com/godaddy-x/freego/rpcx"
 	"github.com/godaddy-x/freego/rpcx/pb"
 	"github.com/godaddy-x/freego/utils"
-	"github.com/godaddy-x/freego/utils/crypto"
 	"github.com/godaddy-x/freego/utils/jwt"
 	"github.com/godaddy-x/freego/utils/sdk"
+	"strings"
+	"time"
 )
 
 type MyWebNode struct {
@@ -63,20 +64,33 @@ func (self *MyWebNode) login(ctx *node.Context) error {
 	//// {"test":"测试$1次 我是$4岁"}
 	//return ex.Throw{Msg: "${test}", Arg: []string{"1", "2", "123", "99"}}
 	//self.LoginBySubject(subject, exp)
-	config := ctx.GetJwtConfig()
-	token := ctx.Subject.Create(utils.NextSID()).Dev("APP").Generate(config)
-	secret := jwt.GetTokenSecret(token, config.TokenKey)
+	//config := ctx.GetJwtConfig()
+	//token := ctx.Subject.Create(utils.NextSID()).Dev("APP").Generate(config)
+	//secret := jwt.GetTokenSecret(token, config.TokenKey)
+	//if ctx.Encipher == nil {
+	//	return ex.Throw{Msg: "encipher is nil"}
+	//}
+	data, err := ctx.Encipher.TokenCreate(utils.AddStr(utils.NextSID(), ";", "WEB"))
+	if err != nil {
+		return ex.Throw{Msg: "create token fail", Err: err}
+	}
+	part := strings.Split(data, ";")
+	expired, _ := utils.StrToInt64(part[2])
 	return self.Json(ctx, &sdk.AuthToken{
-		Token:   token,
-		Secret:  secret,
-		Expired: ctx.Subject.Payload.Exp,
+		Token:   part[0],
+		Secret:  part[1],
+		Expired: expired,
 	})
 	//return self.Html(ctx, "/web/index.html", map[string]interface{}{"tewt": 1})
 }
 
 func (self *MyWebNode) publicKey(ctx *node.Context) error {
 	//testCallRPC()
-	_, publicKey := ctx.RSA.GetPublicKey()
+	//_, publicKey := ctx.RSA.GetPublicKey()
+	publicKey, err := ctx.Encipher.Config("ecdsa")
+	if err != nil {
+		return ex.Throw{Msg: "publicKey is nil", Err: err}
+	}
 	return self.Text(ctx, publicKey)
 }
 
@@ -161,6 +175,21 @@ func roleRealm(ctx *node.Context, onlyRole bool) (*node.Permission, error) {
 	return permission, nil
 }
 
+func createEncipher(addr string) *node.EncipherClient {
+	if len(addr) == 0 {
+		panic("encipher host is nil")
+	}
+	client := node.NewEncipherClient(addr)
+	for {
+		if err := client.CheckReady(); err != nil {
+			time.Sleep(2 * time.Second)
+			continue
+		}
+		break
+	}
+	return client
+}
+
 func NewHTTP() *MyWebNode {
 	var my = &MyWebNode{}
 	my.EnableECC(true)
@@ -170,24 +199,26 @@ func NewHTTP() *MyWebNode {
 		TokenKey: "1234567890",
 		TokenExp: jwt.TWO_WEEK,
 	})
-	encipher := sdk.NewEncipherClient("http://localhost:4141")
-	ecdsa, err := encipher.Config("ecdsa")
-	if err != nil {
-		panic(err)
-	}
-	privateKey := utils.GetJsonString(utils.Str2Bytes(ecdsa), "PrivateKey")
-	if len(privateKey) == 0 {
-		panic("ecdsa privateKey is nil")
-	}
-	cipher := &crypto.EccObj{}
-	if err := cipher.LoadS256ECC(privateKey); err != nil {
-		panic("ECC certificate generation failed")
-	}
-	my.AddCipher(cipher)
+	//encipher := node.NewEncipherClient("http://localhost:4141")
+	//ecdsa, err := encipher.Config("ecdsa")
+	//if err != nil {
+	//	panic(err)
+	//}
+	//privateKey := utils.GetJsonString(utils.Str2Bytes(ecdsa), "PrivateKey")
+	//if len(privateKey) == 0 {
+	//	panic("ecdsa privateKey is nil")
+	//}
+	//cipher := &crypto.EccObj{}
+	//if err := cipher.LoadS256ECC(privateKey); err != nil {
+	//	panic("ECC certificate generation failed")
+	//}
+	//cipher := crypto.NewEccObject()
+	//my.AddCipher(cipher)
 	//my.AddCache(func(ds ...string) (cache.Cache, error) {
 	//	rds, err := cache.NewRedis(ds...)
 	//	return rds, err
 	//})
+	my.SetEncipher(createEncipher("http://localhost:4141"))
 	my.SetSystem("test", "1.0.0")
 	my.AddRoleRealm(roleRealm)
 	my.AddErrorHandle(func(ctx *node.Context, throw ex.Throw) error {
@@ -204,9 +235,8 @@ func StartHttpNode() {
 	go geetest.CheckServerStatus(geetest.Config{})
 	my := NewHTTP()
 	my.POST("/test1", my.test, nil)
-	my.POST("/getUser", my.getUser, nil)
+	my.POST("/getUser", my.getUser, &node.RouterConfig{AesResponse: false})
 	my.POST("/testGuestPost", my.testGuestPost, &node.RouterConfig{Guest: true})
-	my.POST("/testHAX", my.testHAX, &node.RouterConfig{UseHAX: true})
 	my.GET("/key", my.publicKey, &node.RouterConfig{Guest: true})
 	my.POST("/login", my.login, &node.RouterConfig{UseRSA: true})
 

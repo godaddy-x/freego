@@ -10,9 +10,9 @@ import (
 
 const domain = "http://localhost:8090"
 
-const access_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxNjc2NjIzNTg5NDQ2NTE2NzM3IiwiYXVkIjoiIiwiaXNzIjoiIiwiaWF0IjowLCJleHAiOjE2ODk3ODI3ODgsImRldiI6IkFQUCIsImp0aSI6ImtVYWhIMjV5RDhWMXU0ZnQ4YzEvRVE9PSIsImV4dCI6IiJ9.sV7vhjp7nRJuo6XGU4mrVyHVaM2EzqiX7tGGuPcim+o="
-const token_secret = "uHsLjyEFQ8Ik4X+Hy*kT^j#lKHDxs9XcK/wAWhc8#lK!ZC@diQSvcunC5KckkxQ="
-const token_expire = 1689782788
+const access_token = "eyJhbGciOiIiLCJ0eXAiOiIifQ==.eyJzdWIiOiIxODI5MDI5MjA2NjE3NDg5NDA5IiwiYXVkIjoiIiwiaXNzIjoiIiwiaWF0IjowLCJleHAiOjE3MjYxMTkxMTksImRldiI6IldFQiIsImp0aSI6IlRqeEdHRFNXajVrVnlWalM2dGhKdWc9PSIsImV4dCI6IiJ9.eXWi1BqMihY654FVoSOWZsiAyy41VMIsHWUIBk+gzIs="
+const token_secret = "0b324d948d0aac4581ede07b23967be48bfd9a55a44bbb1e8484992619f1d928b50e1fbe3d6183fa6cc161cfb56d3360f1fbc7f075c744dc9bdd9a0b2a2a6dc13c8d843dbdba95f2b0b490cf8b4880d170a5ecfe3326904e20347866829df0f5"
+const token_expire = 1726119119
 
 var httpSDK = &sdk.HttpSDK{
 	Debug:      false,
@@ -36,7 +36,9 @@ func TestECCLogin(t *testing.T) {
 	if err := httpSDK.PostByECC("/login", &requestData, &responseData); err != nil {
 		fmt.Println(err)
 	}
-	fmt.Println(responseData)
+	fmt.Println("token: ", responseData.Token)
+	fmt.Println("secret: ", responseData.Secret)
+	fmt.Println("expired: ", responseData.Expired)
 }
 
 func TestGetUser(t *testing.T) {
@@ -44,18 +46,7 @@ func TestGetUser(t *testing.T) {
 	httpSDK.AuthToken(sdk.AuthToken{Token: access_token, Secret: token_secret, Expired: token_expire})
 	requestObj := map[string]interface{}{"uid": 123, "name": "我爱中国/+_=/1df", "limit": 20, "offset": 5}
 	responseData := map[string]string{}
-	if err := httpSDK.PostByAuth("/getUser", &requestObj, &responseData, true); err != nil {
-		fmt.Println(err)
-	}
-	fmt.Println(responseData)
-}
-
-func TestHAX(t *testing.T) {
-	//httpSDK.AuthObject(&map[string]string{"username": "1234567890123456", "password": "1234567890123456"})
-	//httpSDK.AuthToken(sdk.AuthToken{Token: access_token, Secret: token_secret})
-	requestObj := map[string]interface{}{"uid": 123, "name": "我爱中国/+_=/1df", "limit": 20, "offset": 5}
-	responseData := map[string]string{}
-	if err := httpSDK.PostByHAX("/login", &requestObj, &responseData); err != nil {
+	if err := httpSDK.PostByAuth("/getUser", &requestObj, &responseData, false); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println(responseData)
