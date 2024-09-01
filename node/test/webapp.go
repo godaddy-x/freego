@@ -7,9 +7,9 @@ import (
 	"github.com/godaddy-x/freego/node"
 	"github.com/godaddy-x/freego/node/common"
 	"github.com/godaddy-x/freego/rpcx"
-	"github.com/godaddy-x/freego/rpcx/pb"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/encipher"
+	"github.com/godaddy-x/freego/zlog"
 	"time"
 )
 
@@ -41,23 +41,8 @@ func (self *MyWebNode) getUser(ctx *node.Context) error {
 	return self.Json(ctx, map[string]interface{}{"test": "我爱中国+-/+_=/1df"})
 }
 
-func testCallRPC() {
-	conn, err := rpcx.NewClientConn(rpcx.GRPC{Service: "PubWorker", Cache: 30})
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-	defer conn.Close()
-	res, err := pb.NewPubWorkerClient(conn.Value()).GenerateId(conn.Context(), &pb.GenerateIdReq{})
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-	fmt.Println("call rpc:", res)
-}
-
 func (self *MyWebNode) login(ctx *node.Context) error {
-	data, err := ctx.Encipher.TokenCreate(utils.AddStr(utils.NextSID(), ";", "WEB"))
+	data, err := ctx.Encipher.TokenCreate(utils.NextSID(), "WEB")
 	if err != nil {
 		return ex.Throw{Msg: "create token fail", Err: err}
 	}
@@ -66,9 +51,8 @@ func (self *MyWebNode) login(ctx *node.Context) error {
 }
 
 func (self *MyWebNode) publicKey(ctx *node.Context) error {
-	//testCallRPC()
 	//_, publicKey := ctx.RSA.GetPublicKey()
-	publicKey, err := ctx.Encipher.Config("ecdsa")
+	publicKey, err := ctx.Encipher.PublicKey()
 	if err != nil {
 		return ex.Throw{Msg: "publicKey is nil", Err: err}
 	}
@@ -151,14 +135,13 @@ func roleRealm(ctx *node.Context, onlyRole bool) (*node.Permission, error) {
 	return permission, nil
 }
 
-func createEncipher(addr string) encipher.Client {
-	if len(addr) == 0 {
-		panic("encipher host is nil")
-	}
-	client := node.NewDefaultEncipherClient(addr)
+func createEncipher() encipher.Client {
+	client := rpcx.NewEncipherClient(":4141", 60000, nil)
 	for {
-		if err := client.CheckReady(); err != nil {
-			time.Sleep(2 * time.Second)
+		_, err := client.NextId()
+		if err != nil {
+			zlog.Warn("encipher rpc server not ready", 0, zlog.AddError(err))
+			time.Sleep(5 * time.Second)
 			continue
 		}
 		break
@@ -168,7 +151,7 @@ func createEncipher(addr string) encipher.Client {
 
 func NewHTTP() *MyWebNode {
 	var my = &MyWebNode{}
-	my.SetEncipher(createEncipher("http://localhost:4141"))
+	my.SetEncipher(createEncipher())
 	my.SetSystem("test", "1.0.0")
 	my.AddRoleRealm(roleRealm)
 	my.AddErrorHandle(func(ctx *node.Context, throw ex.Throw) error {

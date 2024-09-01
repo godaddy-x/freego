@@ -60,7 +60,7 @@ func (self *Subject) Create(sub string) *Subject {
 	self.Payload = &Payload{
 		Sub: sub,
 		Exp: utils.UnixSecond() + TWO_WEEK,
-		Jti: utils.HMAC_MD5(utils.AddStr(utils.NextSID(), utils.RandStr2(16)), utils.GetUUID(), true),
+		Jti: utils.HMAC_MD5(utils.AddStr(utils.NextSID(), utils.RandStr(16)), utils.GetUUID(), true),
 	}
 	return self
 }

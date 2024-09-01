@@ -242,12 +242,12 @@ func (self *PullReceiver) OnReceive(b []byte) bool {
 		return true
 	}
 	if sigTyp == 1 {
-		aesContent, err := utils.AesDecrypt2(v, sigKey)
-		if err != nil {
+		aesContent := utils.AesDecrypt2(v, sigKey)
+		if len(aesContent) == 0 {
 			zlog.Error("rabbitmq consumption data aes decrypt failed", 0, zlog.Any("option", self.Config.Option), zlog.Any("message", msg))
 			return true
 		}
-		v = utils.Bytes2Str(aesContent)
+		v = aesContent
 	}
 	btv := utils.Base64Decode(v)
 	if btv == nil || len(btv) == 0 {

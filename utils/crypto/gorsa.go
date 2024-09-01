@@ -20,8 +20,8 @@ type Cipher interface {
 	GetPublicKey() (interface{}, string)
 	Encrypt(publicTo, msg []byte) (string, error)
 	Decrypt(msg string) (string, error)
-	Sign(msg []byte) ([]byte, error)
-	Verify(msg, sign []byte) error
+	Sign(msg string) (string, error)
+	Verify(msg, sign string) error
 }
 
 type RsaObj struct {

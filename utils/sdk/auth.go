@@ -94,7 +94,7 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 		return ex.Throw{Msg: "request data JsonMarshal invalid"}
 	}
 	jsonBody := &node.JsonBody{
-		Data:  jsonData,
+		Data:  utils.Bytes2Str(jsonData),
 		Time:  utils.UnixSecond(),
 		Nonce: utils.RandNonce(),
 		Plan:  int64(2),
@@ -103,7 +103,7 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	if err != nil {
 		return err
 	}
-	clientSecretKey := utils.CreateSafeRandom(4, 4)
+	clientSecretKey := utils.RandStr(64)
 	_, pubBs, err := ecc.LoadBase64PublicKey(publicKey)
 	if err != nil {
 		return ex.Throw{Msg: "load ECC public key failed"}
@@ -116,8 +116,8 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	s.debugOut("server key: ", publicKey)
 	s.debugOut("client key: ", clientSecretKey)
 	s.debugOut("client key encrypted: ", randomCode)
-	jsonBody.Data = utils.AesEncrypt2(jsonBody.Data.([]byte), clientSecretKey)
-	jsonBody.Sign = utils.HMAC_SHA256(utils.AddStr(path, jsonBody.Data.(string), jsonBody.Nonce, jsonBody.Time, jsonBody.Plan), publicKey, true)
+	jsonBody.Data = utils.AesEncrypt2(jsonBody.Data.(string), clientSecretKey)
+	jsonBody.Sign = utils.HMAC_SHA256(utils.AddStr(path, jsonBody.Data.(string), jsonBody.Nonce, jsonBody.Time, jsonBody.Plan), clientSecretKey+publicKey, true)
 	bytesData, err := utils.JsonMarshal(jsonBody)
 	if err != nil {
 		return ex.Throw{Msg: "jsonBody data JsonMarshal invalid"}
@@ -168,12 +168,12 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 		return ex.Throw{Msg: "post response sign verify invalid"}
 	}
 	s.debugOut("response sign verify: ", validSign == respData.Sign)
-	dec, err := utils.AesDecrypt2(respData.Data.(string), clientSecretKey)
+	dec := utils.AesDecrypt2(respData.Data.(string), clientSecretKey)
 	if err != nil {
 		return ex.Throw{Msg: "post response data AES decrypt failed"}
 	}
-	s.debugOut("response data decrypted: ", utils.Bytes2Str(dec))
-	if err := utils.JsonUnmarshal(dec, responseObj); err != nil {
+	s.debugOut("response data decrypted: ", dec)
+	if err := utils.JsonUnmarshal(utils.Str2Bytes(dec), responseObj); err != nil {
 		return ex.Throw{Msg: "response data JsonUnmarshal invalid"}
 	}
 	return nil
@@ -235,17 +235,17 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 		return ex.Throw{Msg: "request data JsonMarshal invalid"}
 	}
 	jsonBody := &node.JsonBody{
-		Data:  jsonData,
+		Data:  utils.Bytes2Str(jsonData),
 		Time:  utils.UnixSecond(),
 		Nonce: utils.RandNonce(),
 		Plan:  0,
 	}
 	if len(encrypted) > 0 && encrypted[0] {
-		jsonBody.Data = utils.AesEncrypt2(jsonBody.Data.([]byte), s.authToken.Secret)
+		jsonBody.Data = utils.AesEncrypt2(jsonBody.Data.(string), s.authToken.Secret)
 		jsonBody.Plan = 1
 		s.debugOut("request data encrypted: ", jsonBody.Data)
 	} else {
-		d := utils.Base64Encode(jsonBody.Data.([]byte))
+		d := utils.Base64Encode(jsonBody.Data)
 		jsonBody.Data = d
 		s.debugOut("request data base64: ", jsonBody.Data)
 	}
@@ -303,11 +303,8 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 		dec = utils.Base64Decode(respData.Data)
 		s.debugOut("response data base64: ", string(dec))
 	} else if respData.Plan == 1 {
-		dec, err = utils.AesDecrypt2(respData.Data.(string), s.authToken.Secret)
-		if err != nil {
-			return ex.Throw{Msg: "post response data AES decrypt failed"}
-		}
-		s.debugOut("response data decrypted: ", utils.Bytes2Str(dec))
+		dec = utils.Str2Bytes(utils.AesDecrypt2(respData.Data.(string), s.authToken.Secret))
+		s.debugOut("response data decrypted: ", dec)
 	} else {
 		return ex.Throw{Msg: "response sign plan invalid"}
 	}
@@ -316,36 +313,3 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 	}
 	return nil
 }
-
-//func BuildRequestObject(path string, requestObj interface{}, secret string, encrypted ...bool) ([]byte, error) {
-//	if len(path) == 0 || requestObj == nil {
-//		return nil, ex.Throw{Msg: "params invalid"}
-//	}
-//	jsonData, err := utils.JsonMarshal(requestObj)
-//	if err != nil {
-//		return nil, ex.Throw{Msg: "request data JsonMarshal invalid"}
-//	}
-//	jsonBody := &node.JsonBody{
-//		Data:  jsonData,
-//		Time:  utils.UnixSecond(),
-//		Nonce: utils.RandNonce(),
-//		Plan:  0,
-//	}
-//	if len(encrypted) > 0 && encrypted[0] {
-//		d, err := utils.AesEncrypt(jsonBody.Data.([]byte), secret, utils.AddStr(jsonBody.Nonce, jsonBody.Time))
-//		if err != nil {
-//			return nil, ex.Throw{Msg: "request data AES encrypt failed"}
-//		}
-//		jsonBody.Data = d
-//		jsonBody.Plan = 1
-//	} else {
-//		d := utils.Base64Encode(jsonBody.Data.([]byte))
-//		jsonBody.Data = d
-//	}
-//	jsonBody.Sign = utils.HMAC_SHA256(utils.AddStr(path, jsonBody.Data.(string), jsonBody.Nonce, jsonBody.Time, jsonBody.Plan), secret, true)
-//	bytesData, err := utils.JsonMarshal(jsonBody)
-//	if err != nil {
-//		return nil, ex.Throw{Msg: "jsonBody data JsonMarshal invalid"}
-//	}
-//	return bytesData, nil
-//}

@@ -4,9 +4,15 @@ import (
 	"crypto/ecdsa"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"github.com/godaddy-x/eccrypto"
 	"github.com/godaddy-x/freego/utils"
-	"unsafe"
+	"io/ioutil"
+	"os"
+)
+
+var (
+	defaultKeyB64 = utils.SHA512(utils.GetLocalSecretKey())
 )
 
 type EccObject struct {
@@ -22,8 +28,57 @@ func NewEccObject() *EccObject {
 	return obj
 }
 
+func CreateEccKeystore(path string) error {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		file, err := os.Create(path)
+		if err != nil {
+			return errors.New("create file fail: " + err.Error())
+		}
+		defer file.Close()
+		str := `{
+    "PrivateKey": "%s",
+    "PublicKey": "%s"
+}`
+		eccObject := NewEccObject()
+		prk, pub, _ := ecc.GetObjectBase64(eccObject.privateKey, eccObject.publicKey)
+		if _, err := file.WriteString(fmt.Sprintf(str, utils.AesEncrypt2(prk, defaultKeyB64), pub)); err != nil {
+			return errors.New("write file fail: " + err.Error())
+		}
+		return nil
+	}
+	return nil
+}
+
+func LoadEccKeystore(path string) (*EccObject, error) {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return nil, err
+	}
+	data, err := ioutil.ReadFile(path)
+	if err != nil {
+		return nil, errors.New("read file fail: " + err.Error())
+	}
+	privateKey := utils.GetJsonString(data, "PrivateKey")
+	if len(privateKey) == 0 {
+		return nil, errors.New("privateKey not found")
+	}
+	prk := utils.AesDecrypt2(privateKey, defaultKeyB64)
+	if len(prk) == 0 {
+		return nil, errors.New("privateKey decode invalid")
+	}
+	return LoadEccObject(prk), nil
+}
+
 func LoadEccObject(b64 string) *EccObject {
 	prk, err := ecc.LoadBase64PrivateKey(b64)
+	if err != nil {
+		return nil
+	}
+	_, pub, _ := ecc.GetObjectBase64(nil, &prk.PublicKey)
+	return &EccObject{privateKey: prk, publicKey: &prk.PublicKey, PublicKeyBase64: pub}
+}
+
+func LoadEccObjectByHex(h string) *EccObject {
+	prk, err := ecc.LoadHexPrivateKey(h)
 	if err != nil {
 		return nil
 	}
@@ -80,31 +135,38 @@ func (self *EccObject) GetPublicKey() (interface{}, string) {
 }
 
 func (self *EccObject) Encrypt(publicTo, msg []byte) (string, error) {
-	b, err := ecc.Encrypt(nil, publicTo, msg)
+	bs, err := ecc.Encrypt(nil, publicTo, msg)
 	if err != nil {
 		return "", err
 	}
-	return base64.StdEncoding.EncodeToString(b), err
+	return utils.Base64Encode(bs), err
 }
 
 func (self *EccObject) Decrypt(msg string) (string, error) {
-	bs, err := base64.StdEncoding.DecodeString(msg)
-	if err != nil {
-		return "", errors.New("base64 parse failed")
+	if len(msg) == 0 {
+		return "", errors.New("msg is nil")
 	}
-	r, err := ecc.Decrypt(self.privateKey, bs)
+	r, err := ecc.Decrypt(self.privateKey, utils.Base64Decode(msg))
 	if err != nil {
 		return "", err
 	}
-	return *(*string)(unsafe.Pointer(&r)), nil
+	return utils.Bytes2Str(r), nil
 }
 
-func (self *EccObject) Sign(msg []byte) ([]byte, error) {
-	return ecc.Sign(self.privateKey, msg)
+func (self *EccObject) Sign(msg string) (string, error) {
+	r, err := ecc.Sign(self.privateKey, utils.Str2Bytes(msg))
+	if err != nil {
+		return "", err
+	}
+	return utils.Base64Encode(r), nil
 }
 
-func (self *EccObject) Verify(msg, sign []byte) error {
-	b := ecc.Verify(self.publicKey, msg, sign)
+func (self *EccObject) Verify(msg, sign string) error {
+	signBs := utils.Base64Decode(sign)
+	if len(signBs) == 0 {
+		return errors.New("sign invalid")
+	}
+	b := ecc.Verify(self.publicKey, utils.Str2Bytes(msg), signBs)
 	if !b {
 		return errors.New("verify failed")
 	}

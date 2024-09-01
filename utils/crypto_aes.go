@@ -5,11 +5,11 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"errors"
+	"fmt"
 )
 
 const (
 	keyLen16 = 16
-	keyLen32 = 32
 )
 
 func PKCS7Padding(ciphertext []byte, blockSize int) []byte {
@@ -61,38 +61,61 @@ func AesDecrypt(msg, key, iv string) ([]byte, error) {
 	return plantText, nil
 }
 
-func AesEncrypt2(plantText []byte, key string) string {
-	block, err := aes.NewCipher(GetAesKey(key)) //选择加密算法
+func AesEncrypt2(text, keyB64 string) string {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Println("Recovered from panic:", r)
+		}
+	}()
+	key := Base64Decode(keyB64)
+	if len(key) < 32 {
+		return ""
+	} else {
+		key = key[:32]
+	}
+	block, err := aes.NewCipher(key)
 	if err != nil {
 		return ""
 	}
-	iv := RandStr2(keyLen16)
+	plantText := Str2Bytes(text)
+	iv := RandomBytes(keyLen16)
 	plantText = PKCS7Padding(plantText, block.BlockSize())
-	blockModel := cipher.NewCBCEncrypter(block, GetAesIV(iv))
+	blockModel := cipher.NewCBCEncrypter(block, iv)
 	ciphertext := make([]byte, len(plantText))
 	blockModel.CryptBlocks(ciphertext, plantText)
-	return Base64Encode(append(Str2Bytes(iv), ciphertext...))
+	return Base64Encode(append(iv, ciphertext...))
 }
 
-func AesDecrypt2(msg, key string) ([]byte, error) {
-	block, err := aes.NewCipher(GetAesKey(key)) //选择加密算法
+func AesDecrypt2(text, keyB64 string) string {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Println("Recovered from panic:", r)
+		}
+	}()
+	key := Base64Decode(keyB64)
+	if len(key) < 32 {
+		return ""
+	} else {
+		key = key[:32]
+	}
+	block, err := aes.NewCipher(key)
 	if err != nil {
-		return nil, err
+		return ""
 	}
-	bs := Base64Decode(msg)
-	if bs == nil || len(bs) <= keyLen32 {
-		return nil, errors.New("msg bs invalid")
+	bs := Base64Decode(text)
+	if bs == nil || len(bs) <= keyLen16 {
+		return ""
 	}
-	iv := Bytes2Str(bs[:keyLen32])
-	ciphertext := bs[keyLen32:]
-	blockModel := cipher.NewCBCDecrypter(block, GetAesIV(iv))
+	iv := bs[0:keyLen16]
+	ciphertext := bs[keyLen16:]
+	blockModel := cipher.NewCBCDecrypter(block, iv)
 	plantText := make([]byte, len(ciphertext))
 	blockModel.CryptBlocks(plantText, ciphertext)
 	plantText = PKCS7UnPadding(plantText, block.BlockSize())
 	if plantText == nil {
-		return nil, errors.New("unPadding data failed")
+		return ""
 	}
-	return plantText, nil
+	return Bytes2Str(plantText)
 }
 
 func GetAesKey(key string) []byte {

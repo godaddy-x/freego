@@ -6,7 +6,6 @@ import (
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/utils"
-	"github.com/godaddy-x/freego/utils/crypto"
 	"github.com/godaddy-x/freego/utils/encipher"
 	"github.com/godaddy-x/freego/utils/jwt"
 	"github.com/godaddy-x/freego/zlog"
@@ -86,7 +85,7 @@ func (self *HttpNode) StartServer(addr string, timeout ...int) {
 func (self *HttpNode) checkContextReady(path string, routerConfig *RouterConfig) {
 	self.readyContext()
 	self.AddCache(nil)
-	self.AddCipher(nil)
+	//self.AddCipher(nil)
 	self.addRouterConfig(path, routerConfig)
 	self.newRouter()
 }
@@ -161,27 +160,27 @@ func (self *HttpNode) AddCache(cacheAware CacheAware) {
 	}
 }
 
-func (self *HttpNode) AddCipher(cipher crypto.Cipher) {
-	self.readyContext()
-	if self.Context.RSA == nil {
-		if cipher == nil {
-			if self.Context.System.enableECC {
-				defaultECC := &crypto.EccObject{}
-				if err := defaultECC.CreateS256ECC(); err != nil {
-					panic("ECC certificate generation failed")
-				}
-				cipher = defaultECC
-			} else {
-				defaultRSA := &crypto.RsaObj{}
-				if err := defaultRSA.CreateRsa2048(); err != nil {
-					panic("RSA certificate generation failed")
-				}
-				cipher = defaultRSA
-			}
-		}
-		self.Context.RSA = cipher
-	}
-}
+//func (self *HttpNode) AddCipher(cipher crypto.Cipher) {
+//	self.readyContext()
+//	if self.Context.RSA == nil {
+//		if cipher == nil {
+//			if self.Context.System.enableECC {
+//				defaultECC := &crypto.EccObject{}
+//				if err := defaultECC.CreateS256ECC(); err != nil {
+//					panic("ECC certificate generation failed")
+//				}
+//				cipher = defaultECC
+//			} else {
+//				defaultRSA := &crypto.RsaObj{}
+//				if err := defaultRSA.CreateRsa2048(); err != nil {
+//					panic("RSA certificate generation failed")
+//				}
+//				cipher = defaultRSA
+//			}
+//		}
+//		self.Context.RSA = cipher
+//	}
+//}
 
 func (self *HttpNode) AddLanguage(langDs, filePath string) error {
 	self.readyContext()
@@ -417,22 +416,24 @@ func defaultRenderPre(ctx *Context) error {
 			Time:  utils.UnixMilli(),
 			Nonce: utils.RandNonce(),
 		}
-		var key string
 		if routerConfig.UseRSA { // 非登录状态响应
 			if ctx.JsonBody.Plan == 2 {
 				v := ctx.GetStorage(RandomCode)
 				if v == nil {
 					return ex.Throw{Msg: "encryption random code is nil"}
 				}
-				key, _ = v.(string)
-				aesData := utils.AesEncrypt2(data, key)
+				key, b := v.(string)
+				if !b {
+					return ex.Throw{Msg: "encryption random code invalid"}
+				}
+				aesData := utils.AesEncrypt2(utils.Bytes2Str(data), key)
 				if err != nil {
 					return ex.Throw{Code: http.StatusInternalServerError, Msg: "AES encryption response data failed", Err: err}
 				}
 				resp.Data = aesData
 				resp.Plan = 2
 				ctx.DelStorage(RandomCode)
-				resp.Sign = ctx.GetHmac256Sign(aesData, resp.Nonce, resp.Time, resp.Plan, key) // 使用客户端随机码进行本地签名
+				resp.Sign = ctx.GetHmac256Sign(string(aesData), resp.Nonce, resp.Time, resp.Plan, key) // 使用客户端随机码进行本地签名
 			} else {
 				return ex.Throw{Msg: "anonymous response plan invalid"}
 			}

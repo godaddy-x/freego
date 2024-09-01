@@ -22,19 +22,19 @@ func gorand(n int, characters string) string {
 	return Bytes2Str(randomString)
 }
 
-func RandStr(n int, b ...bool) string {
-	if len(b) > 0 {
-		return gorand(n, lettersSp)
-	}
-	return gorand(n, letters)
-}
+//func RandStr(n int, b ...bool) string {
+//	if len(b) > 0 {
+//		return gorand(n, lettersSp)
+//	}
+//	return gorand(n, letters)
+//}
 
 func RandInt(n int) string {
 	return gorand(n, numbers)
 }
 
 func RandNonce() string {
-	return RandStr2(16)
+	return RandStr(16)
 }
 
 // ModRand 调用底层生成随机数,进行取模运算,性能提升10倍
@@ -42,7 +42,7 @@ func ModRand(n int) int {
 	return int(fastrand() % uint32(n))
 }
 
-func RandStr2(n int) string {
+func RandStr(n int) string {
 	// 创建一个字节切片来存储随机数
 	randomBytes := make([]byte, n) // 生成 32 字节（256 位）的随机数，适用于 HMAC-SHA256
 	// 使用 crypto/rand 包中的 Read 函数获取密码学安全的随机数
@@ -51,4 +51,26 @@ func RandStr2(n int) string {
 		return ""
 	}
 	return hex.EncodeToString(randomBytes)
+}
+
+func RandStrB64(n int) string {
+	// 创建一个字节切片来存储随机数
+	randomBytes := make([]byte, n) // 生成 32 字节（256 位）的随机数，适用于 HMAC-SHA256
+	// 使用 crypto/rand 包中的 Read 函数获取密码学安全的随机数
+	_, err := cr.Read(randomBytes)
+	if err != nil {
+		return ""
+	}
+	return Base64Encode(randomBytes)
+}
+
+func RandomBytes(n int) []byte {
+	// 创建一个字节切片来存储随机数
+	randomBytes := make([]byte, n) // 生成 32 字节（256 位）的随机数，适用于 HMAC-SHA256
+	// 使用 crypto/rand 包中的 Read 函数获取密码学安全的随机数
+	_, err := cr.Read(randomBytes)
+	if err != nil {
+		return nil
+	}
+	return randomBytes
 }

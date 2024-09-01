@@ -1,0 +1,187 @@
+syntax = "proto3";
+package encipher;
+option go_package = "/rpcx/pb";
+
+// 读取配置
+message ReadConfigReq {
+  string key = 1;
+}
+
+message ReadConfigRes {
+  string result = 1;
+}
+
+// 生成雪花ID
+message NextIdReq {
+  int64 node = 1;
+  string kind = 2;
+}
+
+message NextIdRes {
+  int64 result = 1;
+}
+
+// 数据签名
+message SignatureReq {
+  string data = 1;
+}
+
+message SignatureRes {
+  string result = 1;
+}
+
+// 数据签名验签
+message VerifySignatureReq {
+  string data = 1;
+  string sign = 2;
+}
+
+message VerifySignatureRes {
+  bool result = 1;
+}
+
+// 令牌数据签名
+message TokenSignatureReq {
+  string data = 1;
+  string token = 2;
+}
+
+message TokenSignatureRes {
+  string result = 1;
+}
+
+// 令牌数据签名验签
+message TokenVerifySignatureReq {
+  string data = 1;
+  string token = 2;
+  string sign = 3;
+}
+
+message TokenVerifySignatureRes {
+  bool result = 1;
+}
+
+// 数据对称加密
+message AesEncryptReq {
+  string data = 1;
+}
+
+message AesEncryptRes {
+  string result = 1;
+}
+
+// 数据对称解密
+message AesDecryptReq {
+  string data = 1;
+}
+
+message AesDecryptRes {
+  string result = 1;
+}
+
+// ECC数据对称加密
+message EccEncryptReq {
+  string data = 1;
+  string publicKey = 2;
+}
+
+message EccEncryptRes {
+  string result = 1;
+}
+
+// ECC数据对称解密
+message EccDecryptReq {
+  string data = 1;
+}
+
+message EccDecryptRes {
+  string result = 1;
+}
+
+// Token数据对称加密
+message TokenEncryptReq {
+  string data = 1;
+  string token = 2;
+}
+
+message TokenEncryptRes {
+  string result = 1;
+}
+
+// Token数据对称解密
+message TokenDecryptReq {
+  string data = 1;
+  string token = 2;
+}
+
+message TokenDecryptRes {
+  string result = 1;
+}
+
+// Token令牌生成
+message TokenCreateReq {
+  string subject = 1;
+  string device = 2;
+}
+
+message TokenCreateRes {
+  string token = 1;
+  string secret = 2;
+  int64 expired = 3;
+}
+
+// Token令牌校验
+message TokenVerifyReq {
+  string token = 1;
+}
+
+message TokenVerifyRes {
+  string subject = 1;
+}
+
+// 获取公钥
+message PublicKeyReq {
+}
+
+message PublicKeyRes {
+  string result = 1;
+}
+
+// ECC私钥数据签名
+message EccSignatureReq {
+  string data = 1;
+}
+
+message EccSignatureRes {
+  string result = 1;
+}
+
+// ECC公钥数据签名
+message EccVerifySignatureReq {
+  string data = 1;
+  string sign = 2;
+}
+
+message EccVerifySignatureRes {
+  bool result = 1;
+}
+
+service RpcEncipher{
+  rpc PublicKey(PublicKeyReq) returns (PublicKeyRes){}
+  rpc ReadConfig(ReadConfigReq) returns (ReadConfigRes){}
+  rpc NextId(NextIdReq) returns (NextIdRes){}
+  rpc Signature(SignatureReq) returns (SignatureRes){}
+  rpc VerifySignature(VerifySignatureReq) returns (VerifySignatureRes){}
+  rpc TokenSignature(TokenSignatureReq) returns (TokenSignatureRes){}
+  rpc TokenVerifySignature(TokenVerifySignatureReq) returns (TokenVerifySignatureRes){}
+  rpc AesEncrypt(AesEncryptReq) returns (AesEncryptRes){}
+  rpc AesDecrypt(AesDecryptReq) returns (AesDecryptRes){}
+  rpc EccEncrypt(EccEncryptReq) returns (EccEncryptRes){}
+  rpc EccDecrypt(EccDecryptReq) returns (EccDecryptRes){}
+  rpc EccSignature(EccSignatureReq) returns (EccSignatureRes){}
+  rpc EccVerifySignature(EccVerifySignatureReq) returns (EccVerifySignatureRes){}
+  rpc TokenEncrypt(TokenEncryptReq) returns (TokenEncryptRes){}
+  rpc TokenDecrypt(TokenDecryptReq) returns (TokenDecryptRes){}
+  rpc TokenCreate(TokenCreateReq) returns (TokenCreateRes){}
+  rpc TokenVerify(TokenVerifyReq) returns (TokenVerifyRes){}
+}

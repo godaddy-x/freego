@@ -4,14 +4,12 @@ import (
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/cache/limiter"
 	ballast "github.com/godaddy-x/freego/gc"
-	"github.com/godaddy-x/freego/node"
 	http_web "github.com/godaddy-x/freego/node/test"
 	"github.com/godaddy-x/freego/rpcx"
 	"github.com/godaddy-x/freego/utils"
 	_ "go.uber.org/automaxprocs"
 	"net/http"
 	_ "net/http/pprof"
-	"time"
 )
 
 func http_test() {
@@ -19,8 +17,7 @@ func http_test() {
 	//go http_web.StartHttpNode2()
 	//sqld.RebuildMongoDBIndex()
 
-	go node.StartNodeEncipher(":4141", node.NewDefaultEncipherServer("test/config/"))
-	time.Sleep(2 * time.Second)
+	go rpcx.NewEncipherServer("test/config2/", ":4141")
 	http_web.StartHttpNode()
 }
 

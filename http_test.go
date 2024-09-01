@@ -10,9 +10,9 @@ import (
 
 const domain = "http://localhost:8090"
 
-const access_token = "eyJhbGciOiIiLCJ0eXAiOiIifQ==.eyJzdWIiOiIxODI5MDI5MjA2NjE3NDg5NDA5IiwiYXVkIjoiIiwiaXNzIjoiIiwiaWF0IjowLCJleHAiOjE3MjYxMTkxMTksImRldiI6IldFQiIsImp0aSI6IlRqeEdHRFNXajVrVnlWalM2dGhKdWc9PSIsImV4dCI6IiJ9.eXWi1BqMihY654FVoSOWZsiAyy41VMIsHWUIBk+gzIs="
-const token_secret = "0b324d948d0aac4581ede07b23967be48bfd9a55a44bbb1e8484992619f1d928b50e1fbe3d6183fa6cc161cfb56d3360f1fbc7f075c744dc9bdd9a0b2a2a6dc13c8d843dbdba95f2b0b490cf8b4880d170a5ecfe3326904e20347866829df0f5"
-const token_expire = 1726119119
+const access_token = "eyJhbGciOiIiLCJ0eXAiOiIifQ==.eyJzdWIiOiIxODMwMTcyOTQ5MzQ1MjA2MjczIiwiYXVkIjoiIiwiaXNzIjoiIiwiaWF0IjowLCJleHAiOjE3MjYzOTE4MDgsImRldiI6IldFQiIsImp0aSI6IlhLVXVIR29RdEN2cmdYWnBVVFd5SGc9PSIsImV4dCI6IiJ9.zYROucLgbx0ALjuHZJFKXasdhni9E2lQuRo60PrDq88="
+const token_secret = "XP8NC4cXJ6UdO9pfjSkcb5kLH4e7xgq+p6HvO8a2kSAuiV9EbUeTt7mYftItzj7su2qNvqZWDVtMH9SFH3Wg/w=="
+const token_expire = 1726391808
 
 var httpSDK = &sdk.HttpSDK{
 	Debug:      false,
@@ -33,6 +33,7 @@ func TestGetPublicKey(t *testing.T) {
 func TestECCLogin(t *testing.T) {
 	requestData := map[string]string{"username": "1234567890123456", "password": "1234567890123456"}
 	responseData := sdk.AuthToken{}
+	httpSDK.SetPublicKey("BK+fFNuQylRcpqrsjOZYEql8JT3KgSdcXDoyLZ9UWc993B3p/eU6QpmxqCDz+xXcpRbEFuv9PRRa8YSCAXW+4Gc=")
 	if err := httpSDK.PostByECC("/login", &requestData, &responseData); err != nil {
 		fmt.Println(err)
 	}
@@ -46,7 +47,7 @@ func TestGetUser(t *testing.T) {
 	httpSDK.AuthToken(sdk.AuthToken{Token: access_token, Secret: token_secret, Expired: token_expire})
 	requestObj := map[string]interface{}{"uid": 123, "name": "我爱中国/+_=/1df", "limit": 20, "offset": 5}
 	responseData := map[string]string{}
-	if err := httpSDK.PostByAuth("/getUser", &requestObj, &responseData, true); err != nil {
+	if err := httpSDK.PostByAuth("/getUser", &requestObj, &responseData, false); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println(responseData)
