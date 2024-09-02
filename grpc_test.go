@@ -13,11 +13,11 @@ var (
 )
 
 func init() {
-	rpcClient = rpcx.NewEncipherClient(":4141", 60000, nil)
+	rpcClient = rpcx.NewEncipherClient(rpcx.Param{Addr: ":4141", CertFile: "rpcx/cert/server.crt"})
 }
 
 func TestRunEncipherServer(t *testing.T) {
-	rpcx.NewEncipherServer("test/config2", ":29995")
+	rpcx.NewEncipherServer("test/config2", rpcx.Param{Addr: ":4141", CertFile: "rpcx/cert/server.crt", KeyFile: "rpcx/cert/server.key"})
 }
 
 func TestRpcNextId(t *testing.T) {
@@ -112,9 +112,6 @@ func TestRpcAesDecrypt(t *testing.T) {
 
 func TestRpcEccEncrypt(t *testing.T) {
 	clientSecretKey := utils.RandStrB64(32)
-	//fmt.Println("test: ", clientSecretKey)
-	//eccObject := &crypto.EccObject{}
-	//result, err := eccObject.Encrypt(utils.Base64Decode("BK+fFNuQylRcpqrsjOZYEql8JT3KgSdcXDoyLZ9UWc993B3p/eU6QpmxqCDz+xXcpRbEFuv9PRRa8YSCAXW+4Gc="), utils.Str2Bytes(clientSecretKey))
 	result, err := rpcClient.EccEncrypt(clientSecretKey, "BK+fFNuQylRcpqrsjOZYEql8JT3KgSdcXDoyLZ9UWc993B3p/eU6QpmxqCDz+xXcpRbEFuv9PRRa8YSCAXW+4Gc=")
 	if err != nil {
 		fmt.Println(err)

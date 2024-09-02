@@ -42,3 +42,8 @@ openssl pkcs8 -topk8 -nocrypt -in server.key -out server.pem
 openssl genrsa -out server.key 2048
 openssl req -new -key server.key -out server.csr -config TLS.md -extensions SAN
 openssl x509 -req -days 3650 -in server.csr -set_serial 01 -signkey server.key -out server.crt -extfile TLS.md -extensions SAN
+
+### 独立client.key进行SAN自签
+openssl genrsa -out client.key 2048
+openssl req -new -key client.key -out client.csr -config TLS.md -extensions SAN
+openssl x509 -req -days 3650 -in client.csr -set_serial 01 -signkey client.key -out client.crt -extfile TLS.md -extensions SAN

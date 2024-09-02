@@ -2,7 +2,6 @@ package rpcx
 
 import (
 	"crypto/tls"
-	"crypto/x509"
 	"fmt"
 	"github.com/godaddy-x/freego/cache/limiter"
 	"github.com/godaddy-x/freego/rpcx/pool"
@@ -15,7 +14,6 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"sync"
@@ -28,11 +26,9 @@ var (
 	jwtConfig       *jwt.JwtConfig
 	rateLimiterCall func(string) (rate.Option, error)
 	selectionCall   func([]*consulapi.ServiceEntry, GRPC) *consulapi.ServiceEntry
-	appConfigCall   func(string) (AppConfig, error)
 	authorizeTLS    *crypto.RsaObj
 	accessToken     = ""
 	clientConnPools = ClientConnPool{pools: make(map[string]pool.Pool)}
-	serverAddress   = ""
 )
 
 type ClientOptions []grpc.DialOption
@@ -49,23 +45,6 @@ type GRPCManager struct {
 	authenticate bool
 }
 
-type TlsConfig struct {
-	UseTLS    bool
-	UseMTLS   bool
-	CACrtFile string
-	CAKeyFile string
-	KeyFile   string
-	CrtFile   string
-	HostName  string
-}
-
-type AppConfig struct {
-	AppId    string
-	AppKey   string
-	Status   int64
-	LastTime int64
-}
-
 type GRPC struct {
 	Ds      string                    // consul数据源ds
 	Tags    []string                  // 服务标签名称
@@ -76,60 +55,6 @@ type GRPC struct {
 	Timeout int                       // context timeout/毫秒
 	AddRPC  func(server *grpc.Server) // grpc注册proto服务
 	Center  bool                      // false: 非注册中心 true: consul注册中心获取
-}
-
-type AuthObject struct {
-	AppId     string
-	Nonce     string
-	Time      int64
-	Signature string
-}
-
-func GetGRPCJwtConfig() (*jwt.JwtConfig, error) {
-	if len(jwtConfig.TokenKey) == 0 {
-		return nil, utils.Error("grpc jwt key is nil")
-	}
-	return jwtConfig, nil
-}
-
-func GetAuthorizeTLS() (*crypto.RsaObj, error) {
-	if authorizeTLS == nil {
-		return nil, utils.Error("authorize tls is nil")
-	}
-	return authorizeTLS, nil
-}
-
-func GetGRPCAppConfig(appid string) (AppConfig, error) {
-	if appConfigCall == nil {
-		return AppConfig{}, utils.Error("grpc app config call is nil")
-	}
-	return appConfigCall(appid)
-}
-
-func (s *GRPCManager) CreateJwtConfig(tokenKey string, tokenExp ...int64) {
-	if jwtConfig != nil {
-		return
-	}
-	if len(tokenKey) < 32 {
-		panic("jwt tokenKey length should be >= 32")
-	}
-	var exp = int64(3600)
-	if len(tokenExp) > 0 && tokenExp[0] >= 3600 {
-		exp = tokenExp[0]
-	}
-	jwtConfig = &jwt.JwtConfig{
-		TokenTyp: jwt.JWT,
-		TokenAlg: jwt.HS256,
-		TokenKey: tokenKey,
-		TokenExp: exp,
-	}
-}
-
-func (s *GRPCManager) CreateAppConfigCall(fun func(appId string) (AppConfig, error)) {
-	if appConfigCall != nil {
-		return
-	}
-	appConfigCall = fun
 }
 
 func (s *GRPCManager) CreateRateLimiterCall(fun func(method string) (rate.Option, error)) {
@@ -146,131 +71,115 @@ func (s *GRPCManager) CreateSelectionCall(fun func([]*consulapi.ServiceEntry, GR
 	selectionCall = fun
 }
 
-// CreateAuthorizeTLS If server TLS is used, the certificate server.key is used by default
-// Otherwise, the method needs to be explicitly called to set the certificate
-func (s *GRPCManager) CreateAuthorizeTLS(keyPath string) {
-	if authorizeTLS != nil {
-		return
-	}
-	if len(keyPath) == 0 {
-		panic("authorize tls key path is nil")
-	}
-	obj := &crypto.RsaObj{}
-	if err := obj.LoadRsaFile(keyPath); err != nil {
-		panic(err)
-	}
-	authorizeTLS = obj
-}
+//func (s *GRPCManager) CreateServerTLS(tlsConfig TlsConfig) {
+//	if serverDialTLS != nil {
+//		return
+//	}
+//	if tlsConfig.UseTLS && tlsConfig.UseMTLS {
+//		panic("only one UseTLS/UseMTLS can be used")
+//	}
+//	if len(tlsConfig.CrtFile) == 0 {
+//		panic("server.crt file is nil")
+//	}
+//	if len(tlsConfig.KeyFile) == 0 {
+//		panic("server.key file is nil")
+//	}
+//	if tlsConfig.UseTLS {
+//		creds, err := credentials.NewServerTLSFromFile(tlsConfig.CrtFile, tlsConfig.KeyFile)
+//		if err != nil {
+//			panic(err)
+//		}
+//		serverDialTLS = grpc.Creds(creds)
+//		s.CreateAuthorizeTLS(tlsConfig.KeyFile)
+//	}
+//	if tlsConfig.UseMTLS {
+//		if len(tlsConfig.CACrtFile) == 0 {
+//			panic("ca.crt file is nil")
+//		}
+//		certPool := x509.NewCertPool()
+//		ca, err := ioutil.ReadFile(tlsConfig.CACrtFile)
+//		if err != nil {
+//			panic(err)
+//		}
+//		if ok := certPool.AppendCertsFromPEM(ca); !ok {
+//			panic("failed to append certs")
+//		}
+//		cert, err := tls.LoadX509KeyPair(tlsConfig.CrtFile, tlsConfig.KeyFile)
+//		if err != nil {
+//			panic(err)
+//		}
+//		// 构建基于 TLS 的 TransportCredentials
+//		creds := credentials.NewTLS(&tls.Config{
+//			// 设置证书链，允许包含一个或多个
+//			Certificates: []tls.Certificate{cert},
+//			// 要求必须校验客户端的证书 可以根据实际情况选用其他参数
+//			ClientAuth: tls.RequireAndVerifyClientCert, // NOTE: this is optional!
+//			// 设置根证书的集合，校验方式使用 ClientAuth 中设定的模式
+//			ClientCAs: certPool,
+//		})
+//		serverDialTLS = grpc.Creds(creds)
+//		s.CreateAuthorizeTLS(tlsConfig.KeyFile)
+//	}
+//}
 
-func (s *GRPCManager) CreateServerTLS(tlsConfig TlsConfig) {
-	if serverDialTLS != nil {
-		return
-	}
-	if tlsConfig.UseTLS && tlsConfig.UseMTLS {
-		panic("only one UseTLS/UseMTLS can be used")
-	}
-	if len(tlsConfig.CrtFile) == 0 {
-		panic("server.crt file is nil")
-	}
-	if len(tlsConfig.KeyFile) == 0 {
-		panic("server.key file is nil")
-	}
-	if tlsConfig.UseTLS {
-		creds, err := credentials.NewServerTLSFromFile(tlsConfig.CrtFile, tlsConfig.KeyFile)
-		if err != nil {
-			panic(err)
-		}
-		serverDialTLS = grpc.Creds(creds)
-		s.CreateAuthorizeTLS(tlsConfig.KeyFile)
-	}
-	if tlsConfig.UseMTLS {
-		if len(tlsConfig.CACrtFile) == 0 {
-			panic("ca.crt file is nil")
-		}
-		certPool := x509.NewCertPool()
-		ca, err := ioutil.ReadFile(tlsConfig.CACrtFile)
-		if err != nil {
-			panic(err)
-		}
-		if ok := certPool.AppendCertsFromPEM(ca); !ok {
-			panic("failed to append certs")
-		}
-		cert, err := tls.LoadX509KeyPair(tlsConfig.CrtFile, tlsConfig.KeyFile)
-		if err != nil {
-			panic(err)
-		}
-		// 构建基于 TLS 的 TransportCredentials
-		creds := credentials.NewTLS(&tls.Config{
-			// 设置证书链，允许包含一个或多个
-			Certificates: []tls.Certificate{cert},
-			// 要求必须校验客户端的证书 可以根据实际情况选用其他参数
-			ClientAuth: tls.RequireAndVerifyClientCert, // NOTE: this is optional!
-			// 设置根证书的集合，校验方式使用 ClientAuth 中设定的模式
-			ClientCAs: certPool,
-		})
-		serverDialTLS = grpc.Creds(creds)
-		s.CreateAuthorizeTLS(tlsConfig.KeyFile)
-	}
-}
-
-func (s *GRPCManager) CreateClientTLS(tlsConfig TlsConfig) {
-	if clientDialTLS != nil {
-		return
-	}
-	if tlsConfig.UseTLS && tlsConfig.UseMTLS {
-		panic("only one tls mode can be used")
-	}
-	if len(tlsConfig.CrtFile) == 0 {
-		panic("server.crt file is nil")
-	}
-	if tlsConfig.UseTLS {
-		if len(tlsConfig.CrtFile) == 0 {
-			panic("server.crt file is nil")
-		}
-		if len(tlsConfig.HostName) == 0 {
-			panic("server host name is nil")
-		}
-		creds, err := credentials.NewClientTLSFromFile(tlsConfig.CrtFile, tlsConfig.HostName)
-		if err != nil {
-			panic(err)
-		}
-		clientDialTLS = grpc.WithTransportCredentials(creds)
-	}
-	if tlsConfig.UseMTLS {
-		if len(tlsConfig.CACrtFile) == 0 {
-			panic("ca.crt file is nil")
-		}
-		if len(tlsConfig.CrtFile) == 0 {
-			panic("client.crt file is nil")
-		}
-		if len(tlsConfig.KeyFile) == 0 {
-			panic("client.key file is nil")
-		}
-		if len(tlsConfig.HostName) == 0 {
-			panic("server host name is nil")
-		}
-		// 加载客户端证书
-		cert, err := tls.LoadX509KeyPair(tlsConfig.CrtFile, tlsConfig.KeyFile)
-		if err != nil {
-			panic(err)
-		}
-		// 构建CertPool以校验服务端证书有效性
-		certPool := x509.NewCertPool()
-		ca, err := ioutil.ReadFile(tlsConfig.CACrtFile)
-		if err != nil {
-			panic(err)
-		}
-		if ok := certPool.AppendCertsFromPEM(ca); !ok {
-			panic("failed to append ca certs")
-		}
-		creds := credentials.NewTLS(&tls.Config{
-			Certificates: []tls.Certificate{cert},
-			ServerName:   tlsConfig.HostName, // NOTE: this is required!
-			RootCAs:      certPool,
-		})
-		clientDialTLS = grpc.WithTransportCredentials(creds)
-	}
-}
+//func (s *GRPCManager) CreateClientTLS(tlsConfig TlsConfig) {
+//	if clientDialTLS != nil {
+//		return
+//	}
+//	if tlsConfig.UseTLS && tlsConfig.UseMTLS {
+//		panic("only one tls mode can be used")
+//	}
+//	if len(tlsConfig.CrtFile) == 0 {
+//		panic("server.crt file is nil")
+//	}
+//	if tlsConfig.UseTLS {
+//		if len(tlsConfig.CrtFile) == 0 {
+//			panic("server.crt file is nil")
+//		}
+//		if len(tlsConfig.HostName) == 0 {
+//			panic("server host name is nil")
+//		}
+//		creds, err := credentials.NewClientTLSFromFile(tlsConfig.CrtFile, tlsConfig.HostName)
+//		if err != nil {
+//			panic(err)
+//		}
+//		clientDialTLS = grpc.WithTransportCredentials(creds)
+//	}
+//	if tlsConfig.UseMTLS {
+//		if len(tlsConfig.CACrtFile) == 0 {
+//			panic("ca.crt file is nil")
+//		}
+//		if len(tlsConfig.CrtFile) == 0 {
+//			panic("client.crt file is nil")
+//		}
+//		if len(tlsConfig.KeyFile) == 0 {
+//			panic("client.key file is nil")
+//		}
+//		if len(tlsConfig.HostName) == 0 {
+//			panic("server host name is nil")
+//		}
+//		// 加载客户端证书
+//		cert, err := tls.LoadX509KeyPair(tlsConfig.CrtFile, tlsConfig.KeyFile)
+//		if err != nil {
+//			panic(err)
+//		}
+//		// 构建CertPool以校验服务端证书有效性
+//		certPool := x509.NewCertPool()
+//		ca, err := ioutil.ReadFile(tlsConfig.CACrtFile)
+//		if err != nil {
+//			panic(err)
+//		}
+//		if ok := certPool.AppendCertsFromPEM(ca); !ok {
+//			panic("failed to append ca certs")
+//		}
+//		creds := credentials.NewTLS(&tls.Config{
+//			Certificates: []tls.Certificate{cert},
+//			ServerName:   tlsConfig.HostName, // NOTE: this is required!
+//			RootCAs:      certPool,
+//		})
+//		clientDialTLS = grpc.WithTransportCredentials(creds)
+//	}
+//}
 
 func RunServer(consulDs string, authenticate bool, objects ...*GRPC) {
 	if len(objects) == 0 {
@@ -362,9 +271,15 @@ func RunServer(consulDs string, authenticate bool, objects ...*GRPC) {
 }
 
 type Param struct {
-	Addr   string
-	Auth   bool
-	Object []*GRPC
+	Addr              string
+	Object            []*GRPC
+	CaFile            string
+	CertFile          string
+	KeyFile           string
+	ClientTimeout     int
+	ClientInterceptor grpc.UnaryClientInterceptor
+	ServerInterceptor grpc.UnaryServerInterceptor
+	ClientOptions     ClientOptions
 }
 
 func RunOnlyServer(param Param) {
@@ -385,8 +300,17 @@ func RunOnlyServer(param Param) {
 		}),
 		//grpc.UnaryInterceptor(self.ServerInterceptor),
 	}
-	if serverDialTLS != nil {
-		opts = append(opts, serverDialTLS)
+	if len(param.CertFile) > 0 && len(param.KeyFile) > 0 {
+		// Load server's certificate and private key
+		serverCert, err := tls.LoadX509KeyPair(param.CertFile, param.KeyFile)
+		if err != nil {
+			panic(err)
+		}
+		// Create a TLS config with server's certificate
+		tlsConfig := &tls.Config{
+			Certificates: []tls.Certificate{serverCert},
+		}
+		opts = append(opts, grpc.Creds(credentials.NewTLS(tlsConfig)))
 	}
 	grpcServer := grpc.NewServer(opts...)
 	for _, object := range param.Object {
@@ -460,7 +384,7 @@ func RunClient(appId ...string) {
 }
 
 // CreateClientOpts serverAddr: 服务端地址 interceptor: 客户端拦截器
-func CreateClientOpts(interceptor grpc.UnaryClientInterceptor) ClientOptions {
+func CreateClientOpts(param Param) ClientOptions {
 	var clientOptions []grpc.DialOption
 	clientOptions = append(clientOptions, grpc.WithInitialWindowSize(pool.InitialWindowSize))
 	clientOptions = append(clientOptions, grpc.WithInitialConnWindowSize(pool.InitialConnWindowSize))
@@ -471,75 +395,19 @@ func CreateClientOpts(interceptor grpc.UnaryClientInterceptor) ClientOptions {
 		Timeout:             pool.KeepAliveTimeout,
 		PermitWithoutStream: true,
 	}))
-	if interceptor != nil {
-		clientOptions = append(clientOptions, grpc.WithUnaryInterceptor(interceptor))
+	if param.ClientInterceptor != nil {
+		clientOptions = append(clientOptions, grpc.WithUnaryInterceptor(param.ClientInterceptor))
 	}
-	if clientDialTLS != nil {
-		clientOptions = append(clientOptions, clientDialTLS)
+	if len(param.CertFile) > 0 {
+		tls, err := credentials.NewClientTLSFromFile(param.CertFile, "")
+		if err != nil {
+			panic(err)
+		}
+		clientOptions = append(clientOptions, grpc.WithTransportCredentials(tls))
 	} else {
 		clientOptions = append(clientOptions, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 	return clientOptions
-}
-
-//func callLogin(appId string) (string, int64, error) {
-//	appConfig, err := GetGRPCAppConfig(appId)
-//	if err != nil {
-//		return "", 0, err
-//	}
-//	if len(appConfig.AppKey) == 0 {
-//		return "", 0, utils.Error("rpc appConfig key is nil")
-//	}
-//	authObject := &AuthObject{
-//		AppId: appId,
-//		Nonce: utils.RandNonce(),
-//		Time:  utils.UnixSecond(),
-//	}
-//	authObject.Signature = utils.HMAC_SHA256(utils.AddStr(authObject.AppId, authObject.Nonce, authObject.Time), appConfig.AppKey, true)
-//	b64, err := utils.ToJsonBase64(authObject)
-//	if err != nil {
-//		return "", 0, err
-//	}
-//	conn, err := NewClientConn(GRPC{Service: "PubWorker"})
-//	if err != nil {
-//		return "", 0, err
-//	}
-//	conn.NewContext(60000 * time.Millisecond)
-//	defer conn.Close()
-//	// load public key
-//	pub, err := pb.NewPubWorkerClient(conn.Value()).PublicKey(conn.Context(), &pb.PublicKeyReq{})
-//	if err != nil {
-//		return "", 0, err
-//	}
-//	rsaObj := &crypto.RsaObj{}
-//	if err := rsaObj.LoadRsaPemFileBase64(pub.PublicKey); err != nil {
-//		return "", 0, err
-//	}
-//	content, err := rsaObj.Encrypt(nil, utils.Str2Bytes(b64))
-//	if err != nil {
-//		return "", 0, err
-//	}
-//	req := &pb.AuthorizeReq{
-//		Message: content,
-//	}
-//	res, err := pb.NewPubWorkerClient(conn.Value()).Authorize(conn.Context(), req)
-//	if err != nil {
-//		return "", 0, err
-//	}
-//	return res.Token, res.Expired, nil
-//}
-
-func renewClientToken(appid string, expired int64) {
-	for {
-		//zlog.Warn("detecting rpc token expiration", 0, zlog.Int64("countDown", expired-utils.TimeSecond()-timeDifference))
-		if expired-utils.UnixSecond() > timeDifference { // TODO token过期时间大于2400s则忽略,每15s检测一次
-			time.Sleep(15 * time.Second)
-			continue
-		}
-		RunClient(appid)
-		zlog.Info("rpc token renewal succeeded", 0)
-		return
-	}
 }
 
 func NewClientConn(object GRPC) (pool.Conn, error) {

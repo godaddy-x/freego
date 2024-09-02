@@ -19,23 +19,23 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	RpcEncipher_PublicKey_FullMethodName            = "/rpc_encipher.RpcEncipher/PublicKey"
-	RpcEncipher_ReadConfig_FullMethodName           = "/rpc_encipher.RpcEncipher/ReadConfig"
-	RpcEncipher_NextId_FullMethodName               = "/rpc_encipher.RpcEncipher/NextId"
-	RpcEncipher_Signature_FullMethodName            = "/rpc_encipher.RpcEncipher/Signature"
-	RpcEncipher_VerifySignature_FullMethodName      = "/rpc_encipher.RpcEncipher/VerifySignature"
-	RpcEncipher_TokenSignature_FullMethodName       = "/rpc_encipher.RpcEncipher/TokenSignature"
-	RpcEncipher_TokenVerifySignature_FullMethodName = "/rpc_encipher.RpcEncipher/TokenVerifySignature"
-	RpcEncipher_AesEncrypt_FullMethodName           = "/rpc_encipher.RpcEncipher/AesEncrypt"
-	RpcEncipher_AesDecrypt_FullMethodName           = "/rpc_encipher.RpcEncipher/AesDecrypt"
-	RpcEncipher_EccEncrypt_FullMethodName           = "/rpc_encipher.RpcEncipher/EccEncrypt"
-	RpcEncipher_EccDecrypt_FullMethodName           = "/rpc_encipher.RpcEncipher/EccDecrypt"
-	RpcEncipher_EccSignature_FullMethodName         = "/rpc_encipher.RpcEncipher/EccSignature"
-	RpcEncipher_EccVerifySignature_FullMethodName   = "/rpc_encipher.RpcEncipher/EccVerifySignature"
-	RpcEncipher_TokenEncrypt_FullMethodName         = "/rpc_encipher.RpcEncipher/TokenEncrypt"
-	RpcEncipher_TokenDecrypt_FullMethodName         = "/rpc_encipher.RpcEncipher/TokenDecrypt"
-	RpcEncipher_TokenCreate_FullMethodName          = "/rpc_encipher.RpcEncipher/TokenCreate"
-	RpcEncipher_TokenVerify_FullMethodName          = "/rpc_encipher.RpcEncipher/TokenVerify"
+	RpcEncipher_PublicKey_FullMethodName            = "/encipher.RpcEncipher/PublicKey"
+	RpcEncipher_ReadConfig_FullMethodName           = "/encipher.RpcEncipher/ReadConfig"
+	RpcEncipher_NextId_FullMethodName               = "/encipher.RpcEncipher/NextId"
+	RpcEncipher_Signature_FullMethodName            = "/encipher.RpcEncipher/Signature"
+	RpcEncipher_VerifySignature_FullMethodName      = "/encipher.RpcEncipher/VerifySignature"
+	RpcEncipher_TokenSignature_FullMethodName       = "/encipher.RpcEncipher/TokenSignature"
+	RpcEncipher_TokenVerifySignature_FullMethodName = "/encipher.RpcEncipher/TokenVerifySignature"
+	RpcEncipher_AesEncrypt_FullMethodName           = "/encipher.RpcEncipher/AesEncrypt"
+	RpcEncipher_AesDecrypt_FullMethodName           = "/encipher.RpcEncipher/AesDecrypt"
+	RpcEncipher_EccEncrypt_FullMethodName           = "/encipher.RpcEncipher/EccEncrypt"
+	RpcEncipher_EccDecrypt_FullMethodName           = "/encipher.RpcEncipher/EccDecrypt"
+	RpcEncipher_EccSignature_FullMethodName         = "/encipher.RpcEncipher/EccSignature"
+	RpcEncipher_EccVerifySignature_FullMethodName   = "/encipher.RpcEncipher/EccVerifySignature"
+	RpcEncipher_TokenEncrypt_FullMethodName         = "/encipher.RpcEncipher/TokenEncrypt"
+	RpcEncipher_TokenDecrypt_FullMethodName         = "/encipher.RpcEncipher/TokenDecrypt"
+	RpcEncipher_TokenCreate_FullMethodName          = "/encipher.RpcEncipher/TokenCreate"
+	RpcEncipher_TokenVerify_FullMethodName          = "/encipher.RpcEncipher/TokenVerify"
 )
 
 // RpcEncipherClient is the client API for RpcEncipher service.
@@ -652,7 +652,7 @@ func _RpcEncipher_TokenVerify_Handler(srv interface{}, ctx context.Context, dec 
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var RpcEncipher_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "rpc_encipher.RpcEncipher",
+	ServiceName: "encipher.RpcEncipher",
 	HandlerType: (*RpcEncipherServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{

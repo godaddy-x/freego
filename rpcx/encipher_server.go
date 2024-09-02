@@ -64,7 +64,7 @@ func randomKey() string {
 	return ""
 }
 
-func runServer(addr string) {
+func runServer(param Param) {
 	objects := []*GRPC{
 		{
 			Address: "",
@@ -72,12 +72,16 @@ func runServer(addr string) {
 			AddRPC:  func(server *grpc.Server) { pb.RegisterRpcEncipherServer(server, &RpcEncipher{}) },
 		},
 	}
-	RunOnlyServer(Param{Addr: addr, Object: objects})
+	param.Object = objects
+	RunOnlyServer(param)
 }
 
-func NewEncipherServer(configDir string, serverAddr string) {
+func NewEncipherServer(configDir string, param Param) {
 	if len(configDir) == 0 {
 		panic("path is nil")
+	}
+	if len(param.Addr) == 0 {
+		panic("server addr is nil")
 	}
 	if newEncipher != nil {
 		return
@@ -98,7 +102,7 @@ func NewEncipherServer(configDir string, serverAddr string) {
 	newEncipher.param.EcdsaPublicKey = object.EcdsaPublicKey
 	newEncipher.param.ConfigMap = object.ConfigMap
 
-	runServer(serverAddr)
+	runServer(param)
 }
 
 func (s *EncipherServer) decodeData(data string) string {

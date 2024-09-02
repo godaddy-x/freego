@@ -136,7 +136,7 @@ func roleRealm(ctx *node.Context, onlyRole bool) (*node.Permission, error) {
 }
 
 func createEncipher() encipher.Client {
-	client := rpcx.NewEncipherClient(":4141", 60000, nil)
+	client := rpcx.NewEncipherClient(rpcx.Param{Addr: ":4141", CertFile: "rpcx/cert/server.crt"})
 	for {
 		_, err := client.NextId()
 		if err != nil {

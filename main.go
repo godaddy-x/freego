@@ -2,7 +2,6 @@ package main
 
 import (
 	"github.com/godaddy-x/freego/cache"
-	"github.com/godaddy-x/freego/cache/limiter"
 	ballast "github.com/godaddy-x/freego/gc"
 	http_web "github.com/godaddy-x/freego/node/test"
 	"github.com/godaddy-x/freego/rpcx"
@@ -17,7 +16,7 @@ func http_test() {
 	//go http_web.StartHttpNode2()
 	//sqld.RebuildMongoDBIndex()
 
-	go rpcx.NewEncipherServer("test/config2/", ":4141")
+	go rpcx.NewEncipherServer("test/config2/", rpcx.Param{Addr: ":4141"})
 	http_web.StartHttpNode()
 }
 
@@ -37,38 +36,36 @@ func initRedis() {
 	new(cache.RedisManager).InitConfig(conf)
 }
 
-var appConfig = rpcx.AppConfig{}
-
-func initGRPC() {
-	if err := utils.ReadLocalJsonConfig("resource/app.json", &appConfig); err != nil {
-		panic(err)
-	}
-	client := &rpcx.GRPCManager{}
-	client.CreateJwtConfig(appConfig.AppKey)
-	client.CreateAppConfigCall(func(appId string) (rpcx.AppConfig, error) {
-		if appId == appConfig.AppId {
-			return appConfig, nil
-		}
-		return rpcx.AppConfig{}, utils.Error("appId invalid")
-	})
-	client.CreateRateLimiterCall(func(method string) (rate.Option, error) {
-		return rate.Option{}, nil
-	})
-	client.CreateServerTLS(rpcx.TlsConfig{
-		UseMTLS:   true,
-		CACrtFile: "./rpcx/cert/ca.crt",
-		KeyFile:   "./rpcx/cert/server.key",
-		CrtFile:   "./rpcx/cert/server.crt",
-	})
-	client.CreateClientTLS(rpcx.TlsConfig{
-		UseMTLS:   true,
-		CACrtFile: "./rpcx/cert/ca.crt",
-		KeyFile:   "./rpcx/cert/client.key",
-		CrtFile:   "./rpcx/cert/client.crt",
-		HostName:  "localhost",
-	})
-	client.CreateAuthorizeTLS("./rpcx/cert/server.key")
-}
+//func initGRPC() {
+//	if err := utils.ReadLocalJsonConfig("resource/app.json", &appConfig); err != nil {
+//		panic(err)
+//	}
+//	client := &rpcx.GRPCManager{}
+//	client.CreateJwtConfig(appConfig.AppKey)
+//	client.CreateAppConfigCall(func(appId string) (rpcx.AppConfig, error) {
+//		if appId == appConfig.AppId {
+//			return appConfig, nil
+//		}
+//		return rpcx.AppConfig{}, utils.Error("appId invalid")
+//	})
+//	client.CreateRateLimiterCall(func(method string) (rate.Option, error) {
+//		return rate.Option{}, nil
+//	})
+//	client.CreateServerTLS(rpcx.TlsConfig{
+//		UseMTLS:   true,
+//		CACrtFile: "./rpcx/cert/ca.crt",
+//		KeyFile:   "./rpcx/cert/server.key",
+//		CrtFile:   "./rpcx/cert/server.crt",
+//	})
+//	client.CreateClientTLS(rpcx.TlsConfig{
+//		UseMTLS:   true,
+//		CACrtFile: "./rpcx/cert/ca.crt",
+//		KeyFile:   "./rpcx/cert/client.key",
+//		CrtFile:   "./rpcx/cert/client.crt",
+//		HostName:  "localhost",
+//	})
+//	client.CreateAuthorizeTLS("./rpcx/cert/server.key")
+//}
 
 func init() {
 	//initConsul()

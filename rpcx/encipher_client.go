@@ -5,30 +5,25 @@ import (
 	"github.com/godaddy-x/freego/rpcx/pool"
 )
 
-var (
-	timeout    = 60000
-	serverAddr = ":29995"
-)
-
 type EncipherClient struct {
-	Addr          string
-	Timeout       int
-	clientOptions ClientOptions
+	param Param
 }
 
-func NewEncipherClient(server string, timeout int, clientOptions ClientOptions) *EncipherClient {
-	if clientOptions == nil {
-		clientOptions = CreateClientOpts(nil)
+func NewEncipherClient(param Param) *EncipherClient {
+	if len(param.Addr) == 0 {
+		panic("server addr is nil")
 	}
+	if param.ClientTimeout <= 0 {
+		param.ClientTimeout = 60000
+	}
+	param.ClientOptions = CreateClientOpts(param)
 	client := &EncipherClient{}
-	client.Addr = server
-	client.Timeout = timeout
-	client.clientOptions = clientOptions
+	client.param = param
 	return client
 }
 
 func (s *EncipherClient) RPC() (pool.Conn, error) {
-	con, err := NewOnlyClient(s.Addr, timeout, s.clientOptions)
+	con, err := NewOnlyClient(s.param.Addr, s.param.ClientTimeout, s.param.ClientOptions)
 	if err != nil {
 		return nil, err
 	}
