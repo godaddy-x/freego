@@ -28,7 +28,7 @@ type Subject struct {
 	payloadBytes []byte
 }
 
-type JwtConfig struct {
+type Config struct {
 	TokenKey string
 	TokenAlg string
 	TokenTyp string
@@ -47,11 +47,12 @@ type Payload struct {
 	Iat int64  `json:"iat"` // 授权token时间
 	Exp int64  `json:"exp"` // 授权token过期时间
 	Dev string `json:"dev"` // 设备类型,web/app
+	Sys string `json:"sys"` // 系统类型
 	Jti string `json:"jti"` // 唯一身份标识,主要用来作为一次性token,从而回避重放攻击
 	Ext string `json:"ext"` // 扩展信息
 }
 
-func (self *Subject) AddHeader(config JwtConfig) *Subject {
+func (self *Subject) AddHeader(config Config) *Subject {
 	self.Header = &Header{Alg: config.TokenAlg, Typ: config.TokenTyp}
 	return self
 }
@@ -84,6 +85,13 @@ func (self *Subject) Dev(dev string) *Subject {
 	return self
 }
 
+func (self *Subject) Sys(sys string) *Subject {
+	if len(sys) > 0 {
+		self.Payload.Sys = sys
+	}
+	return self
+}
+
 func (self *Subject) Iss(iss string) *Subject {
 	if len(iss) > 0 {
 		self.Payload.Iss = iss
@@ -98,7 +106,7 @@ func (self *Subject) Aud(aud string) *Subject {
 	return self
 }
 
-func (self *Subject) Generate(config JwtConfig) string {
+func (self *Subject) Generate(config Config) string {
 	self.AddHeader(config)
 	header, err := utils.ToJsonBase64(self.Header)
 	if err != nil {
@@ -119,7 +127,7 @@ func (self *Subject) Generate(config JwtConfig) string {
 	return part1 + "." + self.Signature(part1, config.TokenKey)
 }
 
-func (self *Subject) Generate2(config JwtConfig) string {
+func (self *Subject) Generate2(config Config) string {
 	self.AddHeader(config)
 	header, err := utils.ToJsonBase64(self.Header)
 	if err != nil {

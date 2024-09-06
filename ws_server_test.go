@@ -18,7 +18,7 @@ type MsgReply struct {
 func TestWsServer(t *testing.T) {
 	server := node.WsServer{}
 	server.Debug = true
-	server.AddJwtConfig(jwt.JwtConfig{
+	server.AddJwtConfig(jwt.Config{
 		TokenTyp: jwt.JWT,
 		TokenAlg: jwt.HS256,
 		TokenKey: "123456" + utils.CreateLocalSecretKey(12, 45, 23, 60, 58, 30),

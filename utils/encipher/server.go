@@ -12,7 +12,7 @@ type Param struct {
 	EcdsaPrivateKey []byte
 	EcdsaPublicKey  string
 	EccObject       crypto.Cipher
-	JwtConfig       jwt.JwtConfig
+	JwtConfig       jwt.Config
 }
 
 type Server interface {

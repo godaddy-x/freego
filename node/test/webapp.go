@@ -42,7 +42,7 @@ func (self *MyWebNode) getUser(ctx *node.Context) error {
 }
 
 func (self *MyWebNode) login(ctx *node.Context) error {
-	data, err := ctx.Encipher.TokenCreate(utils.NextSID(), "WEB")
+	data, err := ctx.Encipher.TokenCreate(utils.NextSID(), "WEB", ctx.System.Name, 0)
 	if err != nil {
 		return ex.Throw{Msg: "create token fail", Err: err}
 	}
@@ -136,7 +136,7 @@ func roleRealm(ctx *node.Context, onlyRole bool) (*node.Permission, error) {
 }
 
 func createEncipher() encipher.Client {
-	client := rpcx.NewEncipherClient(rpcx.Param{Addr: ":4141", CertFile: "rpcx/cert/server.crt"})
+	client := rpcx.NewEncipherClient(nil)
 	for {
 		_, err := client.NextId()
 		if err != nil {

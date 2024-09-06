@@ -31,8 +31,8 @@ type Client interface {
 	// AesDecrypt AES对称解密数据
 	AesDecrypt(input string) (string, error)
 
-	// EccEncrypt ECC对称加密数据
-	EccEncrypt(input, publicKey string) (string, error)
+	// EccEncrypt ECC对称加密数据 mode 1.默认 2.固定私钥 3.随机私钥
+	EccEncrypt(input, publicKey string, mode int64) (string, error)
 
 	// EccDecrypt ECC对称解密数据
 	EccDecrypt(input string) (string, error)
@@ -50,8 +50,8 @@ type Client interface {
 	TokenDecrypt(token, input string) (string, error)
 
 	// TokenCreate 授权令牌创建
-	TokenCreate(input, dev string) (interface{}, error)
+	TokenCreate(input, dev, system string, exp int64) (interface{}, error)
 
 	// TokenVerify 授权令牌验证
-	TokenVerify(input string) (string, error)
+	TokenVerify(input, system string) (string, error)
 }

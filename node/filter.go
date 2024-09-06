@@ -140,7 +140,7 @@ func (self *SessionFilter) DoFilter(chain Filter, ctx *Context, args ...interfac
 	if len(ctx.Subject.GetRawBytes()) == 0 {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "token is nil"}
 	}
-	sub, err := ctx.Encipher.TokenVerify(utils.Bytes2Str(ctx.Subject.GetRawBytes()))
+	sub, err := ctx.Encipher.TokenVerify(utils.Bytes2Str(ctx.Subject.GetRawBytes()), ctx.System.Name)
 	if err != nil {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "token invalid or expired", Err: err}
 	}

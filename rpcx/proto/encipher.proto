@@ -83,6 +83,7 @@ message AesDecryptRes {
 message EccEncryptReq {
   string data = 1;
   string publicKey = 2;
+  int64 mode = 3; // 1.默认 2.固定私钥 3.随机私钥
 }
 
 message EccEncryptRes {
@@ -122,6 +123,8 @@ message TokenDecryptRes {
 message TokenCreateReq {
   string subject = 1;
   string device = 2;
+  string system = 3;
+  int64 expired = 4;
 }
 
 message TokenCreateRes {
@@ -133,6 +136,7 @@ message TokenCreateRes {
 // Token令牌校验
 message TokenVerifyReq {
   string token = 1;
+  string system = 2;
 }
 
 message TokenVerifyRes {

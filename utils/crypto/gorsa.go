@@ -18,7 +18,7 @@ const bits = 2048
 type Cipher interface {
 	GetPrivateKey() (interface{}, string)
 	GetPublicKey() (interface{}, string)
-	Encrypt(publicTo, msg []byte) (string, error)
+	Encrypt(privateKey interface{}, publicTo, msg []byte) (string, error)
 	Decrypt(msg string) (string, error)
 	Sign(msg string) (string, error)
 	Verify(msg, sign string) error

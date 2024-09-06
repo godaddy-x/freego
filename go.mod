@@ -78,3 +78,5 @@ require (
 	golang.org/x/text v0.16.0 // indirect
 	google.golang.org/genproto v0.0.0-20220819174105-e9f053255caa // indirect
 )
+
+replace github.com/godaddy-x/eccrypto => ../eccrypto

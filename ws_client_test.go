@@ -18,7 +18,7 @@ func newClient() {
 	//time.Sleep(time.Duration(randomNumber) * time.Millisecond)
 
 	authCall := func() (string, string, error) {
-		config := jwt.JwtConfig{
+		config := jwt.Config{
 			TokenTyp: jwt.JWT,
 			TokenAlg: jwt.HS256,
 			TokenKey: "123456" + utils.CreateLocalSecretKey(12, 45, 23, 60, 58, 30),

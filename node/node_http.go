@@ -142,7 +142,7 @@ func (self *HttpNode) readyContext() {
 		self.Context.configs = &Configs{}
 		self.Context.configs.routerConfigs = make(map[string]*RouterConfig)
 		self.Context.configs.langConfigs = make(map[string]map[string]string)
-		self.Context.configs.jwtConfig = jwt.JwtConfig{}
+		self.Context.configs.jwtConfig = jwt.Config{}
 		self.Context.System = &System{}
 		self.ctxPool = self.createCtxPool()
 	}
@@ -245,7 +245,7 @@ func (self *HttpNode) newRouter() {
 	}
 }
 
-func (self *HttpNode) AddJwtConfig(config jwt.JwtConfig) {
+func (self *HttpNode) AddJwtConfig(config jwt.Config) {
 	self.readyContext()
 	if len(config.TokenKey) == 0 {
 		panic("jwt config key is nil")
@@ -418,22 +418,22 @@ func defaultRenderPre(ctx *Context) error {
 		}
 		if routerConfig.UseRSA { // 非登录状态响应
 			if ctx.JsonBody.Plan == 2 {
-				v := ctx.GetStorage(RandomCode)
+				v := ctx.GetStorage(PublicKey)
 				if v == nil {
-					return ex.Throw{Msg: "encryption random code is nil"}
+					return ex.Throw{Msg: "encryption publicKey is nil"}
 				}
 				key, b := v.(string)
 				if !b {
-					return ex.Throw{Msg: "encryption random code invalid"}
+					return ex.Throw{Msg: "encryption publicKey invalid"}
 				}
-				aesData := utils.AesEncrypt2(utils.Bytes2Str(data), key)
+				res, err := ctx.Encipher.EccEncrypt(utils.Bytes2Str(data), key, 3)
 				if err != nil {
-					return ex.Throw{Code: http.StatusInternalServerError, Msg: "AES encryption response data failed", Err: err}
+					return ex.Throw{Msg: "encryption publicKey data error", Err: err}
 				}
-				resp.Data = aesData
+				resp.Data = res
 				resp.Plan = 2
-				ctx.DelStorage(RandomCode)
-				resp.Sign = ctx.GetHmac256Sign(string(aesData), resp.Nonce, resp.Time, resp.Plan, key) // 使用客户端随机码进行本地签名
+				resp.Sign = ctx.GetHmac256Sign(res, resp.Nonce, resp.Time, resp.Plan, key) // 使用客户端随机码进行本地签名
+				ctx.DelStorage(PublicKey)
 			} else {
 				return ex.Throw{Msg: "anonymous response plan invalid"}
 			}

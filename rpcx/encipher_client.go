@@ -6,12 +6,15 @@ import (
 )
 
 type EncipherClient struct {
-	param Param
+	param *Param
 }
 
-func NewEncipherClient(param Param) *EncipherClient {
+func NewEncipherClient(param *Param) *EncipherClient {
+	if param == nil {
+		param = &Param{}
+	}
 	if len(param.Addr) == 0 {
-		panic("server addr is nil")
+		param.Addr = Host(4141)
 	}
 	if param.ClientTimeout <= 0 {
 		param.ClientTimeout = 60000
@@ -219,13 +222,13 @@ func (s *EncipherClient) AesDecrypt(input string) (string, error) {
 	return res.Result, nil
 }
 
-func (s *EncipherClient) EccEncrypt(input, publicKey string) (string, error) {
+func (s *EncipherClient) EccEncrypt(input, publicKey string, mode int64) (string, error) {
 	rpc, err := s.RPC()
 	if err != nil {
 		return "", err
 	}
 	defer rpc.Close()
-	res, err := pb.NewRpcEncipherClient(rpc.Value()).EccEncrypt(rpc.Context(), &pb.EccEncryptReq{Data: input, PublicKey: publicKey})
+	res, err := pb.NewRpcEncipherClient(rpc.Value()).EccEncrypt(rpc.Context(), &pb.EccEncryptReq{Data: input, PublicKey: publicKey, Mode: mode})
 	if err != nil {
 		return "", err
 	}
@@ -297,26 +300,26 @@ func (s *EncipherClient) TokenDecrypt(token, input string) (string, error) {
 	return res.Result, nil
 }
 
-func (s *EncipherClient) TokenCreate(input, dev string) (interface{}, error) {
+func (s *EncipherClient) TokenCreate(input, dev, system string, exp int64) (interface{}, error) {
 	rpc, err := s.RPC()
 	if err != nil {
 		return "", err
 	}
 	defer rpc.Close()
-	res, err := pb.NewRpcEncipherClient(rpc.Value()).TokenCreate(rpc.Context(), &pb.TokenCreateReq{Subject: input, Device: dev})
+	res, err := pb.NewRpcEncipherClient(rpc.Value()).TokenCreate(rpc.Context(), &pb.TokenCreateReq{Subject: input, Device: dev, System: system, Expired: exp})
 	if err != nil {
 		return "", err
 	}
 	return res, nil
 }
 
-func (s *EncipherClient) TokenVerify(input string) (string, error) {
+func (s *EncipherClient) TokenVerify(input, system string) (string, error) {
 	rpc, err := s.RPC()
 	if err != nil {
 		return "", err
 	}
 	defer rpc.Close()
-	res, err := pb.NewRpcEncipherClient(rpc.Value()).TokenVerify(rpc.Context(), &pb.TokenVerifyReq{Token: input})
+	res, err := pb.NewRpcEncipherClient(rpc.Value()).TokenVerify(rpc.Context(), &pb.TokenVerifyReq{Token: input, System: system})
 	if err != nil {
 		return "", err
 	}

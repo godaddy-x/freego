@@ -134,8 +134,12 @@ func (self *EccObject) GetPublicKey() (interface{}, string) {
 	return self.publicKey, self.PublicKeyBase64
 }
 
-func (self *EccObject) Encrypt(publicTo, msg []byte) (string, error) {
-	bs, err := ecc.Encrypt(nil, publicTo, msg)
+func (self *EccObject) Encrypt(privateKey interface{}, publicTo, msg []byte) (string, error) {
+	var prk *ecdsa.PrivateKey
+	if privateKey != nil {
+		prk, _ = privateKey.(*ecdsa.PrivateKey)
+	}
+	bs, err := ecc.Encrypt(prk, publicTo, msg)
 	if err != nil {
 		return "", err
 	}

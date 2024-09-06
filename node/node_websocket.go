@@ -47,7 +47,7 @@ func (self *WsServer) readyContext() {
 		self.Context.configs = &Configs{}
 		self.Context.configs.routerConfigs = make(map[string]*RouterConfig)
 		self.Context.configs.langConfigs = make(map[string]map[string]string)
-		self.Context.configs.jwtConfig = jwt.JwtConfig{}
+		self.Context.configs.jwtConfig = jwt.Config{}
 		self.Context.System = &System{}
 	}
 }
@@ -57,7 +57,7 @@ func (self *WsServer) checkContextReady(path string, routerConfig *RouterConfig)
 	self.addRouterConfig(path, routerConfig)
 }
 
-func (self *WsServer) AddJwtConfig(config jwt.JwtConfig) {
+func (self *WsServer) AddJwtConfig(config jwt.Config) {
 	self.readyContext()
 	if len(config.TokenKey) == 0 {
 		panic("jwt config key is nil")

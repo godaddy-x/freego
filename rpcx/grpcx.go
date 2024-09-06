@@ -6,8 +6,6 @@ import (
 	"github.com/godaddy-x/freego/cache/limiter"
 	"github.com/godaddy-x/freego/rpcx/pool"
 	"github.com/godaddy-x/freego/utils"
-	"github.com/godaddy-x/freego/utils/crypto"
-	"github.com/godaddy-x/freego/utils/jwt"
 	"github.com/godaddy-x/freego/zlog"
 	consulapi "github.com/hashicorp/consul/api"
 	"google.golang.org/grpc"
@@ -21,13 +19,8 @@ import (
 )
 
 var (
-	serverDialTLS   grpc.ServerOption
-	clientDialTLS   grpc.DialOption
-	jwtConfig       *jwt.JwtConfig
 	rateLimiterCall func(string) (rate.Option, error)
 	selectionCall   func([]*consulapi.ServiceEntry, GRPC) *consulapi.ServiceEntry
-	authorizeTLS    *crypto.RsaObj
-	accessToken     = ""
 	clientConnPools = ClientConnPool{pools: make(map[string]pool.Pool)}
 )
 
@@ -209,11 +202,11 @@ func RunServer(consulDs string, authenticate bool, objects ...*GRPC) {
 			Time:    pool.KeepAliveTime,
 			Timeout: pool.KeepAliveTimeout,
 		}),
-		grpc.UnaryInterceptor(self.ServerInterceptor),
+		//grpc.UnaryInterceptor(self.ServerInterceptor),
 	}
-	if serverDialTLS != nil {
-		opts = append(opts, serverDialTLS)
-	}
+	//if serverDialTLS != nil {
+	//	opts = append(opts, serverDialTLS)
+	//}
 	grpcServer := grpc.NewServer(opts...)
 	for _, object := range objects {
 		address := utils.GetLocalIP()
@@ -282,9 +275,19 @@ type Param struct {
 	ClientOptions     ClientOptions
 }
 
-func RunOnlyServer(param Param) {
+func Host(port int) string {
+	if port <= 0 {
+		return utils.GetLocalIP()
+	}
+	return utils.AddStr(utils.GetLocalIP(), ":", port)
+}
+
+func RunOnlyServer(param *Param) {
 	if len(param.Object) == 0 {
 		panic("rpc objects is nil...")
+	}
+	if len(param.Addr) == 0 {
+		panic("rpc address is nil")
 	}
 	opts := []grpc.ServerOption{
 		grpc.InitialWindowSize(pool.InitialWindowSize),
@@ -298,7 +301,9 @@ func RunOnlyServer(param Param) {
 			Time:    pool.KeepAliveTime,
 			Timeout: pool.KeepAliveTimeout,
 		}),
-		//grpc.UnaryInterceptor(self.ServerInterceptor),
+	}
+	if param.ServerInterceptor != nil {
+		opts = append(opts, grpc.UnaryInterceptor(param.ServerInterceptor))
 	}
 	if len(param.CertFile) > 0 && len(param.KeyFile) > 0 {
 		// Load server's certificate and private key
@@ -314,12 +319,8 @@ func RunOnlyServer(param Param) {
 	}
 	grpcServer := grpc.NewServer(opts...)
 	for _, object := range param.Object {
-		address := utils.GetLocalIP()
-		if len(address) == 0 {
-			panic("local address reading failed")
-		}
 		if len(object.Address) == 0 {
-			object.Address = address
+			object.Address = param.Addr
 		}
 		if len(object.Service) == 0 || len(object.Service) > 100 {
 			panic("rpc service invalid")
@@ -384,7 +385,7 @@ func RunClient(appId ...string) {
 }
 
 // CreateClientOpts serverAddr: 服务端地址 interceptor: 客户端拦截器
-func CreateClientOpts(param Param) ClientOptions {
+func CreateClientOpts(param *Param) ClientOptions {
 	var clientOptions []grpc.DialOption
 	clientOptions = append(clientOptions, grpc.WithInitialWindowSize(pool.InitialWindowSize))
 	clientOptions = append(clientOptions, grpc.WithInitialConnWindowSize(pool.InitialConnWindowSize))
