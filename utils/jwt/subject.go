@@ -61,7 +61,7 @@ func (self *Subject) Create(sub string) *Subject {
 	self.Payload = &Payload{
 		Sub: sub,
 		Exp: utils.UnixSecond() + TWO_WEEK,
-		Jti: utils.HMAC_MD5(utils.AddStr(utils.NextSID(), utils.RandStr(16)), utils.GetUUID(), true),
+		Jti: utils.HmacMD5(utils.AddStr(utils.NextSID(), utils.RandStr(16)), utils.GetUUID(), true),
 	}
 	return self
 }
@@ -148,12 +148,12 @@ func (self *Subject) Generate2(config Config) string {
 }
 
 func (self *Subject) Signature(text, key string) string {
-	return utils.HMAC_SHA256(text, utils.AddStr(utils.GetLocalSecretKey(), key), true)
+	return utils.HmacSHA256(text, utils.AddStr(utils.GetLocalSecretKey(), key), true)
 }
 
 func (self *Subject) GetTokenSecret(token, secret string) string {
-	res := utils.HMAC_SHA512(utils.AddStr(token, utils.GetLocalTokenSecretKey(), utils.GetLocalSecretKey()), secret)
-	return utils.AddStr(utils.HMAC_SHA256(res, secret), res)
+	res := utils.HmacSHA512(utils.AddStr(token, utils.GetLocalTokenSecretKey(), utils.GetLocalSecretKey()), secret)
+	return utils.AddStr(utils.HmacSHA256(res, secret), res)
 }
 
 func (self *Subject) Verify(token, key string, decode bool) error {

@@ -32,6 +32,7 @@ const (
 	RpcEncipher_EccDecrypt_FullMethodName           = "/encipher.RpcEncipher/EccDecrypt"
 	RpcEncipher_EccSignature_FullMethodName         = "/encipher.RpcEncipher/EccSignature"
 	RpcEncipher_EccVerifySignature_FullMethodName   = "/encipher.RpcEncipher/EccVerifySignature"
+	RpcEncipher_EccSharedSignature_FullMethodName   = "/encipher.RpcEncipher/EccSharedSignature"
 	RpcEncipher_TokenEncrypt_FullMethodName         = "/encipher.RpcEncipher/TokenEncrypt"
 	RpcEncipher_TokenDecrypt_FullMethodName         = "/encipher.RpcEncipher/TokenDecrypt"
 	RpcEncipher_TokenCreate_FullMethodName          = "/encipher.RpcEncipher/TokenCreate"
@@ -55,6 +56,7 @@ type RpcEncipherClient interface {
 	EccDecrypt(ctx context.Context, in *EccDecryptReq, opts ...grpc.CallOption) (*EccDecryptRes, error)
 	EccSignature(ctx context.Context, in *EccSignatureReq, opts ...grpc.CallOption) (*EccSignatureRes, error)
 	EccVerifySignature(ctx context.Context, in *EccVerifySignatureReq, opts ...grpc.CallOption) (*EccVerifySignatureRes, error)
+	EccSharedSignature(ctx context.Context, in *EccSharedSignatureReq, opts ...grpc.CallOption) (*EccSharedSignatureRes, error)
 	TokenEncrypt(ctx context.Context, in *TokenEncryptReq, opts ...grpc.CallOption) (*TokenEncryptRes, error)
 	TokenDecrypt(ctx context.Context, in *TokenDecryptReq, opts ...grpc.CallOption) (*TokenDecryptRes, error)
 	TokenCreate(ctx context.Context, in *TokenCreateReq, opts ...grpc.CallOption) (*TokenCreateRes, error)
@@ -199,6 +201,16 @@ func (c *rpcEncipherClient) EccVerifySignature(ctx context.Context, in *EccVerif
 	return out, nil
 }
 
+func (c *rpcEncipherClient) EccSharedSignature(ctx context.Context, in *EccSharedSignatureReq, opts ...grpc.CallOption) (*EccSharedSignatureRes, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(EccSharedSignatureRes)
+	err := c.cc.Invoke(ctx, RpcEncipher_EccSharedSignature_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *rpcEncipherClient) TokenEncrypt(ctx context.Context, in *TokenEncryptReq, opts ...grpc.CallOption) (*TokenEncryptRes, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(TokenEncryptRes)
@@ -256,6 +268,7 @@ type RpcEncipherServer interface {
 	EccDecrypt(context.Context, *EccDecryptReq) (*EccDecryptRes, error)
 	EccSignature(context.Context, *EccSignatureReq) (*EccSignatureRes, error)
 	EccVerifySignature(context.Context, *EccVerifySignatureReq) (*EccVerifySignatureRes, error)
+	EccSharedSignature(context.Context, *EccSharedSignatureReq) (*EccSharedSignatureRes, error)
 	TokenEncrypt(context.Context, *TokenEncryptReq) (*TokenEncryptRes, error)
 	TokenDecrypt(context.Context, *TokenDecryptReq) (*TokenDecryptRes, error)
 	TokenCreate(context.Context, *TokenCreateReq) (*TokenCreateRes, error)
@@ -308,6 +321,9 @@ func (UnimplementedRpcEncipherServer) EccSignature(context.Context, *EccSignatur
 }
 func (UnimplementedRpcEncipherServer) EccVerifySignature(context.Context, *EccVerifySignatureReq) (*EccVerifySignatureRes, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method EccVerifySignature not implemented")
+}
+func (UnimplementedRpcEncipherServer) EccSharedSignature(context.Context, *EccSharedSignatureReq) (*EccSharedSignatureRes, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method EccSharedSignature not implemented")
 }
 func (UnimplementedRpcEncipherServer) TokenEncrypt(context.Context, *TokenEncryptReq) (*TokenEncryptRes, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method TokenEncrypt not implemented")
@@ -576,6 +592,24 @@ func _RpcEncipher_EccVerifySignature_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _RpcEncipher_EccSharedSignature_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EccSharedSignatureReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RpcEncipherServer).EccSharedSignature(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RpcEncipher_EccSharedSignature_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RpcEncipherServer).EccSharedSignature(ctx, req.(*EccSharedSignatureReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _RpcEncipher_TokenEncrypt_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(TokenEncryptReq)
 	if err := dec(in); err != nil {
@@ -706,6 +740,10 @@ var RpcEncipher_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "EccVerifySignature",
 			Handler:    _RpcEncipher_EccVerifySignature_Handler,
+		},
+		{
+			MethodName: "EccSharedSignature",
+			Handler:    _RpcEncipher_EccSharedSignature_Handler,
 		},
 		{
 			MethodName: "TokenEncrypt",

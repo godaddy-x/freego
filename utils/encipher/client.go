@@ -40,6 +40,9 @@ type Client interface {
 	// EccSignature ECC签名数据
 	EccSignature(input string) (string, error)
 
+	// EccSharedSignature ECC协商密钥签名
+	EccSharedSignature(input, publicKey string) (string, error)
+
 	// EccVerifySignature ECC签名数据验签
 	EccVerifySignature(input, sign string) (bool, error)
 

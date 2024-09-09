@@ -33,7 +33,7 @@ func TestGetPublicKey(t *testing.T) {
 func TestECCLogin(t *testing.T) {
 	requestData := map[string]string{"username": "1234567890123456", "password": "1234567890123456"}
 	responseData := sdk.AuthToken{}
-	httpSDK.SetPublicKey("BK+fFNuQylRcpqrsjOZYEql8JT3KgSdcXDoyLZ9UWc993B3p/eU6QpmxqCDz+xXcpRbEFuv9PRRa8YSCAXW+4Gc=")
+	httpSDK.SetPublicKey("BCpGBnLcwqQq3R4zw54XRCFF+eglX/UX0aZGuDw2xHvV0ru8zmDZ+WAFLA8uBNmbcx+VHOE9jdnUMEDoOaFTWAE=")
 	if err := httpSDK.PostByECC("/login", &requestData, &responseData); err != nil {
 		fmt.Println(err)
 	}
@@ -43,7 +43,9 @@ func TestECCLogin(t *testing.T) {
 }
 
 func TestGetUser(t *testing.T) {
-	httpSDK.AuthObject(&map[string]string{"username": "1234567890123456", "password": "1234567890123456"})
+	httpSDK.SetAuthObject(func() interface{} {
+		return &map[string]string{"username": "1234567890123456", "password": "1234567890123456"}
+	})
 	httpSDK.AuthToken(sdk.AuthToken{Token: access_token, Secret: token_secret, Expired: token_expire})
 	requestObj := map[string]interface{}{"uid": 123, "name": "我爱中国/+_=/1df", "limit": 20, "offset": 5}
 	responseData := map[string]string{}

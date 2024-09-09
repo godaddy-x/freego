@@ -124,6 +124,10 @@ func (self *EccObject) GenSharedKey(b64 string) (string, error) {
 	return utils.SHA512(utils.Bytes2Str(key)), nil
 }
 
+func (self *EccObject) GetObjectBase64() (string, string, error) {
+	return ecc.GetObjectBase64(self.privateKey, self.publicKey)
+}
+
 // ******************************************************* ECC Implement *******************************************************
 
 func (self *EccObject) GetPrivateKey() (interface{}, string) {

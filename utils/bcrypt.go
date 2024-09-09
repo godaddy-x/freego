@@ -5,18 +5,18 @@ func newKey() string {
 }
 
 func newHash(password, salt, key string) string {
-	return HMAC_SHA512(HMAC_SHA512(password, key), HMAC_SHA512(HMAC_SHA512(salt, key), HMAC_SHA512(GetLocalSecretKey(), key)))
+	return HmacSHA512(HmacSHA512(password, key), HmacSHA512(HmacSHA512(salt, key), HmacSHA512(GetLocalSecretKey(), key)))
 }
 
 func newHashR(hash, salt, key string) string {
-	return HMAC_SHA256(HMAC_SHA512(hash, key), HMAC_SHA512(HMAC_SHA512(salt, key), HMAC_SHA512(GetLocalSecretKey(), key)))
+	return HmacSHA256(HmacSHA512(hash, key), HmacSHA512(HmacSHA512(salt, key), HmacSHA512(GetLocalSecretKey(), key)))
 }
 
 func recHash(hash, salt, key string, index, depth int) string {
 	if index > depth {
 		return hash
 	}
-	hash = HMAC_SHA512(hash, HMAC_SHA256(salt, key))
+	hash = HmacSHA512(hash, HmacSHA256(salt, key))
 	index++
 	return recHash(hash, salt, key, index, depth)
 }

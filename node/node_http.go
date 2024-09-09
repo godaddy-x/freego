@@ -211,18 +211,16 @@ func (self *HttpNode) AddLanguageByJson(langDs string, bs []byte) error {
 	return nil
 }
 
-func (self *HttpNode) AddRoleRealm(roleRealm func(ctx *Context, onlyRole bool) (*Permission, error)) error {
+func (self *HttpNode) AddRoleRealm(roleRealm func(ctx *Context, onlyRole bool) (*Permission, error)) {
 	self.readyContext()
 	self.Context.roleRealm = roleRealm
 	zlog.Printf("add permission realm successful")
-	return nil
 }
 
-func (self *HttpNode) AddErrorHandle(errorHandle func(ctx *Context, throw ex.Throw) error) error {
+func (self *HttpNode) AddErrorHandle(errorHandle func(ctx *Context, throw ex.Throw) error) {
 	self.readyContext()
 	self.Context.errorHandle = errorHandle
 	zlog.Printf("add error handle successful")
-	return nil
 }
 
 func (self *HttpNode) addRouterConfig(path string, routerConfig *RouterConfig) {
@@ -432,7 +430,11 @@ func defaultRenderPre(ctx *Context) error {
 				}
 				resp.Data = res
 				resp.Plan = 2
-				resp.Sign = ctx.GetHmac256Sign(res, resp.Nonce, resp.Time, resp.Plan, key) // 使用客户端随机码进行本地签名
+				sig, err := ctx.Encipher.EccSharedSignature(utils.AddStr(ctx.Path, res, resp.Nonce, resp.Time, resp.Plan), key)
+				if err != nil {
+					return ex.Throw{Msg: "encryption publicKey signature data error", Err: err}
+				}
+				resp.Sign = sig
 				ctx.DelStorage(PublicKey)
 			} else {
 				return ex.Throw{Msg: "anonymous response plan invalid"}

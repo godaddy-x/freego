@@ -133,7 +133,7 @@ func (self *PublishManager) initQueue(data *MsgData) (*PublishMQ, error) {
 		return nil, utils.Error("rabbitmq publish SecretKey is nil")
 	}
 
-	data.Option.SigKey = utils.HMAC_SHA512(self.conf.SecretKey, utils.GetLocalSecretKey())
+	data.Option.SigKey = utils.HmacSHA512(self.conf.SecretKey, utils.GetLocalSecretKey())
 
 	if len(data.Nonce) == 0 {
 		data.Nonce = utils.RandNonce()
@@ -244,7 +244,7 @@ func (self *PublishManager) PublishMsgData(data *MsgData) error {
 		content = aesContent
 	}
 	data.Content = content
-	data.Signature = utils.HMAC_SHA256(utils.AddStr(content, data.Nonce), sigKey, true)
+	data.Signature = utils.HmacSHA256(utils.AddStr(content, data.Nonce), sigKey, true)
 	data.Option.SigKey = ""
 	if _, err := pub.sendMessage(data); err != nil {
 		return err

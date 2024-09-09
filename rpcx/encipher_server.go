@@ -146,9 +146,9 @@ func decryptRandom(msg, key string) string {
 
 func getTokenSecret(token, secret string, b64 bool) string {
 	if b64 {
-		return utils.HMAC_SHA512(token, secret, true)
+		return utils.HmacSHA512(token, secret, true)
 	}
-	return utils.HMAC_SHA512(token, secret)
+	return utils.HmacSHA512(token, secret)
 }
 
 func createKeystore(path string) (EncParam, error) {
@@ -477,11 +477,11 @@ func (s *RpcEncipher) VerifySignature(ctx context.Context, req *pb.VerifySignatu
 }
 
 func (s *RpcEncipher) TokenSignature(ctx context.Context, req *pb.TokenSignatureReq) (*pb.TokenSignatureRes, error) {
-	return &pb.TokenSignatureRes{Result: utils.HMAC_SHA256(req.Data, getTokenSecret(req.Token, newEncipher.getTokenKey(), true), true)}, nil
+	return &pb.TokenSignatureRes{Result: utils.HmacSHA256(req.Data, getTokenSecret(req.Token, newEncipher.getTokenKey(), true), true)}, nil
 }
 
 func (s *RpcEncipher) TokenVerifySignature(ctx context.Context, req *pb.TokenVerifySignatureReq) (*pb.TokenVerifySignatureRes, error) {
-	return &pb.TokenVerifySignatureRes{Result: utils.HMAC_SHA256(req.Data, getTokenSecret(req.Token, newEncipher.getTokenKey(), true), true) == req.Sign}, nil
+	return &pb.TokenVerifySignatureRes{Result: utils.HmacSHA256(req.Data, getTokenSecret(req.Token, newEncipher.getTokenKey(), true), true) == req.Sign}, nil
 }
 
 func (s *RpcEncipher) AesEncrypt(ctx context.Context, req *pb.AesEncryptReq) (*pb.AesEncryptRes, error) {
@@ -521,6 +521,19 @@ func (s *RpcEncipher) EccDecrypt(ctx context.Context, req *pb.EccDecryptReq) (*p
 	return &pb.EccDecryptRes{Result: result}, nil
 }
 
+func (s *RpcEncipher) EccSharedSignature(ctx context.Context, req *pb.EccSharedSignatureReq) (*pb.EccSharedSignatureRes, error) {
+	pub, _, err := ecc.LoadBase64PublicKey(req.PublicKey)
+	if err != nil {
+		return nil, err
+	}
+	prk, _ := newEncipher.param.EccObject.GetPrivateKey()
+	shared, err := ecc.GenSharedKey(prk.(*ecdsa.PrivateKey), pub)
+	if err != nil {
+		return nil, err
+	}
+	return &pb.EccSharedSignatureRes{Result: utils.HmacSHA256(req.Data, utils.SHA512Byte(shared), true)}, nil
+}
+
 func (s *RpcEncipher) EccSignature(ctx context.Context, req *pb.EccSignatureReq) (*pb.EccSignatureRes, error) {
 	result, err := newEncipher.param.EccObject.Sign(req.Data)
 	if err != nil {
@@ -555,7 +568,7 @@ func (s *RpcEncipher) TokenCreate(ctx context.Context, req *pb.TokenCreateReq) (
 	}
 	subject := &jwt.Subject{}
 	part := subject.Create(req.Subject).Dev(req.Device).Sys(req.System).Generate2(config)
-	sign := utils.HMAC_SHA256(part, newEncipher.getTokenKey(), true)
+	sign := utils.HmacSHA256(part, newEncipher.getTokenKey(), true)
 	token := utils.AddStr(part, ".", sign)
 	secret := getTokenSecret(token, newEncipher.getTokenKey(), true)
 	expired := subject.Payload.Exp
@@ -570,7 +583,7 @@ func (s *RpcEncipher) TokenVerify(ctx context.Context, req *pb.TokenVerifyReq) (
 	part0 := part[0]
 	part1 := part[1]
 	part2 := part[2]
-	if utils.HMAC_SHA256(utils.AddStr(part0, ".", part1), newEncipher.getTokenKey(), true) != part2 {
+	if utils.HmacSHA256(utils.AddStr(part0, ".", part1), newEncipher.getTokenKey(), true) != part2 {
 		return nil, errors.New("token signature invalid")
 	}
 	b64 := utils.Base64Decode(part1)

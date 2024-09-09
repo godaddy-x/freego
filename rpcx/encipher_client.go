@@ -261,6 +261,19 @@ func (s *EncipherClient) EccSignature(input string) (string, error) {
 	return res.Result, nil
 }
 
+func (s *EncipherClient) EccSharedSignature(input, publicKey string) (string, error) {
+	rpc, err := s.RPC()
+	if err != nil {
+		return "", err
+	}
+	defer rpc.Close()
+	res, err := pb.NewRpcEncipherClient(rpc.Value()).EccSharedSignature(rpc.Context(), &pb.EccSharedSignatureReq{Data: input, PublicKey: publicKey})
+	if err != nil {
+		return "", err
+	}
+	return res.Result, nil
+}
+
 func (s *EncipherClient) EccVerifySignature(input, sign string) (bool, error) {
 	rpc, err := s.RPC()
 	if err != nil {

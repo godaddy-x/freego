@@ -9,7 +9,6 @@ import (
 	"bytes"
 	"crypto/hmac"
 	"crypto/md5"
-	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/base64"
@@ -376,58 +375,64 @@ func StrToFloat(str string) (float64, error) {
 	}
 }
 
-// MD5加密
 func MD5(s string, useBase64 ...bool) string {
-	has := md5.Sum(Str2Bytes(s))
+	return MD5Byte(Str2Bytes(s), useBase64...)
+}
+
+func MD5Byte(s []byte, useBase64 ...bool) string {
+	has := md5.Sum(s)
 	if len(useBase64) == 0 {
 		return hex.EncodeToString(has[:])
 	}
 	return Base64Encode(has[:])
 }
 
-// HMAC-MD5加密
-func HMAC_MD5(data, key string, useBase64 ...bool) string {
-	hmac := hmac.New(md5.New, Str2Bytes(key))
-	hmac.Write(Str2Bytes(data))
-	if len(useBase64) == 0 {
-		return hex.EncodeToString(hmac.Sum([]byte(nil)))
-	}
-	return Base64Encode(hmac.Sum([]byte(nil)))
+func HmacMD5(data, key string, useBase64 ...bool) string {
+	return HmacMD5Byte(Str2Bytes(data), Str2Bytes(key), useBase64...)
 }
 
-// HMAC-SHA1加密
-func HMAC_SHA1(data, key string, useBase64 ...bool) string {
-	hmac := hmac.New(sha1.New, Str2Bytes(key))
-	hmac.Write(Str2Bytes(data))
+func HmacMD5Byte(data, key []byte, useBase64 ...bool) string {
+	h := hmac.New(md5.New, key)
+	h.Write(data)
 	if len(useBase64) == 0 {
-		return hex.EncodeToString(hmac.Sum([]byte(nil)))
+		return hex.EncodeToString(h.Sum([]byte(nil)))
 	}
-	return Base64Encode(hmac.Sum([]byte(nil)))
+	return Base64Encode(h.Sum([]byte(nil)))
 }
 
-// HMAC-SHA256加密
-func HMAC_SHA256(data, key string, useBase64 ...bool) string {
-	hmac := hmac.New(sha256.New, Str2Bytes(key))
-	hmac.Write(Str2Bytes(data))
-	if len(useBase64) == 0 {
-		return hex.EncodeToString(hmac.Sum([]byte(nil)))
-	}
-	return Base64Encode(hmac.Sum([]byte(nil)))
+func HmacSHA256(data, key string, useBase64 ...bool) string {
+	return HmacSHA256Byte(Str2Bytes(data), Str2Bytes(key), useBase64...)
 }
 
-func HMAC_SHA512(data, key string, useBase64 ...bool) string {
-	hmac := hmac.New(sha512.New, Str2Bytes(key))
-	hmac.Write(Str2Bytes(data))
+func HmacSHA256Byte(data, key []byte, useBase64 ...bool) string {
+	h := hmac.New(sha256.New, key)
+	h.Write(data)
 	if len(useBase64) == 0 {
-		return hex.EncodeToString(hmac.Sum([]byte(nil)))
+		return hex.EncodeToString(h.Sum([]byte(nil)))
 	}
-	return Base64Encode(hmac.Sum([]byte(nil)))
+	return Base64Encode(h.Sum([]byte(nil)))
 }
 
-// SHA256加密
+func HmacSHA512(data, key string, useBase64 ...bool) string {
+	return HmacSHA512Byte(Str2Bytes(data), Str2Bytes(key), useBase64...)
+}
+
+func HmacSHA512Byte(data, key []byte, useBase64 ...bool) string {
+	h := hmac.New(sha512.New, key)
+	h.Write(data)
+	if len(useBase64) == 0 {
+		return hex.EncodeToString(h.Sum([]byte(nil)))
+	}
+	return Base64Encode(h.Sum([]byte(nil)))
+}
+
 func SHA256(s string, useBase64 ...bool) string {
+	return SHA256Byte(Str2Bytes(s), useBase64...)
+}
+
+func SHA256Byte(s []byte, useBase64 ...bool) string {
 	h := sha256.New()
-	h.Write(Str2Bytes(s))
+	h.Write(s)
 	bs := h.Sum(nil)
 	if len(useBase64) == 0 {
 		return hex.EncodeToString(bs)
@@ -436,19 +441,12 @@ func SHA256(s string, useBase64 ...bool) string {
 }
 
 func SHA512(s string, useBase64 ...bool) string {
-	h := sha512.New()
-	h.Write(Str2Bytes(s))
-	bs := h.Sum(nil)
-	if len(useBase64) == 0 {
-		return hex.EncodeToString(bs)
-	}
-	return Base64Encode(bs)
+	return SHA512Byte(Str2Bytes(s), useBase64...)
 }
 
-// SHA256加密
-func SHA1(s string, useBase64 ...bool) string {
-	h := sha1.New()
-	h.Write(Str2Bytes(s))
+func SHA512Byte(s []byte, useBase64 ...bool) string {
+	h := sha512.New()
+	h.Write(s)
 	bs := h.Sum(nil)
 	if len(useBase64) == 0 {
 		return hex.EncodeToString(bs)
@@ -870,10 +868,13 @@ func DeepCopy(dst, src interface{}) error {
 	return nil
 }
 
-// CreateSafeRandom sl:随机字节和密钥长度 1024*sl dl:哈希深度次数 1024*dl
-func CreateSafeRandom(sl, dl int) string {
+// CreateSafeRandom sl:随机字节和密钥长度 1024*sl dl:哈希深度次数 1024*dl, kl:保留字符量
+func CreateSafeRandom(sl, dl, kl int) string {
+	if kl > 128 {
+		kl = 128
+	}
 	l := 1024
 	s := RandStr(l * sl)
 	k := RandStr(l * sl)
-	return HMAC_SHA512(PasswordHash(s+NextSID()+GetUUID(), k, dl*l), s+k)
+	return HmacSHA512(PasswordHash(s+NextSID()+GetUUID(), k, dl*l), s+k)[:kl]
 }

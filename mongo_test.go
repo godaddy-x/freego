@@ -8,7 +8,6 @@ import (
 	"github.com/godaddy-x/freego/ormx/sqld"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/concurrent"
-	"github.com/godaddy-x/freego/utils/gauth"
 	"github.com/gorilla/websocket"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"log"
@@ -254,22 +253,6 @@ func TestEX(t *testing.T) {
 	x := utils.UnixMilli()
 	fmt.Println(x)
 	fmt.Println(utils.GetFmtDate(x))
-}
-
-func TestGA(t *testing.T) {
-	// 生成种子
-	seed := gauth.GenerateSeed()
-	fmt.Println("种子: ", seed)
-	// 通过种子生成密钥
-	key, _ := gauth.GenerateSecretKey(seed)
-	fmt.Println("密钥: ", key)
-	// 通过密钥+时间生成验证码
-	rs := gauth.GetNewCode(key, time.Now().Unix())
-	fmt.Println("验证码: ", rs)
-	fmt.Println("开始睡眠延迟中,请耐心等待...")
-	time.Sleep(5 * time.Second)
-	// 校验已有验证码
-	fmt.Println("校验结果: ", gauth.ValidCode(key, rs))
 }
 
 func TestWebsocket_client_login(t *testing.T) {

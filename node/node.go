@@ -156,13 +156,6 @@ func (self *Context) GetTokenSecret() string {
 	return jwt.GetTokenSecret(utils.Bytes2Str(self.Subject.GetRawBytes()), self.configs.jwtConfig.TokenKey)
 }
 
-func (self *Context) GetHmac256Sign(d, n string, t, p int64, key string) string {
-	if len(key) > 0 {
-		return utils.HMAC_SHA256(utils.AddStr(self.Path, d, n, t, p), key, true)
-	}
-	return utils.HMAC_SHA256(utils.AddStr(self.Path, d, n, t, p), self.GetTokenSecret(), true)
-}
-
 func (self *Context) AddStorage(k string, v interface{}) {
 	if self.Storage == nil {
 		self.Storage = map[string]interface{}{}
@@ -347,46 +340,37 @@ func (self *Context) validJsonBody() error {
 			}
 		}
 	}
-	var err error
-	var key string
-	//var code string
+	//var err error
+	//var key string
+	////var code string
+	var publicKey string
 	var anonymous bool // true.匿名状态
-	if self.RouterConfig.UseRSA {
-		key, err = self.Encipher.PublicKey()
-		if err != nil || len(key) == 0 {
-			return ex.Throw{Msg: "publicKey is nil", Err: err}
-		}
-		//codeBs := self.RequestCtx.Request.Header.Peek(PublicKey)
-		//if len(codeBs) > MAX_CODE_LEN {
-		//	return ex.Throw{Code: http.StatusBadRequest, Msg: "client random code invalid"}
-		//}
-		//randomCode := utils.Bytes2Str(codeBs)
-		//if len(randomCode) == 0 {
-		//	return ex.Throw{Code: http.StatusBadRequest, Msg: "client random code invalid"}
-		//}
-		//code, err = self.Encipher.EccDecrypt(randomCode)
-		//if err != nil {
-		//	return ex.Throw{Code: http.StatusBadRequest, Msg: "server private-key decrypt failed", Err: err}
-		//}
-		//codeLen := len(code)
-		//if codeLen == 0 {
-		//	return ex.Throw{Code: http.StatusBadRequest, Msg: "server private-key decrypt data is nil"}
-		//}
-		//if codeLen < 64 || codeLen > 128 {
-		//	return ex.Throw{Code: http.StatusBadRequest, Msg: "client random code length must >= 64 and <= 128"}
-		//}
-		anonymous = true
-	}
+	//if self.RouterConfig.UseRSA {
+	//	key, err = self.Encipher.PublicKey()
+	//	if err != nil || len(key) == 0 {
+	//		return ex.Throw{Msg: "publicKey is nil", Err: err}
+	//	}
+	//}
 
 	checkBody := utils.AddStr(self.Path, d, body.Nonce, body.Time, body.Plan)
-	if len(key) == 0 { // 已登录状态
+	if self.RouterConfig.UseRSA { // 非登录状态,使用公钥验签
+		dec := utils.Base64Decode(d)
+		if len(dec) <= 113 {
+			return ex.Throw{Msg: "bad request data"}
+		}
+		publicKey = utils.Base64Encode(dec[0:65])
+		sign, err := self.Encipher.EccSharedSignature(checkBody, publicKey)
+		if err != nil {
+			return ex.Throw{Msg: "shared signature create invalid", Err: err}
+		}
+		if sign != body.Sign {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature invalid"}
+		}
+		anonymous = true
+	} else { // 已登录状态
 		valid, err := self.Encipher.TokenVerifySignature(utils.Bytes2Str(self.Subject.GetRawBytes()), checkBody, body.Sign)
 		if err != nil || !valid {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "encipher request signature invalid", Err: err}
-		}
-	} else { // 非登录状态,使用公钥+客户端随机码验签
-		if utils.HMAC_SHA256(checkBody, key, true) != body.Sign {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature invalid"}
 		}
 	}
 
@@ -415,7 +399,7 @@ func (self *Context) validJsonBody() error {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "ECC failed to parse data is nil", Err: err}
 		}
 		rawData = utils.Str2Bytes(dec)
-		self.AddStorage(PublicKey, utils.Base64Encode(utils.Base64Decode(d)[0:65]))
+		self.AddStorage(PublicKey, publicKey)
 	} else {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters plan invalid"}
 	}

@@ -160,6 +160,16 @@ message EccSignatureRes {
   string result = 1;
 }
 
+// ECC私钥协商秘钥数据签名验签
+message EccVerifySharedSignatureReq {
+  string data = 1;
+  string publicKey = 2;
+}
+
+message EccVerifySharedSignatureRes {
+  bool result = 1;
+}
+
 // ECC公钥数据签名
 message EccVerifySignatureReq {
   string data = 1;
@@ -184,6 +194,7 @@ service RpcEncipher{
   rpc EccDecrypt(EccDecryptReq) returns (EccDecryptRes){}
   rpc EccSignature(EccSignatureReq) returns (EccSignatureRes){}
   rpc EccVerifySignature(EccVerifySignatureReq) returns (EccVerifySignatureRes){}
+  rpc EccSharedSignature(EccSharedSignatureReq) returns (EccSharedSignatureRes){}
   rpc TokenEncrypt(TokenEncryptReq) returns (TokenEncryptRes){}
   rpc TokenDecrypt(TokenDecryptReq) returns (TokenDecryptRes){}
   rpc TokenCreate(TokenCreateReq) returns (TokenCreateRes){}

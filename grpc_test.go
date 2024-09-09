@@ -64,7 +64,7 @@ func TestRpcReadConfig(t *testing.T) {
 }
 
 func TestRpcSignature(t *testing.T) {
-	a := utils.HMAC_SHA512("123456", "13823912345")
+	a := utils.HmacSHA512("123456", "13823912345")
 	fmt.Println(a)
 	result, err := rpcClient.Signature(a)
 	if err != nil {

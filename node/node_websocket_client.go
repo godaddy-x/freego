@@ -54,7 +54,7 @@ func authReq(path string, requestObj interface{}, secret string, encrypted ...bo
 		d := utils.Base64Encode(jsonBody.Data.([]byte))
 		jsonBody.Data = d
 	}
-	jsonBody.Sign = utils.HMAC_SHA256(utils.AddStr(path, jsonBody.Data.(string), jsonBody.Nonce, jsonBody.Time, jsonBody.Plan), secret, true)
+	jsonBody.Sign = utils.HmacSHA256(utils.AddStr(path, jsonBody.Data.(string), jsonBody.Nonce, jsonBody.Time, jsonBody.Plan), secret, true)
 	bytesData, err := utils.JsonMarshal(jsonBody)
 	if err != nil {
 		return nil, ex.Throw{Msg: "jsonBody data JsonMarshal invalid"}
@@ -81,7 +81,7 @@ func authRes(client *WsClient, respBytes []byte) ([]byte, error) {
 		}
 		return nil, ex.Throw{Msg: respData.Message}
 	}
-	validSign := utils.HMAC_SHA256(utils.AddStr(client.Path, respData.Data, respData.Nonce, respData.Time, respData.Plan), client.auth.Secret, true)
+	validSign := utils.HmacSHA256(utils.AddStr(client.Path, respData.Data, respData.Nonce, respData.Time, respData.Plan), client.auth.Secret, true)
 	if validSign != respData.Sign {
 		return nil, ex.Throw{Msg: "post response sign verify invalid"}
 	}
