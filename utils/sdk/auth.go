@@ -27,6 +27,7 @@ type HttpSDK struct {
 	publicKey  string
 	language   string
 	timeout    int64
+	ready      bool
 	authObject func() interface{}
 	authToken  AuthToken
 }
@@ -41,6 +42,7 @@ func (s *HttpSDK) GetAuthObject() interface{} {
 }
 
 func (s *HttpSDK) AuthToken(object AuthToken) {
+	s.ready = true
 	s.authToken = object
 }
 
@@ -58,17 +60,19 @@ func (s *HttpSDK) SetLanguage(language string) {
 
 func (s *HttpSDK) RunCheck() {
 	for {
-		if s.authToken.Expired-60*4 > utils.UnixSecond() {
+		// 有效期少于15分钟,则重置授权令牌和密钥
+		if s.authToken.Expired-900 > utils.UnixSecond() {
 			time.Sleep(30 * time.Second)
 			continue
 		}
 		responseObj := AuthToken{}
 		if err := s.PostByECC(s.LoginPath, s.GetAuthObject(), &responseObj); err != nil {
+			s.ready = false
 			zlog.Error("load auth token fail", 0, zlog.AddError(err))
 			time.Sleep(5 * time.Second)
 			continue
 		}
-		fmt.Println("-----replace token: ", responseObj.Secret, responseObj.Expired)
+		zlog.Info("replace token success", 0, zlog.Int64("expired", responseObj.Expired))
 		s.AuthToken(responseObj)
 	}
 }
@@ -107,6 +111,15 @@ func (s *HttpSDK) GetPublicKey() (string, error) {
 		return "", ex.Throw{Msg: "request public key invalid"}
 	}
 	return utils.Bytes2Str(b), nil
+}
+
+func (s *HttpSDK) CheckRead() error {
+	responseObj := AuthToken{}
+	if err := s.PostByECC(s.LoginPath, s.authObject(), &responseObj); err != nil {
+		return err
+	}
+	s.AuthToken(responseObj)
+	return nil
 }
 
 // PostByECC 对象请使用指针
@@ -200,22 +213,15 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	return nil
 }
 
-func (s *HttpSDK) valid() bool {
+func (s *HttpSDK) checkAuth() error {
+	if !s.ready {
+		return ex.Throw{Msg: "server not ready"}
+	}
 	if len(s.authToken.Token) == 0 {
-		return false
+		return ex.Throw{Msg: "token not ready"}
 	}
 	if len(s.authToken.Secret) == 0 {
-		return false
-	}
-	if utils.UnixSecond() > s.authToken.Expired-3600 {
-		return false
-	}
-	return true
-}
-
-func (s *HttpSDK) checkAuth() error {
-	if s.valid() {
-		return nil
+		return ex.Throw{Msg: "serret not ready"}
 	}
 	if s.authObject == nil { // 没授权对象则忽略
 		return nil
@@ -223,7 +229,7 @@ func (s *HttpSDK) checkAuth() error {
 	if len(s.Domain) == 0 {
 		return ex.Throw{Msg: "domain is nil"}
 	}
-	if len(s.KeyPath) == 0 {
+	if len(s.KeyPath) == 0 && len(s.publicKey) == 0 {
 		return ex.Throw{Msg: "keyPath is nil"}
 	}
 	if len(s.LoginPath) == 0 {
@@ -232,11 +238,13 @@ func (s *HttpSDK) checkAuth() error {
 	if s.authObject == nil {
 		return ex.Throw{Msg: "authObject is nil"}
 	}
-	responseObj := AuthToken{}
-	if err := s.PostByECC(s.LoginPath, s.authObject, &responseObj); err != nil {
-		return err
+	if s.authToken.Expired < utils.UnixSecond() {
+		responseObj := AuthToken{}
+		if err := s.PostByECC(s.LoginPath, s.authObject(), &responseObj); err != nil {
+			return err
+		}
+		s.AuthToken(responseObj)
 	}
-	s.AuthToken(responseObj)
 	return nil
 }
 

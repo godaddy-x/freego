@@ -17,7 +17,8 @@ import (
 )
 
 const (
-	jwtStr = `{
+	tokenExp30Min = 1800
+	jwtStr        = `{
     "TokenKey": "%s",
     "TokenAlg": "%s",
     "TokenTyp": "%s",
@@ -559,6 +560,9 @@ func (s *RpcEncipher) TokenCreate(ctx context.Context, req *pb.TokenCreateReq) (
 	tokenExp := newEncipher.param.JwtConfig.TokenExp
 	if req.Expired > 0 {
 		tokenExp = req.Expired
+	}
+	if tokenExp < tokenExp30Min { // 最低限度30分钟
+		tokenExp = tokenExp30Min
 	}
 	config := jwt.Config{
 		TokenAlg: newEncipher.param.JwtConfig.TokenAlg,
