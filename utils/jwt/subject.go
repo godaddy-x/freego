@@ -6,6 +6,7 @@ package jwt
  */
 
 import (
+	"encoding/base64"
 	"github.com/godaddy-x/freego/utils"
 	"strings"
 )
@@ -61,7 +62,7 @@ func (self *Subject) Create(sub string) *Subject {
 	self.Payload = &Payload{
 		Sub: sub,
 		Exp: utils.UnixSecond() + TWO_WEEK,
-		Jti: utils.HmacMD5(utils.AddStr(utils.NextSID(), utils.RandStr(16)), utils.GetUUID(), true),
+		Jti: base64.StdEncoding.EncodeToString(utils.RandomBytes(16)),
 	}
 	return self
 }
@@ -151,10 +152,10 @@ func (self *Subject) Signature(text, key string) string {
 	return utils.HmacSHA256(text, utils.AddStr(utils.GetLocalSecretKey(), key), true)
 }
 
-func (self *Subject) GetTokenSecret(token, secret string) string {
-	res := utils.HmacSHA512(utils.AddStr(token, utils.GetLocalTokenSecretKey(), utils.GetLocalSecretKey()), secret)
-	return utils.AddStr(utils.HmacSHA256(res, secret), res)
-}
+//func (self *Subject) GetTokenSecret(token, secret string) string {
+//	res := utils.HmacSHA512(utils.AddStr(token, utils.GetLocalTokenSecretKey(), utils.GetLocalSecretKey()), secret)
+//	return utils.AddStr(utils.HmacSHA256(res, secret), res)
+//}
 
 func (self *Subject) Verify(token, key string, decode bool) error {
 	if len(token) == 0 {
@@ -277,10 +278,10 @@ func (self *Subject) getInt64Value(k string) int64 {
 }
 
 // 获取token的私钥
-func GetTokenSecret(token, secret string) string {
-	if len(token) == 0 {
-		return ""
-	}
-	subject := &Subject{}
-	return subject.GetTokenSecret(token, secret)
-}
+//func GetTokenSecret(token, secret string) string {
+//	if len(token) == 0 {
+//		return ""
+//	}
+//	subject := &Subject{}
+//	return subject.GetTokenSecret(token, secret)
+//}

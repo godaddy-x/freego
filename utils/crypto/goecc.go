@@ -112,16 +112,16 @@ func (self *EccObject) LoadS256ECC(b64 string) error {
 	return nil
 }
 
-func (self *EccObject) GenSharedKey(b64 string) (string, error) {
+func (self *EccObject) GenSharedKey(b64 string) ([]byte, error) {
 	pub, _, err := ecc.LoadBase64PublicKey(b64)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	key, err := ecc.GenSharedKey(self.privateKey, pub)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return utils.SHA512(utils.Bytes2Str(key)), nil
+	return utils.SHA512Byte(key), nil
 }
 
 func (self *EccObject) GetObjectBase64() (string, string, error) {

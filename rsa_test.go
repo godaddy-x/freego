@@ -7,7 +7,6 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"fmt"
-	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/crypto"
 	"testing"
 )
@@ -53,9 +52,8 @@ func BenchmarkRSA(b *testing.B) {
 }
 
 func TestRsaCreateFile(t *testing.T) {
-	//obj := &crypto.RsaObj{}
-	//obj.CreateRsaFile(keyfile, pemfile)
-	fmt.Println(utils.PasswordHash("123456", "123456"))
+	obj := &crypto.RsaObj{}
+	obj.CreateRsaFile(keyfile, pemfile)
 }
 
 func TestRsaCreateFileBase64(t *testing.T) {

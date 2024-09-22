@@ -137,11 +137,11 @@ func initMysqlDB() {
 
 func initMongoDB() {
 	conf := sqld.MGOConfig{}
-	if err := utils.ReadLocalJsonConfig("resource/mongo.json", &conf); err != nil {
+	if err := utils.ReadLocalJsonConfig("resource/mongo2.json", &conf); err != nil {
 		panic(utils.AddStr("读取mongo配置失败: ", err.Error()))
 	}
 	new(sqld.MGOManager).InitConfigAndCache(nil, conf)
-	fmt.Println("init mongo success")
+	fmt.Println("init mongo2 success")
 }
 
 func initDriver() {
@@ -181,14 +181,14 @@ func init() {
 	//if err != nil {
 	//	panic(err.Error())
 	//}
-	//mongo1 := sqld.MGOConfig{}
-	//if err := utils.ReadLocalJsonConfig("resource/mongo.json", &mongo1); err != nil {
+	//mongo := sqld.MGOConfig{}
+	//if err := utils.ReadLocalJsonConfig("resource/mongo2.json", &mongo); err != nil {
 	//	panic(utils.AddStr("读取mongo配置失败: ", err.Error()))
 	//}
-	//new(sqld.MGOManager).InitConfigAndCache(nil, mongo1)
+	//new(sqld.MGOManager).InitConfigAndCache(nil, mongo)
 	//opts := &options.ClientOptions{Hosts: []string{"192.168.27.124:27017"}}
 	//// opts.SetAuth(options.Credential{AuthMechanism: "SCRAM-SHA-1", AuthSource: "test", Username: "test", Password: "123456"})
-	//client, err := mongo.Connect(context.Background(), opts)
+	//client, err := mongo2.Connect(context.Background(), opts)
 	//if err != nil {
 	//	fmt.Println(err)
 	//	return

@@ -26,7 +26,7 @@ func newClient() {
 		}
 		subject := jwt.Subject{}
 		jwtToken := subject.Create(utils.NextSID()).Dev("APP").Generate(config)
-		jwtSecret := jwt.GetTokenSecret(jwtToken, config.TokenKey)
+		jwtSecret := ""
 		//jwtToken := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxNzU2NTEwOTIwMzAyOTE5NjgxIiwiYXVkIjoiIiwiaXNzIjoiIiwiaWF0IjowLCJleHAiOjE3MDg4Mjk0MTIsImRldiI6IkFQUCIsImp0aSI6InEyTEtYTG1uYXJ5MGhlM0FmVE9ZcFE9PSIsImV4dCI6IiJ9.T5o3LYyncHp2H7yWhj1S+MoWCj68KrcjfpZzqf0qxL8="
 		//jwtSecret := "liEnMu77ysCaU4BHy*kT^j#lKWM1JqTPhjSHNtEl#lK!ZC@diQRl04GSsDVIQnU="
 		return jwtToken, jwtSecret, nil

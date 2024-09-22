@@ -144,7 +144,7 @@ func (s *EncipherClient) Signature(input string) (string, error) {
 	return res.Result, nil
 }
 
-func (s *EncipherClient) TokenSignature(token, input string) (string, error) {
+func (s *EncipherClient) TokenSignature(token []byte, input string) (string, error) {
 	rpc, err := s.RPC()
 	if err != nil {
 		return "", err
@@ -170,7 +170,7 @@ func (s *EncipherClient) VerifySignature(input, sign string) (bool, error) {
 	return res.Result, nil
 }
 
-func (s *EncipherClient) TokenVerifySignature(token, input, sign string) (bool, error) {
+func (s *EncipherClient) TokenVerifySignature(token []byte, input, sign string) (bool, error) {
 	rpc, err := s.RPC()
 	if err != nil {
 		return false, err
@@ -287,7 +287,7 @@ func (s *EncipherClient) EccVerifySignature(input, sign string) (bool, error) {
 	return res.Result, nil
 }
 
-func (s *EncipherClient) TokenEncrypt(token, input string) (string, error) {
+func (s *EncipherClient) TokenEncrypt(token []byte, input string) (string, error) {
 	rpc, err := s.RPC()
 	if err != nil {
 		return "", err
@@ -300,7 +300,7 @@ func (s *EncipherClient) TokenEncrypt(token, input string) (string, error) {
 	return res.Result, nil
 }
 
-func (s *EncipherClient) TokenDecrypt(token, input string) (string, error) {
+func (s *EncipherClient) TokenDecrypt(token []byte, input string) (string, error) {
 	rpc, err := s.RPC()
 	if err != nil {
 		return "", err
@@ -326,7 +326,7 @@ func (s *EncipherClient) TokenCreate(input, dev, system string, exp int64) (inte
 	return res, nil
 }
 
-func (s *EncipherClient) TokenVerify(input, system string) (string, error) {
+func (s *EncipherClient) TokenVerify(input []byte, system string) (string, error) {
 	rpc, err := s.RPC()
 	if err != nil {
 		return "", err
@@ -337,4 +337,44 @@ func (s *EncipherClient) TokenVerify(input, system string) (string, error) {
 		return "", err
 	}
 	return res.Subject, nil
+}
+
+func (s *EncipherClient) CreatePassword(password []byte, n, r, p, l int32) (string, string, error) {
+	rpc, err := s.RPC()
+	if err != nil {
+		return "", "", err
+	}
+	defer rpc.Close()
+	res, err := pb.NewRpcEncipherClient(rpc.Value()).CreatePassword(rpc.Context(), &pb.CreatePasswordReq{
+		Password: password,
+		N:        n,
+		R:        r,
+		P:        p,
+		L:        l,
+	})
+	if err != nil {
+		return "", "", err
+	}
+	return res.Result, res.Salt, nil
+}
+
+func (s *EncipherClient) VerifyPassword(password, salt, target string, n, r, p, l int32) (bool, error) {
+	rpc, err := s.RPC()
+	if err != nil {
+		return false, err
+	}
+	defer rpc.Close()
+	res, err := pb.NewRpcEncipherClient(rpc.Value()).VerifyPassword(rpc.Context(), &pb.VerifyPasswordReq{
+		Password: password,
+		Salt:     salt,
+		Target:   target,
+		N:        n,
+		R:        r,
+		P:        p,
+		L:        l,
+	})
+	if err != nil {
+		return false, err
+	}
+	return res.Result, nil
 }

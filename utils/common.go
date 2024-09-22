@@ -376,85 +376,83 @@ func StrToFloat(str string) (float64, error) {
 }
 
 func MD5(s string, useBase64 ...bool) string {
-	return MD5Byte(Str2Bytes(s), useBase64...)
+	if len(useBase64) == 0 {
+		return hex.EncodeToString(MD5Byte(Str2Bytes(s)))
+	}
+	return Base64Encode(MD5Byte(Str2Bytes(s)))
 }
 
-func MD5Byte(s []byte, useBase64 ...bool) string {
+func MD5Byte(s []byte) []byte {
 	has := md5.Sum(s)
-	if len(useBase64) == 0 {
-		return hex.EncodeToString(has[:])
-	}
-	return Base64Encode(has[:])
+	return has[:]
 }
 
 func HmacMD5(data, key string, useBase64 ...bool) string {
-	return HmacMD5Byte(Str2Bytes(data), Str2Bytes(key), useBase64...)
+	if len(useBase64) == 0 {
+		return hex.EncodeToString(HmacMD5Byte(Str2Bytes(data), Str2Bytes(key)))
+	}
+	return Base64Encode(HmacMD5Byte(Str2Bytes(data), Str2Bytes(key)))
 }
 
-func HmacMD5Byte(data, key []byte, useBase64 ...bool) string {
+func HmacMD5Byte(data, key []byte) []byte {
 	h := hmac.New(md5.New, key)
 	h.Write(data)
-	if len(useBase64) == 0 {
-		return hex.EncodeToString(h.Sum([]byte(nil)))
-	}
-	return Base64Encode(h.Sum([]byte(nil)))
+	return h.Sum([]byte(nil))
 }
 
 func HmacSHA256(data, key string, useBase64 ...bool) string {
-	return HmacSHA256Byte(Str2Bytes(data), Str2Bytes(key), useBase64...)
+	if len(useBase64) == 0 {
+		return hex.EncodeToString(HmacSHA256Byte(Str2Bytes(data), Str2Bytes(key)))
+	}
+	return Base64Encode(HmacSHA256Byte(Str2Bytes(data), Str2Bytes(key)))
 }
 
-func HmacSHA256Byte(data, key []byte, useBase64 ...bool) string {
+func HmacSHA256Byte(data, key []byte) []byte {
 	h := hmac.New(sha256.New, key)
 	h.Write(data)
-	if len(useBase64) == 0 {
-		return hex.EncodeToString(h.Sum([]byte(nil)))
-	}
-	return Base64Encode(h.Sum([]byte(nil)))
+	return h.Sum([]byte(nil))
 }
 
 func HmacSHA512(data, key string, useBase64 ...bool) string {
-	return HmacSHA512Byte(Str2Bytes(data), Str2Bytes(key), useBase64...)
+	if len(useBase64) == 0 {
+		return hex.EncodeToString(HmacSHA512Byte(Str2Bytes(data), Str2Bytes(key)))
+	}
+	return Base64Encode(HmacSHA512Byte(Str2Bytes(data), Str2Bytes(key)))
 }
 
-func HmacSHA512Byte(data, key []byte, useBase64 ...bool) string {
+func HmacSHA512Byte(data, key []byte) []byte {
 	h := hmac.New(sha512.New, key)
 	h.Write(data)
-	if len(useBase64) == 0 {
-		return hex.EncodeToString(h.Sum([]byte(nil)))
-	}
-	return Base64Encode(h.Sum([]byte(nil)))
+	return h.Sum([]byte(nil))
 }
 
 func SHA256(s string, useBase64 ...bool) string {
-	return SHA256Byte(Str2Bytes(s), useBase64...)
+	if len(useBase64) == 0 {
+		return hex.EncodeToString(SHA256Byte(Str2Bytes(s)))
+	}
+	return Base64Encode(SHA256Byte(Str2Bytes(s)))
 }
 
-func SHA256Byte(s []byte, useBase64 ...bool) string {
+func SHA256Byte(s []byte) []byte {
 	h := sha256.New()
 	h.Write(s)
-	bs := h.Sum(nil)
-	if len(useBase64) == 0 {
-		return hex.EncodeToString(bs)
-	}
-	return Base64Encode(bs)
+	return h.Sum(nil)
 }
 
 func SHA512(s string, useBase64 ...bool) string {
-	return SHA512Byte(Str2Bytes(s), useBase64...)
+	if len(useBase64) == 0 {
+		return hex.EncodeToString(SHA512Byte(Str2Bytes(s)))
+	}
+	return Base64Encode(SHA512Byte(Str2Bytes(s)))
 }
 
-func SHA512Byte(s []byte, useBase64 ...bool) string {
+func SHA512Byte(s []byte) []byte {
 	h := sha512.New()
 	h.Write(s)
-	bs := h.Sum(nil)
-	if len(useBase64) == 0 {
-		return hex.EncodeToString(bs)
-	}
-	return Base64Encode(bs)
+	return h.Sum(nil)
 }
 
-// default base64 - 正向
+// Base64Encode default base64 - 正向
 func Base64Encode(input interface{}) string {
 	var dataByte []byte
 	if v, b := input.(string); b {
@@ -486,7 +484,7 @@ func Base64Encode(input interface{}) string {
 //	return base64.URLEncoding.EncodeToString(dataByte)
 //}
 
-// default base64 - 逆向
+// Base64Decode default base64 - 逆向
 func Base64Decode(input interface{}) []byte {
 	dataStr := ""
 	if v, b := input.(string); b {
@@ -534,7 +532,7 @@ func ToJsonBase64(input interface{}) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return Base64Encode(b), nil
+	return base64.StdEncoding.EncodeToString(b), nil
 }
 
 func ParseJsonBase64(input interface{}, ouput interface{}) error {
@@ -866,15 +864,4 @@ func DeepCopy(dst, src interface{}) error {
 		return Error("深度复制对象反序列异常: ", err.Error())
 	}
 	return nil
-}
-
-// CreateSafeRandom sl:随机字节和密钥长度 1024*sl dl:哈希深度次数 1024*dl, kl:保留字符量
-func CreateSafeRandom(sl, dl, kl int) string {
-	if kl > 128 {
-		kl = 128
-	}
-	l := 1024
-	s := RandStr(l * sl)
-	k := RandStr(l * sl)
-	return HmacSHA512(PasswordHash(s+NextSID()+GetUUID(), k, dl*l), s+k)[:kl]
 }

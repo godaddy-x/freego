@@ -440,21 +440,21 @@ func defaultRenderPre(ctx *Context) error {
 				return ex.Throw{Msg: "anonymous response plan invalid"}
 			}
 		} else if routerConfig.AesResponse {
-			aesData, err := ctx.Encipher.TokenEncrypt(utils.Bytes2Str(ctx.Subject.GetRawBytes()), utils.Bytes2Str(data))
+			aesData, err := ctx.Encipher.TokenEncrypt(ctx.Subject.GetRawBytes(), utils.Bytes2Str(data))
 			if err != nil {
 				return ex.Throw{Code: http.StatusInternalServerError, Msg: "AES encryption response data failed", Err: err}
 			}
 			resp.Plan = 1
 			resp.Data = aesData
 			checkBody := utils.AddStr(ctx.Path, aesData, resp.Nonce, resp.Time, resp.Plan)
-			resp.Sign, err = ctx.Encipher.TokenSignature(utils.Bytes2Str(ctx.Subject.GetRawBytes()), checkBody)
+			resp.Sign, err = ctx.Encipher.TokenSignature(ctx.Subject.GetRawBytes(), checkBody)
 			if err != nil {
 				return ex.Throw{Code: http.StatusInternalServerError, Msg: "encipher encryption response data failed", Err: err}
 			}
 		} else {
 			resp.Data = utils.Base64Encode(data)
 			checkBody := utils.AddStr(ctx.Path, resp.Data.(string), resp.Nonce, resp.Time, resp.Plan)
-			resp.Sign, err = ctx.Encipher.TokenSignature(utils.Bytes2Str(ctx.Subject.GetRawBytes()), checkBody)
+			resp.Sign, err = ctx.Encipher.TokenSignature(ctx.Subject.GetRawBytes(), checkBody)
 			if err != nil {
 				return ex.Throw{Code: http.StatusInternalServerError, Msg: "encipher encryption response data failed", Err: err}
 			}

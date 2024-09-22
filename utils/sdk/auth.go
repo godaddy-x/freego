@@ -1,7 +1,9 @@
 package sdk
 
 import (
+	"bytes"
 	"crypto/ecdsa"
+	"encoding/base64"
 	"fmt"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/node"
@@ -32,7 +34,19 @@ type HttpSDK struct {
 	authToken  AuthToken
 }
 
-// 请使用指针对象
+func (s *HttpSDK) GetAuthSecret() []byte {
+	if len(s.authToken.Secret) == 0 {
+		return nil
+	}
+	key, err := base64.StdEncoding.DecodeString(s.authToken.Secret)
+	if err != nil {
+		zlog.Error("http token secret base64 invalid", 0)
+		return nil
+	}
+	return key
+}
+
+// SetAuthObject 请使用指针对象
 func (s *HttpSDK) SetAuthObject(authObjectCall func() interface{}) {
 	s.authObject = authObjectCall
 }
@@ -72,7 +86,9 @@ func (s *HttpSDK) RunCheck() {
 			time.Sleep(5 * time.Second)
 			continue
 		}
-		zlog.Info("replace token success", 0, zlog.Int64("expired", responseObj.Expired))
+		if s.Debug {
+			zlog.Info("replace token success", 0, zlog.Int64("expired", responseObj.Expired))
+		}
 		s.AuthToken(responseObj)
 	}
 }
@@ -152,7 +168,8 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 		Nonce: utils.RandNonce(),
 		Plan:  int64(2),
 	}
-	jsonBody.Sign = utils.HmacSHA256(utils.AddStr(path, jsonBody.Data.(string), jsonBody.Nonce, jsonBody.Time, jsonBody.Plan), shared, true)
+	signPart := utils.AddStr(path, jsonBody.Data.(string), jsonBody.Nonce, jsonBody.Time, jsonBody.Plan)
+	jsonBody.Sign = base64.StdEncoding.EncodeToString(utils.HmacSHA256Byte(utils.Str2Bytes(signPart), shared))
 	bytesData, err := utils.JsonMarshal(jsonBody)
 	if err != nil {
 		return ex.Throw{Msg: "jsonBody data JsonMarshal invalid"}
@@ -197,10 +214,16 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 		}
 		return ex.Throw{Msg: respData.Message}
 	}
-	validSign := utils.HmacSHA256(utils.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan), shared, true)
-	s.debugOut("response sign verify: ", validSign == respData.Sign)
-	if validSign != respData.Sign {
+	signBs, err := base64.StdEncoding.DecodeString(respData.Sign)
+	if err != nil {
+		return ex.Throw{Msg: "response sign base64 invalid"}
+	}
+	signPart = utils.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan)
+	if !bytes.Equal(signBs, utils.HmacSHA256Byte(utils.Str2Bytes(signPart), shared)) {
+		s.debugOut("response sign verify: ", false)
 		return ex.Throw{Msg: "post response sign verify invalid"}
+	} else {
+		s.debugOut("response sign verify: ", true)
 	}
 	decryptData, err := clientEccObject.Decrypt(respData.Data.(string))
 	if err != nil {
@@ -278,7 +301,8 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 		jsonBody.Data = d
 		s.debugOut("request data base64: ", jsonBody.Data)
 	}
-	jsonBody.Sign = utils.HmacSHA256(utils.AddStr(path, jsonBody.Data.(string), jsonBody.Nonce, jsonBody.Time, jsonBody.Plan), s.authToken.Secret, true)
+	signPart := utils.AddStr(path, jsonBody.Data.(string), jsonBody.Nonce, jsonBody.Time, jsonBody.Plan)
+	jsonBody.Sign = base64.StdEncoding.EncodeToString(utils.HmacSHA256Byte(utils.Str2Bytes(signPart), s.GetAuthSecret()))
 	bytesData, err := utils.JsonMarshal(jsonBody)
 	if err != nil {
 		return ex.Throw{Msg: "jsonBody data JsonMarshal invalid"}
@@ -320,13 +344,18 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 		}
 		return ex.Throw{Msg: respData.Message}
 	}
-	//fmt.Println(utils.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan))
-	//fmt.Println(s.authToken.Secret)
-	validSign := utils.HmacSHA256(utils.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan), s.authToken.Secret, true)
-	if validSign != respData.Sign {
-		return ex.Throw{Msg: "post response sign verify invalid"}
+	signBs, err := base64.StdEncoding.DecodeString(respData.Sign)
+	if err != nil {
+		return ex.Throw{Msg: "response sign base64 invalid"}
 	}
-	s.debugOut("response sign verify: ", validSign == respData.Sign)
+	signPart = utils.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan)
+	if !bytes.Equal(signBs, utils.HmacSHA256Byte(utils.Str2Bytes(signPart), s.GetAuthSecret())) {
+		s.debugOut("response sign verify: ", false)
+		return ex.Throw{Msg: "post response sign verify invalid"}
+	} else {
+		s.debugOut("response sign verify: ", true)
+	}
+
 	var dec []byte
 	if respData.Plan == 0 {
 		dec = utils.Base64Decode(respData.Data)

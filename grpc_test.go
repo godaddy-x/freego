@@ -1,9 +1,11 @@
 package main
 
 import (
+	"encoding/hex"
 	"fmt"
 	"github.com/godaddy-x/freego/rpcx"
 	"github.com/godaddy-x/freego/utils"
+	"golang.org/x/crypto/scrypt"
 	_ "net/http/pprof"
 	"testing"
 )
@@ -47,8 +49,8 @@ func TestRpcTokenCreate(t *testing.T) {
 }
 
 func TestRpcTokenVerify(t *testing.T) {
-	s := "eyJhbGciOiIiLCJ0eXAiOiIifQ==.eyJzdWIiOiIxMjM0NTYiLCJhdWQiOiIiLCJpc3MiOiIiLCJpYXQiOjAsImV4cCI6MTcyNjcxNTA4OSwiZGV2Ijoid2ViIiwic3lzIjoiY3JtMS4wIiwianRpIjoiNjN6MEU3N2NucHBnYTZJUHMxaDBpUT09IiwiZXh0IjoiIn0=.rX4/F4AQqyfZj9vCcqjtuCNQWG27RHIIGCrg6WMgwK0="
-	result, err := rpcClient.TokenVerify(s, "crm1.0")
+	s := "eyJhbGciOiIiLCJ0eXAiOiIifQ==.eyJzdWIiOiIxMjM0NTYiLCJhdWQiOiIiLCJpc3MiOiIiLCJpYXQiOjAsImV4cCI6MTcyNjk3NjAzMywiZGV2Ijoid2ViIiwic3lzIjoiY3JtMS4wIiwianRpIjoiVUtuaWs3RkIrRjFsQmtjSkdnUU1VUT09IiwiZXh0IjoiIn0=.y5rGdolpNmlgDas+pU4yTOn/LQmRv9vcXA7Kf9YASro="
+	result, err := rpcClient.TokenVerify(utils.Str2Bytes(s), "crm1.0")
 	if err != nil {
 		fmt.Println(err)
 	}
@@ -56,11 +58,18 @@ func TestRpcTokenVerify(t *testing.T) {
 }
 
 func TestRpcReadConfig(t *testing.T) {
-	result, err := rpcClient.ReadConfig("123456")
+	//result, err := rpcClient.ReadConfig("123456")
+	//if err != nil {
+	//	fmt.Println(err)
+	//}
+	//fmt.Println(result)
+	authArray := []byte("123456")
+	salt := []byte("789789")
+	derivedKey, err := scrypt.Key(authArray, salt, 2, 10, 10, 64)
 	if err != nil {
-		fmt.Println(err)
+		panic(err)
 	}
-	fmt.Println(result)
+	fmt.Println(hex.EncodeToString(derivedKey))
 }
 
 func TestRpcSignature(t *testing.T) {
@@ -84,7 +93,7 @@ func TestRpcVerifySignature(t *testing.T) {
 var testToken = "eyJhbGciOiIiLCJ0eXAiOiIifQ==.eyJzdWIiOiIxMjM0NTYiLCJhdWQiOiIiLCJpc3MiOiIiLCJpYXQiOjAsImV4cCI6MTcyNjMyNjg4NiwiZGV2IjoiQVBQIiwianRpIjoiNjF1ZXAzMDI2Nkg5eFd0RnNhZ0EwQT09IiwiZXh0IjoiIn0=.6wb8rKhQasxlEA+iKPYVvY4FIMMbYpQAlUtNSDk53lI="
 
 func TestRpcTokenSignature(t *testing.T) {
-	result, err := rpcClient.TokenSignature(testToken, "123456")
+	result, err := rpcClient.TokenSignature(utils.Str2Bytes(testToken), "123456")
 	if err != nil {
 		fmt.Println(err)
 	}
@@ -92,7 +101,7 @@ func TestRpcTokenSignature(t *testing.T) {
 }
 
 func TestRpcTokenVerifySignature(t *testing.T) {
-	result, err := rpcClient.TokenVerifySignature(testToken, "123456", "9b810121b4b729ef8c3cf79c1a019feb12badc093c452b9c344461ff2fff850c")
+	result, err := rpcClient.TokenVerifySignature(utils.Str2Bytes(testToken), "123456", "9b810121b4b729ef8c3cf79c1a019feb12badc093c452b9c344461ff2fff850c")
 	if err != nil {
 		fmt.Println(err)
 	}
@@ -116,7 +125,7 @@ func TestRpcAesDecrypt(t *testing.T) {
 }
 
 func TestRpcEccEncrypt(t *testing.T) {
-	clientSecretKey := utils.RandStrB64(32)
+	clientSecretKey := utils.RandB64(32)
 	result, err := rpcClient.EccEncrypt(clientSecretKey, "BK+fFNuQylRcpqrsjOZYEql8JT3KgSdcXDoyLZ9UWc993B3p/eU6QpmxqCDz+xXcpRbEFuv9PRRa8YSCAXW+4Gc=", 3)
 	if err != nil {
 		fmt.Println(err)
@@ -152,10 +161,9 @@ func TestRpcEccVerifySignature(t *testing.T) {
 func BenchmarkGRPCClient(b *testing.B) {
 	b.StopTimer()
 	b.StartTimer()
+	password := utils.RandomBytes(128)
+	salt := utils.RandomBytes(128)
 	for i := 0; i < b.N; i++ { //use b.N for looping
-		_, err := rpcClient.NextId()
-		if err != nil {
-			fmt.Println(err)
-		}
+		utils.HmacSHA512Byte(password, salt)
 	}
 }

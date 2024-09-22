@@ -10,9 +10,9 @@ import (
 
 const domain = "http://localhost:8090"
 
-const access_token = "eyJhbGciOiIiLCJ0eXAiOiIifQ==.eyJzdWIiOiIxODMwMTcyOTQ5MzQ1MjA2MjczIiwiYXVkIjoiIiwiaXNzIjoiIiwiaWF0IjowLCJleHAiOjE3MjYzOTE4MDgsImRldiI6IldFQiIsImp0aSI6IlhLVXVIR29RdEN2cmdYWnBVVFd5SGc9PSIsImV4dCI6IiJ9.zYROucLgbx0ALjuHZJFKXasdhni9E2lQuRo60PrDq88="
-const token_secret = "XP8NC4cXJ6UdO9pfjSkcb5kLH4e7xgq+p6HvO8a2kSAuiV9EbUeTt7mYftItzj7su2qNvqZWDVtMH9SFH3Wg/w=="
-const token_expire = 1726391808
+const accessToken = "eyJhbGciOiIiLCJ0eXAiOiIifQ==.eyJzdWIiOiIxODM3NzM2Mzc0Njk0ODM4MjczIiwiYXVkIjoiIiwiaXNzIjoiIiwiaWF0IjowLCJleHAiOjE3MjY5ODcyNjksImRldiI6IldFQiIsInN5cyI6InRlc3QiLCJqdGkiOiJhTDJsWC9ZM1kvZk1GQTIzT0xMa2xnPT0iLCJleHQiOiIifQ==.sJ2jhBa9P+lF9HYUXsVeMeg6iQB2z03zkQehd1jFe9M="
+const tokenSecret = "N3ZL4HHki/mgndwVauMN+xTiFnaQ4iwdADpdKVnl/6asqdy4Ftnm7QbFDw72WRd9Su10Yomby5MJoAAx02lASg=="
+const tokenExpire = 1726987269
 
 var httpSDK = &sdk.HttpSDK{
 	Debug:      false,
@@ -46,7 +46,7 @@ func TestGetUser(t *testing.T) {
 	httpSDK.SetAuthObject(func() interface{} {
 		return &map[string]string{"username": "1234567890123456", "password": "1234567890123456"}
 	})
-	httpSDK.AuthToken(sdk.AuthToken{Token: access_token, Secret: token_secret, Expired: token_expire})
+	httpSDK.AuthToken(sdk.AuthToken{Token: accessToken, Secret: tokenSecret, Expired: tokenExpire})
 	requestObj := map[string]interface{}{"uid": 123, "name": "我爱中国/+_=/1df", "limit": 20, "offset": 5}
 	responseData := map[string]string{}
 	if err := httpSDK.PostByAuth("/getUser", &requestObj, &responseData, false); err != nil {
@@ -59,7 +59,7 @@ func BenchmarkGetUser(b *testing.B) {
 	b.StopTimer()
 	b.StartTimer()
 	for i := 0; i < b.N; i++ { //use b.N for looping
-		httpSDK.AuthToken(sdk.AuthToken{Token: access_token, Secret: token_secret, Expired: token_expire})
+		httpSDK.AuthToken(sdk.AuthToken{Token: accessToken, Secret: tokenSecret, Expired: tokenExpire})
 		requestObj := map[string]interface{}{"uid": 123, "name": "我爱中国/+_=/1df", "limit": 20, "offset": 5}
 		responseData := map[string]string{}
 		if err := httpSDK.PostByAuth("/getUser", &requestObj, &responseData, false); err != nil {

@@ -68,6 +68,32 @@ type Condition struct {
 	Alias  string
 }
 
+type FastObject struct {
+	key    string
+	sort   int
+	PrevID int64
+	LastID int64
+	Size   int64
+	CountQ bool
+	IsPrev bool
+	IsNext bool
+}
+
+func (s *FastObject) Key(k string) *FastObject {
+	s.key = k
+	return s
+}
+
+func (s *FastObject) Asc() *FastObject {
+	s.sort = ASC_
+	return s
+}
+
+func (s *FastObject) Desc() *FastObject {
+	s.sort = DESC_
+	return s
+}
+
 type Collation struct {
 	Locale          string `bson:",omitempty"` // The locale
 	CaseLevel       bool   `bson:",omitempty"` // The case level
@@ -456,21 +482,29 @@ func (self *Cnd) ResultSize(size int64) *Cnd {
 	return self
 }
 
-func (self *Cnd) FastPage(key string, sort int, prevID, lastID, pageSize int64, countQ ...bool) *Cnd {
-	if pageSize <= 0 {
-		pageSize = 50
+func (self *Cnd) FastPage(fast *FastObject) *Cnd {
+	if fast == nil {
+		return self
 	}
-	if pageSize > 5000 {
-		pageSize = 50
+	if fast.PrevID < 0 {
+		fast.PrevID = 0
 	}
-	if len(key) == 0 {
+	if fast.LastID < 0 {
+		fast.LastID = 0
+	}
+	if fast.Size <= 0 {
+		fast.Size = 50
+	}
+	if fast.Size > 5000 {
+		fast.Size = 50
+	}
+	if len(fast.key) == 0 {
 		panic("fast limit key is nil")
 	}
-	queryCount := false
-	if len(countQ) > 0 {
-		queryCount = countQ[0]
+	if !(fast.sort == ASC_ || fast.sort == DESC_) {
+		panic("fast sort invalid")
 	}
-	self.Pagination = dialect.Dialect{PageNo: 0, PageSize: pageSize, IsFastPage: true, FastPageKey: key, FastPageSort: sort, FastPageParam: []int64{prevID, lastID}, FastPageSortCountQ: queryCount}
+	self.Pagination = dialect.Dialect{PageNo: 0, PageSize: fast.Size, IsFastPage: true, FastPageKey: fast.key, FastPageSort: fast.sort, FastPageParam: []int64{fast.PrevID, fast.LastID}, FastPageSortCountQ: fast.CountQ}
 	return self
 }
 

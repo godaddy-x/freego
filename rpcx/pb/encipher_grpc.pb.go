@@ -37,6 +37,8 @@ const (
 	RpcEncipher_TokenDecrypt_FullMethodName         = "/encipher.RpcEncipher/TokenDecrypt"
 	RpcEncipher_TokenCreate_FullMethodName          = "/encipher.RpcEncipher/TokenCreate"
 	RpcEncipher_TokenVerify_FullMethodName          = "/encipher.RpcEncipher/TokenVerify"
+	RpcEncipher_CreatePassword_FullMethodName       = "/encipher.RpcEncipher/CreatePassword"
+	RpcEncipher_VerifyPassword_FullMethodName       = "/encipher.RpcEncipher/VerifyPassword"
 )
 
 // RpcEncipherClient is the client API for RpcEncipher service.
@@ -61,6 +63,8 @@ type RpcEncipherClient interface {
 	TokenDecrypt(ctx context.Context, in *TokenDecryptReq, opts ...grpc.CallOption) (*TokenDecryptRes, error)
 	TokenCreate(ctx context.Context, in *TokenCreateReq, opts ...grpc.CallOption) (*TokenCreateRes, error)
 	TokenVerify(ctx context.Context, in *TokenVerifyReq, opts ...grpc.CallOption) (*TokenVerifyRes, error)
+	CreatePassword(ctx context.Context, in *CreatePasswordReq, opts ...grpc.CallOption) (*CreatePasswordRes, error)
+	VerifyPassword(ctx context.Context, in *VerifyPasswordReq, opts ...grpc.CallOption) (*VerifyPasswordRes, error)
 }
 
 type rpcEncipherClient struct {
@@ -251,6 +255,26 @@ func (c *rpcEncipherClient) TokenVerify(ctx context.Context, in *TokenVerifyReq,
 	return out, nil
 }
 
+func (c *rpcEncipherClient) CreatePassword(ctx context.Context, in *CreatePasswordReq, opts ...grpc.CallOption) (*CreatePasswordRes, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreatePasswordRes)
+	err := c.cc.Invoke(ctx, RpcEncipher_CreatePassword_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *rpcEncipherClient) VerifyPassword(ctx context.Context, in *VerifyPasswordReq, opts ...grpc.CallOption) (*VerifyPasswordRes, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(VerifyPasswordRes)
+	err := c.cc.Invoke(ctx, RpcEncipher_VerifyPassword_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // RpcEncipherServer is the server API for RpcEncipher service.
 // All implementations must embed UnimplementedRpcEncipherServer
 // for forward compatibility.
@@ -273,6 +297,8 @@ type RpcEncipherServer interface {
 	TokenDecrypt(context.Context, *TokenDecryptReq) (*TokenDecryptRes, error)
 	TokenCreate(context.Context, *TokenCreateReq) (*TokenCreateRes, error)
 	TokenVerify(context.Context, *TokenVerifyReq) (*TokenVerifyRes, error)
+	CreatePassword(context.Context, *CreatePasswordReq) (*CreatePasswordRes, error)
+	VerifyPassword(context.Context, *VerifyPasswordReq) (*VerifyPasswordRes, error)
 	mustEmbedUnimplementedRpcEncipherServer()
 }
 
@@ -336,6 +362,12 @@ func (UnimplementedRpcEncipherServer) TokenCreate(context.Context, *TokenCreateR
 }
 func (UnimplementedRpcEncipherServer) TokenVerify(context.Context, *TokenVerifyReq) (*TokenVerifyRes, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method TokenVerify not implemented")
+}
+func (UnimplementedRpcEncipherServer) CreatePassword(context.Context, *CreatePasswordReq) (*CreatePasswordRes, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreatePassword not implemented")
+}
+func (UnimplementedRpcEncipherServer) VerifyPassword(context.Context, *VerifyPasswordReq) (*VerifyPasswordRes, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method VerifyPassword not implemented")
 }
 func (UnimplementedRpcEncipherServer) mustEmbedUnimplementedRpcEncipherServer() {}
 func (UnimplementedRpcEncipherServer) testEmbeddedByValue()                     {}
@@ -682,6 +714,42 @@ func _RpcEncipher_TokenVerify_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _RpcEncipher_CreatePassword_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreatePasswordReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RpcEncipherServer).CreatePassword(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RpcEncipher_CreatePassword_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RpcEncipherServer).CreatePassword(ctx, req.(*CreatePasswordReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RpcEncipher_VerifyPassword_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VerifyPasswordReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RpcEncipherServer).VerifyPassword(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RpcEncipher_VerifyPassword_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RpcEncipherServer).VerifyPassword(ctx, req.(*VerifyPasswordReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // RpcEncipher_ServiceDesc is the grpc.ServiceDesc for RpcEncipher service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -760,6 +828,14 @@ var RpcEncipher_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "TokenVerify",
 			Handler:    _RpcEncipher_TokenVerify_Handler,
+		},
+		{
+			MethodName: "CreatePassword",
+			Handler:    _RpcEncipher_CreatePassword_Handler,
+		},
+		{
+			MethodName: "VerifyPassword",
+			Handler:    _RpcEncipher_VerifyPassword_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -152,9 +152,9 @@ func (self *JsonBody) RawData() []byte {
 	return raw
 }
 
-func (self *Context) GetTokenSecret() string {
-	return jwt.GetTokenSecret(utils.Bytes2Str(self.Subject.GetRawBytes()), self.configs.jwtConfig.TokenKey)
-}
+//func (self *Context) GetTokenSecret() string {
+//	return jwt.GetTokenSecret(utils.Bytes2Str(self.Subject.GetRawBytes()), self.configs.jwtConfig.TokenKey)
+//}
 
 func (self *Context) AddStorage(k string, v interface{}) {
 	if self.Storage == nil {
@@ -368,7 +368,7 @@ func (self *Context) validJsonBody() error {
 		}
 		anonymous = true
 	} else { // 已登录状态
-		valid, err := self.Encipher.TokenVerifySignature(utils.Bytes2Str(self.Subject.GetRawBytes()), checkBody, body.Sign)
+		valid, err := self.Encipher.TokenVerifySignature(self.Subject.GetRawBytes(), checkBody, body.Sign)
 		if err != nil || !valid {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "encipher request signature invalid", Err: err}
 		}
@@ -385,7 +385,7 @@ func (self *Context) validJsonBody() error {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter Base64 parsing failed"}
 		}
 	} else if body.Plan == 1 && !anonymous { // 登录状态 P1 AES
-		res, err := self.Encipher.TokenDecrypt(utils.Bytes2Str(self.Subject.GetRawBytes()), d)
+		res, err := self.Encipher.TokenDecrypt(self.Subject.GetRawBytes(), d)
 		if err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "AES failed to parse data", Err: err}
 		}

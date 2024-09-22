@@ -7,7 +7,6 @@ import (
 )
 
 const (
-	token          = "token"
 	limiterKey     = "grpc:limiter:"
 	timeDifference = 2400
 )

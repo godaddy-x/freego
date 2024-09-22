@@ -199,7 +199,7 @@ func wsRenderTo(ws *websocket.Conn, ctx *Context, data interface{}) error {
 		return nil
 	}
 	routerConfig, _ := ctx.configs.routerConfigs[ctx.Path]
-	data, err := authReq(ctx.Path, data, ctx.GetTokenSecret(), routerConfig.AesResponse)
+	data, err := authReq(ctx.Path, data, "", routerConfig.AesResponse)
 	if err != nil {
 		return err
 	}

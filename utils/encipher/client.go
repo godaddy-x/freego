@@ -14,13 +14,13 @@ type Client interface {
 	Signature(input string) (string, error)
 
 	// TokenSignature 授权令牌签名数据
-	TokenSignature(token, input string) (string, error)
+	TokenSignature(token []byte, input string) (string, error)
 
 	// VerifySignature 签名数据验签
 	VerifySignature(input, sign string) (bool, error)
 
 	// TokenVerifySignature 授权令牌签名数据验签
-	TokenVerifySignature(token, input, sign string) (bool, error)
+	TokenVerifySignature(token []byte, input, sign string) (bool, error)
 
 	// ReadConfig 读取加密器指定配置
 	ReadConfig(input string) (string, error)
@@ -47,14 +47,20 @@ type Client interface {
 	EccVerifySignature(input, sign string) (bool, error)
 
 	// TokenEncrypt 授权令牌加密数据
-	TokenEncrypt(token, input string) (string, error)
+	TokenEncrypt(token []byte, input string) (string, error)
 
 	// TokenDecrypt 授权令牌解密数据
-	TokenDecrypt(token, input string) (string, error)
+	TokenDecrypt(token []byte, input string) (string, error)
 
 	// TokenCreate 授权令牌创建
 	TokenCreate(input, dev, system string, exp int64) (interface{}, error)
 
 	// TokenVerify 授权令牌验证
-	TokenVerify(input, system string) (string, error)
+	TokenVerify(token []byte, system string) (string, error)
+
+	// CreatePassword 派生密码哈希
+	CreatePassword(password []byte, n, r, p, l int32) (string, string, error)
+
+	// VerifyPassword 验证密码哈希
+	VerifyPassword(password, salt, target string, n, r, p, l int32) (bool, error)
 }

@@ -1,8 +1,10 @@
 package rpcx
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	ecc "github.com/godaddy-x/eccrypto"
@@ -114,15 +116,25 @@ func (s *EncipherServer) decodeData(data string) string {
 	return utils.AesDecrypt2(data, randomKey())
 }
 
-func (s *EncipherServer) getSignKey() string {
-	return s.decodeData(s.param.SignKey)
+func (s *EncipherServer) getSignKey() []byte {
+	k := s.decodeData(s.param.SignKey)
+	ks, err := base64.StdEncoding.DecodeString(k)
+	if err != nil {
+		panic("sign key invalid base64")
+	}
+	return ks
 }
 func (s *EncipherServer) getEncryptKey() string {
 	return s.decodeData(s.param.EncryptKey)
 }
 
-func (s *EncipherServer) getTokenKey() string {
-	return s.decodeData(s.param.JwtConfig.TokenKey)
+func (s *EncipherServer) getTokenKey() []byte {
+	tokenKey := s.decodeData(s.param.JwtConfig.TokenKey)
+	tokenKeyBs, err := base64.StdEncoding.DecodeString(tokenKey)
+	if err != nil {
+		panic("token key invalid base64")
+	}
+	return tokenKeyBs
 }
 
 func (s *EncipherServer) getSignDepth() int {
@@ -145,11 +157,8 @@ func decryptRandom(msg, key string) string {
 	return utils.AesDecrypt2(msg, key)
 }
 
-func getTokenSecret(token, secret string, b64 bool) string {
-	if b64 {
-		return utils.HmacSHA512(token, secret, true)
-	}
-	return utils.HmacSHA512(token, secret)
+func getTokenSecret(token, secret []byte) ([]byte, error) {
+	return utils.HmacSHA512Byte(token, secret), nil
 }
 
 func createKeystore(path string) (EncParam, error) {
@@ -162,8 +171,8 @@ func createKeystore(path string) (EncParam, error) {
 		}
 		defer file.Close()
 		param.SignDepth = 8
-		param.EncryptKey = utils.RandStrB64(64)
-		param.SignKey = utils.RandStrB64(64)
+		param.EncryptKey = utils.RandB64(64)
+		param.SignKey = utils.RandB64(64)
 		encryptKey := encryptRandom(param.EncryptKey, defaultKey)
 		signKey := encryptRandom(param.SignKey, defaultKey)
 		if _, err := file.WriteString(fmt.Sprintf(keystoreStr, encryptKey, signKey, param.SignDepth)); err != nil {
@@ -215,7 +224,7 @@ func createJWT(path string) error {
 			return errors.New("create file fail: " + err.Error())
 		}
 		defer file.Close()
-		tokenKey := encryptRandom(utils.RandStrB64(64), defaultKey)
+		tokenKey := encryptRandom(utils.RandB64(64), defaultKey)
 		if _, err := file.WriteString(fmt.Sprintf(jwtStr, tokenKey, "HS256", "JWT", 1209600)); err != nil {
 			return errors.New("write file fail: " + err.Error())
 		}
@@ -257,7 +266,7 @@ func createMysql(path string) error {
 }
 
 func createMongo(path string) error {
-	fileName := utils.AddStr(path, "/mongo")
+	fileName := utils.AddStr(path, "/mongo2")
 	if _, err := os.Stat(fileName); os.IsNotExist(err) {
 		file, err := os.Create(fileName)
 		if err != nil {
@@ -338,7 +347,7 @@ func createRabbitmq(path string) error {
     }
 ]
 `
-		if _, err := file.WriteString(fmt.Sprintf(str, utils.RandStr(32))); err != nil {
+		if _, err := file.WriteString(fmt.Sprintf(str, utils.RandHex(32))); err != nil {
 			return errors.New("write file fail: " + err.Error())
 		}
 		return nil
@@ -361,7 +370,7 @@ func createLogger(path string) error {
     "console": true
 }
 `
-		if _, err := file.WriteString(fmt.Sprintf(str, utils.RandStr(32))); err != nil {
+		if _, err := file.WriteString(fmt.Sprintf(str, utils.RandHex(32))); err != nil {
 			return errors.New("write file fail: " + err.Error())
 		}
 		return nil
@@ -470,19 +479,35 @@ func (s *RpcEncipher) NextId(ctx context.Context, req *pb.NextIdReq) (*pb.NextId
 }
 
 func (s *RpcEncipher) Signature(ctx context.Context, req *pb.SignatureReq) (*pb.SignatureRes, error) {
-	return &pb.SignatureRes{Result: utils.PasswordHash(req.Data, newEncipher.getSignKey(), newEncipher.getSignDepth())}, nil
+	return &pb.SignatureRes{Result: base64.StdEncoding.EncodeToString(utils.HmacSHA256Byte(utils.Str2Bytes(req.Data), newEncipher.getSignKey()))}, nil
 }
 
 func (s *RpcEncipher) VerifySignature(ctx context.Context, req *pb.VerifySignatureReq) (*pb.VerifySignatureRes, error) {
-	return &pb.VerifySignatureRes{Result: utils.PasswordVerify(req.Data, newEncipher.getSignKey(), req.Sign, newEncipher.getSignDepth())}, nil
+	signBs, err := base64.StdEncoding.DecodeString(req.Sign)
+	if err != nil {
+		return nil, err
+	}
+	return &pb.VerifySignatureRes{Result: bytes.Equal(signBs, utils.HmacSHA256Byte(utils.Str2Bytes(req.Data), newEncipher.getSignKey()))}, nil
 }
 
 func (s *RpcEncipher) TokenSignature(ctx context.Context, req *pb.TokenSignatureReq) (*pb.TokenSignatureRes, error) {
-	return &pb.TokenSignatureRes{Result: utils.HmacSHA256(req.Data, getTokenSecret(req.Token, newEncipher.getTokenKey(), true), true)}, nil
+	key, err := getTokenSecret(req.Token, newEncipher.getTokenKey())
+	if err != nil {
+		return nil, err
+	}
+	return &pb.TokenSignatureRes{Result: base64.StdEncoding.EncodeToString(utils.HmacSHA256Byte(utils.Str2Bytes(req.Data), key))}, nil
 }
 
 func (s *RpcEncipher) TokenVerifySignature(ctx context.Context, req *pb.TokenVerifySignatureReq) (*pb.TokenVerifySignatureRes, error) {
-	return &pb.TokenVerifySignatureRes{Result: utils.HmacSHA256(req.Data, getTokenSecret(req.Token, newEncipher.getTokenKey(), true), true) == req.Sign}, nil
+	signBs, err := base64.StdEncoding.DecodeString(req.Sign)
+	if err != nil {
+		return nil, err
+	}
+	key, err := getTokenSecret(req.Token, newEncipher.getTokenKey())
+	if err != nil {
+		return nil, err
+	}
+	return &pb.TokenVerifySignatureRes{Result: bytes.Equal(signBs, utils.HmacSHA256Byte(utils.Str2Bytes(req.Data), key))}, nil
 }
 
 func (s *RpcEncipher) AesEncrypt(ctx context.Context, req *pb.AesEncryptReq) (*pb.AesEncryptRes, error) {
@@ -532,7 +557,7 @@ func (s *RpcEncipher) EccSharedSignature(ctx context.Context, req *pb.EccSharedS
 	if err != nil {
 		return nil, err
 	}
-	return &pb.EccSharedSignatureRes{Result: utils.HmacSHA256(req.Data, utils.SHA512Byte(shared), true)}, nil
+	return &pb.EccSharedSignatureRes{Result: utils.Base64Encode(utils.HmacSHA256Byte(utils.Str2Bytes(req.Data), utils.SHA512Byte(shared)))}, nil
 }
 
 func (s *RpcEncipher) EccSignature(ctx context.Context, req *pb.EccSignatureReq) (*pb.EccSignatureRes, error) {
@@ -549,11 +574,19 @@ func (s *RpcEncipher) EccVerifySignature(ctx context.Context, req *pb.EccVerifyS
 }
 
 func (s *RpcEncipher) TokenEncrypt(ctx context.Context, req *pb.TokenEncryptReq) (*pb.TokenEncryptRes, error) {
-	return &pb.TokenEncryptRes{Result: utils.AesEncrypt2(req.Data, getTokenSecret(req.Token, newEncipher.getTokenKey(), true))}, nil
+	key, err := getTokenSecret(req.Token, newEncipher.getTokenKey())
+	if err != nil {
+		return nil, err
+	}
+	return &pb.TokenEncryptRes{Result: utils.AesEncrypt2(req.Data, base64.StdEncoding.EncodeToString(key))}, nil
 }
 
 func (s *RpcEncipher) TokenDecrypt(ctx context.Context, req *pb.TokenDecryptReq) (*pb.TokenDecryptRes, error) {
-	return &pb.TokenDecryptRes{Result: utils.AesDecrypt2(req.Data, getTokenSecret(req.Token, newEncipher.getTokenKey(), true))}, nil
+	key, err := getTokenSecret(req.Token, newEncipher.getTokenKey())
+	if err != nil {
+		return nil, err
+	}
+	return &pb.TokenDecryptRes{Result: utils.AesDecrypt2(req.Data, base64.StdEncoding.EncodeToString(key))}, nil
 }
 
 func (s *RpcEncipher) TokenCreate(ctx context.Context, req *pb.TokenCreateReq) (*pb.TokenCreateRes, error) {
@@ -572,27 +605,38 @@ func (s *RpcEncipher) TokenCreate(ctx context.Context, req *pb.TokenCreateReq) (
 	}
 	subject := &jwt.Subject{}
 	part := subject.Create(req.Subject).Dev(req.Device).Sys(req.System).Generate2(config)
-	sign := utils.HmacSHA256(part, newEncipher.getTokenKey(), true)
-	token := utils.AddStr(part, ".", sign)
-	secret := getTokenSecret(token, newEncipher.getTokenKey(), true)
+
+	sign := utils.HmacSHA256Byte(utils.Str2Bytes(part), newEncipher.getTokenKey())
+	token := utils.AddStr(part, ".", base64.StdEncoding.EncodeToString(sign))
+	secret, err := getTokenSecret(utils.Str2Bytes(token), newEncipher.getTokenKey())
+	if err != nil {
+		return nil, err
+	}
 	expired := subject.Payload.Exp
-	return &pb.TokenCreateRes{Token: token, Secret: secret, Expired: expired}, nil
+	return &pb.TokenCreateRes{Token: token, Secret: base64.StdEncoding.EncodeToString(secret), Expired: expired}, nil
 }
 
 func (s *RpcEncipher) TokenVerify(ctx context.Context, req *pb.TokenVerifyReq) (*pb.TokenVerifyRes, error) {
-	part := strings.Split(req.Token, ".")
+	part := strings.Split(utils.Bytes2Str(req.Token), ".")
 	if part == nil || len(part) != 3 {
 		return nil, errors.New("token part length invalid")
 	}
 	part0 := part[0]
 	part1 := part[1]
 	part2 := part[2]
-	if utils.HmacSHA256(utils.AddStr(part0, ".", part1), newEncipher.getTokenKey(), true) != part2 {
-		return nil, errors.New("token signature invalid")
+	part2Bs, err := base64.StdEncoding.DecodeString(part2)
+	if err != nil {
+		return nil, err
 	}
-	b64 := utils.Base64Decode(part1)
+	b64, err := base64.StdEncoding.DecodeString(part1)
+	if err != nil {
+		return nil, err
+	}
 	if b64 == nil || len(b64) == 0 {
 		return nil, errors.New("token part base64 data decode failed")
+	}
+	if !bytes.Equal(part2Bs, utils.HmacSHA256Byte(utils.Str2Bytes(utils.AddStr(part0, ".", part1)), newEncipher.getTokenKey())) {
+		return nil, errors.New("token signature invalid")
 	}
 	if utils.GetJsonInt64(b64, "exp") <= utils.UnixSecond() {
 		return nil, errors.New("token expired or invalid")
@@ -605,4 +649,17 @@ func (s *RpcEncipher) TokenVerify(ctx context.Context, req *pb.TokenVerifyReq) (
 		return nil, errors.New("token sub invalid")
 	}
 	return &pb.TokenVerifyRes{Subject: sub}, nil
+}
+
+func (s *RpcEncipher) CreatePassword(ctx context.Context, req *pb.CreatePasswordReq) (*pb.CreatePasswordRes, error) {
+	salt := utils.RandomBytes(32)
+	hash, err := utils.PasswordHash(req.Password, salt, int(req.N), int(req.R), int(req.P), int(req.L))
+	if err != nil {
+		return nil, err
+	}
+	return &pb.CreatePasswordRes{Result: base64.StdEncoding.EncodeToString(hash), Salt: base64.StdEncoding.EncodeToString(salt)}, nil
+}
+
+func (s *RpcEncipher) VerifyPassword(ctx context.Context, req *pb.VerifyPasswordReq) (*pb.VerifyPasswordRes, error) {
+	return &pb.VerifyPasswordRes{Result: utils.PasswordVerify(req.Password, req.Salt, req.Target, int(req.N), int(req.R), int(req.P), int(req.L))}, nil
 }
