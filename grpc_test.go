@@ -21,7 +21,7 @@ func init() {
 
 func TestRunEncipherServer(t *testing.T) {
 	//rpcx.NewEncipherServer("test/config2", rpcx.Param{Addr: ":4141", CertFile: "rpcx/cert/server.crt", KeyFile: "rpcx/cert/server.key"})
-	rpcx.NewEncipherServer("test/config2", nil, nil)
+	rpcx.NewEncipherServer("test/config2", nil, nil, nil)
 }
 
 func TestRpcNextId(t *testing.T) {

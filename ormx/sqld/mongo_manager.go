@@ -122,7 +122,7 @@ func (self *MGOManager) GetDB(options ...Option) error {
 	}
 	mgo := mgoSessions[dsName]
 	if mgo == nil {
-		return self.Error("mongo2 session [", dsName, "] not found...")
+		return self.Error("mongo session [", dsName, "] not found...")
 	}
 	self.Session = mgo.Session
 	self.DsName = mgo.DsName
@@ -168,14 +168,14 @@ func (self *MGOManager) InitConfigAndCache(manager cache.Cache, input ...MGOConf
 func (self *MGOManager) buildByConfig(manager cache.Cache, input ...MGOConfig) error {
 	for _, v := range input {
 		if len(v.Database) == 0 {
-			panic("mongo2 database is nil")
+			panic("mongo database is nil")
 		}
 		dsName := DIC.MASTER
 		if len(v.DsName) > 0 {
 			dsName = v.DsName
 		}
 		if _, b := mgoSessions[dsName]; b {
-			return utils.Error("mongo2 init failed: [", v.DsName, "] exist")
+			return utils.Error("mongo init failed: [", v.DsName, "] exist")
 		}
 		opts := options.Client()
 		if len(v.ConnectionURI) == 0 {
@@ -225,7 +225,7 @@ func (self *MGOManager) buildByConfig(manager cache.Cache, input ...MGOConfig) e
 		zlog.Printf("mongodb service【%s】has been started successful", mgo.DsName)
 	}
 	if len(mgoSessions) == 0 {
-		return utils.Error("mongo2 init failed: sessions is nil")
+		return utils.Error("mongo init failed: sessions is nil")
 	}
 	return nil
 }
@@ -497,7 +497,8 @@ func (self *MGOManager) DeleteByCnd(cnd *sqlc.Cnd) (int64, error) {
 		return 0, self.Error("[Mongo.DeleteByCnd] delete failed: ", err)
 	}
 	if res.DeletedCount == 0 {
-		return 0, self.Error("[Mongo.DeleteByCnd] delete failed: ModifiedCount = 0")
+		zlog.Warn("[Mongo.DeleteByCnd] delete failed: ModifiedCount = 0", 0)
+		return 0, nil
 	}
 	return res.DeletedCount, nil
 }
@@ -644,11 +645,10 @@ func (self *MGOManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 	return self.FindList(cnd, data)
 }
 
-func (self *MGOManager) Close() error {
+func (self *MGOManager) Close() {
 	if self.PackContext.Context != nil && self.PackContext.CancelFunc != nil {
 		self.PackContext.CancelFunc()
 	}
-	return nil
 }
 
 func (self *MGOManager) GetCollectionObject(o sqlc.Object) (*mongo.Collection, error) {

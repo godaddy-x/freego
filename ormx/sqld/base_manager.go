@@ -177,8 +177,8 @@ func (self *DBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 	return utils.Error("No implementation method [FindListComplex] was found")
 }
 
-func (self *DBManager) Close() error {
-	return utils.Error("No implementation method [Close] was found")
+func (self *DBManager) Close() {
+	return
 }
 
 func (self *DBManager) BuildCondKey(cnd *sqlc.Cnd, key string) []byte {
@@ -1034,7 +1034,8 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	}
 	groupby := self.BuildGroupBy(cnd)
 	sortby := self.BuildSortBy(cnd)
-	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str1)+len(str2)+len(groupby)+len(sortby)+32))
+
+	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str1)+len(str2)+len(groupby)+len(sortby)+64))
 	sqlbuf.WriteString("select ")
 	sqlbuf.WriteString(utils.Substr(str1, 0, len(str1)-1))
 	sqlbuf.WriteString(" from ")
@@ -1043,15 +1044,81 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	if len(str2) > 0 {
 		sqlbuf.WriteString(utils.Substr(str2, 0, len(str2)-1))
 	}
-	if len(groupby) > 0 {
-		sqlbuf.WriteString(groupby)
-	}
-	if len(sortby) > 0 {
-		sqlbuf.WriteString(sortby)
-	}
-	prepare, err := self.BuildPagination(cnd, utils.Bytes2Str(sqlbuf.Bytes()), parameter)
-	if err != nil {
-		return self.Error(err)
+
+	var err error
+	var prepare string
+
+	if cnd.Pagination.IsFastPage { // 快速分页
+		if cnd.Pagination.FastPageSortCountQ { // 执行总条数统计
+			if _, err := self.Count(cnd); err != nil {
+				return err
+			}
+		}
+		key := cnd.Pagination.FastPageKey
+		sort := cnd.Pagination.FastPageSort
+		size := cnd.Pagination.PageSize
+		prevID := cnd.Pagination.FastPageParam[0]
+		lastID := cnd.Pagination.FastPageParam[1]
+		//cnd.ResultSize(size)
+		if prevID == 0 && lastID == 0 {
+			defaultSort := "asc"
+			if sort == sqlc.DESC_ {
+				defaultSort = "desc"
+			}
+			sqlbuf.WriteString(utils.AddStr(" order by ", key, " ", defaultSort, " limit ? "))
+			parameter = append(parameter, size)
+		} else {
+			if case_part.Len() == 0 {
+				sqlbuf.WriteString(" where ")
+			} else {
+				sqlbuf.WriteString(" and ")
+			}
+		}
+		if sort == sqlc.DESC_ {
+			if prevID > 0 {
+				//cnd.Gt(key, prevID)
+				//cnd.Pagination.FastPageSortParam = sqlc.ASC_
+				sqlbuf.WriteString(utils.AddStr(" where", key, " > ? order by ", key, " asc limit ? "))
+				parameter = append(parameter, prevID)
+				parameter = append(parameter, size)
+			}
+			if lastID > 0 {
+				//cnd.Lt(key, lastID)
+				//cnd.Pagination.FastPageSortParam = sqlc.DESC_
+				sqlbuf.WriteString(utils.AddStr(" ", key, " < ? order by ", key, " desc limit ? "))
+				parameter = append(parameter, lastID)
+				parameter = append(parameter, size)
+			}
+		} else if sort == sqlc.ASC_ {
+			if prevID > 0 {
+				//cnd.Lt(key, prevID)
+				//cnd.Pagination.FastPageSortParam = sqlc.DESC_
+				sqlbuf.WriteString(utils.AddStr(" ", key, " < ? order by ", key, " desc limit ? "))
+				parameter = append(parameter, prevID)
+				parameter = append(parameter, size)
+			}
+			if lastID > 0 {
+				//cnd.Gt(key, lastID)
+				//cnd.Pagination.FastPageSortParam = sqlc.ASC_
+				sqlbuf.WriteString(utils.AddStr(" ", key, " > ? order by ", key, " asc limit ? "))
+				parameter = append(parameter, lastID)
+				parameter = append(parameter, size)
+			}
+		} else {
+			panic("sort value invalid")
+		}
+		prepare = sqlbuf.String()
+	} else {
+		if len(groupby) > 0 {
+			sqlbuf.WriteString(groupby)
+		}
+		if len(sortby) > 0 {
+			sqlbuf.WriteString(sortby)
+		}
+		prepare, err = self.BuildPagination(cnd, utils.Bytes2Str(sqlbuf.Bytes()), parameter)
+		if err != nil {
+			return self.Error(err)
+		}
 	}
 	if zlog.IsDebug() {
 		defer zlog.Debug("[Mysql.FindList] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
@@ -1569,18 +1636,16 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data sqlc.Object) error {
 	return nil
 }
 
-func (self *RDBManager) Close() error {
+func (self *RDBManager) Close() {
 	if self.OpenTx && self.Tx != nil {
 		if self.Errors == nil && len(self.Errors) == 0 {
 			if err := self.Tx.Commit(); err != nil {
 				zlog.Error("transaction commit failed", 0, zlog.AddError(err))
-				return nil
 			}
 		} else {
 			if err := self.Tx.Rollback(); err != nil {
 				zlog.Error("transaction rollback failed", 0, zlog.AddError(err))
 			}
-			return nil
 		}
 	}
 	if self.Errors == nil && len(self.Errors) == 0 && self.MongoSync && len(self.MGOSyncData) > 0 {
@@ -1592,7 +1657,6 @@ func (self *RDBManager) Close() error {
 			}
 		}
 	}
-	return nil
 }
 
 // mongo同步数据

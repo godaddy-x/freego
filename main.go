@@ -16,7 +16,7 @@ func http_test() {
 	//go http_web.StartHttpNode2()
 	//sqld.RebuildMongoDBIndex()
 
-	go rpcx.NewEncipherServer("test/config2/", nil, nil)
+	go rpcx.NewEncipherServer("test/config2/", nil, nil, nil)
 	http_web.StartHttpNode()
 }
 

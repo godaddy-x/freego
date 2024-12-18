@@ -47,6 +47,17 @@ var (
 
 type WriteFileCall func(dirPath string) error
 
+type EncModule struct {
+	//Ecdsa    bool
+	//JWT      bool
+	//Keystore bool
+	Mysql    bool
+	Mongo    bool
+	Logger   bool
+	Rabbitmq bool
+	Redis    bool
+}
+
 type EncParam struct {
 	EncryptKey     string
 	SignKey        string
@@ -55,6 +66,7 @@ type EncParam struct {
 	EccObject      crypto.Cipher
 	JwtConfig      jwt.Config
 	ConfigMap      map[string]string
+	Module         *EncModule
 }
 
 type EncipherServer struct {
@@ -80,7 +92,7 @@ func runServer(param *Param) {
 	RunOnlyServer(param)
 }
 
-func NewEncipherServer(configDir string, param *Param, call WriteFileCall) {
+func NewEncipherServer(configDir string, param *Param, module *EncModule, call WriteFileCall) {
 	if len(configDir) == 0 {
 		panic("path is nil")
 	}
@@ -93,8 +105,13 @@ func NewEncipherServer(configDir string, param *Param, call WriteFileCall) {
 	if newEncipher != nil {
 		return
 	}
+	if module == nil {
+		module = &EncModule{}
+	}
 	newEncipher = &EncipherServer{
-		param: EncParam{},
+		param: EncParam{
+			Module: module,
+		},
 	}
 	object, err := newEncipher.LoadConfig(configDir, call)
 	if err != nil {
@@ -266,7 +283,7 @@ func createMysql(path string) error {
 }
 
 func createMongo(path string) error {
-	fileName := utils.AddStr(path, "/mongo2")
+	fileName := utils.AddStr(path, "/mongo")
 	if _, err := os.Stat(fileName); os.IsNotExist(err) {
 		file, err := os.Create(fileName)
 		if err != nil {
@@ -386,27 +403,37 @@ func (s *EncipherServer) LoadConfig(path string, call WriteFileCall) (*EncParam,
 	if err != nil {
 		return nil, err
 	}
-
 	if err := createEcdsa(path); err != nil {
 		return nil, err
 	}
 	if err := createJWT(path); err != nil {
 		return nil, err
 	}
-	if err := createMysql(path); err != nil {
-		return nil, err
+
+	if s.param.Module.Mysql {
+		if err := createMysql(path); err != nil {
+			return nil, err
+		}
 	}
-	if err := createMongo(path); err != nil {
-		return nil, err
+	if s.param.Module.Mongo {
+		if err := createMongo(path); err != nil {
+			return nil, err
+		}
 	}
-	if err := createRedis(path); err != nil {
-		return nil, err
+	if s.param.Module.Redis {
+		if err := createRedis(path); err != nil {
+			return nil, err
+		}
 	}
-	if err := createRabbitmq(path); err != nil {
-		return nil, err
+	if s.param.Module.Rabbitmq {
+		if err := createRabbitmq(path); err != nil {
+			return nil, err
+		}
 	}
-	if err := createLogger(path); err != nil {
-		return nil, err
+	if s.param.Module.Logger {
+		if err := createLogger(path); err != nil {
+			return nil, err
+		}
 	}
 
 	if call != nil {

@@ -14,6 +14,11 @@ import (
 	"time"
 )
 
+var (
+	second60  = 60 * time.Second
+	second120 = 120 * time.Second
+)
+
 type AuthToken struct {
 	Token   string `json:"token"`
 	Secret  string `json:"secret"`
@@ -129,7 +134,7 @@ func (s *HttpSDK) GetPublicKey() (string, error) {
 	return utils.Bytes2Str(b), nil
 }
 
-func (s *HttpSDK) CheckRead() error {
+func (s *HttpSDK) CheckReady() error {
 	responseObj := AuthToken{}
 	if err := s.PostByECC(s.LoginPath, s.authObject(), &responseObj); err != nil {
 		return err
@@ -186,9 +191,11 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	defer fasthttp.ReleaseRequest(request)
 	response := fasthttp.AcquireResponse()
 	defer fasthttp.ReleaseResponse(response)
-	timeout := 120 * time.Second
+	var timeout time.Duration
 	if s.timeout > 0 {
 		timeout = time.Duration(s.timeout) * time.Second
+	} else {
+		timeout = second120
 	}
 	if err := fasthttp.DoTimeout(request, response, timeout); err != nil {
 		return ex.Throw{Msg: "post request failed: " + err.Error()}
@@ -319,9 +326,11 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 	defer fasthttp.ReleaseRequest(request)
 	response := fasthttp.AcquireResponse()
 	defer fasthttp.ReleaseResponse(response)
-	timeout := 120 * time.Second
+	var timeout time.Duration
 	if s.timeout > 0 {
 		timeout = time.Duration(s.timeout) * time.Second
+	} else {
+		timeout = second120
 	}
 	if err := fasthttp.DoTimeout(request, response, timeout); err != nil {
 		return ex.Throw{Msg: "post request failed: " + err.Error()}
@@ -329,6 +338,9 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 	respBytes := response.Body()
 	s.debugOut("response data: ")
 	s.debugOut(utils.Bytes2Str(respBytes))
+	if !utils.JsonValid(respBytes) {
+		return ex.Throw{Msg: string(respBytes)}
+	}
 	respData := &node.JsonResp{
 		Code:    utils.GetJsonInt(respBytes, "c"),
 		Message: utils.GetJsonString(respBytes, "m"),

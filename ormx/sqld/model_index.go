@@ -10,6 +10,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"log"
 	"reflect"
 	"sort"
 )
@@ -28,6 +29,14 @@ type IndexInfo struct {
 	IndexType    string         // 索引的类型，如 BTREE、HASH 等
 	Comment      string         // 索引的注释信息
 	IndexComment string         // 索引的额外注释信息
+}
+
+type SqliteIndexInfo struct {
+	IndexID          int
+	IndexName        string
+	Unique           int
+	Origin           string
+	PartiallyIndexed int
 }
 
 func readyCollection(object sqlc.Object) {
@@ -175,6 +184,57 @@ func dropMysqlIndex(object sqlc.Object, index []sqlc.Index) bool {
 	return true
 }
 
+func dropSqliteIndex(object sqlc.Object, index []sqlc.Index) bool {
+	db, err := NewSqlite(Option{Timeout: 120000})
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+	// 执行查询获取索引信息
+	rows, err := db.Db.Query("PRAGMA index_list('" + object.GetTable() + "')")
+	if err != nil {
+		panic(err)
+	}
+	defer rows.Close()
+
+	var oldKey []string
+	var indexes []*SqliteIndexInfo
+	for rows.Next() {
+		index := &SqliteIndexInfo{}
+		err = rows.Scan(&index.IndexID, &index.IndexName, &index.Unique, &index.Origin, &index.PartiallyIndexed)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if index.Origin != "pk" {
+			oldKey = append(oldKey, index.IndexName)
+		}
+		indexes = append(indexes, index)
+	}
+
+	var newKey []string
+	for _, v := range object.NewIndex() {
+		newKey = append(newKey, object.GetTable()+"_"+v.Name)
+	}
+	sort.Strings(newKey)
+	sort.Strings(oldKey)
+	var newKey_, oldKey_ string
+	for _, v := range newKey {
+		newKey_ = utils.AddStr(newKey_, ",", v)
+	}
+	for _, v := range oldKey {
+		oldKey_ = utils.AddStr(oldKey_, ",", v)
+	}
+	if newKey_ == oldKey_ {
+		return false
+	}
+	for _, v := range oldKey { // 确定删除表所有索引
+		if _, err := db.Db.Exec("DROP INDEX `" + v + "`"); err != nil {
+			panic(err)
+		}
+	}
+	return true
+}
+
 func addMongoIndex(object sqlc.Object, index sqlc.Index) error {
 	db, err := NewMongo(Option{Timeout: 120000})
 	if err != nil {
@@ -233,6 +293,41 @@ func addMysqlIndex(object sqlc.Object, index sqlc.Index) error {
 	return nil
 }
 
+func addSqliteIndex(object sqlc.Object, index sqlc.Index) error {
+	if len(index.Key) == 0 {
+		zlog.Warn("addSqliteIndex keys is nil", 0, zlog.Any("object", object))
+		return nil
+	}
+	if len(index.Name) == 0 {
+		panic("index key name is nil: " + object.GetTable())
+	}
+	var columns string
+	for _, v := range index.Key {
+		if len(v) == 0 {
+			panic("index key field is nil: " + object.GetTable())
+		}
+		columns += utils.AddStr(",`", v, "`")
+	}
+	sql := "CREATE"
+	if index.Unique {
+		sql = utils.AddStr(sql, " UNIQUE ")
+	}
+	sql = utils.AddStr(sql, " INDEX ")
+	sql = utils.AddStr(sql, "`", object.GetTable()+"_"+index.Name, "`")
+	sql = utils.AddStr(sql, " ON ", object.GetTable(), " (")
+	sql = utils.AddStr(sql, columns[1:], ")")
+
+	db, err := NewSqlite(Option{Timeout: 120000})
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+	if _, err := db.Db.Exec(sql); err != nil {
+		panic(err)
+	}
+	return nil
+}
+
 // RebuildMongoDBIndex 先删除所有表索引,再按配置新建(线上慎用功能)
 func RebuildMongoDBIndex() error {
 	for _, model := range modelDrivers {
@@ -241,19 +336,19 @@ func RebuildMongoDBIndex() error {
 			continue
 		}
 		if !dropMongoIndex(model.Object, index) {
-			fmt.Println(fmt.Sprintf("********* [%s] index consistent, skipping *********", model.Object.GetTable()))
+			zlog.Printf(fmt.Sprintf("********* [%s] index consistent, skipping *********", model.Object.GetTable()))
 			continue
 		}
-		fmt.Println(fmt.Sprintf("********* [%s] delete all index *********", model.Object.GetTable()))
+		zlog.Printf(fmt.Sprintf("********* [%s] delete all index *********", model.Object.GetTable()))
 		for _, v := range index {
 			addMongoIndex(model.Object, v)
-			fmt.Println(fmt.Sprintf("********* [%s] add index [%s] *********", model.Object.GetTable(), v.Name))
+			zlog.Printf(fmt.Sprintf("********* [%s] add index [%s] *********", model.Object.GetTable(), v.Name))
 		}
 	}
 	return nil
 }
 
-func checkMysqlTable(tableName string) (bool, error) {
+func CheckMysqlTable(tableName string) (bool, error) {
 	db, err := NewMysql(Option{Timeout: 120000})
 	if err != nil {
 		panic(err)
@@ -269,6 +364,22 @@ func checkMysqlTable(tableName string) (bool, error) {
 	return true, nil // 表存在
 }
 
+func CheckSqliteTable(tableName string) (bool, error) {
+	db, err := NewSqlite(Option{Timeout: 120000})
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+	var result string
+	if err := db.Db.QueryRow("SELECT name FROM sqlite_master WHERE type='table' AND name=?", tableName).Scan(&result); err != nil {
+		if err == sql.ErrNoRows {
+			return false, nil // 表不存在
+		}
+		return false, err // 查询出错
+	}
+	return true, nil // 表存在
+}
+
 func isInt(s string) bool {
 	if s == "int64" || s == "int" {
 		return true
@@ -276,7 +387,7 @@ func isInt(s string) bool {
 	return false
 }
 
-func createTable(model *MdlDriver) error {
+func createMysqlTable(model *MdlDriver) error {
 	sql := utils.AddStr("CREATE TABLE ", model.TableName, "( ")
 	var fields string
 	for _, v := range model.FieldElem {
@@ -310,6 +421,39 @@ func createTable(model *MdlDriver) error {
 	return nil
 }
 
+func createSqliteTable(model *MdlDriver) error {
+	sql := utils.AddStr("CREATE TABLE ", model.TableName, "( ")
+	var fields string
+	for _, v := range model.FieldElem {
+		if len(v.FieldDBType) == 0 {
+			if isInt(v.FieldType) {
+				fields = utils.AddStr(fields, ",`", v.FieldJsonName, "` ", "BIGINT")
+			} else {
+				fields = utils.AddStr(fields, ",`", v.FieldJsonName, "` ", "VARCHAR(255)")
+			}
+		} else {
+			fields = utils.AddStr(fields, ",`", v.FieldJsonName, "` ", v.FieldDBType)
+		}
+		if v.Primary {
+			fields = utils.AddStr(fields, " NOT NULL PRIMARY KEY")
+		}
+		if len(v.FieldComment) > 0 {
+			fields = utils.AddStr(fields, " COMMENT '", v.FieldComment, "'")
+		}
+	}
+	sql = utils.AddStr(sql, fields[1:], ")")
+	db, err := NewSqlite(Option{Timeout: 120000})
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+	if _, err := db.Db.Exec(sql); err != nil {
+		return err
+	}
+	zlog.Info("create table success", 0, zlog.String("table", model.TableName))
+	return nil
+}
+
 // RebuildMysqlDBIndex 先删除所有表索引,再按配置新建(线上慎用功能)
 func RebuildMysqlDBIndex() error {
 	for _, model := range modelDrivers {
@@ -317,24 +461,54 @@ func RebuildMysqlDBIndex() error {
 		if len(index) == 0 {
 			continue
 		}
-		exist, err := checkMysqlTable(model.Object.GetTable())
+		exist, err := CheckMysqlTable(model.Object.GetTable())
 		if err != nil {
 			panic(err)
 		}
 		if !exist {
 			zlog.Warn("mysql table not exist", 0, zlog.String("table", model.Object.GetTable()))
-			if err := createTable(model); err != nil {
+			if err := createMysqlTable(model); err != nil {
 				panic(err)
 			}
 		}
 		if !dropMysqlIndex(model.Object, index) {
-			fmt.Println(fmt.Sprintf("********* [%s] index consistent, skipping *********", model.Object.GetTable()))
+			zlog.Printf(fmt.Sprintf("********* [%s] index consistent, skipping *********", model.Object.GetTable()))
 			continue
 		}
-		fmt.Println(fmt.Sprintf("********* [%s] delete all index *********", model.Object.GetTable()))
+		zlog.Printf(fmt.Sprintf("********* [%s] delete all index *********", model.Object.GetTable()))
 		for _, v := range index {
 			addMysqlIndex(model.Object, v)
-			fmt.Println(fmt.Sprintf("********* [%s] add index [%s] *********", model.Object.GetTable(), v.Name))
+			zlog.Printf(fmt.Sprintf("********* [%s] add index [%s] *********", model.Object.GetTable(), v.Name))
+		}
+	}
+	return nil
+}
+
+// RebuildSqliteDBIndex 先删除所有表索引,再按配置新建(线上慎用功能)
+func RebuildSqliteDBIndex() error {
+	for _, model := range modelDrivers {
+		index := model.Object.NewIndex()
+		if len(index) == 0 {
+			continue
+		}
+		exist, err := CheckSqliteTable(model.Object.GetTable())
+		if err != nil {
+			panic(err)
+		}
+		if !exist {
+			zlog.Warn("sqlite table not exist", 0, zlog.String("table", model.Object.GetTable()))
+			if err := createSqliteTable(model); err != nil {
+				panic(err)
+			}
+		}
+		if !dropSqliteIndex(model.Object, index) {
+			zlog.Printf(fmt.Sprintf("********* [%s] index consistent, skipping *********", model.Object.GetTable()))
+			continue
+		}
+		zlog.Printf(fmt.Sprintf("********* [%s] delete all index *********", model.Object.GetTable()))
+		for _, v := range index {
+			addSqliteIndex(model.Object, v)
+			zlog.Printf(fmt.Sprintf("********* [%s] add index [%s] *********", model.Object.GetTable(), v.Name))
 		}
 	}
 	return nil

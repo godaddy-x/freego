@@ -40,7 +40,7 @@ func (o *OwWallet) NewObject() sqlc.Object {
 }
 
 func (o *OwWallet) NewIndex() []sqlc.Index {
-	return nil
+	return []sqlc.Index{{Name: "appID", Key: []string{"appID"}}}
 }
 
 type OwWallet2 struct {
@@ -119,7 +119,7 @@ func (o *OwAuth) NewObject() sqlc.Object {
 }
 
 func (o *OwAuth) NewIndex() []sqlc.Index {
-	return nil
+	return []sqlc.Index{{Name: "name", Key: []string{"name"}}}
 }
 
 // go build -gcflags=-m main.go
@@ -135,13 +135,21 @@ func initMysqlDB() {
 	fmt.Println("init mysql success")
 }
 
+func initSqliteDB() {
+	conf := sqld.SqliteConfig{
+		DbFile: "e:\\test.db",
+	}
+	new(sqld.SqliteManager).InitConfigAndCache(nil, conf)
+	fmt.Println("init sqlite success")
+}
+
 func initMongoDB() {
 	conf := sqld.MGOConfig{}
-	if err := utils.ReadLocalJsonConfig("resource/mongo2.json", &conf); err != nil {
+	if err := utils.ReadLocalJsonConfig("resource/mongo.json", &conf); err != nil {
 		panic(utils.AddStr("读取mongo配置失败: ", err.Error()))
 	}
 	new(sqld.MGOManager).InitConfigAndCache(nil, conf)
-	fmt.Println("init mongo2 success")
+	fmt.Println("init mongo success")
 }
 
 func initDriver() {
@@ -182,13 +190,13 @@ func init() {
 	//	panic(err.Error())
 	//}
 	//mongo := sqld.MGOConfig{}
-	//if err := utils.ReadLocalJsonConfig("resource/mongo2.json", &mongo); err != nil {
+	//if err := utils.ReadLocalJsonConfig("resource/mongo.json", &mongo); err != nil {
 	//	panic(utils.AddStr("读取mongo配置失败: ", err.Error()))
 	//}
 	//new(sqld.MGOManager).InitConfigAndCache(nil, mongo)
 	//opts := &options.ClientOptions{Hosts: []string{"192.168.27.124:27017"}}
 	//// opts.SetAuth(options.Credential{AuthMechanism: "SCRAM-SHA-1", AuthSource: "test", Username: "test", Password: "123456"})
-	//client, err := mongo2.Connect(context.Background(), opts)
+	//client, err := mongo.Connect(context.Background(), opts)
 	//if err != nil {
 	//	fmt.Println(err)
 	//	return

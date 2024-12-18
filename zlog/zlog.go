@@ -26,7 +26,7 @@ var (
 )
 
 func init() {
-	InitDefaultLog(&ZapConfig{Layout: 0, Location: cst_sh, Level: INFO, Console: true})
+	InitDefaultLog(&ZapConfig{Layout: 0, Location: cst_sh, Level: INFO, Console: true, Printer: true})
 }
 
 type ZapLog struct {
@@ -81,6 +81,7 @@ type ZapConfig struct {
 	Location   *time.Location     // 时间地区, 默认上海
 	Level      string             // 日志级别
 	Console    bool               // 是否控制台输出
+	Printer    bool               // 是否原始print输出
 	FileConfig *FileConfig        // 输出文件配置
 	Callfunc   func([]byte) error // 回调函数
 }
@@ -242,15 +243,21 @@ func IsDebug() bool {
 
 // 兼容原生log.Print
 func Print(v ...interface{}) {
-	stdlog.Print(v...)
+	if zapLog.c.Printer {
+		stdlog.Print(v...)
+	}
 }
 
 // 兼容原生log.Printf
 func Printf(format string, v ...interface{}) {
-	stdlog.Printf(format, v...)
+	if zapLog.c.Printer {
+		stdlog.Printf(format, v...)
+	}
 }
 
 // 兼容原生log.Println
 func Println(v ...interface{}) {
-	stdlog.Println(v...)
+	if zapLog.c.Printer {
+		stdlog.Println(v...)
+	}
 }

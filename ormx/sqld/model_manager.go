@@ -50,7 +50,7 @@ func isPk(key string) bool {
 	return false
 }
 
-func ModelDriver(objects ...sqlc.Object) error {
+func ModelDriver(objects ...sqlc.Object) {
 	if objects == nil || len(objects) == 0 {
 		panic("objects is nil")
 	}
@@ -130,7 +130,6 @@ func ModelDriver(objects ...sqlc.Object) error {
 		}
 		modelDrivers[md.TableName] = md
 	}
-	return nil
 }
 
 func GetValue(obj interface{}, elem *FieldElem) (interface{}, error) {
