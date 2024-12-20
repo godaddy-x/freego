@@ -5,10 +5,12 @@ import (
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/decimal"
 	"reflect"
+	"time"
 )
 
 var (
 	modelDrivers = make(map[string]*MdlDriver, 0)
+	modelTime    = &MdlTime{local: utils.CstSH, fmt: utils.TimeFmt}
 )
 
 type FieldElem struct {
@@ -26,6 +28,11 @@ type FieldElem struct {
 	FieldDBType   string
 	FieldComment  string
 	FieldOffset   uintptr
+}
+
+type MdlTime struct {
+	local *time.Location
+	fmt   string
 }
 
 type MdlDriver struct {
@@ -48,6 +55,15 @@ func isPk(key string) bool {
 		return true
 	}
 	return false
+}
+
+func ModelTime(local *time.Location, fmt string) {
+	if local != nil {
+		modelTime.local = local
+	}
+	if len(fmt) > 0 {
+		modelTime.fmt = fmt
+	}
 }
 
 func ModelDriver(objects ...sqlc.Object) error {
@@ -144,7 +160,7 @@ func GetValue(obj interface{}, elem *FieldElem) (interface{}, error) {
 			if ret < 0 {
 				ret = 0
 			}
-			return utils.Time2Str(int64(ret)), nil
+			return utils.Time2FormatStr(int64(ret), modelTime.fmt, modelTime.local), nil
 		}
 		return ret, nil
 	case reflect.Int8:
@@ -157,7 +173,7 @@ func GetValue(obj interface{}, elem *FieldElem) (interface{}, error) {
 			if ret < 0 {
 				ret = 0
 			}
-			return utils.Time2Str(int64(ret)), nil
+			return utils.Time2FormatStr(int64(ret), modelTime.fmt, modelTime.local), nil
 		}
 		return ret, nil
 	case reflect.Int64:
@@ -166,7 +182,7 @@ func GetValue(obj interface{}, elem *FieldElem) (interface{}, error) {
 			if ret <= 0 {
 				return "", nil
 			}
-			return utils.Time2Str(ret), nil
+			return utils.Time2FormatStr(ret, modelTime.fmt, modelTime.local), nil
 		}
 		return ret, nil
 	case reflect.Float32:
@@ -256,7 +272,7 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 			if ret, err := utils.NewString(b); err != nil {
 				return err
 			} else if len(ret) > 0 {
-				if rdate, err := utils.Str2Time(ret); err != nil {
+				if rdate, err := utils.Str2FormatTime(ret, modelTime.fmt, modelTime.local); err != nil {
 					return err
 				} else {
 					utils.SetInt(ptr, int(rdate))
@@ -289,7 +305,7 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 			if ret, err := utils.NewString(b); err != nil {
 				return err
 			} else if len(ret) > 0 {
-				if rdate, err := utils.Str2Time(ret); err != nil {
+				if rdate, err := utils.Str2FormatTime(ret, modelTime.fmt, modelTime.local); err != nil {
 					return err
 				} else {
 					utils.SetInt32(ptr, int32(rdate))
@@ -308,7 +324,7 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 			if ret, err := utils.NewString(b); err != nil {
 				return err
 			} else if len(ret) > 0 {
-				if rdate, err := utils.Str2Time(ret); err != nil {
+				if rdate, err := utils.Str2FormatTime(ret, modelTime.fmt, modelTime.local); err != nil {
 					return err
 				} else {
 					utils.SetInt64(ptr, rdate)

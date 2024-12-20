@@ -402,7 +402,9 @@ func (self *RDBManager) Update(data ...sqlc.Object) error {
 	if !ok {
 		return self.Error("[Mysql.Update] registration object type not found [", data[0].GetTable(), "]")
 	}
-
+	if len(obv.PkName) == 0 {
+		return self.Error("PK field not support, you can use [updateByCnd]")
+	}
 	parameter := make([]interface{}, 0, len(obv.FieldElem))
 	fpart := bytes.NewBuffer(make([]byte, 0, 96))
 	var lastInsertId interface{}
@@ -581,6 +583,9 @@ func (self *RDBManager) Delete(data ...sqlc.Object) error {
 		return self.Error("[Mysql.Delete] registration object type not found [", data[0].GetTable(), "]")
 	}
 	parameter := make([]interface{}, 0, len(data))
+	if len(obv.PkName) == 0 {
+		return self.Error("PK field not support, you can use [deleteByCnd]")
+	}
 	vpart := bytes.NewBuffer(make([]byte, 0, 2*len(data)))
 	for _, v := range data {
 		if obv.PkKind == reflect.Int64 {
@@ -654,6 +659,9 @@ func (self *RDBManager) DeleteById(object sqlc.Object, data ...interface{}) (int
 	obv, ok := modelDrivers[object.GetTable()]
 	if !ok {
 		return 0, self.Error("[Mysql.DeleteById] registration object type not found [", object.GetTable(), "]")
+	}
+	if len(obv.PkName) == 0 {
+		return 0, self.Error("PK field not support, you can use [deleteByCnd]")
 	}
 	parameter := make([]interface{}, 0, len(data))
 	vpart := bytes.NewBuffer(make([]byte, 0, 2*len(data)))
