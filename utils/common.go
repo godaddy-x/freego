@@ -31,7 +31,7 @@ import (
 )
 
 var (
-	cst_sh, _              = time.LoadLocation("Asia/Shanghai") //上海
+	CstSH, _               = time.LoadLocation("Asia/Shanghai") //上海
 	random_byte_sp         = Str2Bytes("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!@#$%^*+-_=")
 	local_secret_key       = createDefaultLocalSecretKey()
 	local_token_secret_key = createLocalTokenSecretKey()
@@ -41,7 +41,7 @@ var (
 const (
 	xforwardedfor = "X-Forwarded-For"
 	xrealip       = "X-Real-IP"
-	time_fmt      = "2006-01-02 15:04:05.000"
+	TimeFmt       = "2006-01-02 15:04:05.000"
 	date_fmt      = "2006-01-02"
 	OneDay        = 86400000
 	OneWeek       = OneDay * 7

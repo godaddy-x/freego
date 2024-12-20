@@ -32,17 +32,23 @@ func Int2Time(t int64) time.Time {
 
 // 时间戳转格式字符串/毫秒, 例: 2023-07-22 08:47:27.379
 func Time2Str(t int64) string {
-	return Int2Time(t).In(cst_sh).Format(time_fmt)
+	return Int2Time(t).In(CstSH).Format(TimeFmt)
 }
 
 // 时间戳转格式字符串/毫秒
 func Time2DateStr(t int64) string {
-	return Int2Time(t).In(cst_sh).Format(date_fmt)
+	return Time2FormatStr(t, date_fmt, CstSH)
 }
 
 // 时间戳转格式字符串/毫秒
-func Time2FormatStr(t int64, fmt string) string {
-	return Int2Time(t).In(cst_sh).Format(fmt)
+func Time2FormatStr(t int64, fmt string, local *time.Location) string {
+	if local == nil {
+		local = CstSH
+	}
+	if len(fmt) == 0 {
+		fmt = TimeFmt
+	}
+	return Int2Time(t).In(local).Format(fmt)
 }
 
 // 格式字符串转时间戳/毫秒
@@ -55,7 +61,7 @@ func Str2Time(s string) (int64, error) {
 	} else if len(s) == 19 {
 		s += ".000"
 	}
-	t, err := time.ParseInLocation(time_fmt, s, cst_sh)
+	t, err := time.ParseInLocation(TimeFmt, s, CstSH)
 	if err != nil {
 		return 0, err
 	}
@@ -64,7 +70,18 @@ func Str2Time(s string) (int64, error) {
 
 // 格式字符串转时间戳/毫秒
 func Str2Date(s string) (int64, error) {
-	t, err := time.ParseInLocation(date_fmt, s, cst_sh)
+	return Str2FormatTime(s, date_fmt, CstSH)
+}
+
+// 格式字符串转时间戳/毫秒
+func Str2FormatTime(s string, fmt string, local *time.Location) (int64, error) {
+	if local == nil {
+		local = CstSH
+	}
+	if len(fmt) == 0 {
+		fmt = TimeFmt
+	}
+	t, err := time.ParseInLocation(fmt, s, local)
 	if err != nil {
 		return 0, err
 	}

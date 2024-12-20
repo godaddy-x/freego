@@ -418,6 +418,10 @@ func (self *RDBManager) Update(data ...sqlc.Object) error {
 		return self.Error("[Mysql.Update] registration object type not found [", data[0].GetTable(), "]")
 	}
 
+	if len(obv.PkName) == 0 {
+		return self.Error("[Mysql.Update] pk field undefined, you can use the method [updateByCnd]")
+	}
+
 	parameter := make([]interface{}, 0, len(obv.FieldElem))
 	fpart := bytes.NewBuffer(make([]byte, 0, 96))
 	var lastInsertId interface{}
@@ -595,6 +599,11 @@ func (self *RDBManager) Delete(data ...sqlc.Object) error {
 	if !ok {
 		return self.Error("[Mysql.Delete] registration object type not found [", data[0].GetTable(), "]")
 	}
+
+	if len(obv.PkName) == 0 {
+		return self.Error("[Mysql.Delete] pk field undefined, you can use the method [deleteByCnd]")
+	}
+
 	parameter := make([]interface{}, 0, len(data))
 	vpart := bytes.NewBuffer(make([]byte, 0, 2*len(data)))
 	for _, v := range data {
@@ -670,6 +679,11 @@ func (self *RDBManager) DeleteById(object sqlc.Object, data ...interface{}) (int
 	if !ok {
 		return 0, self.Error("[Mysql.DeleteById] registration object type not found [", object.GetTable(), "]")
 	}
+
+	if len(obv.PkName) == 0 {
+		return 0, self.Error("[Mysql.DeleteById] pk field undefined, you can use the method [deleteByCnd]")
+	}
+
 	parameter := make([]interface{}, 0, len(data))
 	vpart := bytes.NewBuffer(make([]byte, 0, 2*len(data)))
 	for _, v := range data {
@@ -812,6 +826,11 @@ func (self *RDBManager) FindById(data sqlc.Object) error {
 	if !ok {
 		return self.Error("[Mysql.FindById] registration object type not found [", data.GetTable(), "]")
 	}
+
+	if len(obv.PkName) == 0 {
+		return self.Error("[Mysql.FindById] pk field undefined, you can use the method [FindOne] or [FindList]")
+	}
+
 	var parameter []interface{}
 	if obv.PkKind == reflect.Int64 {
 		lastInsertId := utils.GetInt64(utils.GetPtr(data, obv.PkOffset))
