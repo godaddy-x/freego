@@ -12,6 +12,9 @@ func NewString(b []byte) (string, error) {
 
 // byte to int
 func NewInt(b []byte) (int, error) {
+	if len(b) == 0 {
+		return 0, nil
+	}
 	if ret, err := NewInt64(b); err != nil {
 		return 0, err
 	} else {
@@ -21,6 +24,9 @@ func NewInt(b []byte) (int, error) {
 
 // byte to int8
 func NewInt8(b []byte) (int8, error) {
+	if len(b) == 0 {
+		return 0, nil
+	}
 	if ret, err := NewInt64(b); err != nil {
 		return 0, err
 	} else {
@@ -30,6 +36,9 @@ func NewInt8(b []byte) (int8, error) {
 
 // byte to int16
 func NewInt16(b []byte) (int16, error) {
+	if len(b) == 0 {
+		return 0, nil
+	}
 	if ret, err := NewInt64(b); err != nil {
 		return 0, err
 	} else {
@@ -39,6 +48,9 @@ func NewInt16(b []byte) (int16, error) {
 
 // byte to int32
 func NewInt32(b []byte) (int32, error) {
+	if len(b) == 0 {
+		return 0, nil
+	}
 	if ret, err := NewInt64(b); err != nil {
 		return 0, err
 	} else {
@@ -48,6 +60,9 @@ func NewInt32(b []byte) (int32, error) {
 
 // byte to int64
 func NewInt64(b []byte) (int64, error) {
+	if len(b) == 0 {
+		return 0, nil
+	}
 	str, _ := NewString(b)
 	if i64, err := strconv.ParseInt(str, 10, 64); err != nil {
 		return 0, err
@@ -58,6 +73,9 @@ func NewInt64(b []byte) (int64, error) {
 
 // byte to float32
 func NewFloat32(b []byte) (float32, error) {
+	if len(b) == 0 {
+		return 0, nil
+	}
 	if ret, err := NewFloat64(b); err != nil {
 		return 0, err
 	} else {
@@ -67,6 +85,9 @@ func NewFloat32(b []byte) (float32, error) {
 
 // byte to float64
 func NewFloat64(b []byte) (float64, error) {
+	if len(b) == 0 {
+		return 0, nil
+	}
 	str, _ := NewString(b)
 	f64, err := strconv.ParseFloat(str, 64)
 	if err != nil {
@@ -77,6 +98,9 @@ func NewFloat64(b []byte) (float64, error) {
 
 // byte to uint
 func NewUint(b []byte) (uint, error) {
+	if len(b) == 0 {
+		return 0, nil
+	}
 	if ret, err := NewInt64(b); err != nil {
 		return 0, err
 	} else {
@@ -86,6 +110,9 @@ func NewUint(b []byte) (uint, error) {
 
 // byte to uint8
 func NewUint8(b []byte) (uint8, error) {
+	if len(b) == 0 {
+		return 0, nil
+	}
 	if ret, err := NewInt64(b); err != nil {
 		return 0, err
 	} else {
@@ -95,6 +122,9 @@ func NewUint8(b []byte) (uint8, error) {
 
 // byte to uint16
 func NewUint16(b []byte) (uint16, error) {
+	if len(b) == 0 {
+		return 0, nil
+	}
 	if ret, err := NewInt64(b); err != nil {
 		return 0, err
 	} else {
@@ -104,6 +134,9 @@ func NewUint16(b []byte) (uint16, error) {
 
 // byte to uint32
 func NewUint32(b []byte) (uint32, error) {
+	if len(b) == 0 {
+		return 0, nil
+	}
 	if ret, err := NewInt64(b); err != nil {
 		return 0, err
 	} else {
@@ -113,6 +146,9 @@ func NewUint32(b []byte) (uint32, error) {
 
 // byte to uint64
 func NewUint64(b []byte) (uint64, error) {
+	if len(b) == 0 {
+		return 0, nil
+	}
 	if ret, err := NewInt64(b); err != nil {
 		return 0, err
 	} else {
