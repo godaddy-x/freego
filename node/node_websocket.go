@@ -89,7 +89,7 @@ func (self *Context) readWsBody(body []byte) error {
 	if body == nil || len(body) == 0 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters is nil"}
 	}
-	if len(body) > (MAX_VALUE_LEN) {
+	if len(body) > (MAX_BODY_LEN) {
 		return ex.Throw{Code: http.StatusLengthRequired, Msg: "body parameters length is too long"}
 	}
 	self.JsonBody.Data = utils.GetJsonString(body, "d")
@@ -213,7 +213,7 @@ func validBody(ws *websocket.Conn, ctx *Context, body []byte) bool {
 		_ = ctx.writeError(ws, ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters is nil"})
 		return false
 	}
-	if len(body) > (MAX_VALUE_LEN) {
+	if len(body) > (MAX_BODY_LEN) {
 		_ = ctx.writeError(ws, ex.Throw{Code: http.StatusLengthRequired, Msg: "body parameters length is too long"})
 		return false
 	}

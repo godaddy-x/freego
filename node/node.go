@@ -34,12 +34,14 @@ const (
 	HEAD    = "HEAD"
 	OPTIONS = "OPTIONS"
 
-	MAX_VALUE_LEN = 200000 // 最大参数值长度
-	MAX_TOKEN_LEN = 2048   // 最大Token值长度
-	MAX_CODE_LEN  = 1024   // 最大Code值长度
-
 	Authorization = "Authorization"
 	RandomCode    = "RandomCode"
+)
+
+var (
+	MAX_BODY_LEN  = 200000 // 最大参数值长度
+	MAX_TOKEN_LEN = 2048   // 最大Token值长度
+	MAX_CODE_LEN  = 1024   // 最大Code值长度
 )
 
 type HookNode struct {
@@ -131,6 +133,18 @@ type Response struct {
 	// response result
 	StatusCode        int
 	ContentEntityByte bytes.Buffer
+}
+
+func SetLengthCheck(bodyLen, tokenLen, codeLen int) {
+	if bodyLen > 0 {
+		MAX_BODY_LEN = bodyLen // 最大参数值长度
+	}
+	if tokenLen > 0 {
+		MAX_TOKEN_LEN = tokenLen // 最大Token值长度
+	}
+	if codeLen > 0 {
+		MAX_CODE_LEN = codeLen // 最大Code值长度
+	}
 }
 
 func (self *JsonBody) ParseData(dst interface{}) error {
@@ -272,7 +286,7 @@ func (self *Context) readParams() error {
 	if body == nil || len(body) == 0 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters is nil"}
 	}
-	if len(body) > (MAX_VALUE_LEN) {
+	if len(body) > (MAX_BODY_LEN) {
 		return ex.Throw{Code: http.StatusLengthRequired, Msg: "body parameters length is too long"}
 	}
 	self.JsonBody.Data = utils.GetJsonString(body, "d")

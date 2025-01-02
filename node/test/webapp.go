@@ -196,6 +196,7 @@ func NewHTTP() *MyWebNode {
 }
 
 func StartHttpNode() {
+	node.SetLengthCheck(node.MAX_BODY_LEN*5, 0, 0)
 	go geetest.CheckServerStatus(geetest.Config{})
 	my := NewHTTP()
 	my.POST("/test1", my.test, nil)
