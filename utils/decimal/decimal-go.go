@@ -8,6 +8,7 @@
 // Can do binary floating point in multiprecision decimal precisely
 // because 2 divides 10; cannot do decimal floating point
 // in multiprecision binary precisely.
+
 package decimal
 
 type decimal struct {
@@ -183,7 +184,7 @@ var leftcheats = []leftCheat{
 		seq 60 | sed 's/^/5^/' | bc |
 		awk 'BEGIN{ print "\t{ 0, \"\" }," }
 		{
-			log2 = zlog(2)/zlog(10)
+			log2 = log(2)/log(10)
 			printf("\t{ %d, \"%s\" },\t// * %d\n",
 				int(log2*NR+1), $0, 2**NR)
 		}'
