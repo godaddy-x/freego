@@ -1,6 +1,7 @@
 package sqld
 
 import (
+	"errors"
 	"github.com/godaddy-x/freego/ormx/sqlc"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/decimal"
@@ -252,6 +253,13 @@ func GetValue(obj interface{}, elem *FieldElem) (interface{}, error) {
 			return nil, nil
 		}
 	case reflect.Struct:
+		if elem.FieldType == "decimal.Decimal" {
+			v, err := getValueOfMapStr(obj, elem)
+			if err != nil {
+				return nil, err
+			}
+			return v, nil
+		}
 		return nil, utils.Error("please use pointer type: ", elem.FieldName)
 	}
 	return nil, nil
@@ -769,12 +777,41 @@ func getValueJsonObj(b []byte, v interface{}) error {
 }
 
 func getValueOfMapStr(obj interface{}, elem *FieldElem) (string, error) {
-	if fv := reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName); fv.IsNil() {
+	var fv reflect.Value
+	vof := reflect.ValueOf(obj)
+	if vof.Kind() == reflect.Ptr {
+		fv = reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName)
+	} else if vof.Kind() == reflect.Struct {
+		fv = reflect.ValueOf(obj).FieldByName(elem.FieldName)
+	} else {
+		return "", errors.New("unsupported kind")
+	}
+	if fv.Kind() == reflect.Ptr && fv.IsNil() {
 		return "", nil
 	} else if v := fv.Interface(); v == nil {
 		return "", nil
 	} else if b, err := utils.JsonMarshal(&v); err != nil {
 		return "", err
+	} else if elem.FieldType == "decimal.Decimal" {
+		if decVal, ok := fv.Interface().(decimal.Decimal); ok {
+			return decVal.String(), nil
+		} else {
+			return "", errors.New("unable to convert to decimal.Decimal")
+		}
+	} else {
+		return utils.Bytes2Str(b), nil
+	}
+}
+
+func getValueOfStruct(obj interface{}, elem *FieldElem) (string, error) {
+	if fv := reflect.ValueOf(obj).FieldByName(elem.FieldName); fv.IsNil() {
+		return "", nil
+	} else if v := fv.Interface(); v == nil {
+		return "", nil
+	} else if b, err := utils.JsonMarshal(&v); err != nil {
+		return "", err
+	} else if elem.FieldType == "decimal.Decimal" {
+		return fv.String(), nil
 	} else {
 		return utils.Bytes2Str(b), nil
 	}

@@ -138,6 +138,7 @@ func (self *HttpNode) readyContext() {
 		self.Context.configs.jwtConfig = jwt.JwtConfig{}
 		self.Context.System = &System{}
 		self.ctxPool = self.createCtxPool()
+		self.Context.System.enableECC = true
 	}
 }
 
@@ -252,6 +253,7 @@ func (self *HttpNode) AddJwtConfig(config jwt.JwtConfig) {
 	self.Context.configs.jwtConfig.TokenExp = config.TokenExp
 }
 
+// EnableECC default: true
 func (self *HttpNode) EnableECC(enable bool) {
 	self.readyContext()
 	self.Context.System.enableECC = enable
