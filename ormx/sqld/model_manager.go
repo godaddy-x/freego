@@ -11,7 +11,7 @@ import (
 
 var (
 	modelDrivers = make(map[string]*MdlDriver, 0)
-	modelTime    = &MdlTime{local: utils.CstSH, fmt: utils.TimeFmt}
+	modelTime    = &MdlTime{local: utils.CstSH, fmt: utils.TimeFmt, fmt2: utils.DateFmt}
 )
 
 type FieldElem struct {
@@ -19,6 +19,7 @@ type FieldElem struct {
 	Primary       bool
 	Ignore        bool
 	IsDate        bool
+	IsDate2       bool
 	IsBlob        bool
 	FieldName     string
 	FieldJsonName string
@@ -34,6 +35,7 @@ type FieldElem struct {
 type MdlTime struct {
 	local *time.Location
 	fmt   string
+	fmt2  string
 }
 
 type MdlDriver struct {
@@ -58,12 +60,16 @@ func isPk(key string) bool {
 	return false
 }
 
-func ModelTime(local *time.Location, fmt string) {
+// ModelTime fmt: timestamp fmt2: date
+func ModelTime(local *time.Location, fmt, fmt2 string) {
 	if local != nil {
 		modelTime.local = local
 	}
 	if len(fmt) > 0 {
 		modelTime.fmt = fmt
+	}
+	if len(fmt2) > 0 {
+		modelTime.fmt2 = fmt2
 	}
 }
 
@@ -136,6 +142,10 @@ func ModelDriver(objects ...sqlc.Object) error {
 			if len(isDate) > 0 && isDate == sqlc.True {
 				f.IsDate = true
 			}
+			isDate2 := field.Tag.Get(sqlc.Date2)
+			if len(isDate2) > 0 && isDate2 == sqlc.True {
+				f.IsDate2 = true
+			}
 			isBlob := field.Tag.Get(sqlc.Blob)
 			if len(isBlob) > 0 && isBlob == sqlc.True {
 				f.IsBlob = true
@@ -162,6 +172,11 @@ func GetValue(obj interface{}, elem *FieldElem) (interface{}, error) {
 				ret = 0
 			}
 			return utils.Time2FormatStr(int64(ret), modelTime.fmt, modelTime.local), nil
+		} else if elem.IsDate2 {
+			if ret < 0 {
+				ret = 0
+			}
+			return utils.Time2FormatStr(int64(ret), modelTime.fmt2, modelTime.local), nil
 		}
 		return ret, nil
 	case reflect.Int8:
@@ -175,6 +190,11 @@ func GetValue(obj interface{}, elem *FieldElem) (interface{}, error) {
 				ret = 0
 			}
 			return utils.Time2FormatStr(int64(ret), modelTime.fmt, modelTime.local), nil
+		} else if elem.IsDate2 {
+			if ret < 0 {
+				ret = 0
+			}
+			return utils.Time2FormatStr(int64(ret), modelTime.fmt2, modelTime.local), nil
 		}
 		return ret, nil
 	case reflect.Int64:
@@ -184,6 +204,11 @@ func GetValue(obj interface{}, elem *FieldElem) (interface{}, error) {
 				return "", nil
 			}
 			return utils.Time2FormatStr(ret, modelTime.fmt, modelTime.local), nil
+		} else if elem.IsDate2 {
+			if ret < 0 {
+				ret = 0
+			}
+			return utils.Time2FormatStr(ret, modelTime.fmt2, modelTime.local), nil
 		}
 		return ret, nil
 	case reflect.Float32:
@@ -287,6 +312,17 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 				}
 			}
 			return nil
+		} else if elem.IsDate2 {
+			if ret, err := utils.NewString(b); err != nil {
+				return err
+			} else if len(ret) > 0 {
+				if rdate, err := utils.Str2FormatTime(ret, modelTime.fmt2, modelTime.local); err != nil {
+					return err
+				} else {
+					utils.SetInt(ptr, int(rdate))
+				}
+			}
+			return nil
 		}
 		if ret, err := utils.NewInt(b); err != nil {
 			return err
@@ -320,6 +356,17 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 				}
 			}
 			return nil
+		} else if elem.IsDate2 {
+			if ret, err := utils.NewString(b); err != nil {
+				return err
+			} else if len(ret) > 0 {
+				if rdate, err := utils.Str2FormatTime(ret, modelTime.fmt2, modelTime.local); err != nil {
+					return err
+				} else {
+					utils.SetInt32(ptr, int32(rdate))
+				}
+			}
+			return nil
 		}
 		if ret, err := utils.NewInt32(b); err != nil {
 			return err
@@ -333,6 +380,17 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 				return err
 			} else if len(ret) > 0 {
 				if rdate, err := utils.Str2FormatTime(ret, modelTime.fmt, modelTime.local); err != nil {
+					return err
+				} else {
+					utils.SetInt64(ptr, rdate)
+				}
+			}
+			return nil
+		} else if elem.IsDate2 {
+			if ret, err := utils.NewString(b); err != nil {
+				return err
+			} else if len(ret) > 0 {
+				if rdate, err := utils.Str2FormatTime(ret, modelTime.fmt2, modelTime.local); err != nil {
 					return err
 				} else {
 					utils.SetInt64(ptr, rdate)

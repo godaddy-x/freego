@@ -44,7 +44,7 @@ const (
 	xrealip       = "X-Real-IP"
 	TimeFmt       = "2006-01-02 15:04:05.000"
 	TimeFmt2      = "2006-01-02 15:04:05.000000"
-	date_fmt      = "2006-01-02"
+	DateFmt       = "2006-01-02"
 	OneDay        = 86400000
 	OneWeek       = OneDay * 7
 	TwoWeek       = OneDay * 14
@@ -590,6 +590,16 @@ func StartWait(msg string) {
 
 // 检测int数值是否在区间
 func CheckInt(c int, vs ...int) bool {
+	for _, v := range vs {
+		if v == c {
+			return true
+		}
+	}
+	return false
+}
+
+// 检测int32数值是否在区间
+func CheckInt32(c int32, vs ...int32) bool {
 	for _, v := range vs {
 		if v == c {
 			return true

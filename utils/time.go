@@ -37,7 +37,7 @@ func Time2Str(t int64) string {
 
 // 时间戳转格式字符串/毫秒
 func Time2DateStr(t int64) string {
-	return Int2Time(t).In(CstSH).Format(date_fmt)
+	return Int2Time(t).In(CstSH).Format(DateFmt)
 }
 
 // 时间戳转格式字符串/毫秒
@@ -70,7 +70,7 @@ func Str2Time(s string) (int64, error) {
 
 // 格式字符串转时间戳/毫秒
 func Str2Date(s string) (int64, error) {
-	t, err := time.ParseInLocation(date_fmt, s, CstSH)
+	t, err := time.ParseInLocation(DateFmt, s, CstSH)
 	if err != nil {
 		return 0, err
 	}

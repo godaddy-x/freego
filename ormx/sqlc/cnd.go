@@ -52,6 +52,7 @@ const (
 	Mg      = "mg"
 	True    = "true"
 	Date    = "date"
+	Date2   = "date2"
 	Blob    = "blob"
 	DB      = "db"
 	Comment = "comment"
