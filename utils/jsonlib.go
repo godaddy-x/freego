@@ -1,14 +1,13 @@
 package utils
 
 import (
-	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
-	jsonIterator "github.com/json-iterator/go"
 	"github.com/valyala/fastjson"
 )
 
-var json = jsonIterator.ConfigCompatibleWithStandardLibrary
+//var json = jsonIterator.ConfigCompatibleWithStandardLibrary
 
 // 对象转JSON字符串
 func JsonMarshal(v interface{}) ([]byte, error) {
@@ -40,17 +39,20 @@ func JsonUnmarshal(data []byte, v interface{}) error {
 	if data == nil || len(data) == 0 {
 		return nil
 	}
+	if v == nil {
+		return errors.New("JSON target object is nil")
+	}
 	if !JsonValid(data) {
 		return errors.New("JSON format invalid")
 	}
-	buf := bytes.NewBuffer(data)
-	d := json.NewDecoder(buf)
-	d.UseNumber()
-	if err := d.Decode(v); err != nil {
-		return err
-	}
-	buf.Reset()
-	return nil
+	//buf := bytes.NewBuffer(data)
+	//d := json.NewDecoder(buf)
+	//d.UseNumber()
+	//if err := d.Decode(v); err != nil {
+	//	return err
+	//}
+	//buf.Reset()
+	return json.Unmarshal(data, v)
 }
 
 func GetJsonString(b []byte, k string) string {
