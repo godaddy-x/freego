@@ -1,7 +1,9 @@
 package sqld
 
 import (
+	"encoding/binary"
 	"errors"
+	"fmt"
 	"github.com/godaddy-x/freego/ormx/sqlc"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/decimal"
@@ -270,6 +272,24 @@ func GetValue(obj interface{}, elem *FieldElem) (interface{}, error) {
 			return nil, nil
 		}
 	case reflect.Ptr:
+		switch elem.FieldType {
+		case "*string":
+			return utils.GetStringP(ptr), nil
+		case "*int":
+			return utils.GetIntP(ptr), nil
+		case "*int8":
+			return utils.GetInt8P(ptr), nil
+		case "*int16":
+			return utils.GetInt16P(ptr), nil
+		case "*int32":
+			return utils.GetInt32P(ptr), nil
+		case "*int64":
+			return utils.GetInt64P(ptr), nil
+		case "*float32":
+			return utils.GetFloat32P(ptr), nil
+		case "*float64":
+			return utils.GetFloat64P(ptr), nil
+		}
 		if v, err := getValueOfMapStr(obj, elem); err != nil {
 			return nil, err
 		} else if len(v) > 0 {
@@ -806,6 +826,75 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 		if b == nil || len(b) == 0 {
 			return nil
 		}
+		switch elem.FieldType {
+		case "*string":
+			if ret, err := utils.NewString(b); err != nil {
+				return err
+			} else {
+				utils.SetStringP(ptr, &ret)
+			}
+			return nil
+		case "*int":
+			if ret, err := utils.NewInt(b); err != nil {
+				return err
+			} else {
+				utils.SetIntP(ptr, &ret)
+			}
+			return nil
+		case "*int8":
+			if ret, err := utils.NewInt8(b); err != nil {
+				return err
+			} else {
+				utils.SetInt8P(ptr, &ret)
+			}
+			return nil
+		case "*int16":
+			if ret, err := utils.NewInt16(b); err != nil {
+				return err
+			} else {
+				utils.SetInt16P(ptr, &ret)
+			}
+			return nil
+		case "*int32":
+			if ret, err := utils.NewInt32(b); err != nil {
+				return err
+			} else {
+				utils.SetInt32P(ptr, &ret)
+			}
+			return nil
+		case "*int64":
+			if ret, err := utils.NewInt64(b); err != nil {
+				return err
+			} else {
+				utils.SetInt64P(ptr, &ret)
+			}
+			return nil
+		case "*float32":
+			if ret, err := utils.NewFloat32(b); err != nil {
+				return err
+			} else {
+				utils.SetFloat32P(ptr, &ret)
+			}
+			return nil
+		case "*float64":
+			if ret, err := utils.NewFloat64(b); err != nil {
+				return err
+			} else {
+				utils.SetFloat64P(ptr, &ret)
+			}
+			return nil
+		case "*decimal.Decimal":
+			if ret, err := utils.NewString(b); err != nil {
+				return err
+			} else {
+				decValue, err := decimal.NewFromString(ret)
+				if err != nil {
+					return err
+				}
+				reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(&decValue))
+			}
+			return nil
+		}
 		structValue := reflect.ValueOf(obj).Elem()
 		pointerObjValue := structValue.FieldByName(elem.FieldName)
 		objType := pointerObjValue.Type().Elem()
@@ -817,6 +906,26 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 		return nil
 	}
 	return nil
+}
+
+func BytesToInt64Ptr(data []byte, isBigEndian bool) (*int64, error) {
+	// 检查字节切片长度是否足够
+	if len(data) < 8 {
+		return nil, fmt.Errorf("input byte slice length must be at least 8 bytes, got %d", len(data))
+	}
+
+	var value int64
+	if isBigEndian {
+		// 大端序解析
+		value = int64(binary.BigEndian.Uint64(data[:8]))
+	} else {
+		// 小端序解析
+		value = int64(binary.LittleEndian.Uint64(data[:8]))
+	}
+
+	// 创建指向 int64 值的指针
+	ptr := &value
+	return ptr, nil
 }
 
 func getValueJsonStr(arr interface{}) (string, error) {
@@ -852,6 +961,12 @@ func getValueOfMapStr(obj interface{}, elem *FieldElem) (string, error) {
 		return "", err
 	} else if elem.FieldType == "decimal.Decimal" {
 		if decVal, ok := fv.Interface().(decimal.Decimal); ok {
+			return decVal.String(), nil
+		} else {
+			return "", errors.New("unable to convert to decimal.Decimal")
+		}
+	} else if elem.FieldType == "*decimal.Decimal" {
+		if decVal, ok := fv.Interface().(*decimal.Decimal); ok {
 			return decVal.String(), nil
 		} else {
 			return "", errors.New("unable to convert to decimal.Decimal")

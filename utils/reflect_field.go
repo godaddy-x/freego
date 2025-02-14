@@ -21,9 +21,19 @@ func GetString(ptr uintptr) string {
 	return *((*string)(unsafe.Pointer(ptr)))
 }
 
+// get *string value
+func GetStringP(ptr uintptr) *string {
+	return *((**string)(unsafe.Pointer(ptr)))
+}
+
 // set string value
 func SetString(ptr uintptr, v string) {
 	*((*string)(unsafe.Pointer(ptr))) = v
+}
+
+// set *string value
+func SetStringP(ptr uintptr, v *string) {
+	*((**string)(unsafe.Pointer(ptr))) = v
 }
 
 // get int value
@@ -31,9 +41,19 @@ func GetInt(ptr uintptr) int {
 	return *((*int)(unsafe.Pointer(ptr)))
 }
 
+// get *int value
+func GetIntP(ptr uintptr) *int {
+	return *((**int)(unsafe.Pointer(ptr)))
+}
+
 // set int value
 func SetInt(ptr uintptr, v int) {
 	*((*int)(unsafe.Pointer(ptr))) = v
+}
+
+// set *int value
+func SetIntP(ptr uintptr, v *int) {
+	*((**int)(unsafe.Pointer(ptr))) = v
 }
 
 // get int8 value
@@ -41,9 +61,19 @@ func GetInt8(ptr uintptr) int8 {
 	return *((*int8)(unsafe.Pointer(ptr)))
 }
 
+// get *int8 value
+func GetInt8P(ptr uintptr) *int8 {
+	return *((**int8)(unsafe.Pointer(ptr)))
+}
+
 // set int8 value
 func SetInt8(ptr uintptr, v int8) {
 	*((*int8)(unsafe.Pointer(ptr))) = v
+}
+
+// set *int8 value
+func SetInt8P(ptr uintptr, v *int8) {
+	*((**int8)(unsafe.Pointer(ptr))) = v
 }
 
 // get int16 value
@@ -51,9 +81,19 @@ func GetInt16(ptr uintptr) int16 {
 	return *((*int16)(unsafe.Pointer(ptr)))
 }
 
+// get *int16 value
+func GetInt16P(ptr uintptr) *int16 {
+	return *((**int16)(unsafe.Pointer(ptr)))
+}
+
 // set int16 value
 func SetInt16(ptr uintptr, v int16) {
 	*((*int16)(unsafe.Pointer(ptr))) = v
+}
+
+// set *int16 value
+func SetInt16P(ptr uintptr, v *int16) {
+	*((**int16)(unsafe.Pointer(ptr))) = v
 }
 
 // get int32 value
@@ -61,9 +101,19 @@ func GetInt32(ptr uintptr) int32 {
 	return *((*int32)(unsafe.Pointer(ptr)))
 }
 
+// get *int32 value
+func GetInt32P(ptr uintptr) *int32 {
+	return *((**int32)(unsafe.Pointer(ptr)))
+}
+
 // set int32 value
 func SetInt32(ptr uintptr, v int32) {
 	*((*int32)(unsafe.Pointer(ptr))) = v
+}
+
+// set *int32 value
+func SetInt32P(ptr uintptr, v *int32) {
+	*((**int32)(unsafe.Pointer(ptr))) = v
 }
 
 // get int64 value
@@ -71,9 +121,19 @@ func GetInt64(ptr uintptr) int64 {
 	return *((*int64)(unsafe.Pointer(ptr)))
 }
 
+// get *int64 value
+func GetInt64P(ptr uintptr) *int64 {
+	return *((**int64)(unsafe.Pointer(ptr)))
+}
+
 // set int64 value
 func SetInt64(ptr uintptr, v int64) {
 	*((*int64)(unsafe.Pointer(ptr))) = v
+}
+
+// set *int64 value
+func SetInt64P(ptr uintptr, v *int64) {
+	*(**int64)(unsafe.Pointer(ptr)) = v
 }
 
 // get float32 value
@@ -81,9 +141,19 @@ func GetFloat32(ptr uintptr) float32 {
 	return *((*float32)(unsafe.Pointer(ptr)))
 }
 
+// get *float32 value
+func GetFloat32P(ptr uintptr) *float32 {
+	return *((**float32)(unsafe.Pointer(ptr)))
+}
+
 // set float32 value
 func SetFloat32(ptr uintptr, v float32) {
 	*((*float32)(unsafe.Pointer(ptr))) = v
+}
+
+// set *float32 value
+func SetFloat32P(ptr uintptr, v *float32) {
+	*((**float32)(unsafe.Pointer(ptr))) = v
 }
 
 // get float64 value
@@ -91,9 +161,19 @@ func GetFloat64(ptr uintptr) float64 {
 	return *((*float64)(unsafe.Pointer(ptr)))
 }
 
-// set float32 value
+// get *float64 value
+func GetFloat64P(ptr uintptr) *float64 {
+	return *((**float64)(unsafe.Pointer(ptr)))
+}
+
+// set float64 value
 func SetFloat64(ptr uintptr, v float64) {
 	*((*float64)(unsafe.Pointer(ptr))) = v
+}
+
+// set *float64 value
+func SetFloat64P(ptr uintptr, v *float64) {
+	*((**float64)(unsafe.Pointer(ptr))) = v
 }
 
 // get bool value

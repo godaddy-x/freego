@@ -328,8 +328,8 @@ func (self *RDBManager) Save(data ...sqlc.Object) error {
 					zlog.Error("[Mysql.Save] parameter value acquisition failed", 0, zlog.String("field", vv.FieldName), zlog.AddError(err))
 					continue
 				}
-				if vv.IsDate && fval == "" { // time = 0
-					fval = utils.Time2Str(utils.UnixMilli())
+				if vv.IsDate && (fval == nil || fval == "" || fval == 0) { // time = 0
+					fval = nil
 				}
 				parameter = append(parameter, fval)
 			}
@@ -433,7 +433,7 @@ func (self *RDBManager) Update(data ...sqlc.Object) error {
 			zlog.Error("[Mysql.update] parameter value acquisition failed", 0, zlog.String("field", v.FieldName), zlog.AddError(err))
 			return utils.Error(err)
 		}
-		if v.IsDate && fval == "" {
+		if v.IsDate && (fval == nil || fval == "" || fval == 0) {
 			continue
 		}
 		fpart.WriteString(" ")
