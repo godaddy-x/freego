@@ -97,6 +97,10 @@ func (self *HttpNode) Json(ctx *Context, data interface{}) error {
 	return ctx.Json(data)
 }
 
+func (self *HttpNode) Empty(ctx *Context) error {
+	return ctx.NoBody()
+}
+
 func (self *HttpNode) Text(ctx *Context, data string) error {
 	return ctx.Text(data)
 }
@@ -341,6 +345,12 @@ func defaultRenderError(ctx *Context, err error) error {
 			resp.Nonce = ctx.JsonBody.Nonce
 		}
 	}
+	if ctx.RouterConfig == nil {
+		ctx.Response.StatusCode = 400
+		ctx.Response.ContentType = TEXT_PLAIN
+		ctx.Response.ContentEntityByte.Write(utils.Str2Bytes(resp.Message))
+		return nil
+	}
 	if ctx.RouterConfig.Guest {
 		if out.Code <= 600 {
 			ctx.Response.StatusCode = out.Code
@@ -446,6 +456,8 @@ func defaultRenderPre(ctx *Context) error {
 		} else {
 			ctx.Response.ContentEntityByte.Write(result)
 		}
+	case NO_BODY:
+		return nil
 	default:
 		return ex.Throw{Code: http.StatusUnsupportedMediaType, Msg: "invalid response ContentType"}
 	}

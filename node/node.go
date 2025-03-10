@@ -25,6 +25,7 @@ const (
 
 	TEXT_PLAIN       = "text/plain; charset=utf-8"
 	APPLICATION_JSON = "application/json; charset=utf-8"
+	NO_BODY          = "no_body"
 
 	GET     = "GET"
 	POST    = "POST"
@@ -554,5 +555,11 @@ func (self *Context) Json(data interface{}) error {
 func (self *Context) Text(data string) error {
 	self.Response.ContentType = TEXT_PLAIN
 	self.Response.ContentEntity = data
+	return nil
+}
+
+func (self *Context) NoBody() error {
+	self.Response.ContentType = NO_BODY
+	self.Response.ContentEntity = nil
 	return nil
 }
