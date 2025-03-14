@@ -170,14 +170,14 @@ func GetValue(obj interface{}, elem *FieldElem) (interface{}, error) {
 	case reflect.Int:
 		ret := utils.GetInt(ptr)
 		if elem.IsDate {
-			if ret <= 0 {
+			if ret == 0 {
 				return nil, nil
 			}
 			return utils.Time2FormatStr(int64(ret), modelTime.fmt, modelTime.local), nil
 		} else if elem.IsDate2 {
-			if ret <= 0 {
-				return nil, nil
-			}
+			//if ret == 0 {
+			//	return nil, nil
+			//}
 			return utils.Time2FormatStr(int64(ret), modelTime.fmt2, modelTime.local), nil
 		}
 		return ret, nil
@@ -188,28 +188,28 @@ func GetValue(obj interface{}, elem *FieldElem) (interface{}, error) {
 	case reflect.Int32:
 		ret := utils.GetInt32(ptr)
 		if elem.IsDate {
-			if ret <= 0 {
+			if ret == 0 {
 				return nil, nil
 			}
 			return utils.Time2FormatStr(int64(ret), modelTime.fmt, modelTime.local), nil
 		} else if elem.IsDate2 {
-			if ret <= 0 {
-				return nil, nil
-			}
+			//if ret == 0 {
+			//	return nil, nil
+			//}
 			return utils.Time2FormatStr(int64(ret), modelTime.fmt2, modelTime.local), nil
 		}
 		return ret, nil
 	case reflect.Int64:
 		ret := utils.GetInt64(ptr)
 		if elem.IsDate {
-			if ret <= 0 {
+			if ret == 0 {
 				return nil, nil
 			}
 			return utils.Time2FormatStr(ret, modelTime.fmt, modelTime.local), nil
 		} else if elem.IsDate2 {
-			if ret <= 0 {
-				return nil, nil
-			}
+			//if ret == 0 {
+			//	return nil, nil
+			//}
 			return utils.Time2FormatStr(ret, modelTime.fmt2, modelTime.local), nil
 		}
 		return ret, nil
