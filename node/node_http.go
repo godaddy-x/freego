@@ -77,7 +77,14 @@ func (self *HttpNode) StartServer(addr string) {
 			panic("filter chain is nil")
 		}
 		zlog.Printf("http【%s】service has been started successful", addr)
-		if err := fasthttp.Serve(NewGracefulListener(addr, time.Second*time.Duration(defaultTimeout)), self.Context.router.Handler); err != nil {
+		//if err := fasthttp.Serve(NewGracefulListener(addr, time.Second*time.Duration(defaultTimeout)), self.Context.router.Handler); err != nil {
+		//	panic(err)
+		//}
+		s := &fasthttp.Server{
+			Handler:            self.Context.router.Handler,
+			MaxRequestBodySize: MAX_BODY_LEN,
+		}
+		if err := s.Serve(NewGracefulListener(addr, time.Second*time.Duration(defaultTimeout))); err != nil {
 			panic(err)
 		}
 	}()
