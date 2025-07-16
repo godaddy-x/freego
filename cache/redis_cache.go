@@ -13,14 +13,17 @@ var (
 )
 
 type RedisConfig struct {
-	DsName      string
-	Host        string
-	Port        int
-	Password    string
-	MaxIdle     int
-	MaxActive   int
-	IdleTimeout int
-	Network     string
+	DsName       string
+	Host         string
+	Port         int
+	Password     string
+	MaxIdle      int
+	MaxActive    int
+	IdleTimeout  int
+	Network      string
+	ConnTimeout  int
+	ReadTimeout  int
+	WriteTimeout int
 }
 
 type RedisManager struct {
@@ -38,21 +41,43 @@ func (self *RedisManager) InitConfig(input ...RedisConfig) (*RedisManager, error
 		if _, b := redisSessions[dsName]; b {
 			return nil, utils.Error("init redis pool failed: [", v.DsName, "] exist")
 		}
-		pool := &redis.Pool{MaxIdle: v.MaxIdle, MaxActive: v.MaxActive, IdleTimeout: time.Duration(v.IdleTimeout) * time.Second, Dial: func() (redis.Conn, error) {
-			c, err := redis.Dial(v.Network, utils.AddStr(v.Host, ":", utils.AnyToStr(v.Port)))
-			if err != nil {
-				return nil, err
-			}
-			if len(v.Password) > 0 {
-				if _, err := c.Do("AUTH", v.Password); err != nil {
-					if err := c.Close(); err != nil {
-						zlog.Error("redis close failed", 0, zlog.AddError(err))
-					}
+		connTimeout := 10
+		readTimeout := 10
+		writeTimeout := 10
+		if v.ConnTimeout > 0 {
+			connTimeout = v.ConnTimeout
+		}
+		if v.ReadTimeout > 0 {
+			readTimeout = v.ReadTimeout
+		}
+		if v.WriteTimeout > 0 {
+			writeTimeout = v.WriteTimeout
+		}
+		pool := &redis.Pool{
+			MaxIdle:     v.MaxIdle,
+			MaxActive:   v.MaxActive,
+			IdleTimeout: time.Duration(v.IdleTimeout) * time.Second,
+			Dial: func() (redis.Conn, error) {
+				c, err := redis.Dial(
+					v.Network,
+					utils.AddStr(v.Host, ":", utils.AnyToStr(v.Port)),
+					redis.DialConnectTimeout(time.Duration(connTimeout)*time.Second), // 连接建立超时
+					redis.DialReadTimeout(time.Duration(readTimeout)*time.Second),    // 读取超时（适用于 GET、LRANGE 等）
+					redis.DialWriteTimeout(time.Duration(writeTimeout)*time.Second),  // 写入超时（适用于 SET、LPUSH 等）
+				)
+				if err != nil {
 					return nil, err
 				}
-			}
-			return c, err
-		}}
+				if len(v.Password) > 0 {
+					if _, err := c.Do("AUTH", v.Password); err != nil {
+						if err := c.Close(); err != nil {
+							zlog.Error("redis close failed", 0, zlog.AddError(err))
+						}
+						return nil, err
+					}
+				}
+				return c, err
+			}}
 		redisSessions[dsName] = &RedisManager{Pool: pool, DsName: dsName}
 		zlog.Printf("redis service【%s】has been started successful", dsName)
 	}
