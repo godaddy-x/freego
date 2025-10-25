@@ -8,7 +8,12 @@ package jwt
 import (
 	"strings"
 
+	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/utils"
+)
+
+var (
+	localSubjectCache = cache.NewLocalCache(120, 10)
 )
 
 const (
@@ -264,6 +269,15 @@ var (
 
 // GetTokenSecretEnhanced 高效安全的原文插入特殊符号方法（推荐）
 func (self *Subject) GetTokenSecretEnhanced(token, secret string) string {
+
+	// 使用token+secret组合作为缓存键
+	cacheKey := utils.SHA256(utils.AddStr(token, secret))
+
+	// 正确的缓存获取逻辑
+	if value, err := localSubjectCache.GetString(cacheKey); err == nil && len(value) > 0 {
+		return value
+	}
+
 	// 高效安全的原文插入特殊符号：使用base方法优化性能
 	localKey := utils.GetLocalTokenSecretKey()
 
@@ -277,7 +291,7 @@ func (self *Subject) GetTokenSecretEnhanced(token, secret string) string {
 
 	// 第三步：优化的SHA-512迭代（使用base方法，减少字符串转换）
 	hashBytes := inputBytes
-	for i := 0; i < 5000; i++ { // 优化：从10,000次减少到5,000次
+	for i := 0; i < 10000; i++ { // 金融级安全：10,000次迭代
 		hashBytes = utils.SHA512_BASE(hashBytes)
 	}
 
@@ -286,7 +300,12 @@ func (self *Subject) GetTokenSecretEnhanced(token, secret string) string {
 	enhancedHashBytes := utils.HMAC_SHA512_BASE(hashBytes, enhancedLocalKeyBytes)
 
 	// 第五步：转换为Base64字符串
-	return utils.Base64Encode(enhancedHashBytes)
+	result := utils.Base64Encode(enhancedHashBytes)
+
+	// 修复：缓存结果，1天有效期
+	_ = localSubjectCache.Put(cacheKey, result, 86400)
+
+	return result
 }
 
 // insertSpecialCharsOptimized 优化的原文插入特殊符号方法

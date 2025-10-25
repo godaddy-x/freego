@@ -242,7 +242,7 @@ func (self *PullReceiver) OnReceive(b []byte) bool {
 		return true
 	}
 	if sigTyp == 1 {
-		aesContent, err := utils.AesDecrypt(v, sigKey, sigKey)
+		aesContent, err := utils.AesCBCDecrypt(v, sigKey)
 		if err != nil {
 			zlog.Error("rabbitmq consumption data aes decrypt failed", 0, zlog.Any("option", self.Config.Option), zlog.Any("message", msg))
 			return true
