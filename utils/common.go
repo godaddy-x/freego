@@ -16,9 +16,6 @@ import (
 	"encoding/gob"
 	"encoding/hex"
 	"errors"
-	"github.com/godaddy-x/freego/utils/decimal"
-	"github.com/godaddy-x/freego/utils/snowflake"
-	"github.com/google/uuid"
 	"io/ioutil"
 	"log"
 	"net"
@@ -29,6 +26,10 @@ import (
 	"time"
 	"unicode/utf8"
 	"unsafe"
+
+	"github.com/godaddy-x/freego/utils/decimal"
+	"github.com/godaddy-x/freego/utils/snowflake"
+	"github.com/google/uuid"
 )
 
 var (
@@ -140,24 +141,68 @@ func HasStr(s1 string, s2 string) bool {
 	return false
 }
 
-// 高性能拼接字符串
-func AddStr(input ...interface{}) string {
-	if input == nil || len(input) == 0 {
+func AddStrLen(length int, input ...interface{}) string {
+	if len(input) == 0 {
 		return ""
 	}
+
 	var rstr bytes.Buffer
+	rstr.Grow(length) // 预分配64字节，减少内存重分配
 	for _, vs := range input {
 		if v, b := vs.(string); b {
 			rstr.WriteString(v)
 		} else if v, b := vs.([]byte); b {
-			rstr.WriteString(Bytes2Str(v))
+			rstr.Write(v) // 直接写入字节，避免转换
 		} else if v, b := vs.(error); b {
 			rstr.WriteString(v.Error())
 		} else {
 			rstr.WriteString(AnyToStr(vs))
 		}
 	}
-	return Bytes2Str(rstr.Bytes())
+	return rstr.String() // 直接返回字符串，避免转换
+}
+
+// 高性能拼接字符串
+func AddStr(input ...interface{}) string {
+	// 智能预估长度
+	estimatedLen := estimateLength(input)
+	return AddStrLen(estimatedLen, input...)
+}
+
+// 智能预估字符串长度
+func estimateLength(input []interface{}) int {
+	if len(input) == 0 {
+		return 0
+	}
+
+	// 基础长度：每个参数平均8字节
+	baseLen := len(input) * 8
+
+	// 根据参数类型调整
+	for _, v := range input {
+		switch s := v.(type) {
+		case string:
+			baseLen += len(s)
+		case []byte:
+			baseLen += len(s)
+		case error:
+			baseLen += 32 // 错误信息通常较短
+		default:
+			baseLen += 16 // 其他类型预估16字节
+		}
+	}
+
+	// 确保最小长度
+	if baseLen < 32 {
+		return 32
+	}
+
+	// 确保最大长度（避免过度分配）
+	if baseLen > 1024 {
+		return 1024
+	}
+
+	return baseLen
 }
 
 // 高性能拼接错误对象
@@ -381,6 +426,12 @@ func MD5(s string, useBase64 ...bool) string {
 	return Base64Encode(has[:])
 }
 
+// MD5哈希
+func MD5_BASE(s []byte) []byte {
+	has := md5.Sum(s)
+	return has[:]
+}
+
 // HMAC-MD5加密
 func HMAC_MD5(data, key string, useBase64 ...bool) string {
 	hmac := hmac.New(md5.New, Str2Bytes(key))
@@ -420,7 +471,34 @@ func HMAC_SHA512(data, key string, useBase64 ...bool) string {
 	return Base64Encode(hmac.Sum([]byte(nil)))
 }
 
-// SHA256加密
+func HMAC_SHA512_BASE(data, key []byte) []byte {
+	hmac := hmac.New(sha512.New, key)
+	hmac.Write(data)
+	return hmac.Sum([]byte(nil))
+}
+
+// HMAC_MD5_BASE 返回原始字节数组的HMAC-MD5
+func HMAC_MD5_BASE(data, key []byte) []byte {
+	hmac := hmac.New(md5.New, key)
+	hmac.Write(data)
+	return hmac.Sum([]byte(nil))
+}
+
+// HMAC_SHA1_BASE 返回原始字节数组的HMAC-SHA1
+func HMAC_SHA1_BASE(data, key []byte) []byte {
+	hmac := hmac.New(sha1.New, key)
+	hmac.Write(data)
+	return hmac.Sum([]byte(nil))
+}
+
+// HMAC_SHA256_BASE 返回原始字节数组的HMAC-SHA256
+func HMAC_SHA256_BASE(data, key []byte) []byte {
+	hmac := hmac.New(sha256.New, key)
+	hmac.Write(data)
+	return hmac.Sum([]byte(nil))
+}
+
+// SHA256哈希
 func SHA256(s string, useBase64 ...bool) string {
 	h := sha256.New()
 	h.Write(Str2Bytes(s))
@@ -429,6 +507,13 @@ func SHA256(s string, useBase64 ...bool) string {
 		return hex.EncodeToString(bs)
 	}
 	return Base64Encode(bs)
+}
+
+// SHA256哈希
+func SHA256_BASE(s []byte) []byte {
+	h := sha256.New()
+	h.Write(s)
+	return h.Sum(nil)
 }
 
 func SHA512(s string, useBase64 ...bool) string {
@@ -441,7 +526,14 @@ func SHA512(s string, useBase64 ...bool) string {
 	return Base64Encode(bs)
 }
 
-// SHA256加密
+// SHA512哈希
+func SHA512_BASE(s []byte) []byte {
+	h := sha512.New()
+	h.Write(s)
+	return h.Sum(nil)
+}
+
+// SHA1哈希
 func SHA1(s string, useBase64 ...bool) string {
 	h := sha1.New()
 	h.Write(Str2Bytes(s))
@@ -450,6 +542,13 @@ func SHA1(s string, useBase64 ...bool) string {
 		return hex.EncodeToString(bs)
 	}
 	return Base64Encode(bs)
+}
+
+// SHA1哈希
+func SHA1_BASE(s []byte) []byte {
+	h := sha1.New()
+	h.Write(s)
+	return h.Sum(nil)
 }
 
 // default base64 - 正向
@@ -462,27 +561,11 @@ func Base64Encode(input interface{}) string {
 	} else {
 		return ""
 	}
-	if dataByte == nil || len(dataByte) == 0 {
+	if len(dataByte) == 0 {
 		return ""
 	}
 	return base64.StdEncoding.EncodeToString(dataByte)
 }
-
-// url base64 - 正向
-//func Base64URLEncode(input interface{}) string {
-//	var dataByte []byte
-//	if v, b := input.(string); b {
-//		dataByte = Str2Bytes(v)
-//	} else if v, b := input.([]byte); b {
-//		dataByte = v
-//	} else {
-//		return ""
-//	}
-//	if dataByte == nil || len(dataByte) == 0 {
-//		return ""
-//	}
-//	return base64.URLEncoding.EncodeToString(dataByte)
-//}
 
 // default base64 - 逆向
 func Base64Decode(input interface{}) []byte {
@@ -504,26 +587,6 @@ func Base64Decode(input interface{}) []byte {
 	}
 }
 
-// url base64 - 逆向
-//func Base64URLDecode(input interface{}) []byte {
-//	dataStr := ""
-//	if v, b := input.(string); b {
-//		dataStr = v
-//	} else if v, b := input.([]byte); b {
-//		dataStr = Bytes2Str(v)
-//	} else {
-//		return nil
-//	}
-//	if len(dataStr) == 0 {
-//		return nil
-//	}
-//	if r, err := base64.URLEncoding.DecodeString(dataStr); err != nil {
-//		return nil
-//	} else {
-//		return r
-//	}
-//}
-
 func ToJsonBase64(input interface{}) (string, error) {
 	if input == nil {
 		input = map[string]string{}
@@ -537,7 +600,7 @@ func ToJsonBase64(input interface{}) (string, error) {
 
 func ParseJsonBase64(input interface{}, ouput interface{}) error {
 	b := Base64Decode(input)
-	if b == nil || len(b) == 0 {
+	if len(b) == 0 {
 		return Error("base64 data decode failed")
 	}
 	return JsonUnmarshal(b, ouput)

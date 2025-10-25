@@ -80,7 +80,7 @@ func (lock *Lock) unlock() {
 func (self *RedisManager) getLockWithTimeout(conn redis.Conn, resource string, expSecond time.Duration, spin bool) (lock *Lock, ok bool, err error) {
 	lock = &Lock{
 		resource: resource,
-		token:    utils.NextSID(),
+		token:    utils.GetUUID(),
 		conn:     conn,
 		exp:      expSecond,
 		spin:     spin,
@@ -146,7 +146,7 @@ func (self *RedisManager) TryLockWithTimeout(resource string, expSecond int, cal
 	client := self.Pool.Get()
 	lock, ok, err := self.getLockWithTimeout(client, resource, time.Duration(expSecond)*time.Second, false)
 	if err != nil {
-		return ex.Throw{Code: ex.REDIS_LOCK_ACQUIRE, Msg: "locker acquire failed", Err: err}
+		return ex.Throw{Code: ex.REDIS_LOCK_ACQUIRE, Msg: "locker acquire failed: " + err.Error(), Err: err}
 	}
 	if !ok {
 		return ex.Throw{Code: ex.REDIS_LOCK_PENDING, Msg: "locker pending"}

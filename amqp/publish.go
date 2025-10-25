@@ -234,7 +234,7 @@ func (self *PublishManager) PublishMsgData(data *MsgData) error {
 		return utils.Error("rabbitmq publish content is nil")
 	}
 	if sigTyp == 1 {
-		aesContent, err := utils.AesEncrypt(utils.Str2Bytes(content), sigKey, sigKey)
+		aesContent, err := utils.AesCBCEncrypt(utils.Str2Bytes(content), sigKey)
 		if err != nil {
 			return utils.Error("rabbitmq publish content aes encrypt failed: ", err)
 		}

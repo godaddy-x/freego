@@ -44,7 +44,7 @@ func authReq(path string, requestObj interface{}, secret string, encrypted ...bo
 		Plan:  0,
 	}
 	if len(encrypted) > 0 && encrypted[0] {
-		d, err := utils.AesEncrypt(jsonBody.Data.([]byte), secret, utils.AddStr(jsonBody.Nonce, jsonBody.Time))
+		d, err := utils.AesCBCEncrypt(jsonBody.Data.([]byte), secret)
 		if err != nil {
 			return nil, ex.Throw{Msg: "request data AES encrypt failed"}
 		}
@@ -90,7 +90,7 @@ func authRes(client *WsClient, respBytes []byte) ([]byte, error) {
 	if respData.Plan == 0 {
 		dec = utils.Base64Decode(respData.Data)
 	} else if respData.Plan == 1 {
-		dec, err = utils.AesDecrypt(respData.Data.(string), client.auth.Secret, utils.AddStr(respData.Nonce, respData.Time))
+		dec, err = utils.AesCBCDecrypt(respData.Data.(string), client.auth.Secret)
 		if err != nil {
 			return nil, ex.Throw{Msg: "post response data AES decrypt failed"}
 		}

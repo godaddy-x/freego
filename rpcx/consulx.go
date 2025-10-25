@@ -168,7 +168,7 @@ func (self *ConsulManager) GetAesJsonValue(key, encKey string, result interface{
 	if k == nil || k.Value == nil || len(k.Value) == 0 {
 		return utils.Error("consul node [", key, "] read is nil...")
 	}
-	bts, err := utils.AesDecrypt(utils.Bytes2Str(k.Value), encKey, encKey)
+	bts, err := utils.AesCBCDecrypt(utils.Bytes2Str(k.Value), encKey)
 	if err != nil {
 		return err
 	}

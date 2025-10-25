@@ -6,8 +6,9 @@ package jwt
  */
 
 import (
-	"github.com/godaddy-x/freego/utils"
 	"strings"
+
+	"github.com/godaddy-x/freego/utils"
 )
 
 const (
@@ -124,17 +125,7 @@ func (self *Subject) Signature(text, key string) string {
 }
 
 func (self *Subject) GetTokenSecret(token, secret string) string {
-	key := utils.GetLocalTokenSecretKey()
-	key2 := utils.HMAC_SHA256(utils.AddStr(utils.SHA256(token, true), utils.MD5(utils.GetLocalSecretKey()), true), secret, true)
-	keyBs := utils.Str2Bytes(key)
-	key2Bs := utils.Str2Bytes(key2)
-	secBs := make([]byte, 64)
-	copy(secBs, key2Bs[0:15])
-	copy(secBs[15:], keyBs[3:13])
-	copy(secBs[25:], key2Bs[15:30])
-	copy(secBs[40:], keyBs[10:20])
-	copy(secBs[50:], key2Bs[30:])
-	return utils.Bytes2Str(secBs)
+	return self.GetTokenSecretEnhanced(token, secret)
 }
 
 func (self *Subject) Verify(token, key string, decode bool) error {
@@ -264,4 +255,60 @@ func GetTokenSecret(token, secret string) string {
 	}
 	subject := &Subject{}
 	return subject.GetTokenSecret(token, secret)
+}
+
+// 金融级特殊符号模式（全局变量，避免重复创建）
+var (
+	FinancialSpecialPattern = []byte("!@#$%^&*0123456789") // 16个金融级特殊符号
+)
+
+// GetTokenSecretEnhanced 高效安全的原文插入特殊符号方法（推荐）
+func (self *Subject) GetTokenSecretEnhanced(token, secret string) string {
+	// 高效安全的原文插入特殊符号：使用base方法优化性能
+	localKey := utils.GetLocalTokenSecretKey()
+
+	// 第一步：高效原文插入特殊符号（优化版）
+	enhancedToken := self.insertSpecialCharsOptimized(token)
+	enhancedSecret := self.insertSpecialCharsOptimized(secret)
+	enhancedLocalKey := self.insertSpecialCharsOptimized(localKey)
+
+	// 第二步：组合增强后的材料（使用字节数组）
+	inputBytes := utils.Str2Bytes(enhancedToken + enhancedLocalKey + enhancedSecret)
+
+	// 第三步：优化的SHA-512迭代（使用base方法，减少字符串转换）
+	hashBytes := inputBytes
+	for i := 0; i < 5000; i++ { // 优化：从10,000次减少到5,000次
+		hashBytes = utils.SHA512_BASE(hashBytes)
+	}
+
+	// 第四步：HMAC-SHA512增强（使用base方法）
+	enhancedLocalKeyBytes := utils.Str2Bytes(enhancedLocalKey)
+	enhancedHashBytes := utils.HMAC_SHA512_BASE(hashBytes, enhancedLocalKeyBytes)
+
+	// 第五步：转换为Base64字符串
+	return utils.Base64Encode(enhancedHashBytes)
+}
+
+// insertSpecialCharsOptimized 优化的原文插入特殊符号方法
+func (self *Subject) insertSpecialCharsOptimized(text string) string {
+	// 性能优化：预分配内存，减少内存分配次数
+	textLen := len(text)
+	if textLen == 0 {
+		return text
+	}
+
+	// 预分配内存：原长度 + 特殊符号数量
+	specialCount := textLen / 2
+	enhanced := make([]byte, 0, textLen+specialCount)
+
+	// 使用全局特殊符号模式（避免重复创建）
+	for i, b := range []byte(text) {
+		if i > 0 && i%2 == 0 {
+			// 每2个字符插入一个特殊符号
+			enhanced = append(enhanced, FinancialSpecialPattern[i/2%len(FinancialSpecialPattern)])
+		}
+		enhanced = append(enhanced, b)
+	}
+
+	return utils.Bytes2Str(enhanced)
 }

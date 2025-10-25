@@ -2,6 +2,11 @@ package node
 
 import (
 	"fmt"
+	"net/http"
+	"strings"
+	"sync"
+	"time"
+
 	"github.com/buaazp/fasthttprouter"
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/ex"
@@ -10,10 +15,6 @@ import (
 	"github.com/godaddy-x/freego/utils/jwt"
 	"github.com/godaddy-x/freego/zlog"
 	"github.com/valyala/fasthttp"
-	"net/http"
-	"strings"
-	"sync"
-	"time"
 )
 
 var emptyMap = map[string]string{}
@@ -426,13 +427,9 @@ func defaultRenderPre(ctx *Context) error {
 			return ex.Throw{Code: http.StatusInternalServerError, Msg: "response conversion JSON failed", Err: err}
 		}
 		resp := &JsonResp{
-			Code: http.StatusOK,
-			Time: utils.UnixMilli(),
-		}
-		if ctx.JsonBody == nil || len(ctx.JsonBody.Nonce) == 0 {
-			resp.Nonce = utils.RandNonce()
-		} else {
-			resp.Nonce = ctx.JsonBody.Nonce
+			Code:  http.StatusOK,
+			Time:  utils.UnixSecond(),
+			Nonce: utils.RandNonce(),
 		}
 		var key string
 		if routerConfig.UseRSA || routerConfig.UseHAX { // 非登录状态响应
@@ -442,7 +439,7 @@ func defaultRenderPre(ctx *Context) error {
 					return ex.Throw{Msg: "encryption random code is nil"}
 				}
 				key, _ = v.(string)
-				data, err := utils.AesEncrypt(data, key, key)
+				data, err := utils.AesCBCEncrypt(data, key)
 				if err != nil {
 					return ex.Throw{Code: http.StatusInternalServerError, Msg: "AES encryption response data failed", Err: err}
 				}
@@ -457,7 +454,7 @@ func defaultRenderPre(ctx *Context) error {
 				return ex.Throw{Msg: "anonymous response plan invalid"}
 			}
 		} else if routerConfig.AesResponse {
-			data, err := utils.AesEncrypt(data, ctx.GetTokenSecret(), utils.AddStr(resp.Nonce, resp.Time))
+			data, err := utils.AesCBCEncrypt(data, ctx.GetTokenSecret())
 			if err != nil {
 				return ex.Throw{Code: http.StatusInternalServerError, Msg: "AES encryption response data failed", Err: err}
 			}

@@ -3,12 +3,13 @@ package sdk
 import (
 	"encoding/base64"
 	"fmt"
-	"github.com/godaddy-x/eccrypto"
+	"time"
+
+	ecc "github.com/godaddy-x/eccrypto"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/node"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/valyala/fasthttp"
-	"time"
 )
 
 type AuthToken struct {
@@ -55,7 +56,9 @@ func (s *HttpSDK) debugOut(a ...interface{}) {
 
 func (s *HttpSDK) getURI(path string) string {
 	if s.KeyPath == path || s.LoginPath == path {
-		return s.AuthDomain + path
+		if len(s.AuthDomain) > 0 {
+			return s.AuthDomain + path
+		}
 	}
 	return s.Domain + path
 }
@@ -95,12 +98,12 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	if err != nil {
 		return err
 	}
-	clientSecretKey := utils.RandStr(24)
+	clientSecretKey := utils.GetRandomSecure(32)
 	_, pubBs, err := ecc.LoadBase64PublicKey(publicKey)
 	if err != nil {
 		return ex.Throw{Msg: "load ECC public key failed"}
 	}
-	r, err := ecc.Encrypt(pubBs, utils.Str2Bytes(clientSecretKey))
+	r, err := ecc.Encrypt(pubBs, clientSecretKey)
 	if err != nil {
 		return ex.Throw{Msg: "ECC encrypt failed"}
 	}
@@ -108,7 +111,7 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	s.debugOut("server key: ", publicKey)
 	s.debugOut("client key: ", clientSecretKey)
 	s.debugOut("client key encrypted: ", randomCode)
-	d, err := utils.AesEncrypt(jsonBody.Data.([]byte), clientSecretKey, clientSecretKey)
+	d, err := utils.AesCBCEncrypt(jsonBody.Data.([]byte), utils.Base64Encode(clientSecretKey))
 	if err != nil {
 		return ex.Throw{Msg: "request data AES encrypt failed"}
 	}
@@ -159,12 +162,12 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 		}
 		return ex.Throw{Msg: respData.Message}
 	}
-	validSign := utils.HMAC_SHA256(utils.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan), clientSecretKey, true)
+	validSign := utils.HMAC_SHA256(utils.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan), utils.Base64Encode(clientSecretKey), true)
 	if validSign != respData.Sign {
 		return ex.Throw{Msg: "post response sign verify invalid"}
 	}
 	s.debugOut("response sign verify: ", validSign == respData.Sign)
-	dec, err := utils.AesDecrypt(respData.Data.(string), clientSecretKey, clientSecretKey)
+	dec, err := utils.AesCBCDecrypt(respData.Data.(string), utils.Base64Encode(clientSecretKey))
 	if err != nil {
 		return ex.Throw{Msg: "post response data AES decrypt failed"}
 	}
@@ -311,7 +314,7 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 		Plan:  0,
 	}
 	if len(encrypted) > 0 && encrypted[0] {
-		d, err := utils.AesEncrypt(jsonBody.Data.([]byte), s.authToken.Secret, utils.AddStr(jsonBody.Nonce, jsonBody.Time))
+		d, err := utils.AesCBCEncrypt(jsonBody.Data.([]byte), s.authToken.Secret)
 		if err != nil {
 			return ex.Throw{Msg: "request data AES encrypt failed"}
 		}
@@ -375,7 +378,7 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 		dec = utils.Base64Decode(respData.Data)
 		s.debugOut("response data base64: ", string(dec))
 	} else if respData.Plan == 1 {
-		dec, err = utils.AesDecrypt(respData.Data.(string), s.authToken.Secret, utils.AddStr(respData.Nonce, respData.Time))
+		dec, err = utils.AesCBCDecrypt(respData.Data.(string), s.authToken.Secret)
 		if err != nil {
 			return ex.Throw{Msg: "post response data AES decrypt failed"}
 		}
@@ -404,7 +407,7 @@ func BuildRequestObject(path string, requestObj interface{}, secret string, encr
 		Plan:  0,
 	}
 	if len(encrypted) > 0 && encrypted[0] {
-		d, err := utils.AesEncrypt(jsonBody.Data.([]byte), secret, utils.AddStr(jsonBody.Nonce, jsonBody.Time))
+		d, err := utils.AesCBCEncrypt(jsonBody.Data.([]byte), secret)
 		if err != nil {
 			return nil, ex.Throw{Msg: "request data AES encrypt failed"}
 		}

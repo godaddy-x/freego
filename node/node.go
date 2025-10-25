@@ -2,6 +2,10 @@ package node
 
 import (
 	"bytes"
+	"net/http"
+	"strings"
+	"unsafe"
+
 	"github.com/buaazp/fasthttprouter"
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/ex"
@@ -11,9 +15,6 @@ import (
 	"github.com/godaddy-x/freego/utils/jwt"
 	"github.com/godaddy-x/freego/zlog"
 	"github.com/valyala/fasthttp"
-	"net/http"
-	"strings"
-	"unsafe"
 )
 
 const (
@@ -384,7 +385,7 @@ func (self *Context) validJsonBody() error {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter Base64 parsing failed"}
 		}
 	} else if body.Plan == 1 && !anonymous { // 登录状态 P1 AES
-		rawData, err = utils.AesDecrypt(d, self.GetTokenSecret(), utils.AddStr(body.Nonce, body.Time))
+		rawData, err = utils.AesCBCDecrypt(d, self.GetTokenSecret())
 		if err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "AES failed to parse data", Err: err}
 		}
@@ -404,11 +405,12 @@ func (self *Context) validJsonBody() error {
 		if len(code) == 0 {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "server private-key decrypt data is nil", Err: err}
 		}
-		rawData, err = utils.AesDecrypt(d, code, code)
+		codeBase64 := utils.Base64Encode(code)
+		rawData, err = utils.AesCBCDecrypt(d, codeBase64)
 		if err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "AES failed to parse data", Err: err}
 		}
-		self.AddStorage(RandomCode, code)
+		self.AddStorage(RandomCode, codeBase64)
 	} else if body.Plan == 3 && self.RouterConfig.UseHAX && anonymous { // 非登录状态 P3 Base64
 		rawData = utils.Base64Decode(d)
 		if rawData == nil || len(rawData) == 0 {

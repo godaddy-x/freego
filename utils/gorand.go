@@ -1,7 +1,8 @@
 package utils
 
 import (
-	"math/rand"
+	"crypto/rand"
+	"math/big"
 	_ "unsafe"
 )
 
@@ -14,8 +15,17 @@ func fastrand() uint32
 
 func gorand(n int, characters string) string {
 	randomString := make([]byte, n)
+	charLen := big.NewInt(int64(len(characters)))
+
 	for i := range randomString {
-		randomString[i] = characters[rand.Intn(len(characters))]
+		// 使用加密安全的随机数生成器
+		randomIndex, err := rand.Int(rand.Reader, charLen)
+		if err != nil {
+			// 如果crypto/rand失败，回退到fastrand
+			randomString[i] = characters[ModRand(len(characters))]
+		} else {
+			randomString[i] = characters[randomIndex.Int64()]
+		}
 	}
 	return Bytes2Str(randomString)
 }
@@ -32,7 +42,7 @@ func RandInt(n int) string {
 }
 
 func RandNonce() string {
-	return RandStr(8)
+	return Base64Encode(GetAesIVSecure())
 }
 
 // ModRand 调用底层生成随机数,进行取模运算,性能提升10倍
