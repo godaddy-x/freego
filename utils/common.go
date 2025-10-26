@@ -175,34 +175,32 @@ func estimateLength(input []interface{}) int {
 		return 0
 	}
 
-	// 基础长度：每个参数平均8字节
-	baseLen := len(input) * 8
-
-	// 根据参数类型调整
+	// 直接计算实际所需的字节数
+	totalLen := 0
 	for _, v := range input {
 		switch s := v.(type) {
 		case string:
-			baseLen += len(s)
+			totalLen += len(s)
 		case []byte:
-			baseLen += len(s)
+			totalLen += len(s)
 		case error:
-			baseLen += 32 // 错误信息通常较短
+			totalLen += len(s.Error())
 		default:
-			baseLen += 16 // 其他类型预估16字节
+			totalLen += len(AnyToStr(v))
 		}
 	}
 
-	// 确保最小长度
-	if baseLen < 32 {
+	// 确保最小长度（避免频繁扩容）
+	if totalLen < 32 {
 		return 32
 	}
 
 	// 确保最大长度（避免过度分配）
-	if baseLen > 1024 {
+	if totalLen > 1024 {
 		return 1024
 	}
 
-	return baseLen
+	return totalLen
 }
 
 // 高性能拼接错误对象

@@ -6,10 +6,13 @@ package jwt
  */
 
 import (
+	"crypto/sha512"
 	"strings"
 
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/utils"
+	"github.com/godaddy-x/freego/zlog"
+	"golang.org/x/crypto/pbkdf2"
 )
 
 var (
@@ -262,72 +265,45 @@ func GetTokenSecret(token, secret string) string {
 	return subject.GetTokenSecret(token, secret)
 }
 
-// 金融级特殊符号模式（全局变量，避免重复创建）
-var (
-	FinancialSpecialPattern = []byte("!@#$%^&*0123456789") // 16个金融级特殊符号
-)
-
-// GetTokenSecretEnhanced 高效安全的原文插入特殊符号方法（推荐）
+// GetTokenSecretEnhanced 获取token的私钥（增强版）
+// 使用标准PBKDF2密钥派生，确保安全性和性能
 func (self *Subject) GetTokenSecretEnhanced(token, secret string) string {
 
-	// 使用token+secret组合作为缓存键
-	cacheKey := utils.SHA256(utils.AddStr(token, secret))
+	// 1. 获取本地密钥
+	localKey := utils.GetLocalTokenSecretKey()
 
-	// 正确的缓存获取逻辑
+	// 2. 从token中提取sub（JWT中已包含sub，不同用户的sub不同，token也不同）
+	//    token本身就包含了sub信息，所以使用token即可区分不同用户
+	password := utils.AddStr(token, localKey, secret)
+
+	// 3. 计算缓存键：基于password的SHA256
+	//    不同token（包含不同sub）产生不同的缓存键
+	cacheKey := utils.SHA256(password)
+
+	// 4. 尝试从缓存获取结果
 	if value, err := localSubjectCache.GetString(cacheKey); err == nil && len(value) > 0 {
 		return value
 	}
 
-	// 高效安全的原文插入特殊符号：使用base方法优化性能
-	localKey := utils.GetLocalTokenSecretKey()
+	// 5. 计算盐值：使用不同顺序的参数组合（顺序：token, secret, localKey）
+	//    与password顺序不同，确保缓存键和盐值不同，提升安全性
+	//    即使缓存键泄露，攻击者也无法直接获得盐值
+	salt := utils.SHA256(utils.AddStr(token, secret, localKey))
 
-	// 第一步：高效原文插入特殊符号（优化版）
-	enhancedToken := self.insertSpecialCharsOptimized(token)
-	enhancedSecret := self.insertSpecialCharsOptimized(secret)
-	enhancedLocalKey := self.insertSpecialCharsOptimized(localKey)
+	// 6. 使用标准PBKDF2密钥派生（HMAC-SHA512，10,000次迭代）
+	//    输出64字节密钥（SHA-512）
+	derivedKey := pbkdf2.Key(utils.Str2Bytes(password), utils.Str2Bytes(salt), 10000, 64, sha512.New)
 
-	// 第二步：组合增强后的材料（使用字节数组）
-	inputBytes := utils.Str2Bytes(enhancedToken + enhancedLocalKey + enhancedSecret)
+	// 7. HMAC-SHA512增强
+	localKeyBytes := utils.Str2Bytes(localKey)
+	enhancedHashBytes := utils.HMAC_SHA512_BASE(derivedKey, localKeyBytes)
 
-	// 第三步：优化的SHA-512迭代（使用base方法，减少字符串转换）
-	hashBytes := inputBytes
-	for i := 0; i < 10000; i++ { // 金融级安全：10,000次迭代
-		hashBytes = utils.SHA512_BASE(hashBytes)
-	}
-
-	// 第四步：HMAC-SHA512增强（使用base方法）
-	enhancedLocalKeyBytes := utils.Str2Bytes(enhancedLocalKey)
-	enhancedHashBytes := utils.HMAC_SHA512_BASE(hashBytes, enhancedLocalKeyBytes)
-
-	// 第五步：转换为Base64字符串
+	// 8. 转换为Base64字符串
 	result := utils.Base64Encode(enhancedHashBytes)
 
-	// 修复：缓存结果，1天有效期
-	_ = localSubjectCache.Put(cacheKey, result, 86400)
-
+	// 9. 缓存结果，1天有效期（平衡性能和内存占用）
+	if err := localSubjectCache.Put(cacheKey, result, 86400); err != nil {
+		zlog.Error("put localSubjectCache failed", 0, zlog.AddError(err))
+	}
 	return result
-}
-
-// insertSpecialCharsOptimized 优化的原文插入特殊符号方法
-func (self *Subject) insertSpecialCharsOptimized(text string) string {
-	// 性能优化：预分配内存，减少内存分配次数
-	textLen := len(text)
-	if textLen == 0 {
-		return text
-	}
-
-	// 预分配内存：原长度 + 特殊符号数量
-	specialCount := textLen / 2
-	enhanced := make([]byte, 0, textLen+specialCount)
-
-	// 使用全局特殊符号模式（避免重复创建）
-	for i, b := range []byte(text) {
-		if i > 0 && i%2 == 0 {
-			// 每2个字符插入一个特殊符号
-			enhanced = append(enhanced, FinancialSpecialPattern[i/2%len(FinancialSpecialPattern)])
-		}
-		enhanced = append(enhanced, b)
-	}
-
-	return utils.Bytes2Str(enhanced)
 }
