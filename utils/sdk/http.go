@@ -103,6 +103,7 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	if err != nil {
 		return ex.Throw{Msg: "load ECC public key failed"}
 	}
+	clientSecretKeyBase64 := utils.Base64Encode(clientSecretKey)
 	r, err := ecc.Encrypt(pubBs, clientSecretKey)
 	if err != nil {
 		return ex.Throw{Msg: "ECC encrypt failed"}
@@ -111,12 +112,12 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	s.debugOut("server key: ", publicKey)
 	s.debugOut("client key: ", clientSecretKey)
 	s.debugOut("client key encrypted: ", randomCode)
-	d, err := utils.AesCBCEncrypt(jsonBody.Data.([]byte), utils.Base64Encode(clientSecretKey))
+	d, err := utils.AesCBCEncrypt(jsonBody.Data.([]byte), clientSecretKeyBase64)
 	if err != nil {
 		return ex.Throw{Msg: "request data AES encrypt failed"}
 	}
 	jsonBody.Data = d
-	jsonBody.Sign = utils.HMAC_SHA256(utils.AddStr(path, jsonBody.Data.(string), jsonBody.Nonce, jsonBody.Time, jsonBody.Plan), publicKey, true)
+	jsonBody.Sign = utils.HMAC_SHA256(utils.AddStr(path, jsonBody.Data.(string), jsonBody.Nonce, jsonBody.Time, jsonBody.Plan), clientSecretKeyBase64, true)
 	bytesData, err := utils.JsonMarshal(jsonBody)
 	if err != nil {
 		return ex.Throw{Msg: "jsonBody data JsonMarshal invalid"}
@@ -162,12 +163,12 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 		}
 		return ex.Throw{Msg: respData.Message}
 	}
-	validSign := utils.HMAC_SHA256(utils.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan), utils.Base64Encode(clientSecretKey), true)
+	validSign := utils.HMAC_SHA256(utils.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan), clientSecretKeyBase64, true)
 	if validSign != respData.Sign {
 		return ex.Throw{Msg: "post response sign verify invalid"}
 	}
 	s.debugOut("response sign verify: ", validSign == respData.Sign)
-	dec, err := utils.AesCBCDecrypt(respData.Data.(string), utils.Base64Encode(clientSecretKey))
+	dec, err := utils.AesCBCDecrypt(respData.Data.(string), clientSecretKeyBase64)
 	if err != nil {
 		return ex.Throw{Msg: "post response data AES decrypt failed"}
 	}
@@ -178,7 +179,12 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	return nil
 }
 
+// PostByHAX 已废弃（Plan 3 已不再支持）
+// Deprecated: Plan 3 mode is no longer supported, please use PostByECC instead
+// 该函数保留是为了兼容旧代码，但调用时会直接返回错误
 func (s *HttpSDK) PostByHAX(path string, requestObj, responseObj interface{}) error {
+	return ex.Throw{Msg: "PostByHAX (Plan 3) is deprecated, please use PostByECC instead"}
+	// 以下代码已不再执行
 	if len(path) == 0 || requestObj == nil || responseObj == nil {
 		return ex.Throw{Msg: "params invalid"}
 	}

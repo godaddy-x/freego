@@ -371,6 +371,24 @@ func (self *Context) validJsonBody() error {
 		_, key = self.RSA.GetPublicKey()
 		anonymous = true
 	}
+
+	// 对于Plan==2（ECC模式），需要先解密RandomCode获取clientSecretKey
+	if body.Plan == 2 && self.RouterConfig.UseRSA && anonymous {
+		codeBs := self.RequestCtx.Request.Header.Peek(RandomCode)
+		randomCode := utils.Bytes2Str(codeBs)
+		if len(randomCode) == 0 {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "client random code invalid"}
+		}
+		code, err := self.RSA.Decrypt(randomCode)
+		if err != nil {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "server private-key decrypt failed", Err: err}
+		}
+		if len(code) == 0 {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "server private-key decrypt data is nil", Err: err}
+		}
+		key = utils.Base64Encode(code)
+	}
+
 	if self.GetHmac256Sign(d, body.Nonce, body.Time, body.Plan, key) != body.Sign {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature invalid"}
 	}
@@ -390,32 +408,17 @@ func (self *Context) validJsonBody() error {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "AES failed to parse data", Err: err}
 		}
 	} else if body.Plan == 2 && self.RouterConfig.UseRSA && anonymous { // 非登录状态 P2 RSA+AES
-		codeBs := self.RequestCtx.Request.Header.Peek(RandomCode)
-		if len(codeBs) > MAX_CODE_LEN {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "client random code invalid"}
-		}
-		randomCode := utils.Bytes2Str(codeBs)
-		if len(randomCode) == 0 {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "client random code invalid"}
-		}
-		code, err := self.RSA.Decrypt(randomCode)
-		if err != nil {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "server private-key decrypt failed", Err: err}
-		}
-		if len(code) == 0 {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "server private-key decrypt data is nil", Err: err}
-		}
-		codeBase64 := utils.Base64Encode(code)
-		rawData, err = utils.AesCBCDecrypt(d, codeBase64)
+		rawData, err = utils.AesCBCDecrypt(d, key)
 		if err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "AES failed to parse data", Err: err}
 		}
-		self.AddStorage(RandomCode, codeBase64)
+		self.AddStorage(RandomCode, key)
 	} else if body.Plan == 3 && self.RouterConfig.UseHAX && anonymous { // 非登录状态 P3 Base64
-		rawData = utils.Base64Decode(d)
-		if rawData == nil || len(rawData) == 0 {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter Base64 parsing failed"}
-		}
+		// rawData = utils.Base64Decode(d)
+		// if rawData == nil || len(rawData) == 0 {
+		// 	return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter Base64 parsing failed"}
+		// }
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "plan 3 not accepted"}
 	} else {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters plan invalid"}
 	}
