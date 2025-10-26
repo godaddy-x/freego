@@ -2,6 +2,7 @@ package http_web
 
 import (
 	"fmt"
+
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/geetest"
 	"github.com/godaddy-x/freego/node"
@@ -65,7 +66,7 @@ func (self *MyWebNode) login(ctx *node.Context) error {
 	//self.LoginBySubject(subject, exp)
 	config := ctx.GetJwtConfig()
 	token := ctx.Subject.Create(utils.NextSID()).Dev("APP").Generate(config)
-	secret := jwt.GetTokenSecret(token, config.TokenKey)
+	secret := ctx.Subject.GetTokenSecret(token, config.TokenKey)
 	return self.Json(ctx, &sdk.AuthToken{
 		Token:   token,
 		Secret:  secret,
@@ -197,10 +198,10 @@ func NewHTTP() *MyWebNode {
 
 func StartHttpNode() {
 	node.SetLengthCheck(node.MAX_BODY_LEN*5, 0, 0)
-	go geetest.CheckServerStatus(geetest.Config{})
+	// go geetest.CheckServerStatus(geetest.Config{})
 	my := NewHTTP()
 	my.POST("/test1", my.test, nil)
-	my.POST("/getUser", my.getUser, nil)
+	my.POST("/getUser", my.getUser, &node.RouterConfig{AesRequest: true, AesResponse: true})
 	my.POST("/testGuestPost", my.testGuestPost, &node.RouterConfig{Guest: true})
 	my.POST("/testHAX", my.testHAX, &node.RouterConfig{UseHAX: true})
 	my.GET("/key", my.publicKey, &node.RouterConfig{Guest: true})
