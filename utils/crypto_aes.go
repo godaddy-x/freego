@@ -85,9 +85,9 @@ func GetAesKeySecure(key string) []byte {
 
 // GetAesIV 不安全的MD5 IV生成（已废弃，仅用于兼容性）
 // Deprecated: 请使用 GetAesIVSecure 替代，MD5已被认为不安全
-func GetAesIV(iv string) []byte {
-	return Str2Bytes(Substr(MD5(iv), 0, 16))
-}
+// func GetAesIV(iv string) []byte {
+// 	return Str2Bytes(Substr(MD5(iv), 0, 16))
+// }
 
 // GetAesIVSecure 使用加密安全的随机数生成器生成IV（推荐）
 func GetAesIVSecure() []byte {
