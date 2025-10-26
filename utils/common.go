@@ -60,6 +60,13 @@ func GetSnowflakeNode(n int64) *snowflake.Node {
 	return node
 }
 
+func SetLocalSecretKey(key string) {
+	if len(key) < 24 {
+		panic("local secret length < 24")
+	}
+	local_secret_key = key
+}
+
 func GetLocalSecretKey() string {
 	return local_secret_key
 }

@@ -147,16 +147,22 @@ func (self *Subject) Verify(token, key string, decode bool) error {
 	part0 := part[0]
 	part1 := part[1]
 	part2 := part[2]
-	if self.Signature(utils.AddStr(part0, ".", part1), key) != part2 {
-		return utils.Error("token signature invalid")
-	}
+
+	// 性能优化1: 先检查过期时间（计算量小），避免过期token的昂贵签名验证
 	b64 := utils.Base64Decode(part1)
-	if b64 == nil || len(b64) == 0 {
+	if len(b64) == 0 {
 		return utils.Error("token part base64 data decode failed")
 	}
 	if int64(utils.GetJsonInt(b64, "exp")) <= utils.UnixSecond() {
 		return utils.Error("token expired or invalid")
 	}
+
+	// 性能优化2: 预计算header.payload，避免在Signature内重复拼接
+	headerPayload := utils.AddStr(part0, ".", part1)
+	if self.Signature(headerPayload, key) != part2 {
+		return utils.Error("token signature invalid")
+	}
+
 	if !decode {
 		return nil
 	}

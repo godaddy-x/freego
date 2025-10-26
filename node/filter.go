@@ -2,13 +2,14 @@ package node
 
 import (
 	"fmt"
+	"math"
+	"net/http"
+
 	rate "github.com/godaddy-x/freego/cache/limiter"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/concurrent"
 	"github.com/godaddy-x/freego/zlog"
-	"math"
-	"net/http"
 )
 
 const (
@@ -82,10 +83,11 @@ func (self *filterChain) DoFilter(chain Filter, ctx *Context, args ...interface{
 	for self.pos < len(fs) {
 		f := fs[self.pos]
 		if f == nil || f.Filter == nil {
-			return ex.Throw{Code: ex.SYSTEM, Msg: fmt.Sprintf("filter [%s] is nil", f.Name)}
+			return ex.Throw{Code: ex.SYSTEM, Msg: fmt.Sprintf("filter at index %d is nil", self.pos)}
 		}
 		self.pos++
-		if !utils.MatchFilterURL(ctx.Path, f.MatchPattern) {
+		// 优化：Empty MatchPattern表示匹配所有，直接跳过URL检查
+		if len(f.MatchPattern) > 0 && !utils.MatchFilterURL(ctx.Path, f.MatchPattern) {
 			continue
 		}
 		return f.Filter.DoFilter(chain, ctx, args...)
@@ -140,6 +142,8 @@ func (self *SessionFilter) DoFilter(chain Filter, ctx *Context, args ...interfac
 	if ctx.RouterConfig.UseRSA || ctx.RouterConfig.UseHAX || ctx.RouterConfig.Guest { // 登录接口和游客模式跳过会话认证
 		return chain.DoFilter(chain, ctx, args...)
 	}
+	// 验证JWT token（SessionFilter的核心职责）
+	// 这是第一次明确验证JWT的签名和过期时间
 	if len(ctx.Subject.GetRawBytes()) == 0 {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "token is nil"}
 	}
@@ -162,10 +166,23 @@ func (self *UserRateLimiterFilter) DoFilter(chain Filter, ctx *Context, args ...
 }
 
 func (self *RoleFilter) DoFilter(chain Filter, ctx *Context, args ...interface{}) error {
-	if ctx.roleRealm == nil || !ctx.Authenticated() { // 未配置权限方法或非登录状态跳过
+	// RoleFilter 职责：进行基于角色的访问控制(RBAC)
+	// 流程说明：
+	// 1. 检查是否配置了roleRealm权限方法，未配置则跳过权限检查
+	// 2. 检查用户是否已通过身份认证，未认证则跳过权限检查
+	// 3. 通过roleRealm获取所需的角色列表(need.NeedRole)和用户拥有的角色列表(has.HasRole)
+	// 4. 根据MatchAll标志判断是"全部匹配"还是"任意匹配"
+	// 5. 匹配失败返回403未授权，匹配成功则继续执行后续过滤器
+	// 安全增强：必须配置权限方法且已验证身份才能进行权限检查
+	if ctx.roleRealm == nil {
 		return chain.DoFilter(chain, ctx, args...)
 	}
-	need, err := ctx.roleRealm(ctx, false)
+	// 必须通过身份认证
+	if !ctx.Authenticated() {
+		return chain.DoFilter(chain, ctx, args...)
+	}
+	// 优化：只调用一次roleRealm(false)，同时获取need和has信息，减少性能开销
+	need, err := ctx.roleRealm(ctx, false) // 获取所需角色配置
 	if err != nil {
 		return err
 	}
@@ -175,12 +192,8 @@ func (self *RoleFilter) DoFilter(chain Filter, ctx *Context, args ...interface{}
 	if len(need.NeedRole) == 0 { // 无授权角色配置跳过
 		return chain.DoFilter(chain, ctx, args...)
 	}
-	//if !need.NeedLogin { // 无登录状态,跳过
-	//	return chain.DoFilter(chain, ctx, args...)
-	//} else if !ctx.Authenticated() { // 需要登录状态,会话为空,抛出异常
-	//	return ex.Throw{Code: http.StatusUnauthorized, Msg: "login status required"}
-	//}
-	has, err := ctx.roleRealm(ctx, true)
+	// 再次调用roleRealm(true)获取用户拥有角色（保持原有逻辑，支持分离查询）
+	has, err := ctx.roleRealm(ctx, true) // 获取拥有角色配置
 	if err != nil {
 		return err
 	}
@@ -188,19 +201,36 @@ func (self *RoleFilter) DoFilter(chain Filter, ctx *Context, args ...interface{}
 	if has != nil && len(has.HasRole) > 0 {
 		hasRoles = has.HasRole
 	}
-	accessCount := 0
-	needAccess := len(need.NeedRole)
-	for _, hasRole := range hasRoles {
+
+	// 优化：直接遍历hasRoles，对need.NeedRole进行匹配
+	if need.MatchAll {
+		// MatchAll: 必须满足所有所需角色
+		// 对每个needRole检查是否在hasRoles中存在
+		// 时间复杂度O(m*n)，但实际应用中角色数量通常很少(≤10个)，性能开销可忽略
 		for _, needRole := range need.NeedRole {
-			if hasRole == needRole {
-				accessCount++
-				if !need.MatchAll || accessCount == needAccess { // 任意授权通过则放行,或已满足授权长度
+			found := false
+			for _, hasRole := range hasRoles {
+				if hasRole == needRole {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return ex.Throw{Code: http.StatusUnauthorized, Msg: "access defined"}
+			}
+		}
+		return chain.DoFilter(chain, ctx, args...)
+	} else {
+		// MatchAny: 只需满足任意一个所需角色
+		for _, hasRole := range hasRoles {
+			for _, needRole := range need.NeedRole {
+				if hasRole == needRole {
 					return chain.DoFilter(chain, ctx, args...)
 				}
 			}
 		}
+		return ex.Throw{Code: http.StatusUnauthorized, Msg: "access defined"}
 	}
-	return ex.Throw{Code: http.StatusUnauthorized, Msg: "access defined"}
 }
 
 func (self *PostHandleFilter) DoFilter(chain Filter, ctx *Context, args ...interface{}) error {

@@ -58,29 +58,29 @@ func (self *HttpNode) StartServerByTimeout(addr string, timeout int) {
 }
 
 func (self *HttpNode) StartServer(addr string) {
+	// 在启动前创建filter chain，确保初始化顺序正确
+	fs, err := createFilterChain(self.filters)
+	if err != nil {
+		panic("http service create filter chain failed")
+	}
+	self.filters = fs
+	if len(self.filters) == 0 {
+		panic("filter chain is nil")
+	}
+
+	if self.Context.CacheAware != nil {
+		zlog.Printf("cache service has been started successful")
+	}
+	if self.Context.RSA != nil {
+		if self.Context.System.enableECC {
+			zlog.Printf("ECC certificate service has been started successful")
+		} else {
+			zlog.Printf("RSA certificate service has been started successful")
+		}
+	}
+
 	go func() {
-		if self.Context.CacheAware != nil {
-			zlog.Printf("cache service has been started successful")
-		}
-		if self.Context.RSA != nil {
-			if self.Context.System.enableECC {
-				zlog.Printf("ECC certificate service has been started successful")
-			} else {
-				zlog.Printf("RSA certificate service has been started successful")
-			}
-		}
-		fs, err := createFilterChain(self.filters)
-		if err != nil {
-			panic("http service create filter chain failed")
-		}
-		self.filters = fs
-		if len(self.filters) == 0 {
-			panic("filter chain is nil")
-		}
 		zlog.Printf("http【%s】service has been started successful", addr)
-		//if err := fasthttp.Serve(NewGracefulListener(addr, time.Second*time.Duration(defaultTimeout)), self.Context.router.Handler); err != nil {
-		//	panic(err)
-		//}
 		s := &fasthttp.Server{
 			Handler:            self.Context.router.Handler,
 			MaxRequestBodySize: MAX_BODY_LEN,
@@ -351,7 +351,7 @@ func defaultRenderError(ctx *Context, err error) error {
 	resp := &JsonResp{
 		Code:    out.Code,
 		Message: ErrorMsgToLang(ctx, out.Msg, out.Arg...),
-		Time:    utils.UnixMilli(),
+		Time:    utils.UnixSecond(),
 	}
 	if !ctx.Authenticated() {
 		resp.Nonce = utils.RandNonce()

@@ -149,6 +149,11 @@ func SetLengthCheck(bodyLen, tokenLen, codeLen int) {
 	}
 }
 
+// SetLocalSecret 增加本地secret定义，最少24个字符长度
+func SetLocalSecret(key string) {
+	utils.SetLocalSecretKey(key)
+}
+
 func (self *JsonBody) ParseData(dst interface{}) error {
 	raw, b := self.Data.([]byte)
 	if !b {
