@@ -1,10 +1,15 @@
 package node
 
 import (
+	"context"
 	"fmt"
+	"net"
 	"net/http"
+	"os"
+	"os/signal"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/buaazp/fasthttprouter"
@@ -23,8 +28,11 @@ type CacheAware func(ds ...string) (cache.Cache, error)
 
 type HttpNode struct {
 	HookNode
-	mu      sync.Mutex
-	ctxPool sync.Pool
+	mu       sync.Mutex
+	ctxPool  sync.Pool
+	server   *fasthttp.Server
+	listener net.Listener
+	cancel   context.CancelFunc
 }
 
 type PostHandle func(*Context) error
@@ -58,6 +66,12 @@ func (self *HttpNode) StartServerByTimeout(addr string, timeout int) {
 }
 
 func (self *HttpNode) StartServer(addr string) {
+	// 防止重复启动
+	if self.server != nil {
+		zlog.Printf("http server has already been started")
+		return
+	}
+
 	// 在启动前创建filter chain，确保初始化顺序正确
 	fs, err := createFilterChain(self.filters)
 	if err != nil {
@@ -79,17 +93,51 @@ func (self *HttpNode) StartServer(addr string) {
 		}
 	}
 
+	// 创建上下文用于优雅关闭
+	_, self.cancel = context.WithCancel(context.Background())
+
+	// 创建服务器实例
+	self.server = &fasthttp.Server{
+		Handler:            self.Context.router.Handler,
+		MaxRequestBodySize: MAX_BODY_LEN,
+	}
+
+	// 启动服务器
+	self.listener = NewGracefulListener(addr, time.Second*time.Duration(defaultTimeout))
 	go func() {
 		zlog.Printf("http【%s】service has been started successful", addr)
-		s := &fasthttp.Server{
-			Handler:            self.Context.router.Handler,
-			MaxRequestBodySize: MAX_BODY_LEN,
-		}
-		if err := s.Serve(NewGracefulListener(addr, time.Second*time.Duration(defaultTimeout))); err != nil {
-			panic(err)
+		if err := self.server.Serve(self.listener); err != nil {
+			// 忽略已关闭的错误
+			if err.Error() != "use of closed network connection" {
+				zlog.Error("server serve failed", 0, zlog.AddError(err))
+			}
 		}
 	}()
-	select {}
+
+	// 监听系统信号实现优雅关闭
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
+	<-quit
+	zlog.Printf("http server is shutting down...")
+
+	// 关闭服务器（fasthttp的Shutdown已实现优雅关闭）
+	if err := self.server.Shutdown(); err != nil {
+		zlog.Error("server shutdown failed", 0, zlog.AddError(err))
+	}
+
+	// 关闭listener（确保所有连接正确关闭）
+	if self.listener != nil {
+		if err := self.listener.Close(); err != nil {
+			zlog.Error("listener close failed", 0, zlog.AddError(err))
+		}
+	}
+
+	// 取消上下文
+	if self.cancel != nil {
+		self.cancel()
+	}
+
+	zlog.Printf("http server has been stopped")
 }
 
 func (self *HttpNode) checkContextReady(path string, routerConfig *RouterConfig) {
