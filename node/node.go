@@ -332,7 +332,7 @@ func (self *Context) validJsonBody() error {
 	if !b || len(d) == 0 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request data is nil"}
 	}
-	if !utils.CheckInt64(body.Plan, 0, 1, 2, 3) {
+	if !utils.CheckInt64(body.Plan, 0, 1, 2) {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request plan invalid"}
 	}
 	if !utils.CheckLen(body.Nonce, 8, 32) {
@@ -353,28 +353,22 @@ func (self *Context) validJsonBody() error {
 	if utils.CheckInt64(body.Plan, 0, 1) && len(self.Subject.GetRawBytes()) == 0 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request header token is nil"}
 	}
-	if utils.CheckInt64(body.Plan, 2, 3) { // reset token
-		if body.Plan == 2 {
-			if !self.RouterConfig.UseRSA {
-				return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters must use RSA encryption"}
-			}
-		}
-		if body.Plan == 3 {
-			if !self.RouterConfig.UseHAX {
-				return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters must use HAX signature"}
-			}
-		}
-	}
+
 	var key string
 	var anonymous bool // true.匿名状态
-	if self.RouterConfig.UseRSA || self.RouterConfig.UseHAX {
-		_, key = self.RSA.GetPublicKey()
-		anonymous = true
-	}
 
-	// 对于Plan==2（ECC模式），需要先解密RandomCode获取clientSecretKey
-	if body.Plan == 2 && self.RouterConfig.UseRSA && anonymous {
+	// Plan 2是匿名状态（使用ECC加密，需要特殊处理）
+	if body.Plan == 2 {
+		anonymous = true
+		if !self.RouterConfig.UseRSA {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters must use RSA encryption"}
+		}
+
+		// Plan 2需要解密RandomCode获取clientSecretKey进行签名验证
 		codeBs := self.RequestCtx.Request.Header.Peek(RandomCode)
+		if len(codeBs) > MAX_CODE_LEN {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "client random code invalid"}
+		}
 		randomCode := utils.Bytes2Str(codeBs)
 		if len(randomCode) == 0 {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "client random code invalid"}
@@ -386,9 +380,10 @@ func (self *Context) validJsonBody() error {
 		if len(code) == 0 {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "server private-key decrypt data is nil", Err: err}
 		}
-		key = utils.Base64Encode(code)
+		key = utils.Base64Encode(code) // 使用clientSecretKey验证签名
 	}
 
+	// 签名验证：Plan 0/1使用token secret（key为空时会自动获取），Plan 2使用clientSecretKey
 	if self.GetHmac256Sign(d, body.Nonce, body.Time, body.Plan, key) != body.Sign {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature invalid"}
 	}
@@ -399,7 +394,7 @@ func (self *Context) validJsonBody() error {
 	var err error
 	if body.Plan == 0 && !anonymous { // 登录状态 P0 Base64
 		rawData = utils.Base64Decode(d)
-		if rawData == nil || len(rawData) == 0 {
+		if len(rawData) == 0 {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter Base64 parsing failed"}
 		}
 	} else if body.Plan == 1 && !anonymous { // 登录状态 P1 AES
@@ -407,18 +402,12 @@ func (self *Context) validJsonBody() error {
 		if err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "AES failed to parse data", Err: err}
 		}
-	} else if body.Plan == 2 && self.RouterConfig.UseRSA && anonymous { // 非登录状态 P2 RSA+AES
+	} else if body.Plan == 2 && self.RouterConfig.UseRSA && anonymous { // 非登录状态 P2 ECC+AES
 		rawData, err = utils.AesCBCDecrypt(d, key)
 		if err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "AES failed to parse data", Err: err}
 		}
 		self.AddStorage(RandomCode, key)
-	} else if body.Plan == 3 && self.RouterConfig.UseHAX && anonymous { // 非登录状态 P3 Base64
-		// rawData = utils.Base64Decode(d)
-		// if rawData == nil || len(rawData) == 0 {
-		// 	return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter Base64 parsing failed"}
-		// }
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "plan 3 not accepted"}
 	} else {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters plan invalid"}
 	}

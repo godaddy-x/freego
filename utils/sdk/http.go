@@ -299,7 +299,7 @@ func (s *HttpSDK) checkAuth() error {
 }
 
 // PostByAuth 对象请使用指针
-func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, encrypted ...bool) error {
+func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, encrypted bool) error {
 	if len(path) == 0 || requestObj == nil || responseObj == nil {
 		return ex.Throw{Msg: "params invalid"}
 	}
@@ -319,7 +319,7 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 		Nonce: utils.RandNonce(),
 		Plan:  0,
 	}
-	if len(encrypted) > 0 && encrypted[0] {
+	if encrypted {
 		d, err := utils.AesCBCEncrypt(jsonBody.Data.([]byte), s.authToken.Secret)
 		if err != nil {
 			return ex.Throw{Msg: "request data AES encrypt failed"}
