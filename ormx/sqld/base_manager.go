@@ -1141,7 +1141,16 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
 	if !ok {
 		return self.Error("[Mysql.FindOne] registration object type not found [", data.GetTable(), "]")
 	}
-	fpart := bytes.NewBuffer(make([]byte, 0, 14*len(obv.FieldElem)))
+	// 优化：精确计算 fpart 容量
+	fieldPartSize := 0
+	for _, vv := range obv.FieldElem {
+		if vv.Ignore {
+			continue
+		}
+		// "`" + FieldJsonName + "`," = len(FieldJsonName) + 3
+		fieldPartSize += len(vv.FieldJsonName) + 3
+	}
+	fpart := bytes.NewBuffer(make([]byte, 0, fieldPartSize))
 	for _, vv := range obv.FieldElem {
 		if vv.Ignore {
 			continue
@@ -1248,7 +1257,16 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	if !ok {
 		return self.Error("[Mysql.FindList] registration object type not found [", cnd.Model.GetTable(), "]")
 	}
-	fpart := bytes.NewBuffer(make([]byte, 0, 14*len(obv.FieldElem)))
+	// 优化：精确计算 fpart 容量
+	fieldPartSize := 0
+	for _, vv := range obv.FieldElem {
+		if vv.Ignore {
+			continue
+		}
+		// "`" + FieldJsonName + "`," = len(FieldJsonName) + 3
+		fieldPartSize += len(vv.FieldJsonName) + 3
+	}
+	fpart := bytes.NewBuffer(make([]byte, 0, fieldPartSize))
 	for _, vv := range obv.FieldElem {
 		if vv.Ignore {
 			continue
@@ -1379,33 +1397,38 @@ func (self *RDBManager) Count(cnd *sqlc.Cnd) (int64, error) {
 	if !ok {
 		return 0, self.Error("[Mysql.Count] registration object type not found [", cnd.Model.GetTable(), "]")
 	}
-	fpart := bytes.NewBuffer(make([]byte, 0, 32))
-	fpart.WriteString("count(1)")
 	case_part, case_arg := self.BuildWhereCase(cnd)
-	parameter := make([]interface{}, 0, len(case_arg))
-	for _, v := range case_arg {
-		parameter = append(parameter, v)
-	}
-	var vpart *bytes.Buffer
+	parameter := case_arg
+	var vpartBytes []byte
 	if case_part.Len() > 0 {
-		vpart = bytes.NewBuffer(make([]byte, 0, case_part.Len()+16))
+		// 优化：直接操作 bytes，避免字符串转换
+		caseBytes := case_part.Bytes()
+		// 修复：精确计算 vpart 容量
+		// 实际写入："where" (5字节) + caseBytes去掉最后4字节 = 5 + len(caseBytes) - 4 = len(caseBytes) + 1
+		vpartCap := len(caseBytes) + 1
+		vpart := bytes.NewBuffer(make([]byte, 0, vpartCap))
 		vpart.WriteString("where")
-		str := case_part.String()
-		vpart.WriteString(utils.Substr(str, 0, len(str)-3))
+		// 优化：直接操作字节，去掉最后的 " and"（4字节）
+		if len(caseBytes) > 4 {
+			vpart.Write(caseBytes[0 : len(caseBytes)-4])
+		}
+		vpartBytes = vpart.Bytes()
 	}
-	str1 := utils.Bytes2Str(fpart.Bytes())
-	str2 := ""
-	if vpart != nil {
-		str2 = utils.Bytes2Str(vpart.Bytes())
-	}
-	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str1)+len(str2)+32))
-	sqlbuf.WriteString("select ")
-	sqlbuf.WriteString(str1)
-	sqlbuf.WriteString(" from ")
+	groupby := self.BuildGroupBy(cnd)
+	// 优化：精确计算 sqlbuf 容量
+	// 固定字节："select count(1) from " (21) + " " (1) = 22
+	// 动态：TableName + vpartBytes + groupby
+	// 注意：groupby 已经去掉了最后的逗号，所以直接使用 len(groupby)
+	sqlBufSize := 22 + len(obv.TableName) + len(vpartBytes) + len(groupby)
+	sqlbuf := bytes.NewBuffer(make([]byte, 0, sqlBufSize))
+	sqlbuf.WriteString("select count(1) from ")
 	sqlbuf.WriteString(obv.TableName)
 	sqlbuf.WriteString(" ")
-	if len(str2) > 0 {
-		sqlbuf.WriteString(utils.Substr(str2, 0, len(str2)-1))
+	if len(vpartBytes) > 0 {
+		sqlbuf.Write(vpartBytes)
+	}
+	if len(groupby) > 0 {
+		sqlbuf.WriteString(groupby)
 	}
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
@@ -1462,37 +1485,36 @@ func (self *RDBManager) Exists(cnd *sqlc.Cnd) (bool, error) {
 	if !ok {
 		return false, self.Error("[Mysql.Exists] registration object type not found [", cnd.Model.GetTable(), "]")
 	}
-	fpart := bytes.NewBuffer(make([]byte, 0, 32))
-	fpart.WriteString("1")
 	case_part, case_arg := self.BuildWhereCase(cnd)
-	parameter := make([]interface{}, 0, len(case_arg))
-	for _, v := range case_arg {
-		parameter = append(parameter, v)
-	}
-	var vpart *bytes.Buffer
+	parameter := case_arg
+	var vpartBytes []byte
 	if case_part.Len() > 0 {
-		vpart = bytes.NewBuffer(make([]byte, 0, case_part.Len()+16))
+		// 优化：直接操作 bytes，避免字符串转换
+		caseBytes := case_part.Bytes()
+		// 修复：精确计算 vpart 容量
+		// 实际写入："where" (5字节) + caseBytes去掉最后4字节 = 5 + len(caseBytes) - 4 = len(caseBytes) + 1
+		vpartCap := len(caseBytes) + 1
+		vpart := bytes.NewBuffer(make([]byte, 0, vpartCap))
 		vpart.WriteString("where")
-		str := case_part.String()
-		vpart.WriteString(utils.Substr(str, 0, len(str)-3))
+		// 优化：直接操作字节，去掉最后的 " and"（4字节）
+		if len(caseBytes) > 4 {
+			vpart.Write(caseBytes[0 : len(caseBytes)-4])
+		}
+		vpartBytes = vpart.Bytes()
 	}
-	str1 := utils.Bytes2Str(fpart.Bytes())
-	str2 := ""
-	if vpart != nil {
-		str2 = utils.Bytes2Str(vpart.Bytes())
-	}
-	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str1)+len(str2)+64))
-	sqlbuf.WriteString("select exists(")
-	sqlbuf.WriteString("select ")
-	sqlbuf.WriteString(str1)
-	sqlbuf.WriteString(" from ")
+	// 优化：精确计算 sqlbuf 容量
+	// 固定字节："select exists(select 1 from " (28) + " limit 1 ) as pub_exists" (25) = 53
+	// 动态：TableName + vpartBytes
+	sqlBufSize := 53 + len(obv.TableName) + len(vpartBytes)
+	sqlbuf := bytes.NewBuffer(make([]byte, 0, sqlBufSize))
+	sqlbuf.WriteString("select exists(select 1 from ")
 	sqlbuf.WriteString(obv.TableName)
 	sqlbuf.WriteString(" ")
-	if len(str2) > 0 {
-		sqlbuf.WriteString(utils.Substr(str2, 0, len(str2)-1))
+	if len(vpartBytes) > 0 {
+		sqlbuf.Write(vpartBytes)
 	}
-	sqlbuf.WriteString(" limit 1 ")
-	sqlbuf.WriteString(" ) as pub_exists")
+	sqlbuf.WriteString(" limit 1 ) as pub_exists")
+
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
 		defer zlog.Debug("[Mysql.Exists] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
@@ -1665,16 +1687,31 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 	if slicev.Kind() != reflect.Slice {
 		return self.Error("[Mysql.FindList] target value kind not slice")
 	}
-	slicev = slicev.Slice(0, slicev.Cap())
+	// 优化：建立列名到索引的映射，避免 O(n) 查找
+	colIndexMap := make(map[string]int, len(cols))
+	for i, col := range cols {
+		colIndexMap[col] = i
+	}
+
+	// 优化：预分配切片容量，减少扩容
+	expectedLen := len(out)
+	if slicev.Cap() < expectedLen {
+		newSlice := reflect.MakeSlice(slicev.Type(), expectedLen, expectedLen)
+		reflect.Copy(newSlice, slicev)
+		slicev = newSlice
+	} else {
+		slicev = slicev.Slice(0, 0) // 重置长度为0，保留容量
+	}
+
 	for _, v := range out {
 		model := cnd.Model.NewObject()
-		for i := 0; i < len(cols); i++ {
-			for _, vv := range obv.FieldElem {
-				if vv.FieldJsonName == cols[i] {
-					if err := SetValue(model, vv, v[i]); err != nil {
-						return self.Error(err)
-					}
-					break
+		for _, vv := range obv.FieldElem {
+			if vv.Ignore {
+				continue
+			}
+			if colIndex, exists := colIndexMap[vv.FieldJsonName]; exists {
+				if err := SetValue(model, vv, v[colIndex]); err != nil {
+					return self.Error(err)
 				}
 			}
 		}
@@ -1881,7 +1918,8 @@ func (self *RDBManager) mongoSyncData(option int, model sqlc.Object, cnd *sqlc.C
 
 // 输出查询结果集
 func OutDest(rows *sql.Rows, flen int) ([][][]byte, error) {
-	out := make([][][]byte, 0)
+	// 优化：预分配切片容量，减少扩容
+	out := make([][][]byte, 0, 100) // 预估100行
 	for rows.Next() {
 		rets := make([][]byte, flen)
 		dest := make([]interface{}, flen)
