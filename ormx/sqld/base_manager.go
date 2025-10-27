@@ -586,7 +586,7 @@ func (self *RDBManager) Save(data ...sqlc.Object) error {
 }
 
 func (self *RDBManager) Update(data ...sqlc.Object) error {
-	if data == nil || len(data) == 0 {
+	if len(data) == 0 {
 		return self.Error("[Mysql.Update] data is nil")
 	}
 	if len(data) > 1 {
@@ -600,27 +600,40 @@ func (self *RDBManager) Update(data ...sqlc.Object) error {
 	if len(obv.PkName) == 0 {
 		return self.Error("PK field not support, you can use [updateByCnd]")
 	}
-	parameter := make([]interface{}, 0, len(obv.FieldElem))
-	fpart := bytes.NewBuffer(make([]byte, 0, 96))
+	// 预先验证主键值
 	var lastInsertId interface{}
-	for _, v := range obv.FieldElem { // 遍历对象字段
+	if obv.PkKind == reflect.Int64 {
+		lastInsertId = utils.GetInt64(utils.GetPtr(oneData, obv.PkOffset))
+		if lastInsertId == 0 {
+			return self.Error("[Mysql.Update] data object id is nil")
+		}
+	} else if obv.PkKind == reflect.String {
+		lastInsertId = utils.GetString(utils.GetPtr(oneData, obv.PkOffset))
+		if lastInsertId == "" {
+			return self.Error("[Mysql.Update] data object id is nil")
+		}
+	} else {
+		return utils.Error("only Int64 and string type IDs are supported")
+	}
+	// 优化：计算精确的 fieldPartSize（不调用 GetValue，按最坏情况计算）
+	fieldPartSize := 0
+	for _, v := range obv.FieldElem {
 		if v.Ignore {
 			continue
 		}
 		if v.Primary {
-			if obv.PkKind == reflect.Int64 {
-				lastInsertId = utils.GetInt64(utils.GetPtr(oneData, obv.PkOffset))
-				if lastInsertId == 0 {
-					return self.Error("[Mysql.Update] data object id is nil")
-				}
-			} else if obv.PkKind == reflect.String {
-				lastInsertId = utils.GetString(utils.GetPtr(oneData, obv.PkOffset))
-				if lastInsertId == "" {
-					return self.Error("[Mysql.Update] data object id is nil")
-				}
-			} else {
-				return utils.Error("only Int64 and string type IDs are supported")
-			}
+			continue
+		}
+		// " `" + FieldJsonName + "` = ?," = 10 + len(FieldJsonName)
+		fieldPartSize += len(v.FieldJsonName) + 10
+	}
+	parameter := make([]interface{}, 0, len(obv.FieldElem))
+	fpart := bytes.NewBuffer(make([]byte, 0, fieldPartSize))
+	for _, v := range obv.FieldElem {
+		if v.Ignore {
+			continue
+		}
+		if v.Primary {
 			continue
 		}
 		fval, err := GetValue(oneData, v)
@@ -631,25 +644,31 @@ func (self *RDBManager) Update(data ...sqlc.Object) error {
 		if v.IsDate && (fval == nil || fval == "" || fval == 0) {
 			continue
 		}
-		fpart.WriteString(" ")
-		fpart.WriteString("`")
+		fpart.WriteString(" `")
 		fpart.WriteString(v.FieldJsonName)
-		fpart.WriteString("`")
-		fpart.WriteString(" = ?,")
+		fpart.WriteString("` = ?,")
 		parameter = append(parameter, fval)
 	}
 	parameter = append(parameter, lastInsertId)
-	str1 := utils.Bytes2Str(fpart.Bytes())
-	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str1)))
+	// 检查是否有字段需要更新
+	fbytes := fpart.Bytes()
+	if len(fbytes) == 0 {
+		return self.Error("[Mysql.Update] no fields to update")
+	}
+	// 优化：直接操作 bytes，避免 Substr 创建新字符串
+	// 计算精确容量："update " + TableName + " set " + (fbytes去掉最后一个逗号) + " where `" + PkName + "` = ?"
+	// = 6 + len(TableName) + 5 + (len(fbytes)-1) + 10 + len(PkName) + 5 = 26 + len(TableName) + len(fbytes) + len(PkName)
+	sqlBufSize := 6 + len(obv.TableName) + 5 + (len(fbytes) - 1) + 10 + len(obv.PkName) + 5
+	sqlbuf := bytes.NewBuffer(make([]byte, 0, sqlBufSize))
 	sqlbuf.WriteString("update ")
 	sqlbuf.WriteString(obv.TableName)
 	sqlbuf.WriteString(" set ")
-	sqlbuf.WriteString(utils.Substr(str1, 0, len(str1)-1))
-	sqlbuf.WriteString(" where ")
-	sqlbuf.WriteString("`")
+	if len(fbytes) > 1 {
+		sqlbuf.Write(fbytes[0 : len(fbytes)-1])
+	}
+	sqlbuf.WriteString(" where `")
 	sqlbuf.WriteString(obv.PkName)
-	sqlbuf.WriteString("`")
-	sqlbuf.WriteString(" = ?")
+	sqlbuf.WriteString("` = ?")
 
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
@@ -686,7 +705,7 @@ func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) (int64, error) {
 	if cnd.Model == nil {
 		return 0, self.Error("[Mysql.UpdateByCnd] data is nil")
 	}
-	if cnd.Upsets == nil || len(cnd.Upsets) == 0 {
+	if len(cnd.Upsets) == 0 {
 		return 0, self.Error("[Mysql.UpdateByCnd] upset fields is nil")
 	}
 	obv, ok := modelDrivers[cnd.Model.GetTable()]
