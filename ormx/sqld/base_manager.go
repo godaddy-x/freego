@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
-	"fmt"
 	"reflect"
 	"sync"
 	"sync/atomic"
@@ -913,10 +912,6 @@ func (self *RDBManager) DeleteById(object sqlc.Object, data ...interface{}) (int
 	}
 	sqlbuf.WriteString(")")
 
-	fmt.Println("vpartSize", vpartSize)
-	fmt.Println("sqlBufSize", sqlBufSize)
-	fmt.Println("sqlbuf", len(sqlbuf.Bytes()))
-
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
 		defer zlog.Debug("[Mysql.DeleteById] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
@@ -1052,7 +1047,16 @@ func (self *RDBManager) FindById(data sqlc.Object) error {
 		}
 		parameter = append(parameter, lastInsertId)
 	}
-	fpart := bytes.NewBuffer(make([]byte, 0, 14*len(obv.FieldElem)))
+	// 优化：精确计算 fpart 容量
+	fieldPartSize := 0
+	for _, vv := range obv.FieldElem {
+		if vv.Ignore {
+			continue
+		}
+		// "`" + FieldJsonName + "`," = len(FieldJsonName) + 3
+		fieldPartSize += len(vv.FieldJsonName) + 3
+	}
+	fpart := bytes.NewBuffer(make([]byte, 0, fieldPartSize))
 	for _, vv := range obv.FieldElem {
 		if vv.Ignore {
 			continue
@@ -1062,18 +1066,25 @@ func (self *RDBManager) FindById(data sqlc.Object) error {
 		fpart.WriteString("`")
 		fpart.WriteString(",")
 	}
-	str1 := utils.Bytes2Str(fpart.Bytes())
-	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str1)+64))
+	// 优化：直接操作 bytes，避免字符串转换
+	fbytes := fpart.Bytes()
+	// 优化：精确计算 sqlbuf 容量
+	// SQL: "select " + fbytes[0:len-1] + " from " + TableName + " where `" + PkName + "` = ? limit 1"
+	// 固定字节：7(select ) + 6( from ) + 9( where `) + 5(` = ?) + 8( limit 1) - 1(fbytes多减1因为要去掉逗号) = 34
+	// 总计：34 + len(TableName) + len(PkName) + len(fbytes) - 1
+	sqlBufSize := 34 + len(obv.TableName) + len(obv.PkName) + len(fbytes) - 1
+	sqlbuf := bytes.NewBuffer(make([]byte, 0, sqlBufSize))
 	sqlbuf.WriteString("select ")
-	sqlbuf.WriteString(utils.Substr(str1, 0, len(str1)-1))
+	if len(fbytes) > 1 {
+		sqlbuf.Write(fbytes[0 : len(fbytes)-1])
+	}
 	sqlbuf.WriteString(" from ")
 	sqlbuf.WriteString(obv.TableName)
-	sqlbuf.WriteString(" where ")
-	sqlbuf.WriteString("`")
+	sqlbuf.WriteString(" where `")
 	sqlbuf.WriteString(obv.PkName)
-	sqlbuf.WriteString("`")
-	sqlbuf.WriteString(" = ?")
+	sqlbuf.WriteString("` = ?")
 	sqlbuf.WriteString(" limit 1")
+
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
 		defer zlog.Debug("[Mysql.FindById] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
