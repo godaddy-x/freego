@@ -437,19 +437,52 @@ func (self *RDBManager) Save(data ...sqlc.Object) error {
 	if !ok {
 		return self.Error("[Mysql.Save] registration object type not found [", data[0].GetTable(), "]")
 	}
-	var fready bool
+	var prefixReady bool
+	// 优化：提前检查 AutoID，避免循环中重复判断
+	skipPrimary := self.AutoID
 	parameter := make([]interface{}, 0, len(obv.FieldElem)*len(data))
-	fpart := bytes.NewBuffer(make([]byte, 0, 14*len(obv.FieldElem)))
-	vpart := bytes.NewBuffer(make([]byte, 0, 64*len(data)))
+	// 优化：遍历字段计算精确的容量 ("`" + FieldJsonName + "`," 每个字段)
+	// 注意：需要考虑 AutoID 跳过主键字段的情况，但 obv.AutoId 且值为 0 的情况无法在编译期确定，需要保守处理
+	fieldPartSize := 0
+	for _, vv := range obv.FieldElem {
+		if vv.Ignore {
+			continue
+		}
+		if vv.Primary && skipPrimary {
+			continue // AutoID 模式跳过主键
+		}
+		// 注意：obv.AutoId 时，如果值非 0 会写入，只有值为 0 才跳过，无法提前判断，需要按最坏情况计算
+		fieldPartSize += len(vv.FieldJsonName) + 3 // "`" + FieldJsonName + "`" + ","
+	}
+	fpart := bytes.NewBuffer(make([]byte, 0, fieldPartSize))
+	// 优化：根据实际有效字段数计算容量
+	// 计算实际使用的字段数量（排除 Ignore 和 AutoID 跳过的主键）
+	// 注意：obv.AutoId 时，只有值=0才跳过，值!=0仍会写入，无法在编译期判断，按最坏情况计算
+	actualFieldCount := 0
+	for _, vv := range obv.FieldElem {
+		if vv.Ignore {
+			continue
+		}
+		if vv.Primary && skipPrimary {
+			continue
+		}
+		// obv.AutoId 时，只有值=0才会 continue，值!=0会正常写入，无法提前判断
+		actualFieldCount++
+	}
+	// 每个字段占位符 "?," 约 2 字节，" (" 和 "), " 约 4 字节
+	valuePartSize := (2*actualFieldCount + 4) * len(data)
+	vpart := bytes.NewBuffer(make([]byte, 0, valuePartSize))
 	for _, v := range data {
-		vpart_ := bytes.NewBuffer(make([]byte, 0, 64))
+		// 每个对象的内部缓冲区：" (" + actualFieldCount * "?," = 3 + 2×actualFieldCount
+		vpart_ := bytes.NewBuffer(make([]byte, 0, 2*actualFieldCount+3))
 		vpart_.WriteString(" (")
 		for _, vv := range obv.FieldElem {
 			if vv.Ignore {
 				continue
 			}
 			if vv.Primary {
-				if self.AutoID {
+				// 如果启用 AutoID，跳过主键字段（数据库自动生成）
+				if skipPrimary {
 					continue
 				}
 				if vv.FieldKind == reflect.Int64 {
@@ -468,25 +501,25 @@ func (self *RDBManager) Save(data ...sqlc.Object) error {
 						if obv.AutoId {
 							continue
 						}
-						lastInsertId := utils.NextSID()
+						lastInsertId = utils.NextSID()
 						utils.SetString(utils.GetPtr(v, vv.FieldOffset), lastInsertId)
 					}
 					parameter = append(parameter, lastInsertId)
 				} else {
 					return utils.Error("only Int64 and string type IDs are supported")
 				}
-			} else {
+			} else { // 普通字段处理
 				fval, err := GetValue(v, vv)
 				if err != nil {
-					zlog.Error("[Mysql.Save] parameter value acquisition failed", 0, zlog.String("field", vv.FieldName), zlog.AddError(err))
-					continue
+					return self.Error("[Mysql.Save] GetValue failed for field [", vv.FieldName, "]: ", err)
 				}
 				if vv.IsDate && (fval == nil || fval == "" || fval == 0) { // time = 0
 					fval = nil
 				}
 				parameter = append(parameter, fval)
 			}
-			if !fready {
+			// 关键修复：只有成功处理的字段才写入字段名和占位符，确保 fpart 和 vpart_ 数量一致
+			if !prefixReady {
 				fpart.WriteString("`")
 				fpart.WriteString(vv.FieldJsonName)
 				fpart.WriteString("`")
@@ -494,24 +527,33 @@ func (self *RDBManager) Save(data ...sqlc.Object) error {
 			}
 			vpart_.WriteString("?,")
 		}
-		if !fready {
-			fready = true
+		if !prefixReady {
+			prefixReady = true
 		}
-		vstr := utils.Bytes2Str(vpart_.Bytes())
-		vpart.WriteString(utils.Substr(vstr, 0, len(vstr)-1))
+		// 优化：直接从 bytes 截取，避免字符串转换
+		vbytes := vpart_.Bytes()
+		if len(vbytes) > 1 {
+			vpart.Write(vbytes[0 : len(vbytes)-1])
+		}
 		vpart.WriteString("),")
 	}
-	str1 := utils.Bytes2Str(fpart.Bytes())
-	str2 := utils.Bytes2Str(vpart.Bytes())
-	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str1)+len(str2)+64))
+	// 优化：避免 Bytes2Str 转换，直接使用 bytes
+	fbytes := fpart.Bytes()
+	vbytes := vpart.Bytes()
+	// 计算精确容量："insert into " + TableName + " (" + fbytes[0:len-1] + ") values " + vbytes[0:len-1]
+	// = 12 + len(TableName) + 2 + (len(fbytes)-1) + 11 + (len(vbytes)-1) = 23 + len(TableName) + len(fbytes) + len(vbytes)
+	sqlBufSize := 12 + len(obv.TableName) + 2 + (len(fbytes) - 1) + 11 + (len(vbytes) - 1)
+	sqlbuf := bytes.NewBuffer(make([]byte, 0, sqlBufSize))
 	sqlbuf.WriteString("insert into ")
 	sqlbuf.WriteString(obv.TableName)
 	sqlbuf.WriteString(" (")
-	sqlbuf.WriteString(utils.Substr(str1, 0, len(str1)-1))
-	sqlbuf.WriteString(")")
-	sqlbuf.WriteString(" values ")
-	if len(str2) > 0 {
-		sqlbuf.WriteString(utils.Substr(str2, 0, len(str2)-1))
+	// 优化：直接操作 bytes，避免 Substr 创建新字符串
+	if len(fbytes) > 1 {
+		sqlbuf.Write(fbytes[0 : len(fbytes)-1])
+	}
+	sqlbuf.WriteString(") values ")
+	if len(vbytes) > 1 {
+		sqlbuf.Write(vbytes[0 : len(vbytes)-1])
 	}
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {

@@ -6,7 +6,6 @@ import (
 	"github.com/godaddy-x/freego/ormx/sqld"
 	"github.com/godaddy-x/freego/utils"
 	"testing"
-	"time"
 )
 
 func init() {
@@ -15,15 +14,15 @@ func init() {
 
 func TestMysqlSave(t *testing.T) {
 	initMysqlDB()
-	db, err := sqld.NewMysql(sqld.Option{OpenTx: true, AutoID: true})
+	db, err := sqld.NewMysqlTx(false)
 	if err != nil {
 		panic(err)
 	}
 	defer db.Close()
 	var vs []sqlc.Object
 	for i := 0; i < 1; i++ {
-		wallet := OwAuth{
-			//Ctime: utils.UnixMilli(),
+		wallet := OwWallet{
+			Ctime: utils.UnixMilli(),
 		}
 		vs = append(vs, &wallet)
 	}
@@ -125,15 +124,20 @@ func TestMysqlFindOne(t *testing.T) {
 	//}
 	//fmt.Println(object)
 	object2 := UserProfileNatural{}
-	if err := db.FindOne(sqlc.M().Eq("user_id", 1900478443951226880), &object2); err != nil {
+	if err := db.FindOne(sqlc.M(), &object2); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println(object2)
-	a, _ := utils.Str2FormatTime("1965-10-25", utils.DateFmt, time.UTC)
-	object2.BirthDate = a
-	if err := db.Update(&object2); err != nil {
+
+	db2, _ := sqld.NewMysqlTx(true)
+	if err := db2.FindOne(sqlc.M().Eq("id", 218418572484169728), &object2); err != nil {
 		fmt.Println(err)
 	}
+	//a, _ := utils.Str2FormatTime("1965-10-25", utils.DateFmt, time.UTC)
+	//object2.BirthDate = a
+	//if err := db.Update(&object2); err != nil {
+	//	fmt.Println(err)
+	//}
 }
 
 func TestMysqlDeleteById(t *testing.T) {

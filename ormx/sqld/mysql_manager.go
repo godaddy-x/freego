@@ -162,7 +162,7 @@ func NewMysql(option ...Option) (*MysqlManager, error) {
 	return new(MysqlManager).Get(option...)
 }
 
-func NewMysqlTX(tx bool) (*MysqlManager, error) {
+func NewMysqlTx(tx bool) (*MysqlManager, error) {
 	option := Option{}
 	option.OpenTx = tx
 	return new(MysqlManager).Get(option)
