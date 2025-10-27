@@ -786,7 +786,7 @@ func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) (int64, error) {
 }
 
 func (self *RDBManager) Delete(data ...sqlc.Object) error {
-	if data == nil || len(data) == 0 {
+	if len(data) == 0 {
 		return self.Error("[Mysql.Delete] data is nil")
 	}
 	if len(data) > 2000 {
@@ -796,11 +796,13 @@ func (self *RDBManager) Delete(data ...sqlc.Object) error {
 	if !ok {
 		return self.Error("[Mysql.Delete] registration object type not found [", data[0].GetTable(), "]")
 	}
-	parameter := make([]interface{}, 0, len(data))
 	if len(obv.PkName) == 0 {
 		return self.Error("PK field not support, you can use [deleteByCnd]")
 	}
-	vpart := bytes.NewBuffer(make([]byte, 0, 2*len(data)))
+	// 优化：精确计算 vpart 容量（每个占位符 "?," 占 2 字节）
+	vpartSize := 2 * len(data)
+	parameter := make([]interface{}, 0, len(data))
+	vpart := bytes.NewBuffer(make([]byte, 0, vpartSize))
 	for _, v := range data {
 		if obv.PkKind == reflect.Int64 {
 			lastInsertId := utils.GetInt64(utils.GetPtr(v, obv.PkOffset))
@@ -817,19 +819,24 @@ func (self *RDBManager) Delete(data ...sqlc.Object) error {
 		}
 		vpart.WriteString("?,")
 	}
-	str2 := utils.Bytes2Str(vpart.Bytes())
-	if len(str2) == 0 {
-		return self.Error("where case is nil")
+	// 检查是否有参数
+	vbytes := vpart.Bytes()
+	if len(vbytes) == 0 {
+		return self.Error("[Mysql.Delete] where case is nil")
 	}
-	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str2)+64))
+	// 优化：精确计算 sqlbuf 容量："delete from " + TableName + " where `" + PkName + "` in (" + (vbytes去掉最后一个逗号) + ")"
+	// = "delete from " (12) + TableName + " where `" (8) + PkName + "` in (" (6) + (len(vbytes)-1) + ")" (1)
+	// = 12 + 8 + 6 + 1 + len(TableName) + len(PkName) + len(vbytes) - 1 = 26 + len(TableName) + len(PkName) + len(vbytes)
+	sqlBufSize := 26 + len(obv.TableName) + len(obv.PkName) + len(vbytes)
+	sqlbuf := bytes.NewBuffer(make([]byte, 0, sqlBufSize))
 	sqlbuf.WriteString("delete from ")
 	sqlbuf.WriteString(obv.TableName)
-	sqlbuf.WriteString(" where ")
-	sqlbuf.WriteString("`")
+	sqlbuf.WriteString(" where `")
 	sqlbuf.WriteString(obv.PkName)
-	sqlbuf.WriteString("`")
-	sqlbuf.WriteString(" in (")
-	sqlbuf.WriteString(utils.Substr(str2, 0, len(str2)-1))
+	sqlbuf.WriteString("` in (")
+	if len(vbytes) > 1 {
+		sqlbuf.Write(vbytes[0 : len(vbytes)-1])
+	}
 	sqlbuf.WriteString(")")
 
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
