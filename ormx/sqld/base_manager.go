@@ -1033,19 +1033,18 @@ func (self *RDBManager) FindById(data sqlc.Object) error {
 	if !ok {
 		return self.Error("[Mysql.FindById] registration object type not found [", data.GetTable(), "]")
 	}
-	parameter := make([]interface{}, 0, 1)
+	// 优化：FindById 只有一个参数（主键），直接初始化长度为1
+	var lastInsertId interface{}
 	if obv.PkKind == reflect.Int64 {
-		lastInsertId := utils.GetInt64(utils.GetPtr(data, obv.PkOffset))
+		lastInsertId = utils.GetInt64(utils.GetPtr(data, obv.PkOffset))
 		if lastInsertId == 0 {
 			return self.Error("[Mysql.FindById] data object id is nil")
 		}
-		parameter = append(parameter, lastInsertId)
 	} else if obv.PkKind == reflect.String {
-		lastInsertId := utils.GetString(utils.GetPtr(data, obv.PkOffset))
-		if len(lastInsertId) == 0 {
+		lastInsertId = utils.GetString(utils.GetPtr(data, obv.PkOffset))
+		if len(lastInsertId.(string)) == 0 {
 			return self.Error("[Mysql.FindById] data object id is nil")
 		}
-		parameter = append(parameter, lastInsertId)
 	}
 	// 优化：精确计算 fpart 容量
 	fieldPartSize := 0
@@ -1087,7 +1086,7 @@ func (self *RDBManager) FindById(data sqlc.Object) error {
 
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
-		defer zlog.Debug("[Mysql.FindById] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
+		defer zlog.Debug("[Mysql.FindById] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("value", lastInsertId))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
 	defer cancel()
@@ -1103,7 +1102,7 @@ func (self *RDBManager) FindById(data sqlc.Object) error {
 		return self.Error("[Mysql.FindById] [", prepare, "] prepare failed: ", err)
 	}
 	defer stmt.Close()
-	rows, err = stmt.QueryContext(ctx, parameter...)
+	rows, err = stmt.QueryContext(ctx, lastInsertId)
 	if err != nil {
 		return self.Error("[Mysql.FindById] query failed: ", err)
 	}
