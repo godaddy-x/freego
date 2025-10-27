@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"reflect"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/godaddy-x/freego/cache"
@@ -22,6 +23,16 @@ var (
 	FALSE     = false
 	rdbs      = map[string]*RDBManager{}
 	rdbsMutex sync.RWMutex
+
+	// 选项缓存（5分钟过期）
+	optionCache struct {
+		sync.Map
+		lastClean time.Time
+		mu        sync.Mutex
+	}
+
+	// 读取计数器（用于监控）
+	readerCount int64
 )
 
 const (
@@ -29,7 +40,15 @@ const (
 	UPDATE        = 2
 	DELETE        = 3
 	UPDATE_BY_CND = 4
+
+	cacheExpiry  = time.Minute * 5
+	maxCacheSize = 1000
 )
+
+type cacheEntry struct {
+	rdb     *RDBManager
+	created time.Time
+}
 
 /********************************** 数据库配置参数 **********************************/
 
@@ -209,7 +228,7 @@ func (self *DBManager) BuildPagination(cnd *sqlc.Cnd, sql string, values []inter
 }
 
 func (self *DBManager) Error(data ...interface{}) error {
-	if data == nil || len(data) == 0 {
+	if len(data) == 0 {
 		return nil
 	}
 	err := utils.Error(data...)
@@ -227,62 +246,188 @@ type RDBManager struct {
 }
 
 func (self *RDBManager) GetDB(options ...Option) error {
+	// 原有实现（保持向后兼容）
+	return self.GetDBOptimized(options...)
+}
+
+// GetDBOptimized 优化版本的 GetDB 方法
+func (self *RDBManager) GetDBOptimized(options ...Option) error {
+	// 1. 解析数据源名称
 	dsName := DIC.MASTER
-	var option Option
+	var opt Option
 	if len(options) > 0 {
-		option = options[0]
-		if len(option.DsName) > 0 {
-			dsName = option.DsName
-		} else {
-			option.DsName = dsName
+		opt = options[0]
+		if len(opt.DsName) > 0 {
+			dsName = opt.DsName
 		}
 	}
 
-	// 并发安全地读取数据源
+	// 2. 尝试从缓存获取（快速路径），但不缓存带事务的选项
+	if !opt.OpenTx {
+		if cached := getFromCache(opt); cached != nil {
+			self.copyFrom(cached)
+			return nil
+		}
+	}
+
+	// 3. 原子递增读取计数
+	atomic.AddInt64(&readerCount, 1)
+	defer atomic.AddInt64(&readerCount, -1)
+
+	// 4. 并发安全地读取数据源
 	rdbsMutex.RLock()
-	rdb := rdbs[dsName]
+	srcRdb := rdbs[dsName]
 	rdbsMutex.RUnlock()
 
-	if rdb == nil {
-		return self.Error("datasource [", dsName, "] not found...")
+	if srcRdb == nil {
+		return self.Error("datasource [", dsName, "] not found")
 	}
-	self.Db = rdb.Db
-	self.DsName = rdb.DsName
-	self.Database = rdb.Database
-	self.Timeout = 10000
-	self.MongoSync = rdb.MongoSync
-	self.CacheManager = rdb.CacheManager
-	self.OpenTx = false
-	self.Option.AutoID = option.AutoID
-	if len(option.DsName) > 0 {
-		if len(option.DsName) > 0 {
-			self.DsName = option.DsName
+
+	// 5. 复制数据源配置到 self（直接操作，不用临时对象）
+	self.copyFrom(srcRdb)
+
+	// 6. 应用用户选项
+	if len(options) > 0 {
+		if err := self.applyOptions(opt); err != nil {
+			return err
 		}
-		if option.OpenTx {
-			self.OpenTx = option.OpenTx
+	}
+
+	// 7. 缓存结果（不缓存事务，使用克隆避免污染）
+	if !opt.OpenTx {
+		putToCache(opt, self.clone())
+	}
+
+	return nil
+}
+
+// getFromCache 从缓存中获取
+func getFromCache(opt Option) *RDBManager {
+	key := hashOptions(opt)
+	if entry, ok := optionCache.Load(key); ok {
+		e := entry.(*cacheEntry)
+		if time.Since(e.created) < cacheExpiry {
+			return e.rdb
 		}
-		if option.MongoSync {
-			self.MongoSync = option.MongoSync
-		}
-		if option.Timeout > 0 {
-			self.Timeout = option.Timeout
-		}
-		if len(option.Database) > 0 {
-			self.Database = option.Database
-		}
-		if option.OpenTx {
-			if txv, err := self.Db.Begin(); err != nil {
-				return self.Error("database open transaction failed: ", err)
-			} else {
-				self.Tx = txv
-			}
-		}
+		optionCache.Delete(key)
 	}
 	return nil
 }
 
+// putToCache 放入缓存
+func putToCache(opt Option, rdb *RDBManager) {
+	// 限制缓存大小
+	if size := getCacheSize(); size >= maxCacheSize {
+		cleanExpiredCache()
+	}
+
+	key := hashOptions(opt)
+	entry := &cacheEntry{
+		rdb:     rdb,
+		created: time.Now(),
+	}
+	optionCache.Store(key, entry)
+}
+
+// hashOptions 计算选项的哈希值
+func hashOptions(opt Option) string {
+	return utils.AddStr(opt.DsName, ":", opt.Database, ":", utils.AnyToStr(opt.Timeout),
+		":", utils.AnyToStr(opt.OpenTx), ":", utils.AnyToStr(opt.AutoID), ":", utils.AnyToStr(opt.MongoSync))
+}
+
+// copyFrom 从另一个 RDBManager 复制配置（不复制事务 Tx，事务必须在每次调用时重新创建）
+func (self *RDBManager) copyFrom(other *RDBManager) {
+	self.Db = other.Db
+	self.CacheManager = other.CacheManager
+	self.MongoSync = other.MongoSync
+	self.DsName = other.DsName
+	self.Database = other.Database
+	self.Timeout = other.Timeout
+	self.OpenTx = other.OpenTx
+	// 注意：不复制 self.Tx，事务必须每次重新创建
+}
+
+// applyOptions 应用用户选项
+func (self *RDBManager) applyOptions(opt Option) error {
+	if len(opt.DsName) > 0 {
+		self.DsName = opt.DsName
+	}
+	if len(opt.Database) > 0 {
+		self.Database = opt.Database
+	}
+	if opt.Timeout > 0 {
+		self.Timeout = opt.Timeout
+	}
+	if opt.AutoID {
+		self.Option.AutoID = opt.AutoID
+	}
+	if opt.OpenTx {
+		self.OpenTx = opt.OpenTx
+	}
+	if opt.MongoSync {
+		self.MongoSync = opt.MongoSync
+	}
+
+	// 开启事务（重要：必须返回错误）
+	if opt.OpenTx {
+		txv, err := self.Db.Begin()
+		if err != nil {
+			zlog.Error("database transaction failed", 0, zlog.AddError(err))
+			return err
+		}
+		self.Tx = txv
+	}
+
+	return nil
+}
+
+// clone 克隆 RDBManager（浅拷贝）
+func (self *RDBManager) clone() *RDBManager {
+	clone := &RDBManager{}
+	clone.copyFrom(self)
+	return clone
+}
+
+// getCacheSize 获取缓存大小
+func getCacheSize() int {
+	count := 0
+	optionCache.Range(func(key, value interface{}) bool {
+		count++
+		return true
+	})
+	return count
+}
+
+// cleanExpiredCache 清理过期的缓存
+func cleanExpiredCache() {
+	now := time.Now()
+	optionCache.Range(func(key, value interface{}) bool {
+		entry := value.(*cacheEntry)
+		if now.Sub(entry.created) > cacheExpiry {
+			optionCache.Delete(key)
+		}
+		return true
+	})
+}
+
+// init 启动定期清理 goroutine
+func initCacheCleaner() {
+	go func() {
+		ticker := time.NewTicker(time.Minute * 2)
+		defer ticker.Stop()
+		for range ticker.C {
+			cleanExpiredCache()
+		}
+	}()
+}
+
+// 在包初始化时启动缓存清理器
+func init() {
+	initCacheCleaner()
+}
+
 func (self *RDBManager) Save(data ...sqlc.Object) error {
-	if data == nil || len(data) == 0 {
+	if len(data) == 0 {
 		return self.Error("[Mysql.Save] data is nil")
 	}
 	if len(data) > 2000 {

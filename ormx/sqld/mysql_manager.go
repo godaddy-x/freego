@@ -162,6 +162,12 @@ func NewMysql(option ...Option) (*MysqlManager, error) {
 	return new(MysqlManager).Get(option...)
 }
 
+func NewMysqlTX(tx bool) (*MysqlManager, error) {
+	option := Option{}
+	option.OpenTx = tx
+	return new(MysqlManager).Get(option)
+}
+
 // MysqlClose 关闭所有数据库连接（在服务器优雅关闭时调用）
 func MysqlClose() {
 	rdbsMutex.Lock()
