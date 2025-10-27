@@ -20,7 +20,7 @@ func TestMysqlSave(t *testing.T) {
 	}
 	defer db.Close()
 	var vs []sqlc.Object
-	for i := 0; i < 1; i++ {
+	for i := 0; i < 3; i++ {
 		wallet := OwWallet{
 			Ctime: utils.UnixMilli(),
 		}
@@ -35,15 +35,16 @@ func TestMysqlSave(t *testing.T) {
 
 func TestMysqlUpdate(t *testing.T) {
 	initMysqlDB()
-	db, err := new(sqld.MysqlManager).Get(sqld.Option{OpenTx: true})
+	db, err := sqld.NewMysqlTx(true)
 	if err != nil {
 		panic(err)
 	}
 	defer db.Close()
 	var vs []sqlc.Object
 	for i := 0; i < 1; i++ {
-		wallet := OwAuth{
-			Id: 1649040212178763776,
+		wallet := OwWallet{
+			Id:    1982733730401222656,
+			AppID: "123456777",
 			//Secret: "1111122",
 			//Ctime:  utils.UnixMilli(),
 			//Seed:   "3321",

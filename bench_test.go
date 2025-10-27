@@ -7,7 +7,6 @@ import (
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/decimal"
 	"go.mongodb.org/mongo-driver/bson/primitive"
-	"time"
 )
 
 type OwWallet struct {
@@ -39,7 +38,8 @@ func (o *OwWallet) NewObject() sqlc.Object {
 }
 
 func (o *OwWallet) NewIndex() []sqlc.Index {
-	return nil
+	appID := sqlc.Index{Name: "appID", Key: []string{"appID"}}
+	return []sqlc.Index{appID}
 }
 
 type OwWallet2 struct {
@@ -109,7 +109,7 @@ type OwAuth struct {
 }
 
 func (o *OwAuth) GetTable() string {
-	return "ow_api"
+	return "ow_auth"
 }
 
 func (o *OwAuth) NewObject() sqlc.Object {
@@ -117,7 +117,8 @@ func (o *OwAuth) NewObject() sqlc.Object {
 }
 
 func (o *OwAuth) NewIndex() []sqlc.Index {
-	return nil
+	symbol := sqlc.Index{Name: "name", Key: []string{"name"}}
+	return []sqlc.Index{symbol}
 }
 
 // go build -gcflags=-m main.go
@@ -185,16 +186,16 @@ func init() {
 }
 
 func initDriver() {
-	sqld.ModelTime(time.UTC, utils.TimeFmt2, utils.DateFmt)
+	//sqld.ModelTime(time.UTC, utils.TimeFmt2, utils.DateFmt)
 	sqld.ModelDriver(
 		&OwWallet{},
 		//&OwWallet2{},
 		//&OwBlock{},
 		//&OwContract{},
-		&OwAuth{},
-		&User{},
-		&KycIdentityPayload{},
-		&UserProfileNatural{},
+		//&OwAuth{},
+		//&User{},
+		//&KycIdentityPayload{},
+		//&UserProfileNatural{},
 	)
 }
 
