@@ -74,15 +74,15 @@ func TestMysqlUpdateByCnd(t *testing.T) {
 
 func TestMysqlDelete(t *testing.T) {
 	initMysqlDB()
-	db, err := new(sqld.MysqlManager).Get(sqld.Option{OpenTx: true})
+	db, err := sqld.NewMysqlTx(false)
 	if err != nil {
 		panic(err)
 	}
 	defer db.Close()
 	var vs []sqlc.Object
-	for i := 0; i < 2000; i++ {
+	for i := 0; i < 1; i++ {
 		wallet := OwWallet{
-			Id: 1570732354786295848,
+			Id: 1982733730401222656,
 		}
 		vs = append(vs, &wallet)
 	}
@@ -91,6 +91,20 @@ func TestMysqlDelete(t *testing.T) {
 		fmt.Println(err)
 	}
 	fmt.Println("cost: ", utils.UnixMilli()-l)
+}
+
+func TestMysqlDeleteById(t *testing.T) {
+	initMysqlDB()
+	db, err := sqld.NewMysql()
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+	ret, err := db.DeleteById(&OwWallet{}, 1982734524403941376, 1982734572302893056)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(ret)
 }
 
 func TestMysqlFindById(t *testing.T) {
@@ -139,20 +153,6 @@ func TestMysqlFindOne(t *testing.T) {
 	//if err := db.Update(&object2); err != nil {
 	//	fmt.Println(err)
 	//}
-}
-
-func TestMysqlDeleteById(t *testing.T) {
-	initMysqlDB()
-	db, err := sqld.NewMysql()
-	if err != nil {
-		panic(err)
-	}
-	defer db.Close()
-	ret, err := db.DeleteById(&OwWallet{}, 1136187262606770177, 1136187262606770178)
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println(ret)
 }
 
 func TestMysqlFindList(t *testing.T) {

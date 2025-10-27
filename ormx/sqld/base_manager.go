@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"fmt"
 	"reflect"
 	"sync"
 	"sync/atomic"
@@ -871,7 +872,7 @@ func (self *RDBManager) Delete(data ...sqlc.Object) error {
 }
 
 func (self *RDBManager) DeleteById(object sqlc.Object, data ...interface{}) (int64, error) {
-	if data == nil || len(data) == 0 {
+	if len(data) == 0 {
 		return 0, self.Error("[Mysql.DeleteById] data is nil")
 	}
 	if len(data) > 2000 {
@@ -884,26 +885,37 @@ func (self *RDBManager) DeleteById(object sqlc.Object, data ...interface{}) (int
 	if len(obv.PkName) == 0 {
 		return 0, self.Error("PK field not support, you can use [deleteByCnd]")
 	}
+	// 优化：精确计算 vpart 容量（每个占位符 "?," 占 2 字节）
+	vpartSize := 2 * len(data)
 	parameter := make([]interface{}, 0, len(data))
-	vpart := bytes.NewBuffer(make([]byte, 0, 2*len(data)))
+	vpart := bytes.NewBuffer(make([]byte, 0, vpartSize))
 	for _, v := range data {
 		vpart.WriteString("?,")
 		parameter = append(parameter, v)
 	}
-	str2 := utils.Bytes2Str(vpart.Bytes())
-	if len(str2) == 0 {
-		return 0, self.Error("where case is nil")
+	// 检查是否有参数
+	vbytes := vpart.Bytes()
+	if len(vbytes) == 0 {
+		return 0, self.Error("[Mysql.DeleteById] where case is nil")
 	}
-	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str2)+64))
+	// 优化：精确计算 sqlbuf 容量："delete from " + TableName + " where `" + PkName + "` in (" + (vbytes去掉最后一个逗号) + ")"
+	// = "delete from " (12) + TableName + " where `" (8) + PkName + "` in (" (6) + (len(vbytes)-1) + ")" (1)
+	// = 12 + 8 + 6 + 1 + len(TableName) + len(PkName) + len(vbytes) - 1 = 26 + len(TableName) + len(PkName) + len(vbytes)
+	sqlBufSize := 26 + len(obv.TableName) + len(obv.PkName) + len(vbytes)
+	sqlbuf := bytes.NewBuffer(make([]byte, 0, sqlBufSize))
 	sqlbuf.WriteString("delete from ")
 	sqlbuf.WriteString(obv.TableName)
-	sqlbuf.WriteString(" where ")
-	sqlbuf.WriteString("`")
+	sqlbuf.WriteString(" where `")
 	sqlbuf.WriteString(obv.PkName)
-	sqlbuf.WriteString("`")
-	sqlbuf.WriteString(" in (")
-	sqlbuf.WriteString(utils.Substr(str2, 0, len(str2)-1))
+	sqlbuf.WriteString("` in (")
+	if len(vbytes) > 1 {
+		sqlbuf.Write(vbytes[0 : len(vbytes)-1])
+	}
 	sqlbuf.WriteString(")")
+
+	fmt.Println("vpartSize", vpartSize)
+	fmt.Println("sqlBufSize", sqlBufSize)
+	fmt.Println("sqlbuf", len(sqlbuf.Bytes()))
 
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
