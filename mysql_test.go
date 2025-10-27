@@ -131,40 +131,23 @@ func TestMysqlFindOne(t *testing.T) {
 		panic(err)
 	}
 	defer db.Close()
-	//object := UserProfileNatural{}
-	//object.CreatedAt = utils.UnixMilli()
-	//object.UpdatedAt = utils.UnixMilli()
-	//if err := db.Save(&object); err != nil {
-	//	fmt.Println(err)
-	//}
-	//fmt.Println(object)
-	object2 := UserProfileNatural{}
-	if err := db.FindOne(sqlc.M(), &object2); err != nil {
+	wallet := OwWallet{}
+	if err := db.FindOne(sqlc.M().Eq("id", 1982734572302893056).Eq("appID", 1).NotIn("id", 2).Between("ctime", 1, 2).Orderby("id", sqlc.DESC_), &wallet); err != nil {
 		fmt.Println(err)
 	}
-	fmt.Println(object2)
-
-	db2, _ := sqld.NewMysqlTx(true)
-	if err := db2.FindOne(sqlc.M().Eq("id", 218418572484169728), &object2); err != nil {
-		fmt.Println(err)
-	}
-	//a, _ := utils.Str2FormatTime("1965-10-25", utils.DateFmt, time.UTC)
-	//object2.BirthDate = a
-	//if err := db.Update(&object2); err != nil {
-	//	fmt.Println(err)
-	//}
+	fmt.Println(wallet)
 }
 
 func TestMysqlFindList(t *testing.T) {
 	initMysqlDB()
-	db, err := new(sqld.MysqlManager).Get(sqld.Option{OpenTx: false})
+	db, err := sqld.NewMysqlTx(false)
 	if err != nil {
 		panic(err)
 	}
 	defer db.Close()
 	l := utils.UnixMilli()
 	var result []*OwWallet
-	if err := db.FindList(sqlc.M(&OwWallet{}).Eq("id", 1109996130134917121).Orderby("id", sqlc.DESC_).Limit(1, 5), &result); err != nil {
+	if err := db.FindList(sqlc.M(&OwWallet{}).Eq("id", 1109996130134917121).Orderby("id", sqlc.DESC_), &result); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println("cost: ", utils.UnixMilli()-l)

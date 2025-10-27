@@ -1141,16 +1141,7 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
 	if !ok {
 		return self.Error("[Mysql.FindOne] registration object type not found [", data.GetTable(), "]")
 	}
-	// 优化：计算精确的 fieldPartSize
-	fieldPartSize := 0
-	for _, vv := range obv.FieldElem {
-		if vv.Ignore {
-			continue
-		}
-		// "`" + FieldJsonName + "`," = len(FieldJsonName) + 3
-		fieldPartSize += len(vv.FieldJsonName) + 3
-	}
-	fpart := bytes.NewBuffer(make([]byte, 0, fieldPartSize))
+	fpart := bytes.NewBuffer(make([]byte, 0, 14*len(obv.FieldElem)))
 	for _, vv := range obv.FieldElem {
 		if vv.Ignore {
 			continue
@@ -1268,32 +1259,40 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 		fpart.WriteString(",")
 	}
 	case_part, case_arg := self.BuildWhereCase(cnd)
-	parameter := make([]interface{}, 0, len(case_arg))
-	for _, v := range case_arg {
-		parameter = append(parameter, v)
-	}
+	parameter := case_arg
+
 	var vpart *bytes.Buffer
+	var vpartBytes []byte
 	if case_part.Len() > 0 {
-		vpart = bytes.NewBuffer(make([]byte, 0, case_part.Len()+16))
+		// 优化：直接操作 bytes，避免字符串转换
+		caseBytes := case_part.Bytes()
+		vpartCap := len(caseBytes) + 9 // "where" (5) + 4 (extra)
+		vpart = bytes.NewBuffer(make([]byte, 0, vpartCap))
 		vpart.WriteString("where")
-		str := case_part.String()
-		vpart.WriteString(utils.Substr(str, 0, len(str)-3))
-	}
-	str1 := utils.Bytes2Str(fpart.Bytes())
-	str2 := ""
-	if vpart != nil {
-		str2 = utils.Bytes2Str(vpart.Bytes())
+		// 优化：直接操作字节，去掉最后的 " and"（4字节）
+		if len(caseBytes) > 4 {
+			vpart.Write(caseBytes[0 : len(caseBytes)-4])
+		}
+		vpartBytes = vpart.Bytes()
 	}
 	groupby := self.BuildGroupBy(cnd)
 	sortby := self.BuildSortBy(cnd)
-	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str1)+len(str2)+len(groupby)+len(sortby)+32))
+	// 优化：直接操作 bytes，避免字符串转换
+	fbytes := fpart.Bytes()
+	// 优化：精确计算 sqlbuf 容量
+	// 固定字节："select " (7) + " from " (6) + " " (1) = 14
+	// 动态：fbytes去掉最后一个逗号 + TableName + vpartBytes + groupby + sortby
+	sqlBufSize := 14 + len(obv.TableName) + (len(fbytes) - 1) + len(vpartBytes) + len(groupby) + len(sortby)
+	sqlbuf := bytes.NewBuffer(make([]byte, 0, sqlBufSize))
 	sqlbuf.WriteString("select ")
-	sqlbuf.WriteString(utils.Substr(str1, 0, len(str1)-1))
+	if len(fbytes) > 1 {
+		sqlbuf.Write(fbytes[0 : len(fbytes)-1])
+	}
 	sqlbuf.WriteString(" from ")
 	sqlbuf.WriteString(obv.TableName)
 	sqlbuf.WriteString(" ")
-	if len(str2) > 0 {
-		sqlbuf.WriteString(utils.Substr(str2, 0, len(str2)-1))
+	if len(vpartBytes) > 0 {
+		sqlbuf.Write(vpartBytes)
 	}
 	if len(groupby) > 0 {
 		sqlbuf.WriteString(groupby)
@@ -1301,10 +1300,12 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	if len(sortby) > 0 {
 		sqlbuf.WriteString(sortby)
 	}
-	prepare, err := self.BuildPagination(cnd, utils.Bytes2Str(sqlbuf.Bytes()), parameter)
+	// 优化：直接传入字节数组，避免 Bytes2Str 转换
+	prepareBytes, err := self.BuildPagination(cnd, sqlbuf.Bytes(), parameter)
 	if err != nil {
 		return self.Error(err)
 	}
+	prepare := utils.Bytes2Str(prepareBytes)
 	if zlog.IsDebug() {
 		defer zlog.Debug("[Mysql.FindList] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
@@ -1613,10 +1614,11 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 		sqlbuf.WriteString(sortby)
 	}
 
-	prepare, err := self.BuildPagination(cnd, utils.Bytes2Str(sqlbuf.Bytes()), parameter)
+	prepareBytes, err := self.BuildPagination(cnd, sqlbuf.Bytes(), parameter)
 	if err != nil {
 		return self.Error(err)
 	}
+	prepare := utils.Bytes2Str(prepareBytes)
 	if zlog.IsDebug() {
 		defer zlog.Debug("[Mysql.FindListComplex] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
@@ -2175,31 +2177,32 @@ func (self *RDBManager) BuildSortBy(cnd *sqlc.Cnd) string {
 	return ""
 }
 
-// 构建分页命令
-func (self *RDBManager) BuildPagination(cnd *sqlc.Cnd, sqlbuf string, values []interface{}) (string, error) {
+// BuildPagination 优化版本：直接接收和返回字节数组
+func (self *RDBManager) BuildPagination(cnd *sqlc.Cnd, sqlBytes []byte, values []interface{}) ([]byte, error) {
 	if cnd == nil {
-		return sqlbuf, nil
+		return sqlBytes, nil
 	}
 	pagination := cnd.Pagination
 	if pagination.PageNo == 0 && pagination.PageSize == 0 {
-		return sqlbuf, nil
+		return sqlBytes, nil
 	}
 	if pagination.PageSize <= 0 {
 		pagination.PageSize = 10
 	}
-	dialect := dialect.MysqlDialect{Dialect: pagination}
-	limitSql, err := dialect.GetLimitSql(sqlbuf)
+	mysqlDialect := dialect.MysqlDialect{Dialect: pagination}
+	limitSqlBytes, err := mysqlDialect.GetLimitSql(sqlBytes)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	if !dialect.IsPage {
-		return limitSql, nil
+	if !mysqlDialect.IsPage {
+		return limitSqlBytes, nil
 	}
-	if !dialect.IsOffset {
-		countSql, err := dialect.GetCountSql(sqlbuf)
+	if !mysqlDialect.IsOffset {
+		countSqlBytes, err := mysqlDialect.GetCountSql(sqlBytes)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
+		countSql := utils.Bytes2Str(countSqlBytes)
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
 		defer cancel()
 		var rows *sql.Rows
@@ -2209,17 +2212,17 @@ func (self *RDBManager) BuildPagination(cnd *sqlc.Cnd, sqlbuf string, values []i
 			rows, err = self.Db.QueryContext(ctx, countSql, values...)
 		}
 		if err != nil {
-			return "", self.Error("count query failed: ", err)
+			return nil, self.Error("count query failed: ", err)
 		}
 		defer rows.Close()
 		var pageTotal int64
 		for rows.Next() {
 			if err := rows.Scan(&pageTotal); err != nil {
-				return "", self.Error("rows scan failed: ", err)
+				return nil, self.Error("rows scan failed: ", err)
 			}
 		}
 		if err := rows.Err(); err != nil {
-			return "", self.Error("rows.Err(): ", err)
+			return nil, self.Error("rows.Err(): ", err)
 		}
 		var pageCount int64
 		if pageTotal%cnd.Pagination.PageSize == 0 {
@@ -2230,5 +2233,5 @@ func (self *RDBManager) BuildPagination(cnd *sqlc.Cnd, sqlbuf string, values []i
 		cnd.Pagination.PageTotal = pageTotal
 		cnd.Pagination.PageCount = pageCount
 	}
-	return limitSql, nil
+	return limitSqlBytes, nil
 }

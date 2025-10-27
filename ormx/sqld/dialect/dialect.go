@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"strconv"
-	"unsafe"
 )
 
 /********************************** 分页方言实现 **********************************/
@@ -38,9 +37,9 @@ type IDialect interface {
 	// 是否支持分页
 	Support() (bool, error)
 	// 获取统计语句
-	GetCountSql(sql string) (string, error)
+	GetCountSql(sql string) ([]byte, error)
 	// 获取分页语句
-	GetLimitSql(sql string) (string, error)
+	GetLimitSql(sql []byte) ([]byte, error)
 	// 分页结果
 	GetResult() PageResult
 }
@@ -49,21 +48,16 @@ func (self *Dialect) Support() (bool, error) {
 	return false, errors.New("No implementation method [Support] was found")
 }
 
-func (self *Dialect) GetCountSql(sql string) (string, error) {
-	return "", errors.New("No implementation method [GetCountSql] was found")
+func (self *Dialect) GetCountSql(sql []byte) ([]byte, error) {
+	return nil, errors.New("No implementation method [GetCountSql] was found")
 }
 
-func (self *Dialect) GetLimitSql(sql string) (string, error) {
-	return "", errors.New("No implementation method [GetLimitSql] was found")
+func (self *Dialect) GetLimitSql(sql []byte) ([]byte, error) {
+	return nil, errors.New("No implementation method [GetLimitSql] was found")
 }
 
 func (self *Dialect) GetResult() PageResult {
 	return PageResult{PageNo: self.PageNo, PageSize: self.PageSize, PageTotal: self.PageTotal, PageCount: self.PageCount}
-}
-
-// 字节数组转字符串
-func bytes2str(b []byte) string {
-	return *(*string)(unsafe.Pointer(&b))
 }
 
 /********************************** MySQL方言实现 **********************************/
@@ -76,17 +70,19 @@ func (self *MysqlDialect) Support() (bool, error) {
 	return true, nil
 }
 
-func (self *MysqlDialect) GetCountSql(sql string) (string, error) {
+// GetCountSqlBytes 直接接收和返回字节数组
+func (self *MysqlDialect) GetCountSql(sql []byte) ([]byte, error) {
 	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(sql)+50))
 	sqlbuf.WriteString("select count(1) from (")
-	sqlbuf.WriteString(sql)
+	sqlbuf.Write(sql) // 直接写入字节，避免字符串转换
 	sqlbuf.WriteString(") as cba1")
-	return bytes2str(sqlbuf.Bytes()), nil
+	return sqlbuf.Bytes(), nil
 }
 
-func (self *MysqlDialect) GetLimitSql(sql string) (string, error) {
+// GetLimitSqlBytes 直接接收字节数组
+func (self *MysqlDialect) GetLimitSql(sql []byte) ([]byte, error) {
 	if b, _ := self.Support(); !b {
-		return "", errors.New("No implementation method [GetLimitSql] was support")
+		return nil, errors.New("No implementation method [GetLimitSql] was support")
 	}
 	offset := strconv.FormatInt((self.PageNo-1)*self.PageSize, 10)
 	limit := strconv.FormatInt(self.PageSize, 10)
@@ -94,13 +90,15 @@ func (self *MysqlDialect) GetLimitSql(sql string) (string, error) {
 		offset = strconv.FormatInt(self.PageNo, 10)
 		limit = strconv.FormatInt(self.PageSize, 10)
 	}
-	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(sql)+50))
-	sqlbuf.WriteString(sql)
+	// 优化：精确计算容量
+	sqlBufSize := len(sql) + 20 + len(offset) + len(limit) // " limit ," = 9字节 + 预留
+	sqlbuf := bytes.NewBuffer(make([]byte, 0, sqlBufSize))
+	sqlbuf.Write(sql) // 直接写入字节，避免字符串转换
 	sqlbuf.WriteString(" limit ")
 	sqlbuf.WriteString(offset)
 	sqlbuf.WriteString(",")
 	sqlbuf.WriteString(limit)
-	return bytes2str(sqlbuf.Bytes()), nil
+	return sqlbuf.Bytes(), nil
 }
 
 /********************************** Oracle方言实现 **********************************/
