@@ -2,7 +2,6 @@ package http_web
 
 import (
 	"fmt"
-
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/geetest"
 	"github.com/godaddy-x/freego/node"

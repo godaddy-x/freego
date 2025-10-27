@@ -6,6 +6,7 @@ import (
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/utils"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 )
@@ -116,32 +117,73 @@ func TestRedisTryLocker1(t *testing.T) {
 }
 
 func TestRedisTryLocker2(t *testing.T) {
-	mgr, err := new(cache.RedisManager).Client()
-	if err != nil {
-		panic(err)
+	for i := 0; i < 1000; i++ {
+		go func(int2 int) {
+			if err := cache.TryLocker("trylock", utils.AddStr("object: ", int2), 20, func() error {
+				fmt.Println("test2 try lock successful: ", int2)
+				time.Sleep(10 * time.Second)
+				return nil
+			}); err != nil {
+				fmt.Println(err)
+			}
+		}(i)
 	}
-	if err := mgr.TryLockWithTimeout("trylock", 20, func() error {
-		fmt.Println("test2 try lock successful")
-		return nil
-	}); err != nil {
-		fmt.Println(err)
-	}
+	select {}
 }
 
 func TestRedisGetAndSet(t *testing.T) {
+	for i := 0; i < 2000; i++ {
+		go func(int2 int) {
+			rds, err := cache.NewRedis()
+			if err != nil {
+				panic(err)
+			}
+			key := utils.MD5("123456")
+			if err := rds.Put(key, 1, 30); err != nil {
+				fmt.Println(1, int2, err)
+			}
+			fmt.Println("success: ", int2)
+		}(i)
+	}
+
+	select {}
+
+}
+
+func TestRedisGetAndSet1(t *testing.T) {
 	rds, err := cache.NewRedis()
 	if err != nil {
-		panic(err)
+		t.Fatal(err)
 	}
+
+	// 预计算key避免重复计算
 	key := utils.MD5("123456")
-	if err := rds.Put(key, 1, 30); err != nil {
-		panic(err)
+
+	// 使用sync.WaitGroup等待所有goroutine完成
+	var wg sync.WaitGroup
+	concurrency := 500 // 测试并发量
+
+	// 可选：限制最大并发（推荐）
+	sem := make(chan struct{}, 500) // 500并发上限
+
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+
+			// 限流控制（如果启用）
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			// 测试PUT操作
+			if err := rds.Put(key, id, 30); err != nil {
+				t.Logf("goroutine %d failed: %v", id, err)
+			}
+		}(i)
 	}
-	value, err := rds.Exists(key + "111")
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println("---", value)
+
+	wg.Wait() // 等待所有goroutine完成
+	t.Log("Stress test completed")
 }
 
 func TestLocalCacheGetAndSet(t *testing.T) {

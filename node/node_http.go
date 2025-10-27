@@ -15,6 +15,7 @@ import (
 	"github.com/buaazp/fasthttprouter"
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/ex"
+	"github.com/godaddy-x/freego/ormx/sqld"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/crypto"
 	"github.com/godaddy-x/freego/utils/jwt"
@@ -119,6 +120,9 @@ func (self *HttpNode) StartServer(addr string) {
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
 	<-quit
 	zlog.Printf("http server is shutting down...")
+
+	// 关闭数据库连接
+	sqld.MysqlClose()
 
 	// 关闭服务器（fasthttp的Shutdown已实现优雅关闭）
 	if err := self.server.Shutdown(); err != nil {

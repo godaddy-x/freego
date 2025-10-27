@@ -7,6 +7,7 @@ import (
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/decimal"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"time"
 )
 
 type OwWallet struct {
@@ -123,14 +124,14 @@ func (o *OwAuth) NewIndex() []sqlc.Index {
 // go tool pprof -http=":8081" .\cpuprofile.out
 // go test bench_test.go -bench .  -benchmem -count=5 -cpuprofile cpuprofile.out -memprofile memprofile.out
 
-func initMysqlDB() {
-	conf := sqld.MysqlConfig{}
-	if err := utils.ReadLocalJsonConfig("resource/mysql.json", &conf); err != nil {
-		panic(utils.AddStr("读取mysql配置失败: ", err.Error()))
-	}
-	new(sqld.MysqlManager).InitConfigAndCache(nil, conf)
-	fmt.Println("init mysql success")
-}
+//func initMysqlDB() {
+//	conf := sqld.MysqlConfig{}
+//	if err := utils.ReadLocalJsonConfig("resource/mysql.json", &conf); err != nil {
+//		panic(utils.AddStr("读取mysql配置失败: ", err.Error()))
+//	}
+//	new(sqld.MysqlManager).InitConfigAndCache(nil, conf)
+//	fmt.Println("init mysql success")
+//}
 
 func initMongoDB() {
 	conf := sqld.MGOConfig{}
@@ -139,16 +140,6 @@ func initMongoDB() {
 	}
 	new(sqld.MGOManager).InitConfigAndCache(nil, conf)
 	fmt.Println("init mongo success")
-}
-
-func initDriver() {
-	sqld.ModelDriver(
-		&OwWallet{},
-		//&OwWallet2{},
-		//&OwBlock{},
-		//&OwContract{},
-		&OwAuth{},
-	)
 }
 
 func init() {
@@ -191,6 +182,20 @@ func init() {
 	//	return
 	//}
 	//MyClient = client
+}
+
+func initDriver() {
+	sqld.ModelTime(time.UTC, utils.TimeFmt2, utils.DateFmt)
+	sqld.ModelDriver(
+		&OwWallet{},
+		//&OwWallet2{},
+		//&OwBlock{},
+		//&OwContract{},
+		&OwAuth{},
+		&User{},
+		&KycIdentityPayload{},
+		&UserProfileNatural{},
+	)
 }
 
 //func BenchmarkSave(b *testing.B) {

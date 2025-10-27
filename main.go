@@ -1,22 +1,24 @@
 package main
 
 import (
-	"github.com/godaddy-x/freego/cache"
-	"github.com/godaddy-x/freego/cache/limiter"
-	ballast "github.com/godaddy-x/freego/gc"
-	"github.com/godaddy-x/freego/node/test"
+	"fmt"
 	"github.com/godaddy-x/freego/ormx/sqld"
+	"net/http"
+	_ "net/http/pprof"
+
+	"github.com/godaddy-x/freego/cache"
+	rate "github.com/godaddy-x/freego/cache/limiter"
+	ballast "github.com/godaddy-x/freego/gc"
+	http_web "github.com/godaddy-x/freego/node/test"
 	"github.com/godaddy-x/freego/rpcx"
 	"github.com/godaddy-x/freego/utils"
 	_ "go.uber.org/automaxprocs"
-	"net/http"
-	_ "net/http/pprof"
 )
 
 func http_test() {
 	//go http_web.StartHttpNode1()
 	//go http_web.StartHttpNode2()
-	sqld.RebuildMongoDBIndex()
+	// sqld.RebuildMongoDBIndex()
 	http_web.StartHttpNode()
 }
 
@@ -34,6 +36,15 @@ func initRedis() {
 		panic(utils.AddStr("读取redis配置失败: ", err.Error()))
 	}
 	new(cache.RedisManager).InitConfig(conf)
+}
+
+func initMysqlDB() {
+	conf := sqld.MysqlConfig{}
+	if err := utils.ReadLocalJsonConfig("resource/mysql.json", &conf); err != nil {
+		panic(utils.AddStr("读取mysql配置失败: ", err.Error()))
+	}
+	new(sqld.MysqlManager).InitConfigAndCache(nil, conf)
+	fmt.Println("init mysql success")
 }
 
 var appConfig = rpcx.AppConfig{}
@@ -76,10 +87,12 @@ func init() {
 }
 
 func main() {
+	initMysqlDB()
 	ballast.GC(512*ballast.MB, 30)
 	go func() {
 		_ = http.ListenAndServe(":8849", nil)
 	}()
+	//node.SetLocalSecret(utils.RandStr(24))
 	//rpcx.RunClient(appConfig.AppId)
 	http_test()
 	//router := fasthttprouter.New()

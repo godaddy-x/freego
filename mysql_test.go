@@ -6,6 +6,7 @@ import (
 	"github.com/godaddy-x/freego/ormx/sqld"
 	"github.com/godaddy-x/freego/utils"
 	"testing"
+	"time"
 )
 
 func init() {
@@ -116,9 +117,22 @@ func TestMysqlFindOne(t *testing.T) {
 		panic(err)
 	}
 	defer db.Close()
-	wallet := OwWallet{}
-	if err := db.FindOne(sqlc.M().Eq("id", 1109996130134917121), &wallet); err != nil {
-		panic(err)
+	//object := UserProfileNatural{}
+	//object.CreatedAt = utils.UnixMilli()
+	//object.UpdatedAt = utils.UnixMilli()
+	//if err := db.Save(&object); err != nil {
+	//	fmt.Println(err)
+	//}
+	//fmt.Println(object)
+	object2 := UserProfileNatural{}
+	if err := db.FindOne(sqlc.M().Eq("user_id", 1900478443951226880), &object2); err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println(object2)
+	a, _ := utils.Str2FormatTime("1965-10-25", utils.DateFmt, time.UTC)
+	object2.BirthDate = a
+	if err := db.Update(&object2); err != nil {
+		fmt.Println(err)
 	}
 }
 

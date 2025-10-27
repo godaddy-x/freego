@@ -2,6 +2,7 @@ package node
 
 import (
 	"fmt"
+	"github.com/godaddy-x/freego/zlog"
 	"net"
 	"sync/atomic"
 	"time"
@@ -57,7 +58,7 @@ func (ln *GracefulListener) Close() error {
 
 func (ln *GracefulListener) waitForZeroConns() error {
 	atomic.AddUint64(&ln.shutdown, 1)
-	fmt.Println("waitForZeroConns", atomic.LoadUint64(&ln.connsCount))
+	zlog.Info("waitForZeroConns", 0, zlog.Uint64("conns", atomic.LoadUint64(&ln.connsCount)))
 	if atomic.LoadUint64(&ln.connsCount) == 0 {
 		close(ln.done)
 		return nil

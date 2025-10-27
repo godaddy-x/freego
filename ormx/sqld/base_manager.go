@@ -4,21 +4,24 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"reflect"
+	"sync"
+	"time"
+
 	"github.com/godaddy-x/freego/cache"
 	DIC "github.com/godaddy-x/freego/common"
 	"github.com/godaddy-x/freego/ormx/sqlc"
 	"github.com/godaddy-x/freego/ormx/sqld/dialect"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/zlog"
-	"reflect"
-	"time"
 )
 
 var (
-	ZERO  = int64(0)
-	TRUE  = true
-	FALSE = false
-	rdbs  = map[string]*RDBManager{}
+	ZERO      = int64(0)
+	TRUE      = true
+	FALSE     = false
+	rdbs      = map[string]*RDBManager{}
+	rdbsMutex sync.RWMutex
 )
 
 const (
@@ -234,7 +237,12 @@ func (self *RDBManager) GetDB(options ...Option) error {
 			option.DsName = dsName
 		}
 	}
+
+	// 并发安全地读取数据源
+	rdbsMutex.RLock()
 	rdb := rdbs[dsName]
+	rdbsMutex.RUnlock()
+
 	if rdb == nil {
 		return self.Error("datasource [", dsName, "] not found...")
 	}
