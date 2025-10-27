@@ -1033,7 +1033,7 @@ func (self *RDBManager) FindById(data sqlc.Object) error {
 	if !ok {
 		return self.Error("[Mysql.FindById] registration object type not found [", data.GetTable(), "]")
 	}
-	var parameter []interface{}
+	parameter := make([]interface{}, 0, 1)
 	if obv.PkKind == reflect.Int64 {
 		lastInsertId := utils.GetInt64(utils.GetPtr(data, obv.PkOffset))
 		if lastInsertId == 0 {
@@ -1120,13 +1120,16 @@ func (self *RDBManager) FindById(data sqlc.Object) error {
 	} else {
 		first = out[0]
 	}
-	for i, vv := range obv.FieldElem {
+	// 修复：使用独立索引，避免 Ignore 字段导致索引错位
+	idx := 0
+	for _, vv := range obv.FieldElem {
 		if vv.Ignore {
 			continue
 		}
-		if err := SetValue(data, vv, first[i]); err != nil {
+		if err := SetValue(data, vv, first[idx]); err != nil {
 			return self.Error(err)
 		}
+		idx++
 	}
 	return nil
 }
@@ -1139,8 +1142,16 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
 	if !ok {
 		return self.Error("[Mysql.FindOne] registration object type not found [", data.GetTable(), "]")
 	}
-	var parameter []interface{}
-	fpart := bytes.NewBuffer(make([]byte, 0, 14*len(obv.FieldElem)))
+	// 优化：计算精确的 fieldPartSize
+	fieldPartSize := 0
+	for _, vv := range obv.FieldElem {
+		if vv.Ignore {
+			continue
+		}
+		// "`" + FieldJsonName + "`," = len(FieldJsonName) + 3
+		fieldPartSize += len(vv.FieldJsonName) + 3
+	}
+	fpart := bytes.NewBuffer(make([]byte, 0, fieldPartSize))
 	for _, vv := range obv.FieldElem {
 		if vv.Ignore {
 			continue
@@ -1151,40 +1162,42 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
 		fpart.WriteString(",")
 	}
 	case_part, case_arg := self.BuildWhereCase(cnd.Offset(0, 1))
-	for _, v := range case_arg {
-		parameter = append(parameter, v)
-	}
+	parameter := case_arg
 	var vpart *bytes.Buffer
+	var vpartBytes []byte
 	if case_part.Len() > 0 {
-		vpart = bytes.NewBuffer(make([]byte, 0, case_part.Len()+16))
+		// 优化：直接操作 bytes，避免字符串转换
+		caseBytes := case_part.Bytes()
+		vpartCap := len(caseBytes) + 9 // "where" (5) + 4 (extra)
+		vpart = bytes.NewBuffer(make([]byte, 0, vpartCap))
 		vpart.WriteString("where")
-		str := case_part.String()
-		vpart.WriteString(utils.Substr(str, 0, len(str)-3))
-	}
-	str1 := utils.Bytes2Str(fpart.Bytes())
-	str2 := ""
-	if vpart != nil {
-		str2 = utils.Bytes2Str(vpart.Bytes())
+		// 优化：直接操作字节，去掉最后的 " and"（4字节）
+		if len(caseBytes) > 4 {
+			vpart.Write(caseBytes[0 : len(caseBytes)-4])
+		}
+		vpartBytes = vpart.Bytes()
 	}
 	sortby := self.BuildSortBy(cnd)
-	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str1)+len(str2)+len(sortby)+32))
+	// 优化：精确计算 sqlbuf 容量
+	fbytes := fpart.Bytes()
+	// 固定字节："select " (7) + " from " (6) + " " (1) + " limit 1" (8) = 22
+	// 动态：fbytes去掉最后一个逗号 + TableName + vpartBytes + sortby
+	sqlBufSize := 22 + len(obv.TableName) + (len(fbytes) - 1) + len(vpartBytes) + len(sortby)
+	sqlbuf := bytes.NewBuffer(make([]byte, 0, sqlBufSize))
 	sqlbuf.WriteString("select ")
-	sqlbuf.WriteString(utils.Substr(str1, 0, len(str1)-1))
+	if len(fbytes) > 1 {
+		sqlbuf.Write(fbytes[0 : len(fbytes)-1])
+	}
 	sqlbuf.WriteString(" from ")
 	sqlbuf.WriteString(obv.TableName)
 	sqlbuf.WriteString(" ")
-	if len(str2) > 0 {
-		sqlbuf.WriteString(utils.Substr(str2, 0, len(str2)-1))
+	if len(vpartBytes) > 0 {
+		sqlbuf.Write(vpartBytes)
 	}
 	if len(sortby) > 0 {
 		sqlbuf.WriteString(sortby)
 	}
 	sqlbuf.WriteString(" limit 1")
-	// cnd.Pagination = dialect.Dialect{PageNo: 1, PageSize: 1}
-	// prepare, err := self.BuildPagination(cnd, utils.Bytes2Str(sqlbuf.Bytes()), parameter)
-	// if err != nil {
-	//	 return self.Error(err)
-	// }
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
 		defer zlog.Debug("[Mysql.FindOne] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
@@ -1220,13 +1233,16 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
 	} else {
 		first = out[0]
 	}
-	for i, vv := range obv.FieldElem {
+	// 修复：使用独立索引，避免 Ignore 字段导致索引错位
+	idx := 0
+	for _, vv := range obv.FieldElem {
 		if vv.Ignore {
 			continue
 		}
-		if err := SetValue(data, vv, first[i]); err != nil {
+		if err := SetValue(data, vv, first[idx]); err != nil {
 			return self.Error(err)
 		}
+		idx++
 	}
 	return nil
 }
@@ -1336,17 +1352,17 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	slicev = slicev.Slice(0, slicev.Cap())
 	for _, v := range out {
 		model := cnd.Model.NewObject()
-		for i := 0; i < len(obv.FieldElem); i++ {
-			vv := obv.FieldElem[i]
+		// 修复：使用独立索引，避免 Ignore 字段导致索引错位
+		idx := 0
+		for _, vv := range obv.FieldElem {
 			if vv.Ignore {
 				continue
 			}
-			if vv.IsDate && v[i] == nil {
-				continue
-			}
-			if err := SetValue(model, vv, v[i]); err != nil {
+			// IsDate 为 nil 时也调用 SetValue，由 SetValue 内部处理
+			if err := SetValue(model, vv, v[idx]); err != nil {
 				return self.Error(err)
 			}
+			idx++
 		}
 		slicev = reflect.Append(slicev, reflect.ValueOf(model))
 	}
@@ -1883,14 +1899,22 @@ func OutDest(rows *sql.Rows, flen int) ([][][]byte, error) {
 }
 
 func (self *RDBManager) BuildCondKey(cnd *sqlc.Cnd, key string) []byte {
-	fieldPart := bytes.NewBuffer(make([]byte, 0, 16))
+	// 优化：根据 Escape 标志精确计算容量
+	// Escape=true: " " (1) + "`" (1) + key + "`" (1) = 3 + len(key)
+	// Escape=false: " " (1) + key = 1 + len(key)
+	var bufCap int
 	if cnd.Escape {
-		fieldPart.WriteString(" ")
+		bufCap = 3 + len(key)
+	} else {
+		bufCap = 1 + len(key)
+	}
+	fieldPart := bytes.NewBuffer(make([]byte, 0, bufCap))
+	fieldPart.WriteString(" ")
+	if cnd.Escape {
 		fieldPart.WriteString("`")
 		fieldPart.WriteString(key)
 		fieldPart.WriteString("`")
 	} else {
-		fieldPart.WriteString(" ")
 		fieldPart.WriteString(key)
 	}
 	return fieldPart.Bytes()
@@ -1898,11 +1922,55 @@ func (self *RDBManager) BuildCondKey(cnd *sqlc.Cnd, key string) []byte {
 
 // 构建where条件
 func (self *RDBManager) BuildWhereCase(cnd *sqlc.Cnd) (*bytes.Buffer, []interface{}) {
-	var case_arg []interface{}
 	if cnd == nil {
-		return bytes.NewBuffer(make([]byte, 0, 64)), case_arg
+		return bytes.NewBuffer(make([]byte, 0, 64)), []interface{}{}
 	}
-	case_part := bytes.NewBuffer(make([]byte, 0, 128))
+	// 优化：先遍历统计，精确计算容量（优先防止扩容）
+	estimatedSize := 0
+	estimatedArgs := 0
+	for _, v := range cnd.Conditions {
+		// 统计 SQL 字符串容量
+		keyLen := len(v.Key)
+		if cnd.Escape {
+			keyLen += 3 // " `key`"
+		} else {
+			keyLen += 1 // " key"
+		}
+
+		switch v.Logic {
+		case sqlc.EQ_, sqlc.NOT_EQ_, sqlc.LT_, sqlc.LTE_, sqlc.GT_, sqlc.GTE_:
+			estimatedSize += keyLen + 6 // " = ? and" (6字节，最长是" <= ? and")
+			estimatedArgs++
+		case sqlc.IS_NULL_, sqlc.IS_NOT_NULL_:
+			estimatedSize += keyLen + 17 // " is not null and" (最长17字节)
+			// IS NULL 不需要参数
+		case sqlc.BETWEEN_, sqlc.NOT_BETWEEN_:
+			estimatedSize += keyLen + 27 // " not between ? and ? and" (最长27字节)
+			estimatedArgs += 2
+		case sqlc.IN_, sqlc.NOT_IN_:
+			estimatedSize += keyLen + 12       // " not in(" (最长12字节)
+			estimatedSize += len(v.Values) * 2 // ",?" for each value
+			estimatedSize += 2                 // ")" + " and"
+			estimatedArgs += len(v.Values)
+		case sqlc.LIKE_:
+			estimatedSize += keyLen + 31 // " like concat('%',?,'%') and"
+			estimatedArgs++
+		case sqlc.NOT_LIKE_:
+			estimatedSize += keyLen + 35 // " not like concat('%',?,'%') and"
+			estimatedArgs++
+		case sqlc.OR_:
+			// OR 条件递归调用，预估每个子条件平均100字节和5个参数（保守估计）
+			estimatedSize += 100 * len(v.Values)
+			estimatedArgs += 5 * len(v.Values)
+		}
+	}
+	// 确保最小值（避免小条件频繁分配）
+	if estimatedSize < 32 {
+		estimatedSize = 32
+	}
+
+	case_part := bytes.NewBuffer(make([]byte, 0, estimatedSize))
+	case_arg := make([]interface{}, 0, estimatedArgs)
 	for _, v := range cnd.Conditions {
 		key := v.Key
 		value := v.Value
@@ -1952,24 +2020,34 @@ func (self *RDBManager) BuildWhereCase(cnd *sqlc.Cnd) (*bytes.Buffer, []interfac
 		case sqlc.IN_:
 			case_part.Write(self.BuildCondKey(cnd, key))
 			case_part.WriteString(" in(")
-			var buf bytes.Buffer
-			for _, v := range values {
-				buf.WriteString("?,")
-				case_arg = append(case_arg, v)
+			// 优化：精确计算容量，直接操作字节
+			if len(values) > 0 {
+				inPart := bytes.NewBuffer(make([]byte, 0, 2*len(values)))
+				for _, v := range values {
+					inPart.WriteString("?,")
+					case_arg = append(case_arg, v)
+				}
+				inBytes := inPart.Bytes()
+				if len(inBytes) > 1 {
+					case_part.Write(inBytes[0 : len(inBytes)-1])
+				}
 			}
-			s := buf.String()
-			case_part.WriteString(utils.Substr(s, 0, len(s)-1))
 			case_part.WriteString(") and")
 		case sqlc.NOT_IN_:
 			case_part.Write(self.BuildCondKey(cnd, key))
 			case_part.WriteString(" not in(")
-			var buf bytes.Buffer
-			for _, v := range values {
-				buf.WriteString("?,")
-				case_arg = append(case_arg, v)
+			// 优化：精确计算容量，直接操作字节
+			if len(values) > 0 {
+				inPart := bytes.NewBuffer(make([]byte, 0, 2*len(values)))
+				for _, v := range values {
+					inPart.WriteString("?,")
+					case_arg = append(case_arg, v)
+				}
+				inBytes := inPart.Bytes()
+				if len(inBytes) > 1 {
+					case_part.Write(inBytes[0 : len(inBytes)-1])
+				}
 			}
-			s := buf.String()
-			case_part.WriteString(utils.Substr(s, 0, len(s)-1))
 			case_part.WriteString(") and")
 		case sqlc.LIKE_:
 			case_part.Write(self.BuildCondKey(cnd, key))
@@ -1980,32 +2058,37 @@ func (self *RDBManager) BuildWhereCase(cnd *sqlc.Cnd) (*bytes.Buffer, []interfac
 			case_part.WriteString(" not like concat('%',?,'%') and")
 			case_arg = append(case_arg, value)
 		case sqlc.OR_:
-			var orpart bytes.Buffer
-			var args []interface{}
+			// 优化：预估 OR 条件容量（与第一次遍历预估保持一致：100字节，5个参数）
+			orpart := bytes.NewBuffer(make([]byte, 0, len(values)*100))
+			// 递归调用可能导致参数数量较多，保守估计每个OR子条件平均5个参数
+			args := make([]interface{}, 0, len(values)*5)
 			for _, v := range values {
 				cnd, ok := v.(*sqlc.Cnd)
 				if !ok {
 					continue
 				}
 				buf, arg := self.BuildWhereCase(cnd)
-				s := buf.String()
-				s = utils.Substr(s, 0, len(s)-3)
-				orpart.WriteString(s)
-				orpart.WriteString(" or")
-				for _, v := range arg {
-					args = append(args, v)
+				// 优化：直接操作字节，避免字符串转换
+				bufBytes := buf.Bytes()
+				if len(bufBytes) > 3 {
+					orpart.Write(bufBytes[0 : len(bufBytes)-3])
 				}
+				orpart.WriteString(" or")
+				// 优化：批量追加参数
+				args = append(args, arg...)
 			}
-			s := orpart.String()
-			s = utils.Substr(s, 0, len(s)-3)
+			// 优化：直接操作字节，避免字符串转换
+			orBytes := orpart.Bytes()
 			case_part.WriteString(" (")
-			case_part.WriteString(s)
-			case_part.WriteString(") and")
-			for _, v := range args {
-				case_arg = append(case_arg, v)
+			if len(orBytes) > 3 {
+				case_part.Write(orBytes[0 : len(orBytes)-3])
 			}
+			case_part.WriteString(") and")
+			// 优化：批量追加参数
+			case_arg = append(case_arg, args...)
 		}
 	}
+
 	return case_part, case_arg
 }
 
@@ -2014,7 +2097,19 @@ func (self *RDBManager) BuildGroupBy(cnd *sqlc.Cnd) string {
 	if cnd == nil || len(cnd.Groupbys) <= 0 {
 		return ""
 	}
-	groupby := bytes.NewBuffer(make([]byte, 0, 64))
+	// 优化：精确计算容量
+	estimatedSize := 9 // " group by"
+	for _, v := range cnd.Groupbys {
+		if len(v) == 0 {
+			continue
+		}
+		if cnd.Escape {
+			estimatedSize += 1 + len(v) + 3 // " `field`,"
+		} else {
+			estimatedSize += 1 + len(v) + 1 // " field,"
+		}
+	}
+	groupby := bytes.NewBuffer(make([]byte, 0, estimatedSize))
 	groupby.WriteString(" group by")
 	for _, v := range cnd.Groupbys {
 		if len(v) == 0 {
@@ -2032,8 +2127,12 @@ func (self *RDBManager) BuildGroupBy(cnd *sqlc.Cnd) string {
 			groupby.WriteString(",")
 		}
 	}
-	s := utils.Bytes2Str(groupby.Bytes())
-	return utils.Substr(s, 0, len(s)-1)
+	// 优化：直接操作字节，避免 Substr
+	groupbyBytes := groupby.Bytes()
+	if len(groupbyBytes) > 1 {
+		return utils.Bytes2Str(groupbyBytes[0 : len(groupbyBytes)-1])
+	}
+	return ""
 }
 
 // 构建排序命令
@@ -2041,7 +2140,17 @@ func (self *RDBManager) BuildSortBy(cnd *sqlc.Cnd) string {
 	if cnd == nil || len(cnd.Orderbys) <= 0 {
 		return ""
 	}
-	var sortby = bytes.Buffer{}
+	// 优化：精确计算容量
+	estimatedSize := 9 // " order by"
+	for _, v := range cnd.Orderbys {
+		if cnd.Escape {
+			estimatedSize += 1 + len(v.Key) + 3 // " `field`"
+		} else {
+			estimatedSize += 1 + len(v.Key) // " field"
+		}
+		estimatedSize += 5 // " desc," (最长5字节)
+	}
+	sortby := bytes.NewBuffer(make([]byte, 0, estimatedSize))
 	sortby.WriteString(" order by")
 	for _, v := range cnd.Orderbys {
 		if cnd.Escape {
@@ -2059,8 +2168,12 @@ func (self *RDBManager) BuildSortBy(cnd *sqlc.Cnd) string {
 			sortby.WriteString(" asc,")
 		}
 	}
-	s := utils.Bytes2Str(sortby.Bytes())
-	return utils.Substr(s, 0, len(s)-1)
+	// 优化：直接操作字节，避免 Substr
+	sortbyBytes := sortby.Bytes()
+	if len(sortbyBytes) > 1 {
+		return utils.Bytes2Str(sortbyBytes[0 : len(sortbyBytes)-1])
+	}
+	return ""
 }
 
 // 构建分页命令
