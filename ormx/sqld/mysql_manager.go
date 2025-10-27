@@ -116,7 +116,7 @@ func (self *MysqlManager) buildByConfig(manager cache.Cache, input ...MysqlConfi
 		// 9. 验证连接
 		if err := db.Ping(); err != nil {
 			db.Close()
-			panic("mysql connect failed: " + err.Error())
+			return utils.Error("mysql connect failed: ", err)
 		}
 
 		// 10. 创建 RDBManager
