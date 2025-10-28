@@ -2,10 +2,11 @@ package main
 
 import (
 	"fmt"
+	"testing"
+
 	"github.com/godaddy-x/freego/ormx/sqlc"
 	"github.com/godaddy-x/freego/ormx/sqld"
 	"github.com/godaddy-x/freego/utils"
-	"testing"
 )
 
 func init() {
@@ -20,7 +21,7 @@ func TestMysqlSave(t *testing.T) {
 	}
 	defer db.Close()
 	var vs []sqlc.Object
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 1000; i++ {
 		wallet := OwWallet{
 			Ctime: utils.UnixMilli(),
 		}
@@ -147,7 +148,7 @@ func TestMysqlFindList(t *testing.T) {
 	defer db.Close()
 	l := utils.UnixMilli()
 	var result []*OwWallet
-	if err := db.FindList(sqlc.M(&OwWallet{}).Eq("id", 1109996130134917121).Orderby("id", sqlc.DESC_), &result); err != nil {
+	if err := db.FindList(sqlc.M(&OwWallet{}).Limit(1, 1000).Orderby("id", sqlc.DESC_), &result); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println("cost: ", utils.UnixMilli()-l)

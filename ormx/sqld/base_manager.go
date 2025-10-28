@@ -1349,7 +1349,15 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	if err != nil {
 		return self.Error("[Mysql.FindList] read columns failed: ", err)
 	}
-	out, err := OutDest(rows, len(cols))
+
+	// 优化：根据分页信息智能预估容量
+	var estimatedRows int
+	if (cnd.Pagination.IsPage || cnd.Pagination.IsOffset) && cnd.Pagination.PageSize > 0 {
+		// 分页查询时，最多返回 PageSize 行
+		estimatedRows = int(cnd.Pagination.PageSize)
+	}
+
+	out, err := OutDestWithCapacity(rows, len(cols), estimatedRows)
 	if err != nil {
 		return self.Error("[Mysql.FindList] read result failed: ", err)
 	} else if len(out) == 0 {
@@ -1367,7 +1375,25 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	if slicev.Kind() != reflect.Slice {
 		return self.Error("[Mysql.FindList] target value kind not slice")
 	}
-	slicev = slicev.Slice(0, slicev.Cap())
+	// 优化：检查切片元素类型是否为 sqlc.Object 接口，避免反射
+	sliceType := slicev.Type().Elem()
+	if !sliceType.Implements(reflect.TypeOf((*sqlc.Object)(nil)).Elem()) {
+		return self.Error("[Mysql.FindList] target value kind not implements sqlc.Object")
+	}
+
+	// 统一优化：所有实现了 sqlc.Object 接口的类型都使用零反射处理
+	expectedLen := len(out)
+
+	// 预分配目标切片容量
+	if slicev.Cap() < expectedLen {
+		newSlice := reflect.MakeSlice(slicev.Type(), 0, expectedLen)
+		slicev = newSlice
+	} else {
+		slicev = slicev.Slice(0, 0)
+	}
+
+	baseObject := make([]sqlc.Object, 0, expectedLen)
+
 	for _, v := range out {
 		model := cnd.Model.NewObject()
 		// 修复：使用独立索引，避免 Ignore 字段导致索引错位
@@ -1382,11 +1408,21 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 			}
 			idx++
 		}
-		slicev = reflect.Append(slicev, reflect.ValueOf(model))
+		baseObject = append(baseObject, model)
 	}
-	slicev = slicev.Slice(0, slicev.Cap())
-	resultv.Elem().Set(slicev.Slice(0, len(out)))
+
+	// 设置最终结果：将 []sqlc.Object 转换回原始类型
+	if len(baseObject) > 0 {
+		// 优化：一次性创建目标切片并批量设置
+		targetSlice := reflect.MakeSlice(slicev.Type(), len(baseObject), len(baseObject))
+		for i, object := range baseObject {
+			targetSlice.Index(i).Set(reflect.ValueOf(object))
+		}
+		resultv.Elem().Set(targetSlice)
+	}
+	// 如果没有结果，保持原有空切片，避免不必要的 make
 	return nil
+
 }
 
 func (self *RDBManager) Count(cnd *sqlc.Cnd) (int64, error) {
@@ -1918,8 +1954,25 @@ func (self *RDBManager) mongoSyncData(option int, model sqlc.Object, cnd *sqlc.C
 
 // 输出查询结果集
 func OutDest(rows *sql.Rows, flen int) ([][][]byte, error) {
-	// 优化：预分配切片容量，减少扩容
-	out := make([][][]byte, 0, 100) // 预估100行
+	return OutDestWithCapacity(rows, flen, 0)
+}
+
+// OutDestWithCapacity 带容量预估的查询结果集输出
+func OutDestWithCapacity(rows *sql.Rows, flen int, estimatedRows int) ([][][]byte, error) {
+	// 优化：根据预估行数智能分配容量
+	var initialCap int
+	if estimatedRows > 0 {
+		// 使用预估行数，但限制最大容量避免过度分配
+		if estimatedRows > 10000 {
+			initialCap = 10000 // 限制最大初始容量
+		} else {
+			initialCap = estimatedRows
+		}
+	} else {
+		initialCap = 16 // 默认容量
+	}
+
+	out := make([][][]byte, 0, initialCap)
 	for rows.Next() {
 		rets := make([][]byte, flen)
 		dest := make([]interface{}, flen)
