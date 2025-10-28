@@ -1,6 +1,6 @@
 module github.com/godaddy-x/freego
 
-go 1.18
+go 1.23
 
 require (
 	github.com/Shopify/sarama v1.35.0
