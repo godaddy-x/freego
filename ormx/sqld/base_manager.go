@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
-	"fmt"
 	"reflect"
 	"sync"
 	"sync/atomic"
@@ -2128,15 +2127,12 @@ func (self *RDBManager) BuildCondKey(cnd *sqlc.Cnd, key string) []byte {
 	return fieldPart.Bytes()
 }
 
-// 构建where条件
-func (self *RDBManager) BuildWhereCase(cnd *sqlc.Cnd) (*bytes.Buffer, []interface{}) {
-	if cnd == nil {
-		return bytes.NewBuffer(make([]byte, 0, 64)), []interface{}{}
-	}
-	// 优化：先遍历统计，精确计算容量（优先防止扩容）
-	// 注意：预估应该基于 BuildWhereCase 返回的完整长度（包含最后的 " and"）
-	estimatedSize := 0
-	estimatedArgs := 0
+type estimatedObject struct {
+	estimatedSize int
+	estimatedArgs int
+}
+
+func estimatedSizePre(cnd *sqlc.Cnd, estimated *estimatedObject) {
 	for _, v := range cnd.Conditions {
 		// 统计 SQL 字符串容量
 		// BuildCondKey 会添加 " `key`" 或 " key"，需要加上这部分
@@ -2149,58 +2145,95 @@ func (self *RDBManager) BuildWhereCase(cnd *sqlc.Cnd) (*bytes.Buffer, []interfac
 
 		switch v.Logic {
 		case sqlc.EQ_:
-			estimatedSize += keyLen + 8 // " = ? and" (8字节)
-			estimatedArgs++
+			estimated.estimatedSize += keyLen + 8 // " = ? and" (8字节)
+			estimated.estimatedArgs++
 		case sqlc.NOT_EQ_:
-			estimatedSize += keyLen + 9 // " <> ? and" (9字节)
-			estimatedArgs++
+			estimated.estimatedSize += keyLen + 9 // " <> ? and" (9字节)
+			estimated.estimatedArgs++
 		case sqlc.LT_:
-			estimatedSize += keyLen + 8 // " < ? and" (8字节)
-			estimatedArgs++
+			estimated.estimatedSize += keyLen + 8 // " < ? and" (8字节)
+			estimated.estimatedArgs++
 		case sqlc.LTE_:
-			estimatedSize += keyLen + 9 // " <= ? and" (9字节)
-			estimatedArgs++
+			estimated.estimatedSize += keyLen + 9 // " <= ? and" (9字节)
+			estimated.estimatedArgs++
 		case sqlc.GT_:
-			estimatedSize += keyLen + 8 // " > ? and" (8字节)
-			estimatedArgs++
+			estimated.estimatedSize += keyLen + 8 // " > ? and" (8字节)
+			estimated.estimatedArgs++
 		case sqlc.GTE_:
-			estimatedSize += keyLen + 9 // " >= ? and" (9字节)
-			estimatedArgs++
+			estimated.estimatedSize += keyLen + 9 // " >= ? and" (9字节)
+			estimated.estimatedArgs++
 		case sqlc.IS_NULL_:
-			estimatedSize += keyLen + 12 // " is null and" (12字节)
+			estimated.estimatedSize += keyLen + 12 // " is null and" (12字节)
 		case sqlc.IS_NOT_NULL_:
-			estimatedSize += keyLen + 16 // " is not null and" (16字节)
+			estimated.estimatedSize += keyLen + 16 // " is not null and" (16字节)
 		case sqlc.BETWEEN_:
-			estimatedSize += keyLen + 20 // " between ? and ? and" (20字节)
-			estimatedArgs += 2
+			estimated.estimatedSize += keyLen + 20 // " between ? and ? and" (20字节)
+			estimated.estimatedArgs += 2
 		case sqlc.NOT_BETWEEN_:
-			estimatedSize += keyLen + 24 // " not between ? and ? and" (24字节)
-			estimatedArgs += 2
+			estimated.estimatedSize += keyLen + 24 // " not between ? and ? and" (24字节)
+			estimated.estimatedArgs += 2
 		case sqlc.IN_:
-			estimatedSize += keyLen + 4          // " in(" (4字节)
-			estimatedSize += len(v.Values)*2 - 1 // "?,?,?" = 2*n-1字节
-			estimatedSize += 5                   // ")" + " and" (5字节)
-			estimatedArgs += len(v.Values)
+			estimated.estimatedSize += keyLen + 4          // " in(" (4字节)
+			estimated.estimatedSize += len(v.Values)*2 - 1 // "?,?,?" = 2*n-1字节
+			estimated.estimatedSize += 5                   // ")" + " and" (5字节)
+			estimated.estimatedArgs += len(v.Values)
 		case sqlc.NOT_IN_:
-			estimatedSize += keyLen + 8          // " not in(" (8字节)
-			estimatedSize += len(v.Values)*2 - 1 // "?,?,?" = 2*n-1字节
-			estimatedSize += 5                   // ")" + " and" (5字节)
-			estimatedArgs += len(v.Values)
+			estimated.estimatedSize += keyLen + 8          // " not in(" (8字节)
+			estimated.estimatedSize += len(v.Values)*2 - 1 // "?,?,?" = 2*n-1字节
+			estimated.estimatedSize += 5                   // ")" + " and" (5字节)
+			estimated.estimatedArgs += len(v.Values)
 		case sqlc.LIKE_:
-			estimatedSize += keyLen + 27 // " like concat('%',?,'%') and" (27字节)
-			estimatedArgs++
+			estimated.estimatedSize += keyLen + 27 // " like concat('%',?,'%') and" (27字节)
+			estimated.estimatedArgs++
 		case sqlc.NOT_LIKE_:
-			estimatedSize += keyLen + 31 // " not like concat('%',?,'%') and" (31字节)
-			estimatedArgs++
+			estimated.estimatedSize += keyLen + 31 // " not like concat('%',?,'%') and" (31字节)
+			estimated.estimatedArgs++
 		case sqlc.OR_:
-			// OR 条件递归调用，预估每个子条件平均100字节和5个参数（保守估计）
-			estimatedSize += 100 * len(v.Values)
-			estimatedArgs += 5 * len(v.Values)
+			// OR 条件递归调用，模拟实际实现逻辑
+			for _, v := range v.Values {
+				cnd, ok := v.(*sqlc.Cnd)
+				if !ok {
+					continue
+				}
+				// 递归调用estimatedSizePre获取子条件预估
+				subEstimated := &estimatedObject{}
+				estimatedSizePre(cnd, subEstimated)
+
+				// 模拟实际实现：orpart.Write(bufBytes[0 : len(bufBytes)-3])
+				// 去掉最后的" and"(3字节)
+				if subEstimated.estimatedSize > 3 {
+					estimated.estimatedSize += subEstimated.estimatedSize - 3
+				}
+				// 模拟实际实现：orpart.WriteString(" or")
+				estimated.estimatedSize += 4 // " or" = 4字节
+				estimated.estimatedArgs += subEstimated.estimatedArgs
+			}
+			// 模拟实际实现：case_part.WriteString(" (")
+			estimated.estimatedSize += 2 // " (" = 2字节
+			// 模拟实际实现：case_part.Write(orBytes[0 : len(orBytes)-3])
+			// 去掉最后的" or"(3字节)
+			if estimated.estimatedSize > 3 {
+				estimated.estimatedSize -= 3
+			}
+			// 模拟实际实现：case_part.WriteString(") and")
+			estimated.estimatedSize += 3 // ") and" = 5字节
 		}
 	}
+}
 
-	case_part := bytes.NewBuffer(make([]byte, 0, estimatedSize))
-	case_arg := make([]interface{}, 0, estimatedArgs)
+// 构建where条件
+func (self *RDBManager) BuildWhereCase(cnd *sqlc.Cnd) (*bytes.Buffer, []interface{}) {
+	if cnd == nil {
+		return bytes.NewBuffer(make([]byte, 0, 64)), []interface{}{}
+	}
+	// 优化：先遍历统计，精确计算容量（优先防止扩容）
+	// 注意：预估应该基于 BuildWhereCase 返回的完整长度（包含最后的 " and"）
+	estimated := &estimatedObject{}
+
+	estimatedSizePre(cnd, estimated)
+
+	case_part := bytes.NewBuffer(make([]byte, 0, estimated.estimatedSize))
+	case_arg := make([]interface{}, 0, estimated.estimatedArgs)
 	for _, v := range cnd.Conditions {
 		key := v.Key
 		value := v.Value
@@ -2318,8 +2351,6 @@ func (self *RDBManager) BuildWhereCase(cnd *sqlc.Cnd) (*bytes.Buffer, []interfac
 			case_arg = append(case_arg, args...)
 		}
 	}
-
-	fmt.Println(estimatedSize, case_part.Len())
 
 	return case_part, case_arg
 }

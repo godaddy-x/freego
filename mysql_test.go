@@ -2,9 +2,10 @@ package main
 
 import (
 	"fmt"
-	"github.com/godaddy-x/freego/zlog"
 	"testing"
 	"time"
+
+	"github.com/godaddy-x/freego/zlog"
 
 	"github.com/godaddy-x/freego/ormx/sqlc"
 	"github.com/godaddy-x/freego/ormx/sqld"
@@ -218,12 +219,40 @@ func TestMysqlDeleteByCnd(t *testing.T) {
 		Gte("ctime", 1).Lte("ctime", 2).
 		IsNull("appID").IsNotNull("appID").
 		Between("id", 1, 2).
-		NotBetween("id", 1, 2).In("id", 1, 2, 3, 4).NotIn("id", 1, 2).Like("appID", "test").NotLike("appID", "test"))
+		NotBetween("id", 1, 2).
+		In("id", 1, 2, 3, 4).
+		NotIn("id", 1, 2).
+		Like("appID", "test").
+		NotLike("appID", "test").
+		Or(sqlc.M().Eq("id", 1), sqlc.M().In("id", 1, 2, 3)).
+		Or(sqlc.M().Eq("appID", 1), sqlc.M().In("appID", 1, 2, 3)).
+		Or(sqlc.M().Eq("appID", 1).In("id", 1, 2, 3), sqlc.M().In("appID", 1, 2, 3).Gt("ctime", 12).Lt("ctime", 23)))
 	if err != nil {
 		fmt.Println("DeleteByCnd failed:", err)
 		return
 	}
 	fmt.Println("Deleted rows:", rowsAffected)
+	fmt.Println("cost: ", utils.UnixMilli()-l)
+}
+
+func TestMysqlDeleteByCndWithOR(t *testing.T) {
+	initMysqlDB()
+	db, err := sqld.NewMysqlTx(false)
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+	l := utils.UnixMilli()
+	// 使用OR条件删除
+	rowsAffected, err := db.DeleteByCnd(sqlc.M(&OwWallet{}).
+		Eq("appID", "1").
+		Or(sqlc.M().Eq("id", 1).Eq("ctime", 2)).
+		Or(sqlc.M().Gte("id", 3).Lte("id", 5)))
+	if err != nil {
+		fmt.Println("DeleteByCnd with OR failed:", err)
+		return
+	}
+	fmt.Println("Deleted rows with OR:", rowsAffected)
 	fmt.Println("cost: ", utils.UnixMilli()-l)
 }
 
