@@ -61,13 +61,13 @@ func TestMysqlUpdate(t *testing.T) {
 
 func TestMysqlUpdateByCnd(t *testing.T) {
 	initMysqlDB()
-	db, err := new(sqld.MysqlManager).Get(sqld.Option{OpenTx: true})
+	db, err := sqld.NewMysqlTx(true)
 	if err != nil {
 		panic(err)
 	}
 	defer db.Close()
 	l := utils.UnixMilli()
-	if _, err := db.UpdateByCnd(sqlc.M(&OwWallet{}).Upset([]string{"appID", "utime"}, "123456789", utils.UnixMilli()).Eq("id", 1649040212178763776)); err != nil {
+	if _, err := db.UpdateByCnd(sqlc.M(&OwWallet{}).Upset([]string{"appID", "utime"}, "222222222", utils.UnixMilli()).Eq("id", 1982735905676328960)); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println("cost: ", utils.UnixMilli()-l)
@@ -96,7 +96,7 @@ func TestMysqlDelete(t *testing.T) {
 
 func TestMysqlDeleteById(t *testing.T) {
 	initMysqlDB()
-	db, err := sqld.NewMysql()
+	db, err := sqld.NewMysqlTx(false)
 	if err != nil {
 		panic(err)
 	}
@@ -110,7 +110,7 @@ func TestMysqlDeleteById(t *testing.T) {
 
 func TestMysqlFindById(t *testing.T) {
 	initMysqlDB()
-	db, err := new(sqld.MysqlManager).Get()
+	db, err := sqld.NewMysqlTx(false)
 	if err != nil {
 		panic(err)
 	}
@@ -127,7 +127,7 @@ func TestMysqlFindById(t *testing.T) {
 
 func TestMysqlFindOne(t *testing.T) {
 	initMysqlDB()
-	db, err := sqld.NewMysql()
+	db, err := sqld.NewMysqlTx(false)
 	if err != nil {
 		panic(err)
 	}

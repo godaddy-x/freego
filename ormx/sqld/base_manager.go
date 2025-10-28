@@ -716,15 +716,23 @@ func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) (int64, error) {
 	if case_part.Len() == 0 || len(case_arg) == 0 {
 		return 0, self.Error("[Mysql.UpdateByCnd] update WhereCase is nil")
 	}
-	parameter := make([]interface{}, 0, len(cnd.Upsets)+len(case_arg))
-	fpart := bytes.NewBuffer(make([]byte, 0, 96))
-	for k, v := range cnd.Upsets { // 遍历对象字段
+
+	// 优化：精确计算 fpart 容量
+	fpartSize := 0
+	for k := range cnd.Upsets {
 		if cnd.Escape {
-			fpart.WriteString(" ")
-			fpart.WriteString("`")
+			fpartSize += len(k) + 7 // " `field` = ?,"
+		} else {
+			fpartSize += len(k) + 5 // " field = ?,"
+		}
+	}
+	fpart := bytes.NewBuffer(make([]byte, 0, fpartSize))
+	parameter := make([]interface{}, 0, len(cnd.Upsets)+len(case_arg))
+	for k, v := range cnd.Upsets {
+		if cnd.Escape {
+			fpart.WriteString(" `")
 			fpart.WriteString(k)
-			fpart.WriteString("`")
-			fpart.WriteString(" = ?,")
+			fpart.WriteString("` = ?,")
 		} else {
 			fpart.WriteString(" ")
 			fpart.WriteString(k)
@@ -732,24 +740,47 @@ func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) (int64, error) {
 		}
 		parameter = append(parameter, v)
 	}
-	for _, v := range case_arg {
-		parameter = append(parameter, v)
+	fpartBytes := fpart.Bytes()
+	if len(fpartBytes) == 0 {
+		return 0, self.Error("[Mysql.UpdateByCnd] no fields to update")
 	}
-	vpart := bytes.NewBuffer(make([]byte, 0, case_part.Len()+16))
-	vpart.WriteString("where")
-	str := case_part.String()
-	vpart.WriteString(utils.Substr(str, 0, len(str)-3))
-	str1 := utils.Bytes2Str(fpart.Bytes())
-	str2 := utils.Bytes2Str(vpart.Bytes())
-	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str1)+len(str2)+64))
+
+	// 追加 where 条件参数
+	parameter = append(parameter, case_arg...)
+
+	// 优化：构建 where 条件部分
+	caseBytes := case_part.Bytes()
+	var vpartBytes []byte
+	if len(caseBytes) > 0 {
+		vpartCap := len(caseBytes) + 5 // "where" (5)
+		vpart := bytes.NewBuffer(make([]byte, 0, vpartCap))
+		vpart.WriteString("where")
+		if len(caseBytes) > 4 {
+			vpart.Write(caseBytes[0 : len(caseBytes)-4])
+		}
+		vpartBytes = vpart.Bytes()
+	}
+
+	// 优化：精确计算 sqlbuf 容量
+	// 固定字节："update " (7) + " set " (5) + " " (1) = 13
+	// 动态：TableName + fpart去掉最后一个逗号 + vpartBytes
+	fpartLen := 0
+	if len(fpartBytes) > 0 {
+		fpartLen = len(fpartBytes) - 1
+	}
+	sqlbufSize := 13 + len(obv.TableName) + fpartLen + len(vpartBytes)
+	sqlbuf := bytes.NewBuffer(make([]byte, 0, sqlbufSize))
 	sqlbuf.WriteString("update ")
 	sqlbuf.WriteString(obv.TableName)
 	sqlbuf.WriteString(" set ")
-	sqlbuf.WriteString(utils.Substr(str1, 0, len(str1)-1))
-	sqlbuf.WriteString(" ")
-	if len(str2) > 0 {
-		sqlbuf.WriteString(utils.Substr(str2, 0, len(str2)-1))
+	if fpartLen > 0 {
+		sqlbuf.Write(fpartBytes[0:fpartLen])
 	}
+	if len(vpartBytes) > 0 {
+		sqlbuf.WriteString(" ")
+		sqlbuf.Write(vpartBytes)
+	}
+
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
 		defer zlog.Debug("[Mysql.UpdateByCnd] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
