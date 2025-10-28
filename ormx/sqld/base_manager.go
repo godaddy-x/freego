@@ -1765,7 +1765,7 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data sqlc.Object) error {
 	if cnd.FromCond == nil || len(cnd.FromCond.Table) == 0 {
 		return self.Error("[Mysql.FindOneComplex] from table is nil")
 	}
-	if cnd.AnyFields == nil || len(cnd.AnyFields) == 0 {
+	if len(cnd.AnyFields) == 0 {
 		return self.Error("[Mysql.FindOneComplex] any fields is nil")
 	}
 	obv, ok := modelDrivers[data.GetTable()]
@@ -1897,28 +1897,37 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data sqlc.Object) error {
 }
 
 func (self *RDBManager) Close() error {
+	// 事务处理
 	if self.OpenTx && self.Tx != nil {
-		if self.Errors == nil && len(self.Errors) == 0 {
+		// 检查是否有错误
+		if len(self.Errors) == 0 {
+			// 没有错误，提交事务
 			if err := self.Tx.Commit(); err != nil {
 				zlog.Error("transaction commit failed", 0, zlog.AddError(err))
-				return nil
+				return err
 			}
 		} else {
+			// 有错误，回滚事务
 			if err := self.Tx.Rollback(); err != nil {
 				zlog.Error("transaction rollback failed", 0, zlog.AddError(err))
-			}
-			return nil
-		}
-	}
-	if self.Errors == nil && len(self.Errors) == 0 && self.MongoSync && len(self.MGOSyncData) > 0 {
-		for _, v := range self.MGOSyncData {
-			if len(v.CacheObject) > 0 {
-				if err := self.mongoSyncData(v.CacheOption, v.CacheModel, v.CacheCnd, v.CacheObject...); err != nil {
-					zlog.Error("MySQL data synchronization Mongo failed", 0, zlog.Any("data", v), zlog.AddError(err))
-				}
+				return err
 			}
 		}
 	}
+
+	// MongoDB 同步处理（可选）
+	// if self.Errors == nil || len(self.Errors) == 0 {
+	// 	if self.MongoSync && len(self.MGOSyncData) > 0 {
+	// 		for _, v := range self.MGOSyncData {
+	// 			if len(v.CacheObject) > 0 {
+	// 				if err := self.mongoSyncData(v.CacheOption, v.CacheModel, v.CacheCnd, v.CacheObject...); err != nil {
+	// 					zlog.Error("MySQL data synchronization Mongo failed", 0, zlog.Any("data", v), zlog.AddError(err))
+	// 				}
+	// 			}
+	// 		}
+	// 	}
+	// }
+
 	return nil
 }
 
