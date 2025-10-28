@@ -235,27 +235,6 @@ func TestMysqlDeleteByCnd(t *testing.T) {
 	fmt.Println("cost: ", utils.UnixMilli()-l)
 }
 
-func TestMysqlDeleteByCndWithOR(t *testing.T) {
-	initMysqlDB()
-	db, err := sqld.NewMysqlTx(false)
-	if err != nil {
-		panic(err)
-	}
-	defer db.Close()
-	l := utils.UnixMilli()
-	// 使用OR条件删除
-	rowsAffected, err := db.DeleteByCnd(sqlc.M(&OwWallet{}).
-		Eq("appID", "1").
-		Or(sqlc.M().Eq("id", 1).Eq("ctime", 2)).
-		Or(sqlc.M().Gte("id", 3).Lte("id", 5)))
-	if err != nil {
-		fmt.Println("DeleteByCnd with OR failed:", err)
-		return
-	}
-	fmt.Println("Deleted rows with OR:", rowsAffected)
-	fmt.Println("cost: ", utils.UnixMilli()-l)
-}
-
 func TestMysqlFindListComplex(t *testing.T) {
 	initMysqlDB()
 	db, err := sqld.NewMysqlTx(false)

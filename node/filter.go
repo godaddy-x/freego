@@ -23,11 +23,11 @@ const (
 )
 
 var filterMap = map[string]*FilterObject{
-	GatewayRateLimiterFilterName: {Name: GatewayRateLimiterFilterName, Order: -100, Filter: &GatewayRateLimiterFilter{}},
-	ParameterFilterName:          {Name: ParameterFilterName, Order: -90, Filter: &ParameterFilter{}},
-	SessionFilterName:            {Name: SessionFilterName, Order: -80, Filter: &SessionFilter{}},
-	UserRateLimiterFilterName:    {Name: UserRateLimiterFilterName, Order: -70, Filter: &UserRateLimiterFilter{}},
-	RoleFilterName:               {Name: RoleFilterName, Order: -60, Filter: &RoleFilter{}},
+	GatewayRateLimiterFilterName: {Name: GatewayRateLimiterFilterName, Order: -1000, Filter: &GatewayRateLimiterFilter{}},
+	ParameterFilterName:          {Name: ParameterFilterName, Order: -900, Filter: &ParameterFilter{}},
+	SessionFilterName:            {Name: SessionFilterName, Order: -800, Filter: &SessionFilter{}},
+	UserRateLimiterFilterName:    {Name: UserRateLimiterFilterName, Order: -700, Filter: &UserRateLimiterFilter{}},
+	RoleFilterName:               {Name: RoleFilterName, Order: -600, Filter: &RoleFilter{}},
 	PostHandleFilterName:         {Name: PostHandleFilterName, Order: math.MaxInt, Filter: &PostHandleFilter{}},
 	RenderHandleFilterName:       {Name: RenderHandleFilterName, Order: math.MinInt, Filter: &RenderHandleFilter{}},
 }
