@@ -1596,47 +1596,80 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 	if cnd.FromCond == nil || len(cnd.FromCond.Table) == 0 {
 		return self.Error("[Mysql.FindListComplex] from table is nil")
 	}
-	if cnd.AnyFields == nil || len(cnd.AnyFields) == 0 {
+	if len(cnd.AnyFields) == 0 {
 		return self.Error("[Mysql.FindListComplex] any fields is nil")
 	}
 	obv, ok := modelDrivers[cnd.Model.GetTable()]
 	if !ok {
 		return self.Error("[Mysql.FindListComplex] registration object type not found [", cnd.Model.GetTable(), "]")
 	}
-	fpart := bytes.NewBuffer(make([]byte, 0, 32*len(cnd.AnyFields)))
+	// 优化：精确计算 fpart 容量
+	fpartSize := 0
+	for _, vv := range cnd.AnyFields {
+		if cnd.Escape {
+			fpartSize += len(vv) + 3 // "`field`,"
+		} else {
+			fpartSize += len(vv) + 1 // "field,"
+		}
+	}
+	fpart := bytes.NewBuffer(make([]byte, 0, fpartSize))
 	for _, vv := range cnd.AnyFields {
 		if cnd.Escape {
 			fpart.WriteString("`")
 			fpart.WriteString(vv)
 			fpart.WriteString("`")
-			fpart.WriteString(",")
 		} else {
 			fpart.WriteString(vv)
-			fpart.WriteString(",")
 		}
+		fpart.WriteString(",")
 	}
+	fpartBytes := fpart.Bytes()
+
 	case_part, case_arg := self.BuildWhereCase(cnd)
-	parameter := make([]interface{}, 0, len(case_arg))
-	for _, v := range case_arg {
-		parameter = append(parameter, v)
-	}
-	var vpart *bytes.Buffer
+	parameter := case_arg
+
+	var vpartBytes []byte
 	if case_part.Len() > 0 {
-		vpart = bytes.NewBuffer(make([]byte, 0, case_part.Len()+16))
+		caseBytes := case_part.Bytes()
+		vpartCap := len(caseBytes) + 9 // "where" (5) + 4 (extra)
+		vpart := bytes.NewBuffer(make([]byte, 0, vpartCap))
 		vpart.WriteString("where")
-		str := case_part.String()
-		vpart.WriteString(utils.Substr(str, 0, len(str)-3))
+		if len(caseBytes) > 4 {
+			vpart.Write(caseBytes[0 : len(caseBytes)-4])
+		}
+		vpartBytes = vpart.Bytes()
 	}
-	str1 := utils.Bytes2Str(fpart.Bytes())
-	str2 := ""
-	if vpart != nil {
-		str2 = utils.Bytes2Str(vpart.Bytes())
-	}
+
 	groupby := self.BuildGroupBy(cnd)
 	sortby := self.BuildSortBy(cnd)
-	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str1)+len(str2)+len(groupby)+len(sortby)+32))
+
+	// 优化：计算 join 条件大小
+	joinSize := 0
+	for _, v := range cnd.JoinCond {
+		if len(v.Table) > 0 && len(v.On) > 0 {
+			if v.Type == sqlc.LEFT_ {
+				joinSize += 12 + len(v.Table) + 4 + len(v.On) // " left join " + table + " on " + on
+			} else if v.Type == sqlc.RIGHT_ {
+				joinSize += 13 + len(v.Table) + 4 + len(v.On) // " right join " + table + " on " + on
+			} else if v.Type == sqlc.INNER_ {
+				joinSize += 13 + len(v.Table) + 4 + len(v.On) // " inner join " + table + " on " + on
+			}
+		}
+	}
+
+	// 优化：精确计算 sqlbuf 容量
+	// 固定字节："select " (7) + " from " (6) + " " (1) + " " (1) = 15
+	// 动态：fpart去掉最后一个逗号 + Table + Alias + vpartBytes + joinSize + groupby + sortby
+	fpartLen := 0
+	if len(fpartBytes) > 0 {
+		fpartLen = len(fpartBytes) - 1
+	}
+	sqlbufSize := 15 + fpartLen + len(cnd.FromCond.Table) + len(cnd.FromCond.Alias) + len(vpartBytes) + joinSize + len(groupby) + len(sortby)
+	sqlbuf := bytes.NewBuffer(make([]byte, 0, sqlbufSize))
 	sqlbuf.WriteString("select ")
-	sqlbuf.WriteString(utils.Substr(str1, 0, len(str1)-1))
+	if fpartLen > 0 {
+		sqlbuf.Write(fpartBytes[0:fpartLen])
+	}
 	sqlbuf.WriteString(" from ")
 	sqlbuf.WriteString(cnd.FromCond.Table)
 	sqlbuf.WriteString(" ")
@@ -1662,8 +1695,8 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 			sqlbuf.WriteString(" ")
 		}
 	}
-	if len(str2) > 0 {
-		sqlbuf.WriteString(utils.Substr(str2, 0, len(str2)-1))
+	if len(vpartBytes) > 0 {
+		sqlbuf.Write(vpartBytes)
 	}
 	if len(groupby) > 0 {
 		sqlbuf.WriteString(groupby)
@@ -1729,15 +1762,22 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 		colIndexMap[col] = i
 	}
 
-	// 优化：预分配切片容量，减少扩容
-	expectedLen := len(out)
-	if slicev.Cap() < expectedLen {
-		newSlice := reflect.MakeSlice(slicev.Type(), expectedLen, expectedLen)
-		reflect.Copy(newSlice, slicev)
-		slicev = newSlice
-	} else {
-		slicev = slicev.Slice(0, 0) // 重置长度为0，保留容量
+	// 检查切片元素类型是否为 sqlc.Object 接口
+	sliceType := slicev.Type().Elem()
+	if !sliceType.Implements(reflect.TypeOf((*sqlc.Object)(nil)).Elem()) {
+		return self.Error("[Mysql.FindListComplex] target value kind not implements sqlc.Object")
 	}
+
+	// 统一优化：使用中间变量避免循环中的反射
+	expectedLen := len(out)
+
+	// 预分配目标切片容量
+	if slicev.Cap() < expectedLen {
+		newSlice := reflect.MakeSlice(slicev.Type(), 0, expectedLen)
+		slicev = newSlice
+	}
+
+	baseObject := make([]sqlc.Object, 0, expectedLen)
 
 	for _, v := range out {
 		model := cnd.Model.NewObject()
@@ -1751,10 +1791,18 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 				}
 			}
 		}
-		slicev = reflect.Append(slicev, reflect.ValueOf(model))
+		baseObject = append(baseObject, model)
 	}
-	slicev = slicev.Slice(0, slicev.Cap())
-	resultv.Elem().Set(slicev.Slice(0, len(out)))
+
+	// 设置最终结果：将 []sqlc.Object 转换回原始类型
+	if len(baseObject) > 0 {
+		// 优化：一次性创建目标切片并批量设置
+		targetSlice := reflect.MakeSlice(slicev.Type(), len(baseObject), len(baseObject))
+		for i, object := range baseObject {
+			targetSlice.Index(i).Set(reflect.ValueOf(object))
+		}
+		resultv.Elem().Set(targetSlice)
+	}
 	return nil
 }
 

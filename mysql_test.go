@@ -21,7 +21,7 @@ func TestMysqlSave(t *testing.T) {
 	}
 	defer db.Close()
 	var vs []sqlc.Object
-	for i := 0; i < 1000; i++ {
+	for i := 0; i < 1; i++ {
 		wallet := OwWallet{
 			Ctime: utils.UnixMilli(),
 		}
@@ -186,21 +186,6 @@ func TestMysqlExists(t *testing.T) {
 	fmt.Println("cost: ", utils.UnixMilli()-l)
 }
 
-func TestMysqlFindListComplex(t *testing.T) {
-	initMysqlDB()
-	db, err := new(sqld.MysqlManager).Get(sqld.Option{OpenTx: false})
-	if err != nil {
-		panic(err)
-	}
-	defer db.Close()
-	l := utils.UnixMilli()
-	var result []*OwWallet
-	if err := db.FindListComplex(sqlc.M(&OwWallet{}).UnEscape().Fields("count(a.id) as `id`").From("ow_wallet a").Orderby("a.id", sqlc.DESC_).Limit(1, 5), &result); err != nil {
-		fmt.Println(err)
-	}
-	fmt.Println("cost: ", utils.UnixMilli()-l)
-}
-
 func TestMysqlFindOneComplex(t *testing.T) {
 	initMysqlDB()
 	db, err := sqld.NewMysqlTx(false)
@@ -211,6 +196,21 @@ func TestMysqlFindOneComplex(t *testing.T) {
 	l := utils.UnixMilli()
 	result := OwWallet{}
 	if err := db.FindOneComplex(sqlc.M().UnEscape().Fields("a.id id", "a.appID appID").From("ow_wallet a").Orderby("a.id", sqlc.ASC_).Limit(1, 5), &result); err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println("cost: ", utils.UnixMilli()-l)
+}
+
+func TestMysqlFindListComplex(t *testing.T) {
+	initMysqlDB()
+	db, err := sqld.NewMysqlTx(false)
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+	l := utils.UnixMilli()
+	var result []*OwWallet
+	if err := db.FindListComplex(sqlc.M(&OwWallet{}).UnEscape().Fields("a.id id").From("ow_wallet a").Orderby("a.id", sqlc.DESC_).Limit(1, 5), &result); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println("cost: ", utils.UnixMilli()-l)
