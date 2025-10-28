@@ -2,7 +2,9 @@ package main
 
 import (
 	"fmt"
+	"github.com/godaddy-x/freego/zlog"
 	"testing"
+	"time"
 
 	"github.com/godaddy-x/freego/ormx/sqlc"
 	"github.com/godaddy-x/freego/ormx/sqld"
@@ -11,6 +13,7 @@ import (
 
 func init() {
 	initDriver()
+	zlog.InitDefaultLog(&zlog.ZapConfig{Layout: 0, Location: time.Local, Level: "DEBUG", Console: true})
 }
 
 func TestMysqlSave(t *testing.T) {

@@ -2171,10 +2171,6 @@ func (self *RDBManager) BuildWhereCase(cnd *sqlc.Cnd) (*bytes.Buffer, []interfac
 			estimatedArgs += 5 * len(v.Values)
 		}
 	}
-	// 确保最小值（避免小条件频繁分配）
-	if estimatedSize < 32 {
-		estimatedSize = 32
-	}
 
 	case_part := bytes.NewBuffer(make([]byte, 0, estimatedSize))
 	case_arg := make([]interface{}, 0, estimatedArgs)
