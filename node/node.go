@@ -402,12 +402,12 @@ func (self *Context) validJsonBody() error {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter Base64 parsing failed"}
 		}
 	} else if body.Plan == 1 && !anonymous { // 登录状态 P1 AES
-		rawData, err = utils.AesGCMDecryptWithAAD(d, self.GetTokenSecret(), utils.AddStr(self.JsonBody.Time, self.JsonBody.Nonce))
+		rawData, err = utils.AesGCMDecryptWithAAD(d, self.GetTokenSecret(), utils.AddStr(self.JsonBody.Time, self.JsonBody.Nonce, self.JsonBody.Plan, self.Path))
 		if err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "AES failed to parse data", Err: err}
 		}
 	} else if body.Plan == 2 && self.RouterConfig.UseRSA && anonymous { // 非登录状态 P2 ECC+AES
-		rawData, err = utils.AesGCMDecryptWithAAD(d, key, utils.AddStr(self.JsonBody.Time, self.JsonBody.Nonce))
+		rawData, err = utils.AesGCMDecryptWithAAD(d, key, utils.AddStr(self.JsonBody.Time, self.JsonBody.Nonce, self.JsonBody.Plan, self.Path))
 		if err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "AES failed to parse data", Err: err}
 		}

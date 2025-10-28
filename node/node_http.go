@@ -490,28 +490,24 @@ func defaultRenderPre(ctx *Context) error {
 				if v == nil {
 					return ex.Throw{Msg: "encryption random code is nil"}
 				}
+				resp.Plan = 2
 				key, _ = v.(string)
-				data, err := utils.AesGCMEncryptWithAAD(data, key, utils.AddStr(resp.Time, resp.Nonce))
+				data, err := utils.AesGCMEncryptWithAAD(data, key, utils.AddStr(resp.Time, resp.Nonce, resp.Plan, ctx.Path))
 				if err != nil {
 					return ex.Throw{Code: http.StatusInternalServerError, Msg: "AES encryption response data failed", Err: err}
 				}
 				resp.Data = data
-				resp.Plan = 2
 				ctx.DelStorage(RandomCode)
-			} else if ctx.JsonBody.Plan == 3 {
-				resp.Data = utils.Base64Encode(data)
-				_, key = ctx.RSA.GetPublicKey()
-				resp.Plan = 3
 			} else {
 				return ex.Throw{Msg: "anonymous response plan invalid"}
 			}
 		} else if routerConfig.AesResponse {
-			data, err := utils.AesGCMEncryptWithAAD(data, ctx.GetTokenSecret(), utils.AddStr(resp.Time, resp.Nonce))
+			resp.Plan = 1
+			data, err := utils.AesGCMEncryptWithAAD(data, ctx.GetTokenSecret(), utils.AddStr(resp.Time, resp.Nonce, resp.Plan, ctx.Path))
 			if err != nil {
 				return ex.Throw{Code: http.StatusInternalServerError, Msg: "AES encryption response data failed", Err: err}
 			}
 			resp.Data = data
-			resp.Plan = 1
 		} else {
 			resp.Data = utils.Base64Encode(data)
 		}

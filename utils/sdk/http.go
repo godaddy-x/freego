@@ -113,7 +113,7 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	s.debugOut("client key: ", clientSecretKey)
 	s.debugOut("client key encrypted: ", randomCode)
 	// 使用 AES-GCM 加密，Nonce 作为 AAD
-	d, err := utils.AesGCMEncryptWithAAD(jsonBody.Data.([]byte), clientSecretKeyBase64, utils.AddStr(jsonBody.Time, jsonBody.Nonce))
+	d, err := utils.AesGCMEncryptWithAAD(jsonBody.Data.([]byte), clientSecretKeyBase64, utils.AddStr(jsonBody.Time, jsonBody.Nonce, jsonBody.Plan, path))
 	if err != nil {
 		return ex.Throw{Msg: "request data AES encrypt failed"}
 	}
@@ -169,7 +169,7 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 		return ex.Throw{Msg: "post response sign verify invalid"}
 	}
 	s.debugOut("response sign verify: ", validSign == respData.Sign)
-	dec, err := utils.AesGCMDecryptWithAAD(respData.Data.(string), clientSecretKeyBase64, utils.AddStr(respData.Time, respData.Nonce))
+	dec, err := utils.AesGCMDecryptWithAAD(respData.Data.(string), clientSecretKeyBase64, utils.AddStr(respData.Time, respData.Nonce, respData.Plan, path))
 	if err != nil {
 		return ex.Throw{Msg: "post response data AES decrypt failed"}
 	}
@@ -179,85 +179,6 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	}
 	return nil
 }
-
-// PostByHAX 已废弃（Plan 3 已不再支持）
-// Deprecated: Plan 3 mode is no longer supported, please use PostByECC instead
-// 该函数保留是为了兼容旧代码，但调用时会直接返回错误
-//func (s *HttpSDK) PostByHAX(path string, requestObj, responseObj interface{}) error {
-//	return ex.Throw{Msg: "PostByHAX (Plan 3) is deprecated, please use PostByECC instead"}
-//	// 以下代码已不再执行
-//	if len(path) == 0 || requestObj == nil || responseObj == nil {
-//		return ex.Throw{Msg: "params invalid"}
-//	}
-//	jsonData, err := utils.JsonMarshal(requestObj)
-//	if err != nil {
-//		return ex.Throw{Msg: "request data JsonMarshal invalid"}
-//	}
-//	jsonBody := &node.JsonBody{
-//		Data:  utils.Base64Encode(jsonData),
-//		Time:  utils.UnixSecond(),
-//		Nonce: utils.RandNonce(),
-//		Plan:  int64(3),
-//	}
-//	publicKey, err := s.GetPublicKey()
-//	if err != nil {
-//		return err
-//	}
-//	s.debugOut("server key: ", publicKey)
-//	jsonBody.Sign = utils.HMAC_SHA256(utils.AddStr(path, jsonBody.Data.(string), jsonBody.Nonce, jsonBody.Time, jsonBody.Plan), publicKey, true)
-//	bytesData, err := utils.JsonMarshal(jsonBody)
-//	if err != nil {
-//		return ex.Throw{Msg: "jsonBody data JsonMarshal invalid"}
-//	}
-//	s.debugOut("request data: ")
-//	s.debugOut(utils.Bytes2Str(bytesData))
-//	request := fasthttp.AcquireRequest()
-//	request.Header.SetContentType("application/json;charset=UTF-8")
-//	request.Header.Set("Authorization", "")
-//	request.Header.Set("Language", s.language)
-//	request.Header.SetMethod("POST")
-//	request.SetRequestURI(s.getURI(path))
-//	request.SetBody(bytesData)
-//	defer fasthttp.ReleaseRequest(request)
-//	response := fasthttp.AcquireResponse()
-//	defer fasthttp.ReleaseResponse(response)
-//	timeout := 120 * time.Second
-//	if s.timeout > 0 {
-//		timeout = time.Duration(s.timeout) * time.Second
-//	}
-//	if err := fasthttp.DoTimeout(request, response, timeout); err != nil {
-//		return ex.Throw{Msg: "post request failed: " + err.Error()}
-//	}
-//	respBytes := response.Body()
-//	s.debugOut("response data: ")
-//	s.debugOut(utils.Bytes2Str(respBytes))
-//	respData := &node.JsonResp{
-//		Code:    utils.GetJsonInt(respBytes, "c"),
-//		Message: utils.GetJsonString(respBytes, "m"),
-//		Data:    utils.GetJsonString(respBytes, "d"),
-//		Nonce:   utils.GetJsonString(respBytes, "n"),
-//		Time:    int64(utils.GetJsonInt(respBytes, "t")),
-//		Plan:    int64(utils.GetJsonInt(respBytes, "p")),
-//		Sign:    utils.GetJsonString(respBytes, "s"),
-//	}
-//	if respData.Code != 200 {
-//		if respData.Code > 0 {
-//			return ex.Throw{Code: respData.Code, Msg: respData.Message}
-//		}
-//		return ex.Throw{Msg: respData.Message}
-//	}
-//	validSign := utils.HMAC_SHA256(utils.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan), publicKey, true)
-//	if validSign != respData.Sign {
-//		return ex.Throw{Msg: "post response sign verify invalid"}
-//	}
-//	s.debugOut("response sign verify: ", validSign == respData.Sign)
-//	dec := utils.Base64Decode(respData.Data)
-//	s.debugOut("response data base64: ", string(dec))
-//	if err := utils.JsonUnmarshal(dec, responseObj); err != nil {
-//		return ex.Throw{Msg: "response data JsonUnmarshal invalid"}
-//	}
-//	return nil
-//}
 
 func (s *HttpSDK) valid() bool {
 	if len(s.authToken.Token) == 0 {
@@ -321,12 +242,12 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 		Plan:  0,
 	}
 	if encrypted {
-		d, err := utils.AesGCMEncryptWithAAD(jsonBody.Data.([]byte), s.authToken.Secret, utils.AddStr(jsonBody.Time, jsonBody.Nonce))
+		jsonBody.Plan = 1
+		d, err := utils.AesGCMEncryptWithAAD(jsonBody.Data.([]byte), s.authToken.Secret, utils.AddStr(jsonBody.Time, jsonBody.Nonce, jsonBody.Plan, path))
 		if err != nil {
 			return ex.Throw{Msg: "request data AES encrypt failed"}
 		}
 		jsonBody.Data = d
-		jsonBody.Plan = 1
 		s.debugOut("request data encrypted: ", jsonBody.Data)
 	} else {
 		d := utils.Base64Encode(jsonBody.Data.([]byte))
@@ -391,7 +312,7 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 		dec = utils.Base64Decode(respData.Data)
 		s.debugOut("response data base64: ", string(dec))
 	} else if respData.Plan == 1 {
-		dec, err = utils.AesGCMDecryptWithAAD(respData.Data.(string), s.authToken.Secret, utils.AddStr(respData.Time, respData.Nonce))
+		dec, err = utils.AesGCMDecryptWithAAD(respData.Data.(string), s.authToken.Secret, utils.AddStr(respData.Time, respData.Nonce, respData.Plan, path))
 		if err != nil {
 			return ex.Throw{Msg: "post response data AES decrypt failed"}
 		}
