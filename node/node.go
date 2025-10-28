@@ -61,7 +61,6 @@ type Configs struct {
 type RouterConfig struct {
 	Guest       bool // 游客模式,原始请求 false.否 true.是
 	UseRSA      bool // 非登录状态使用RSA模式请求 false.否 true.是
-	UseHAX      bool // 非登录状态,判定公钥哈希验签 false.否 true.是
 	AesRequest  bool // 请求是否必须AES加密 false.否 true.是
 	AesResponse bool // 响应是否必须AES加密 false.否 true.是
 }
@@ -403,12 +402,12 @@ func (self *Context) validJsonBody() error {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter Base64 parsing failed"}
 		}
 	} else if body.Plan == 1 && !anonymous { // 登录状态 P1 AES
-		rawData, err = utils.AesCBCDecrypt(d, self.GetTokenSecret())
+		rawData, err = utils.AesGCMDecryptWithAAD(d, self.GetTokenSecret(), utils.AddStr(self.JsonBody.Time, self.JsonBody.Nonce))
 		if err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "AES failed to parse data", Err: err}
 		}
 	} else if body.Plan == 2 && self.RouterConfig.UseRSA && anonymous { // 非登录状态 P2 ECC+AES
-		rawData, err = utils.AesCBCDecrypt(d, key)
+		rawData, err = utils.AesGCMDecryptWithAAD(d, key, utils.AddStr(self.JsonBody.Time, self.JsonBody.Nonce))
 		if err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "AES failed to parse data", Err: err}
 		}

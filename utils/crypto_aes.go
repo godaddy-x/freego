@@ -218,3 +218,129 @@ func AesCBCDecryptBase(encryptedData string, key []byte) ([]byte, error) {
 
 	return plaintext, nil
 }
+
+// ==================== AES-GCM 认证加密（推荐用于金融级应用）====================
+
+// AesGCMEncrypt AES-GCM 加密（带认证）- 推荐用于金融/银行级应用
+// 相比 CBC 的优势：
+// 1. 内置完整性保护（GMAC 认证标签）
+// 2. 防止密文篡改攻击
+// 3. 无需 PKCS7 Padding（支持任意长度）
+// 4. 并行加密（性能提升 2-5 倍）
+// 5. TLS 1.3 强制使用
+// 6. NIST/PCI DSS 优先推荐
+func AesGCMEncrypt(plaintext []byte, key string) (string, error) {
+	return AesGCMEncryptBase(plaintext, GetAesKeySecure(key), nil)
+}
+
+// AesGCMEncryptWithAAD AES-GCM 加密（带附加认证数据）
+// additionalData: 不加密但需要认证的数据（如请求头、用户ID等）
+// 使用场景：确保关联数据（如交易ID、用户ID）未被篡改
+func AesGCMEncryptWithAAD(plaintext []byte, key, additionalData string) (string, error) {
+	return AesGCMEncryptBase(plaintext, GetAesKeySecure(key), Str2Bytes(additionalData))
+}
+
+// AesGCMEncryptBase AES-GCM 加密基础方法
+// 返回格式：Base64(Nonce + Ciphertext + AuthTag)
+// Nonce: 12 字节（GCM 标准）
+// AuthTag: 16 字节（128-bit 认证标签）
+func AesGCMEncryptBase(plaintext, key, additionalData []byte) (string, error) {
+	// 1. 输入验证
+	if len(key) != 32 {
+		return "", errors.New("key must be 32 bytes for AES-256")
+	}
+
+	// 2. 创建 AES 加密器
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", fmt.Errorf("failed to create cipher: %w", err)
+	}
+
+	// 3. 创建 GCM 模式（AEAD: Authenticated Encryption with Associated Data）
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", fmt.Errorf("failed to create GCM: %w", err)
+	}
+
+	// 4. 生成 Nonce（GCM 标准：12 字节）
+	// 注意：Nonce 必须唯一，否则会破坏 GCM 安全性
+	nonce := GetRandomSecure(gcm.NonceSize())
+
+	// 5. 加密并生成认证标签（单步操作）
+	// Seal 会自动：
+	//   - 加密 plaintext
+	//   - 对 ciphertext + additionalData 生成 GMAC 认证标签
+	//   - 返回：ciphertext + authTag
+	ciphertext := gcm.Seal(nil, nonce, plaintext, additionalData)
+
+	// 6. 拼接：Nonce + Ciphertext + AuthTag
+	result := append(nonce, ciphertext...)
+
+	// 7. Base64 编码
+	return Base64Encode(result), nil
+}
+
+// AesGCMDecrypt AES-GCM 解密（带认证验证）
+func AesGCMDecrypt(encryptedData string, key string) ([]byte, error) {
+	return AesGCMDecryptBase(encryptedData, GetAesKeySecure(key), nil)
+}
+
+// AesGCMDecryptWithAAD AES-GCM 解密（带附加认证数据验证）
+// additionalData: 必须与加密时使用的 AAD 完全一致
+func AesGCMDecryptWithAAD(encryptedData string, key, additionalData string) ([]byte, error) {
+	return AesGCMDecryptBase(encryptedData, GetAesKeySecure(key), Str2Bytes(additionalData))
+}
+
+// AesGCMDecryptBase AES-GCM 解密基础方法
+// 会自动验证：
+// 1. 认证标签（AuthTag）- 确保密文未被篡改
+// 2. 附加认证数据（AAD）- 确保关联数据未被篡改
+// 任何一项验证失败都会返回错误，拒绝解密
+func AesGCMDecryptBase(encryptedData string, key, additionalData []byte) ([]byte, error) {
+	// 1. 输入验证
+	if len(key) != 32 {
+		return nil, errors.New("key must be 32 bytes for AES-256")
+	}
+
+	// 2. 解码 Base64
+	data := Base64Decode(encryptedData)
+	if data == nil {
+		return nil, errors.New("base64 decode failed")
+	}
+
+	// 3. 创建 AES 加密器
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create cipher: %w", err)
+	}
+
+	// 4. 创建 GCM 模式
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create GCM: %w", err)
+	}
+
+	// 5. 检查数据长度（Nonce + Ciphertext + AuthTag）
+	nonceSize := gcm.NonceSize()
+	if len(data) < nonceSize {
+		return nil, errors.New("encrypted data too short")
+	}
+
+	// 6. 分离 Nonce 和 Ciphertext+AuthTag
+	nonce := data[:nonceSize]
+	ciphertext := data[nonceSize:]
+
+	// 7. 解密并验证认证标签（单步操作）
+	// Open 会自动：
+	//   - 验证 GMAC 认证标签（防篡改）
+	//   - 验证 additionalData（如果提供）
+	//   - 解密 ciphertext
+	// 任何验证失败都会返回 error
+	plaintext, err := gcm.Open(nil, nonce, ciphertext, additionalData)
+	if err != nil {
+		// 🚨 这个错误非常重要！表示数据被篡改或密钥错误
+		return nil, fmt.Errorf("authentication failed - data may be tampered: %w", err)
+	}
+
+	return plaintext, nil
+}

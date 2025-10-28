@@ -19,7 +19,7 @@ type Cipher interface {
 	GetPrivateKey() (interface{}, string)
 	GetPublicKey() (interface{}, string)
 	Encrypt(msg []byte) (string, error)
-	Decrypt(msg string) (string, error)
+	Decrypt(msg string) ([]byte, error)
 	Sign(msg []byte) ([]byte, error)
 	Verify(msg, sign []byte) error
 }
@@ -285,22 +285,22 @@ func (self *RsaObj) Encrypt(msg []byte) (string, error) {
 	return base64.StdEncoding.EncodeToString(buffer.Bytes()), nil
 }
 
-func (self *RsaObj) Decrypt(msg string) (string, error) {
+func (self *RsaObj) Decrypt(msg string) ([]byte, error) {
 	partLen := self.publicKey.N.BitLen() / 8
 	raw, err := base64.StdEncoding.DecodeString(msg)
 	if err != nil {
-		return "", errors.New("msg base64 decode failed")
+		return nil, errors.New("msg base64 decode failed")
 	}
 	chunks := split(raw, partLen)
 	buffer := bytes.NewBufferString("")
 	for _, chunk := range chunks {
 		decrypted, err := rsa.DecryptPKCS1v15(rand.Reader, self.privateKey, chunk)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		buffer.Write(decrypted)
 	}
-	return buffer.String(), err
+	return buffer.Bytes(), err
 }
 
 func (self *RsaObj) Sign(msg []byte) ([]byte, error) {

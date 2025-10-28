@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"github.com/godaddy-x/eccrypto"
-	"unsafe"
 )
 
 type EccObj struct {
@@ -55,16 +54,16 @@ func (self *EccObj) Encrypt(msg []byte) (string, error) {
 	return "", nil
 }
 
-func (self *EccObj) Decrypt(msg string) (string, error) {
+func (self *EccObj) Decrypt(msg string) ([]byte, error) {
 	bs, err := base64.StdEncoding.DecodeString(msg)
 	if err != nil {
-		return "", errors.New("base64 parse failed")
+		return nil, errors.New("base64 parse failed")
 	}
 	r, err := ecc.Decrypt(self.privateKey, bs)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return *(*string)(unsafe.Pointer(&r)), nil
+	return r, nil
 }
 
 func (self *EccObj) Sign(msg []byte) ([]byte, error) {

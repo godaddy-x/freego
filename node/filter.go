@@ -139,7 +139,7 @@ func (self *SessionFilter) DoFilter(chain Filter, ctx *Context, args ...interfac
 	if ctx.RouterConfig == nil {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "router path invalid"}
 	}
-	if ctx.RouterConfig.UseRSA || ctx.RouterConfig.UseHAX || ctx.RouterConfig.Guest { // 登录接口和游客模式跳过会话认证
+	if ctx.RouterConfig.UseRSA || ctx.RouterConfig.Guest { // 登录接口和游客模式跳过会话认证
 		return chain.DoFilter(chain, ctx, args...)
 	}
 	// 验证JWT token（SessionFilter的核心职责）

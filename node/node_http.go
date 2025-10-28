@@ -484,14 +484,14 @@ func defaultRenderPre(ctx *Context) error {
 			Nonce: utils.RandNonce(),
 		}
 		var key string
-		if routerConfig.UseRSA || routerConfig.UseHAX { // 非登录状态响应
+		if routerConfig.UseRSA { // 非登录状态响应
 			if ctx.JsonBody.Plan == 2 {
 				v := ctx.GetStorage(RandomCode)
 				if v == nil {
 					return ex.Throw{Msg: "encryption random code is nil"}
 				}
 				key, _ = v.(string)
-				data, err := utils.AesCBCEncrypt(data, key)
+				data, err := utils.AesGCMEncryptWithAAD(data, key, utils.AddStr(resp.Time, resp.Nonce))
 				if err != nil {
 					return ex.Throw{Code: http.StatusInternalServerError, Msg: "AES encryption response data failed", Err: err}
 				}
@@ -506,7 +506,7 @@ func defaultRenderPre(ctx *Context) error {
 				return ex.Throw{Msg: "anonymous response plan invalid"}
 			}
 		} else if routerConfig.AesResponse {
-			data, err := utils.AesCBCEncrypt(data, ctx.GetTokenSecret())
+			data, err := utils.AesGCMEncryptWithAAD(data, ctx.GetTokenSecret(), utils.AddStr(resp.Time, resp.Nonce))
 			if err != nil {
 				return ex.Throw{Code: http.StatusInternalServerError, Msg: "AES encryption response data failed", Err: err}
 			}

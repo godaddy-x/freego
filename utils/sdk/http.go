@@ -79,7 +79,7 @@ func (s *HttpSDK) GetPublicKey() (string, error) {
 	return utils.Bytes2Str(b), nil
 }
 
-// 对象请使用指针
+// PostByECC 对象请使用指针
 func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) error {
 	if len(path) == 0 || requestObj == nil || responseObj == nil {
 		return ex.Throw{Msg: "params invalid"}
@@ -104,7 +104,7 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 		return ex.Throw{Msg: "load ECC public key failed"}
 	}
 	clientSecretKeyBase64 := utils.Base64Encode(clientSecretKey)
-	r, err := ecc.Encrypt(pubBs, clientSecretKey)
+	r, err := ecc.Encrypt(nil, pubBs, clientSecretKey)
 	if err != nil {
 		return ex.Throw{Msg: "ECC encrypt failed"}
 	}
@@ -112,7 +112,8 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	s.debugOut("server key: ", publicKey)
 	s.debugOut("client key: ", clientSecretKey)
 	s.debugOut("client key encrypted: ", randomCode)
-	d, err := utils.AesCBCEncrypt(jsonBody.Data.([]byte), clientSecretKeyBase64)
+	// 使用 AES-GCM 加密，Nonce 作为 AAD
+	d, err := utils.AesGCMEncryptWithAAD(jsonBody.Data.([]byte), clientSecretKeyBase64, utils.AddStr(jsonBody.Time, jsonBody.Nonce))
 	if err != nil {
 		return ex.Throw{Msg: "request data AES encrypt failed"}
 	}
@@ -168,7 +169,7 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 		return ex.Throw{Msg: "post response sign verify invalid"}
 	}
 	s.debugOut("response sign verify: ", validSign == respData.Sign)
-	dec, err := utils.AesCBCDecrypt(respData.Data.(string), clientSecretKeyBase64)
+	dec, err := utils.AesGCMDecryptWithAAD(respData.Data.(string), clientSecretKeyBase64, utils.AddStr(respData.Time, respData.Nonce))
 	if err != nil {
 		return ex.Throw{Msg: "post response data AES decrypt failed"}
 	}
@@ -320,7 +321,7 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 		Plan:  0,
 	}
 	if encrypted {
-		d, err := utils.AesCBCEncrypt(jsonBody.Data.([]byte), s.authToken.Secret)
+		d, err := utils.AesGCMEncryptWithAAD(jsonBody.Data.([]byte), s.authToken.Secret, utils.AddStr(jsonBody.Time, jsonBody.Nonce))
 		if err != nil {
 			return ex.Throw{Msg: "request data AES encrypt failed"}
 		}
@@ -376,7 +377,7 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 	}
 
 	// 服务器可以自主选择返回的Plan（0或1），只要在有效范围内即可
-	if respData.Plan != 0 && respData.Plan != 1 {
+	if !utils.CheckInt64(respData.Plan, 0, 1) {
 		return ex.Throw{Msg: "response plan invalid, must be 0 or 1, got: " + utils.AnyToStr(respData.Plan)}
 	}
 
@@ -390,7 +391,7 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 		dec = utils.Base64Decode(respData.Data)
 		s.debugOut("response data base64: ", string(dec))
 	} else if respData.Plan == 1 {
-		dec, err = utils.AesCBCDecrypt(respData.Data.(string), s.authToken.Secret)
+		dec, err = utils.AesGCMDecryptWithAAD(respData.Data.(string), s.authToken.Secret, utils.AddStr(respData.Time, respData.Nonce))
 		if err != nil {
 			return ex.Throw{Msg: "post response data AES decrypt failed"}
 		}

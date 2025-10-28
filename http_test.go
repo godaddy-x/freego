@@ -10,9 +10,9 @@ import (
 
 const domain = "http://localhost:8090"
 
-const access_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxOTgyMzUzOTA5Mzg1MDAzMDA5IiwiYXVkIjoiIiwiaXNzIjoiIiwiaWF0IjowLCJleHAiOjE3NjI2NzQ1NzcsImRldiI6IkFQUCIsImp0aSI6InJ6Y0thSkJieG5mczI3NCt1VTViNHc9PSIsImV4dCI6IiJ9.5nXAZPPtSf3BFBKhTQ0JUGUr23FGQ7AABWW8cO1Lcuo="
-const token_secret = "QM5R1FEZ+USyZYptXTPTqLcKB9TPdn4u2RfYPFxQ0RhCjXWsXHJrZtWmxzqiH6ZsCzmm77bAnrzyN4DP9a3hYA=="
-const token_expire = 1762674577
+const access_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxOTgzMTgyNDU4MDYwODAwMDAxIiwiYXVkIjoiIiwiaXNzIjoiIiwiaWF0IjowLCJleHAiOjE3NjI4NzIxMTgsImRldiI6IkFQUCIsImp0aSI6IjR6RkUwamVCZXc5M1V2R0hXYTFWV0E9PSIsImV4dCI6IiJ9.9w4YMSbbA4jEH9QVsiywIInVPBYWJtdSoj2tr/5g95M="
+const token_secret = "J6BPiAJuInZLieUukdyobH1npoHdJdXOHHN8IjekyMyu9NAd9J/LeLoNgH8I+98Tac4vVNGBSq4/nioiC9iIAw=="
+const token_expire = 1762872118
 
 var httpSDK = &sdk.HttpSDK{
 	Debug:     false,
@@ -43,7 +43,7 @@ func TestGetUser(t *testing.T) {
 	httpSDK.AuthToken(sdk.AuthToken{Token: access_token, Secret: token_secret, Expired: token_expire})
 	requestObj := map[string]interface{}{"uid": 123, "name": "我爱中国/+_=/1df", "limit": 20, "offset": 5}
 	responseData := map[string]string{}
-	if err := httpSDK.PostByAuth("/getUser", &requestObj, &responseData, true); err != nil {
+	if err := httpSDK.PostByAuth("/getUser", &requestObj, &responseData, false); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println(responseData)
