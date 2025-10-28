@@ -203,14 +203,14 @@ func TestMysqlFindListComplex(t *testing.T) {
 
 func TestMysqlFindOneComplex(t *testing.T) {
 	initMysqlDB()
-	db, err := new(sqld.MysqlManager).Get(sqld.Option{OpenTx: false})
+	db, err := sqld.NewMysqlTx(false)
 	if err != nil {
 		panic(err)
 	}
 	defer db.Close()
 	l := utils.UnixMilli()
 	result := OwWallet{}
-	if err := db.FindOneComplex(sqlc.M().UnEscape().Fields("count(a.id) as id").From("ow_wallet a").Orderby("a.id", sqlc.DESC_).Limit(1, 5), &result); err != nil {
+	if err := db.FindOneComplex(sqlc.M().UnEscape().Fields("a.id id", "a.appID appID").From("ow_wallet a").Orderby("a.id", sqlc.ASC_).Limit(1, 5), &result); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println("cost: ", utils.UnixMilli()-l)

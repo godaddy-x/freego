@@ -1112,7 +1112,7 @@ func (self *RDBManager) FindById(data sqlc.Object) error {
 		return self.Error("[Mysql.FindById] read columns failed: ", err)
 	}
 	var first [][]byte
-	if out, err := OutDest(rows, len(cols)); err != nil {
+	if out, err := OutDestWithCapacity(rows, len(cols), 1); err != nil {
 		return self.Error("[Mysql.FindById] read result failed: ", err)
 	} else if len(out) == 0 {
 		return nil
@@ -1225,7 +1225,7 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
 		return self.Error("[Mysql.FindOne] read columns failed: ", err)
 	}
 	var first [][]byte
-	if out, err := OutDest(rows, len(cols)); err != nil {
+	if out, err := OutDestWithCapacity(rows, len(cols), 1); err != nil {
 		return self.Error("[Mysql.FindOne] read result failed: ", err)
 	} else if len(out) == 0 {
 		return nil
@@ -1705,7 +1705,7 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 	if len(cols) != len(cnd.AnyFields) {
 		return self.Error("[Mysql.FindListComplex] read columns length invalid")
 	}
-	out, err := OutDest(rows, len(cols))
+	out, err := OutDestWithCapacity(rows, len(cols), 0)
 	if err != nil {
 		return self.Error("[Mysql.FindListComplex] read result failed: ", err)
 	} else if len(out) == 0 {
@@ -1772,40 +1772,73 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data sqlc.Object) error {
 	if !ok {
 		return self.Error("[Mysql.FindOneComplex] registration object type not found [", data.GetTable(), "]")
 	}
-	fpart := bytes.NewBuffer(make([]byte, 0, 32*len(cnd.AnyFields)))
+	// 优化：精确计算 fpart 容量
+	fpartSize := 0
+	for _, vv := range cnd.AnyFields {
+		if cnd.Escape {
+			fpartSize += len(vv) + 3 // "`field`,"
+		} else {
+			fpartSize += len(vv) + 1 // "field,"
+		}
+	}
+	fpart := bytes.NewBuffer(make([]byte, 0, fpartSize))
 	for _, vv := range cnd.AnyFields {
 		if cnd.Escape {
 			fpart.WriteString("`")
 			fpart.WriteString(vv)
 			fpart.WriteString("`")
-			fpart.WriteString(",")
 		} else {
 			fpart.WriteString(vv)
-			fpart.WriteString(",")
 		}
+		fpart.WriteString(",")
 	}
+	fpartBytes := fpart.Bytes()
+
 	case_part, case_arg := self.BuildWhereCase(cnd.Offset(0, 1))
-	parameter := make([]interface{}, 0, len(case_arg))
-	for _, v := range case_arg {
-		parameter = append(parameter, v)
-	}
-	var vpart *bytes.Buffer
+	parameter := case_arg
+
+	var vpartBytes []byte
 	if case_part.Len() > 0 {
-		vpart = bytes.NewBuffer(make([]byte, 0, case_part.Len()+16))
+		caseBytes := case_part.Bytes()
+		vpartCap := len(caseBytes) + 9 // "where" (5) + 4 (extra)
+		vpart := bytes.NewBuffer(make([]byte, 0, vpartCap))
 		vpart.WriteString("where")
-		str := case_part.String()
-		vpart.WriteString(utils.Substr(str, 0, len(str)-3))
+		if len(caseBytes) > 4 {
+			vpart.Write(caseBytes[0 : len(caseBytes)-4])
+		}
+		vpartBytes = vpart.Bytes()
 	}
-	str1 := utils.Bytes2Str(fpart.Bytes())
-	str2 := ""
-	if vpart != nil {
-		str2 = utils.Bytes2Str(vpart.Bytes())
-	}
+
 	groupby := self.BuildGroupBy(cnd)
 	sortby := self.BuildSortBy(cnd)
-	sqlbuf := bytes.NewBuffer(make([]byte, 0, len(str1)+len(str2)+len(groupby)+len(sortby)+32))
+
+	// 优化：计算 join 条件大小
+	joinSize := 0
+	for _, v := range cnd.JoinCond {
+		if len(v.Table) > 0 && len(v.On) > 0 {
+			if v.Type == sqlc.LEFT_ {
+				joinSize += 12 + len(v.Table) + 4 + len(v.On) // " left join " + table + " on " + on
+			} else if v.Type == sqlc.RIGHT_ {
+				joinSize += 13 + len(v.Table) + 4 + len(v.On) // " right join " + table + " on " + on
+			} else if v.Type == sqlc.INNER_ {
+				joinSize += 13 + len(v.Table) + 4 + len(v.On) // " inner join " + table + " on " + on
+			}
+		}
+	}
+
+	// 优化：精确计算 sqlbuf 容量
+	// 固定字节："select " (7) + " from " (6) + " " (1) + " " (1) + " limit 1" (8) = 23
+	// 动态：fpart去掉最后一个逗号 + Table + Alias + vpartBytes + joinSize + groupby + sortby
+	fpartLen := 0
+	if len(fpartBytes) > 0 {
+		fpartLen = len(fpartBytes) - 1
+	}
+	sqlbufSize := 23 + fpartLen + len(cnd.FromCond.Table) + len(cnd.FromCond.Alias) + len(vpartBytes) + joinSize + len(groupby) + len(sortby)
+	sqlbuf := bytes.NewBuffer(make([]byte, 0, sqlbufSize))
 	sqlbuf.WriteString("select ")
-	sqlbuf.WriteString(utils.Substr(str1, 0, len(str1)-1))
+	if fpartLen > 0 {
+		sqlbuf.Write(fpartBytes[0:fpartLen])
+	}
 	sqlbuf.WriteString(" from ")
 	sqlbuf.WriteString(cnd.FromCond.Table)
 	sqlbuf.WriteString(" ")
@@ -1831,8 +1864,8 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data sqlc.Object) error {
 			sqlbuf.WriteString(" ")
 		}
 	}
-	if len(str2) > 0 {
-		sqlbuf.WriteString(utils.Substr(str2, 0, len(str2)-1))
+	if len(vpartBytes) > 0 {
+		sqlbuf.Write(vpartBytes)
 	}
 	if len(groupby) > 0 {
 		sqlbuf.WriteString(groupby)
@@ -1841,10 +1874,7 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data sqlc.Object) error {
 		sqlbuf.WriteString(sortby)
 	}
 	sqlbuf.WriteString(" limit 1")
-	// prepare, err := self.BuildPagination(cnd, utils.Bytes2Str(sqlbuf.Bytes()), parameter)
-	// if err != nil {
-	//	 return self.Error(err)
-	// }
+
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
 		defer zlog.Debug("[Mysql.FindOneComplex] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
@@ -1876,20 +1906,25 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data sqlc.Object) error {
 		return self.Error("[Mysql.FindOneComplex] read columns length invalid")
 	}
 	var first [][]byte
-	if out, err := OutDest(rows, len(cols)); err != nil {
+	if out, err := OutDestWithCapacity(rows, len(cols), 1); err != nil {
 		return self.Error("[Mysql.FindOneComplex] read result failed: ", err)
 	} else if len(out) == 0 {
 		return nil
 	} else {
 		first = out[0]
 	}
+	// 优化：建立字段名到字段信息的映射，避免O(n²)查找
+	fieldMap := make(map[string]*FieldElem, len(obv.FieldElem))
+	for _, vv := range obv.FieldElem {
+		if !vv.Ignore {
+			fieldMap[vv.FieldJsonName] = vv
+		}
+	}
+
 	for i := 0; i < len(cols); i++ {
-		for _, vv := range obv.FieldElem {
-			if vv.FieldJsonName == cols[i] {
-				if err := SetValue(data, vv, first[i]); err != nil {
-					return self.Error(err)
-				}
-				break
+		if field, ok := fieldMap[cols[i]]; ok {
+			if err := SetValue(data, field, first[i]); err != nil {
+				return self.Error(err)
 			}
 		}
 	}
@@ -1962,9 +1997,9 @@ func (self *RDBManager) mongoSyncData(option int, model sqlc.Object, cnd *sqlc.C
 }
 
 // 输出查询结果集
-func OutDest(rows *sql.Rows, flen int) ([][][]byte, error) {
-	return OutDestWithCapacity(rows, flen, 0)
-}
+//func OutDest(rows *sql.Rows, flen int) ([][][]byte, error) {
+//	return OutDestWithCapacity(rows, flen, 0)
+//}
 
 // OutDestWithCapacity 带容量预估的查询结果集输出
 func OutDestWithCapacity(rows *sql.Rows, flen int, estimatedRows int) ([][][]byte, error) {
