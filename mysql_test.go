@@ -213,7 +213,12 @@ func TestMysqlDeleteByCnd(t *testing.T) {
 	defer db.Close()
 	l := utils.UnixMilli()
 	// 使用条件删除
-	rowsAffected, err := db.DeleteByCnd(sqlc.M(&OwWallet{}).Eq("appID", "1").Eq("walletID", ""))
+	rowsAffected, err := db.DeleteByCnd(sqlc.M(&OwWallet{}).
+		Eq("appID", "1").NotEq("id", 1).
+		Gte("ctime", 1).Lte("ctime", 2).
+		IsNull("appID").IsNotNull("appID").
+		Between("id", 1, 2).
+		NotBetween("id", 1, 2).In("id", 1, 2, 3, 4).NotIn("id", 1, 2).Like("appID", "test").NotLike("appID", "test"))
 	if err != nil {
 		fmt.Println("DeleteByCnd failed:", err)
 		return

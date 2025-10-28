@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"fmt"
 	"reflect"
 	"sync"
 	"sync/atomic"
@@ -2133,10 +2134,12 @@ func (self *RDBManager) BuildWhereCase(cnd *sqlc.Cnd) (*bytes.Buffer, []interfac
 		return bytes.NewBuffer(make([]byte, 0, 64)), []interface{}{}
 	}
 	// 优化：先遍历统计，精确计算容量（优先防止扩容）
+	// 注意：预估应该基于 BuildWhereCase 返回的完整长度（包含最后的 " and"）
 	estimatedSize := 0
 	estimatedArgs := 0
 	for _, v := range cnd.Conditions {
 		// 统计 SQL 字符串容量
+		// BuildCondKey 会添加 " `key`" 或 " key"，需要加上这部分
 		keyLen := len(v.Key)
 		if cnd.Escape {
 			keyLen += 3 // " `key`"
@@ -2145,25 +2148,49 @@ func (self *RDBManager) BuildWhereCase(cnd *sqlc.Cnd) (*bytes.Buffer, []interfac
 		}
 
 		switch v.Logic {
-		case sqlc.EQ_, sqlc.NOT_EQ_, sqlc.LT_, sqlc.LTE_, sqlc.GT_, sqlc.GTE_:
-			estimatedSize += keyLen + 6 // " = ? and" (6字节，最长是" <= ? and")
+		case sqlc.EQ_:
+			estimatedSize += keyLen + 8 // " = ? and" (8字节)
 			estimatedArgs++
-		case sqlc.IS_NULL_, sqlc.IS_NOT_NULL_:
-			estimatedSize += keyLen + 17 // " is not null and" (最长17字节)
-			// IS NULL 不需要参数
-		case sqlc.BETWEEN_, sqlc.NOT_BETWEEN_:
-			estimatedSize += keyLen + 27 // " not between ? and ? and" (最长27字节)
+		case sqlc.NOT_EQ_:
+			estimatedSize += keyLen + 9 // " <> ? and" (9字节)
+			estimatedArgs++
+		case sqlc.LT_:
+			estimatedSize += keyLen + 8 // " < ? and" (8字节)
+			estimatedArgs++
+		case sqlc.LTE_:
+			estimatedSize += keyLen + 9 // " <= ? and" (9字节)
+			estimatedArgs++
+		case sqlc.GT_:
+			estimatedSize += keyLen + 8 // " > ? and" (8字节)
+			estimatedArgs++
+		case sqlc.GTE_:
+			estimatedSize += keyLen + 9 // " >= ? and" (9字节)
+			estimatedArgs++
+		case sqlc.IS_NULL_:
+			estimatedSize += keyLen + 12 // " is null and" (12字节)
+		case sqlc.IS_NOT_NULL_:
+			estimatedSize += keyLen + 16 // " is not null and" (16字节)
+		case sqlc.BETWEEN_:
+			estimatedSize += keyLen + 20 // " between ? and ? and" (20字节)
 			estimatedArgs += 2
-		case sqlc.IN_, sqlc.NOT_IN_:
-			estimatedSize += keyLen + 12       // " not in(" (最长12字节)
-			estimatedSize += len(v.Values) * 2 // ",?" for each value
-			estimatedSize += 2                 // ")" + " and"
+		case sqlc.NOT_BETWEEN_:
+			estimatedSize += keyLen + 24 // " not between ? and ? and" (24字节)
+			estimatedArgs += 2
+		case sqlc.IN_:
+			estimatedSize += keyLen + 4          // " in(" (4字节)
+			estimatedSize += len(v.Values)*2 - 1 // "?,?,?" = 2*n-1字节
+			estimatedSize += 5                   // ")" + " and" (5字节)
+			estimatedArgs += len(v.Values)
+		case sqlc.NOT_IN_:
+			estimatedSize += keyLen + 8          // " not in(" (8字节)
+			estimatedSize += len(v.Values)*2 - 1 // "?,?,?" = 2*n-1字节
+			estimatedSize += 5                   // ")" + " and" (5字节)
 			estimatedArgs += len(v.Values)
 		case sqlc.LIKE_:
-			estimatedSize += keyLen + 31 // " like concat('%',?,'%') and"
+			estimatedSize += keyLen + 27 // " like concat('%',?,'%') and" (27字节)
 			estimatedArgs++
 		case sqlc.NOT_LIKE_:
-			estimatedSize += keyLen + 35 // " not like concat('%',?,'%') and"
+			estimatedSize += keyLen + 31 // " not like concat('%',?,'%') and" (31字节)
 			estimatedArgs++
 		case sqlc.OR_:
 			// OR 条件递归调用，预估每个子条件平均100字节和5个参数（保守估计）
@@ -2291,6 +2318,8 @@ func (self *RDBManager) BuildWhereCase(cnd *sqlc.Cnd) (*bytes.Buffer, []interfac
 			case_arg = append(case_arg, args...)
 		}
 	}
+
+	fmt.Println(estimatedSize, case_part.Len())
 
 	return case_part, case_arg
 }
