@@ -655,8 +655,8 @@ func (self *RDBManager) Update(data ...sqlc.Object) error {
 		if v.Primary {
 			continue
 		}
-		// " `" + FieldJsonName + "` = ?," = 8 + len(FieldJsonName)
-		fieldPartSize += len(v.FieldJsonName) + 8
+		// FieldJsonName + "=?," = 3 + len(FieldJsonName) (去掉等号两边空格和反引号)
+		fieldPartSize += len(v.FieldJsonName) + 3
 	}
 	parameter := make([]interface{}, 0, len(obv.FieldElem))
 	fpart := bytes.NewBuffer(make([]byte, 0, fieldPartSize))
@@ -675,12 +675,10 @@ func (self *RDBManager) Update(data ...sqlc.Object) error {
 		if v.IsDate && (fval == nil || fval == "" || fval == 0) {
 			continue
 		}
-		fpart.WriteString(" `")
 		fpart.WriteString(v.FieldJsonName)
-		fpart.WriteString("` = ?,")
+		fpart.WriteString("=?,") // 去掉等号两边空格和反引号
 		parameter = append(parameter, fval)
 	}
-
 	parameter = append(parameter, lastInsertId)
 	// 检查是否有字段需要更新
 	fbytes := fpart.Bytes()
@@ -750,26 +748,26 @@ func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) (int64, error) {
 		return 0, self.Error("[Mysql.UpdateByCnd] update WhereCase is nil")
 	}
 
-	// 优化：精确计算 fpart 容量
+	// 优化：精确计算 fpart 容量（包含所有逗号，最后一个逗号会在使用时去掉）
 	fpartSize := 0
 	for k := range cnd.Upsets {
 		if cnd.Escape {
-			fpartSize += len(k) + 7 // " `field` = ?,"
+			fpartSize += len(k) + 5 // "`field`=?,"
 		} else {
-			fpartSize += len(k) + 5 // " field = ?,"
+			fpartSize += len(k) + 3 // "field=?," (去掉等号两边空格)
 		}
 	}
+	// 实际使用时会去掉最后一个逗号，所以这里不需要减1
 	fpart := bytes.NewBuffer(make([]byte, 0, fpartSize))
 	parameter := make([]interface{}, 0, len(cnd.Upsets)+len(case_arg))
 	for k, v := range cnd.Upsets {
 		if cnd.Escape {
-			fpart.WriteString(" `")
+			fpart.WriteString("`")
 			fpart.WriteString(k)
-			fpart.WriteString("` = ?,")
+			fpart.WriteString("`=?,") // 去掉等号两边空格
 		} else {
-			fpart.WriteString(" ")
 			fpart.WriteString(k)
-			fpart.WriteString(" = ?,")
+			fpart.WriteString("=?,")
 		}
 		parameter = append(parameter, v)
 	}
