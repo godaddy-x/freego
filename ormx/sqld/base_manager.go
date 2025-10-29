@@ -1177,10 +1177,7 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
 	if case_part.Len() > 0 {
 		sqlbuf.WriteString("where")
 		// 去掉BuildWhereCase返回的最后的" and"（4字节）
-		caseBytes := case_part.Bytes()
-		if len(caseBytes) > 4 {
-			sqlbuf.Write(caseBytes[0 : len(caseBytes)-4])
-		}
+		sqlbuf.Write(case_part.Bytes())
 		sqlbuf.WriteString(" ")
 	}
 	if len(sortby) > 0 {
@@ -1285,10 +1282,7 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	if case_part.Len() > 0 {
 		sqlbuf.WriteString("where")
 		// 去掉BuildWhereCase返回的最后的" and"（4字节）
-		caseBytes := case_part.Bytes()
-		if len(caseBytes) > 4 {
-			sqlbuf.Write(caseBytes[0 : len(caseBytes)-4])
-		}
+		sqlbuf.Write(case_part.Bytes())
 		sqlbuf.WriteString(" ")
 	}
 	if len(groupby) > 0 {
@@ -1424,10 +1418,7 @@ func (self *RDBManager) Count(cnd *sqlc.Cnd) (int64, error) {
 	if case_part.Len() > 0 {
 		sqlbuf.WriteString("where")
 		// 去掉BuildWhereCase返回的最后的" and"（4字节）
-		caseBytes := case_part.Bytes()
-		if len(caseBytes) > 4 {
-			sqlbuf.Write(caseBytes[0 : len(caseBytes)-4])
-		}
+		sqlbuf.Write(case_part.Bytes())
 		sqlbuf.WriteString(" ")
 	}
 	if len(groupby) > 0 {
@@ -1499,10 +1490,7 @@ func (self *RDBManager) Exists(cnd *sqlc.Cnd) (bool, error) {
 	if case_part.Len() > 0 {
 		sqlbuf.WriteString("where")
 		// 去掉BuildWhereCase返回的最后的" and"（4字节）
-		caseBytes := case_part.Bytes()
-		if len(caseBytes) > 4 {
-			sqlbuf.Write(caseBytes[0 : len(caseBytes)-4])
-		}
+		sqlbuf.Write(case_part.Bytes())
 		sqlbuf.WriteString(" ")
 	}
 	sqlbuf.WriteString(" limit 1 ) as pub_exists")
@@ -1640,10 +1628,7 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 	if case_part.Len() > 0 {
 		sqlbuf.WriteString("where")
 		// 去掉BuildWhereCase返回的最后的" and"（4字节）
-		caseBytes := case_part.Bytes()
-		if len(caseBytes) > 4 {
-			sqlbuf.Write(caseBytes[0 : len(caseBytes)-4])
-		}
+		sqlbuf.Write(case_part.Bytes())
 		sqlbuf.WriteString(" ")
 	}
 	if len(groupby) > 0 {
@@ -1849,10 +1834,7 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data sqlc.Object) error {
 	if case_part.Len() > 0 {
 		sqlbuf.WriteString("where")
 		// 去掉BuildWhereCase返回的最后的" and"（4字节）
-		caseBytes := case_part.Bytes()
-		if len(caseBytes) > 4 {
-			sqlbuf.Write(caseBytes[0 : len(caseBytes)-4])
-		}
+		sqlbuf.Write(case_part.Bytes())
 		sqlbuf.WriteString(" ")
 	}
 	if len(groupby) > 0 {
