@@ -2160,7 +2160,7 @@ func estimatedSizePre(cnd *sqlc.Cnd, estimated *estimatedObject, writeTrailingAn
 				}
 				first = false
 				subEstimated := &estimatedObject{}
-				estimatedSizePre(c, subEstimated, true) // 子条件预估已经正确处理了尾部 " and"
+				estimatedSizePre(c, subEstimated, true) // OR子条件写条件间" and"，但会去掉尾部" and"
 				estimated.estimatedSize += subEstimated.estimatedSize
 				estimated.estimatedArgs += subEstimated.estimatedArgs
 			}
@@ -2334,18 +2334,8 @@ func (self *RDBManager) buildWhereCaseRecursive(cnd *sqlc.Cnd, buf *bytes.Buffer
 					buf.WriteString(" or ")
 				}
 				first = false
-				// 使用临时buffer构建子条件，确保子条件内部有" and"连接但无尾部" and"
-				tempBuf := bytes.NewBuffer(make([]byte, 0, 64))
-				tempArgs := make([]interface{}, 0, 8)
-				self.buildWhereCaseRecursive(c, tempBuf, &tempArgs, true)
-				// 检查临时buffer是否以" and"结尾，如果是则去掉
-				tempBytes := tempBuf.Bytes()
-				if len(tempBytes) >= 4 && string(tempBytes[len(tempBytes)-4:]) == " and" {
-					buf.Write(tempBytes[0 : len(tempBytes)-4])
-				} else {
-					buf.Write(tempBytes)
-				}
-				*args = append(*args, tempArgs...)
+				// 直接在主buffer构建子条件，条件间写" and"，但会自动去掉尾部" and"
+				self.buildWhereCaseRecursive(c, buf, args, true)
 			}
 			buf.WriteString(")")
 			if writeTrailingAnd {
