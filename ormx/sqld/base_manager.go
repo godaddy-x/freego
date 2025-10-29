@@ -499,8 +499,8 @@ func (self *RDBManager) Save(data ...sqlc.Object) error {
 		// obv.AutoId 时，只有值=0才会 continue，值!=0会正常写入，无法提前判断
 		actualFieldCount++
 	}
-	// 每个字段占位符 "?," 约 2 字节，" (" 和 "), " 约 4 字节
-	valuePartSize := (2*actualFieldCount + 4) * len(data)
+	// 每个字段占位符 "?," 约 2 字节，" (" 和 "), " 约 4 字节 减去最后1个字节
+	valuePartSize := (2*actualFieldCount+4)*len(data) - 1
 	vpart := bytes.NewBuffer(make([]byte, 0, valuePartSize))
 	for _, v := range data {
 		// 每个对象的内部缓冲区：" (" + actualFieldCount * "?," = 3 + 2×actualFieldCount
@@ -587,7 +587,7 @@ func (self *RDBManager) Save(data ...sqlc.Object) error {
 	}
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
-		zlog.Debug("byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
+		zlog.Debug("[Mysql.Save] byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
 		defer zlog.Debug("[Mysql.Save] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
@@ -703,7 +703,7 @@ func (self *RDBManager) Update(data ...sqlc.Object) error {
 
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
-		zlog.Debug("byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
+		zlog.Debug("[Mysql.Update] byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
 		defer zlog.Debug("[Mysql.Update] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
@@ -801,7 +801,7 @@ func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) (int64, error) {
 
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
-		zlog.Debug("byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
+		zlog.Debug("[Mysql.UpdateByCnd] byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
 		defer zlog.Debug("[Mysql.UpdateByCnd] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
@@ -891,7 +891,7 @@ func (self *RDBManager) Delete(data ...sqlc.Object) error {
 
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
-		zlog.Debug("byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
+		zlog.Debug("[Mysql.Delete] byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
 		defer zlog.Debug("[Mysql.Delete] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
@@ -965,7 +965,7 @@ func (self *RDBManager) DeleteById(object sqlc.Object, data ...interface{}) (int
 
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
-		zlog.Debug("byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
+		zlog.Debug("[Mysql.DeleteById] byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
 		defer zlog.Debug("[Mysql.DeleteById] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
@@ -1023,7 +1023,7 @@ func (self *RDBManager) DeleteByCnd(cnd *sqlc.Cnd) (int64, error) {
 
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
-		zlog.Debug("byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
+		zlog.Debug("[Mysql.DeleteByCnd] byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
 		defer zlog.Debug("[Mysql.DeleteByCnd] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
@@ -1078,9 +1078,10 @@ func (self *RDBManager) FindById(data sqlc.Object) error {
 			return self.Error("[Mysql.FindById] data object id is nil")
 		}
 	}
-	// 使用公共函数构建字段列表
-	fpart := bytes.NewBuffer(make([]byte, 0, 128))
-	self.buildFieldListFromModel(obv, &sqlc.Cnd{Escape: true}, fpart)
+	// 使用公共函数构建字段列表，精确计算容量
+	fieldCapacity := self.calculateFieldListCapacity(obv, true)
+	fpart := bytes.NewBuffer(make([]byte, 0, fieldCapacity))
+	self.buildFieldListFromModel(obv, true, fpart)
 	// 优化：直接操作 bytes，避免字符串转换
 	fbytes := fpart.Bytes()
 	// 优化：精确计算 sqlbuf 容量
@@ -1102,7 +1103,7 @@ func (self *RDBManager) FindById(data sqlc.Object) error {
 
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
-		zlog.Debug("byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
+		zlog.Debug("[Mysql.FindById] byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
 		defer zlog.Debug("[Mysql.FindById] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("value", lastInsertId))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
@@ -1158,9 +1159,10 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
 	if !ok {
 		return self.Error("[Mysql.FindOne] registration object type not found [", data.GetTable(), "]")
 	}
-	// 使用公共函数构建字段列表
-	fpart := bytes.NewBuffer(make([]byte, 0, 128))
-	self.buildFieldListFromModel(obv, &sqlc.Cnd{Escape: true}, fpart)
+	// 使用公共函数构建字段列表，精确计算容量
+	fieldCapacity := self.calculateFieldListCapacity(obv, true)
+	fpart := bytes.NewBuffer(make([]byte, 0, fieldCapacity))
+	self.buildFieldListFromModel(obv, true, fpart)
 	case_part, case_arg := self.BuildWhereCase(cnd.Offset(0, 1))
 	parameter := case_arg
 	sortby := self.BuildSortBy(cnd)
@@ -1192,7 +1194,7 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
 	sqlbuf.WriteString(" limit 1")
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
-		zlog.Debug("byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
+		zlog.Debug("[Mysql.FindOne] byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
 		defer zlog.Debug("[Mysql.FindOne] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
@@ -1251,9 +1253,10 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	if !ok {
 		return self.Error("[Mysql.FindList] registration object type not found [", cnd.Model.GetTable(), "]")
 	}
-	// 使用公共函数构建字段列表
-	fpart := bytes.NewBuffer(make([]byte, 0, 128))
-	self.buildFieldListFromModel(obv, &sqlc.Cnd{Escape: true}, fpart)
+	// 使用公共函数构建字段列表，精确计算容量
+	fieldCapacity := self.calculateFieldListCapacity(obv, true)
+	fpart := bytes.NewBuffer(make([]byte, 0, fieldCapacity))
+	self.buildFieldListFromModel(obv, true, fpart)
 	case_part, case_arg := self.BuildWhereCase(cnd)
 	parameter := case_arg
 
@@ -1293,7 +1296,7 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	}
 	prepare := utils.Bytes2Str(prepareBytes)
 	if zlog.IsDebug() {
-		zlog.Debug("byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
+		zlog.Debug("[Mysql.FindList] byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
 		defer zlog.Debug("[Mysql.FindList] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
@@ -1426,7 +1429,7 @@ func (self *RDBManager) Count(cnd *sqlc.Cnd) (int64, error) {
 	}
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
-		zlog.Debug("byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
+		zlog.Debug("[Mysql.Count] byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
 		defer zlog.Debug("[Mysql.Count] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
@@ -1502,7 +1505,7 @@ func (self *RDBManager) Exists(cnd *sqlc.Cnd) (bool, error) {
 
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
-		zlog.Debug("byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
+		zlog.Debug("[Mysql.Exists] byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
 		defer zlog.Debug("[Mysql.Exists] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
@@ -1648,7 +1651,7 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data sqlc.Object) error {
 
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
-		zlog.Debug("byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
+		zlog.Debug("[Mysql.FindOneComplex] byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
 		defer zlog.Debug("[Mysql.FindOneComplex] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
@@ -1822,7 +1825,7 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 	}
 	prepare := utils.Bytes2Str(prepareBytes)
 	if zlog.IsDebug() {
-		zlog.Debug("byte size", 0, zlog.Int("estimatedSize", sqlbufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
+		zlog.Debug("[Mysql.FindListComplex] byte size", 0, zlog.Int("estimatedSize", sqlbufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
 		defer zlog.Debug("[Mysql.FindListComplex] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
@@ -2053,13 +2056,35 @@ func (self *RDBManager) buildFieldList(cnd *sqlc.Cnd, fields []string, buf *byte
 	}
 }
 
-// buildFieldListFromModel 构建模型字段列表到buffer（公共函数）
-func (self *RDBManager) buildFieldListFromModel(obv *MdlDriver, cnd *sqlc.Cnd, buf *bytes.Buffer) {
+type estimatedObject struct {
+	estimatedSize int
+	estimatedArgs int
+}
+
+// calculateFieldListCapacity 计算字段列表的预估容量
+func (self *RDBManager) calculateFieldListCapacity(obv *MdlDriver, escape bool) int {
+	capacity := 0
 	for _, vv := range obv.FieldElem {
 		if vv.Ignore {
 			continue
 		}
-		if cnd.Escape {
+		if escape {
+			capacity += 2 + len(vv.FieldJsonName) // `field`
+		} else {
+			capacity += len(vv.FieldJsonName)
+		}
+		capacity += 1 // ,
+	}
+	return capacity
+}
+
+// buildFieldListFromModel 构建模型字段列表到buffer（公共函数）
+func (self *RDBManager) buildFieldListFromModel(obv *MdlDriver, escape bool, buf *bytes.Buffer) {
+	for _, vv := range obv.FieldElem {
+		if vv.Ignore {
+			continue
+		}
+		if escape {
 			buf.WriteString(BACKTICK)
 			buf.WriteString(vv.FieldJsonName)
 			buf.WriteString(BACKTICK)
@@ -2068,11 +2093,6 @@ func (self *RDBManager) buildFieldListFromModel(obv *MdlDriver, cnd *sqlc.Cnd, b
 		}
 		buf.WriteString(COMMA)
 	}
-}
-
-type estimatedObject struct {
-	estimatedSize int
-	estimatedArgs int
 }
 
 func estimatedSizePre(cnd *sqlc.Cnd, estimated *estimatedObject, writeTrailingAnd bool) {
