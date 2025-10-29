@@ -176,6 +176,11 @@ func (self *Cnd) UnEscape() *Cnd {
 	return self
 }
 
+func (self *Cnd) UseEscape() *Cnd {
+	self.Escape = true
+	return self
+}
+
 // =
 func (self *Cnd) Eq(key string, value interface{}) *Cnd {
 	if value == nil {

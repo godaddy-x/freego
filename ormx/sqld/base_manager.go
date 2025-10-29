@@ -2114,6 +2114,7 @@ func estimatedSizePre(cnd *sqlc.Cnd, estimated *estimatedObject, writeTrailingAn
 					estimated.estimatedSize += 4 // " or " (4字节，包含空格)
 				}
 				first = false
+				c.Escape = cnd.Escape
 				subEstimated := &estimatedObject{}
 				estimatedSizePre(c, subEstimated, true) // OR子条件写条件间" and"，但会去掉尾部" and"
 				estimated.estimatedSize += subEstimated.estimatedSize
@@ -2300,6 +2301,7 @@ func (self *RDBManager) buildWhereCaseRecursive(cnd *sqlc.Cnd, buf *bytes.Buffer
 					buf.WriteString(OR)
 				}
 				first = false
+				c.Escape = cnd.Escape
 				// 直接在主buffer构建子条件，条件间写" and"，但会自动去掉尾部" and"
 				self.buildWhereCaseRecursive(c, buf, args, true)
 			}
