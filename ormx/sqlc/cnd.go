@@ -2,6 +2,7 @@ package sqlc
 
 import (
 	"fmt"
+
 	"github.com/godaddy-x/freego/ormx/sqld/dialect"
 )
 
@@ -62,31 +63,44 @@ const (
 
 // 数据库操作逻辑条件对象
 type Condition struct {
-	Logic  int
-	Key    string
+	// 字符串字段
+	Key   string
+	Alias string
+
+	// 接口字段
 	Value  interface{}
 	Values []interface{}
-	Alias  string
+
+	// 数值字段
+	Logic int
 }
 
 type Collation struct {
-	Locale          string `bson:",omitempty"` // The locale
-	CaseLevel       bool   `bson:",omitempty"` // The case level
-	CaseFirst       string `bson:",omitempty"` // The case ordering
-	Strength        int    `bson:",omitempty"` // The number of comparison levels to use
-	NumericOrdering bool   `bson:",omitempty"` // Whether to order numbers based on numerical order and not collation order
-	Alternate       string `bson:",omitempty"` // Whether spaces and punctuation are considered base characters
-	MaxVariable     string `bson:",omitempty"` // Which characters are affected by alternate: "shifted"
-	Normalization   bool   `bson:",omitempty"` // Causes text to be normalized into Unicode NFD
-	Backwards       bool   `bson:",omitempty"` // Causes secondary differences to be considered in reverse order, as it is done in the French language
+	// 字符串字段（16字节）
+	Locale      string `bson:",omitempty"` // The locale
+	CaseFirst   string `bson:",omitempty"` // The case ordering
+	Alternate   string `bson:",omitempty"` // Whether spaces and punctuation are considered base characters
+	MaxVariable string `bson:",omitempty"` // Which characters are affected by alternate: "shifted"
+
+	// 数值字段（8字节对齐）
+	Strength int `bson:",omitempty"` // The number of comparison levels to use
+
+	// bool字段（1字节）
+	CaseLevel       bool `bson:",omitempty"` // The case level
+	NumericOrdering bool `bson:",omitempty"` // Whether to order numbers based on numerical order and not collation order
+	Normalization   bool `bson:",omitempty"` // Causes text to be normalized into Unicode NFD
+	Backwards       bool `bson:",omitempty"` // Causes secondary differences to be considered in reverse order, as it is done in the French language
 }
 
 // 连接表条件对象
 type JoinCond struct {
-	Type  int
+	// 字符串字段
 	Table string
 	Alias string
 	On    string
+
+	// 数值字段
+	Type int
 }
 
 // 主表条件对象
@@ -97,32 +111,48 @@ type FromCond struct {
 
 // 数据库操作汇总逻辑条件对象
 type Cnd struct {
-	ConditPart      []string
-	Conditions      []Condition
-	AnyFields       []string
-	AnyNotFields    []string
-	Distincts       []string
-	Groupbys        []string
-	Orderbys        []Condition
-	Aggregates      []Condition
-	Upsets          map[string]interface{}
+	// 指针和接口字段
 	Model           Object
 	CollationConfig *Collation
-	Pagination      dialect.Dialect
 	FromCond        *FromCond
-	JoinCond        []*JoinCond
-	SampleSize      int64
-	LimitSize       int64 // 固定截取结果集数量
-	CacheConfig     CacheConfig
-	Escape          bool
+
+	// 切片字段
+	ConditPart   []string
+	Conditions   []Condition
+	AnyFields    []string
+	AnyNotFields []string
+	Distincts    []string
+	Groupbys     []string
+	Orderbys     []Condition
+	Aggregates   []Condition
+	JoinCond     []*JoinCond
+
+	// map字段
+	Upsets map[string]interface{}
+
+	// 大结构体字段
+	Pagination  dialect.Dialect
+	CacheConfig CacheConfig
+
+	// 数值字段
+	SampleSize int64
+	LimitSize  int64 // 固定截取结果集数量
+
+	// bool字段
+	Escape bool
 }
 
 // 缓存结果集参数
 type CacheConfig struct {
-	Open   bool
+	// 字符串字段
 	Prefix string
 	Key    string
+
+	// 数值字段
 	Expire int
+
+	// bool字段
+	Open bool
 }
 
 // args[0]=对象类型
@@ -151,7 +181,7 @@ func (self *Cnd) Eq(key string, value interface{}) *Cnd {
 	if value == nil {
 		return self
 	}
-	condit := Condition{EQ_, key, value, nil, ""}
+	condit := Condition{Key: key, Value: value, Logic: EQ_}
 	return addDefaultCondit(self, condit)
 }
 
@@ -160,7 +190,7 @@ func (self *Cnd) NotEq(key string, value interface{}) *Cnd {
 	if value == nil {
 		return self
 	}
-	condit := Condition{NOT_EQ_, key, value, nil, ""}
+	condit := Condition{Key: key, Value: value, Logic: NOT_EQ_}
 	return addDefaultCondit(self, condit)
 }
 
@@ -169,7 +199,7 @@ func (self *Cnd) Lt(key string, value interface{}) *Cnd {
 	if value == nil {
 		return self
 	}
-	condit := Condition{LT_, key, value, nil, ""}
+	condit := Condition{Key: key, Value: value, Logic: LT_}
 	return addDefaultCondit(self, condit)
 }
 
@@ -178,7 +208,7 @@ func (self *Cnd) Lte(key string, value interface{}) *Cnd {
 	if value == nil {
 		return self
 	}
-	condit := Condition{LTE_, key, value, nil, ""}
+	condit := Condition{Key: key, Value: value, Logic: LTE_}
 	return addDefaultCondit(self, condit)
 }
 
@@ -187,7 +217,7 @@ func (self *Cnd) Gt(key string, value interface{}) *Cnd {
 	if value == nil {
 		return self
 	}
-	condit := Condition{GT_, key, value, nil, ""}
+	condit := Condition{Key: key, Value: value, Logic: GT_}
 	return addDefaultCondit(self, condit)
 }
 
@@ -196,19 +226,19 @@ func (self *Cnd) Gte(key string, value interface{}) *Cnd {
 	if value == nil {
 		return self
 	}
-	condit := Condition{GTE_, key, value, nil, ""}
+	condit := Condition{Key: key, Value: value, Logic: GTE_}
 	return addDefaultCondit(self, condit)
 }
 
 // is null
 func (self *Cnd) IsNull(key string) *Cnd {
-	condit := Condition{IS_NULL_, key, nil, nil, ""}
+	condit := Condition{Key: key, Logic: IS_NULL_}
 	return addDefaultCondit(self, condit)
 }
 
 // is not null
 func (self *Cnd) IsNotNull(key string) *Cnd {
-	condit := Condition{IS_NOT_NULL_, key, nil, nil, ""}
+	condit := Condition{Key: key, Logic: IS_NOT_NULL_}
 	return addDefaultCondit(self, condit)
 }
 
@@ -217,7 +247,7 @@ func (self *Cnd) Between(key string, value1 interface{}, value2 interface{}) *Cn
 	if value1 == nil || value2 == nil {
 		return self
 	}
-	condit := Condition{BETWEEN_, key, nil, []interface{}{value1, value2}, ""}
+	condit := Condition{Key: key, Values: []interface{}{value1, value2}, Logic: BETWEEN_}
 	return addDefaultCondit(self, condit)
 }
 
@@ -226,7 +256,7 @@ func (self *Cnd) InDate(key string, value1 interface{}, value2 interface{}) *Cnd
 	if value1 == nil || value2 == nil {
 		return self
 	}
-	condit := Condition{BETWEEN2_, key, nil, []interface{}{value1, value2}, ""}
+	condit := Condition{Key: key, Values: []interface{}{value1, value2}, Logic: BETWEEN2_}
 	return addDefaultCondit(self, condit)
 }
 
@@ -235,7 +265,7 @@ func (self *Cnd) NotBetween(key string, value1 interface{}, value2 interface{}) 
 	if value1 == nil || value2 == nil {
 		return self
 	}
-	condit := Condition{NOT_BETWEEN_, key, nil, []interface{}{value1, value2}, ""}
+	condit := Condition{Key: key, Values: []interface{}{value1, value2}, Logic: NOT_BETWEEN_}
 	return addDefaultCondit(self, condit)
 }
 
@@ -244,7 +274,7 @@ func (self *Cnd) In(key string, values ...interface{}) *Cnd {
 	if values == nil || len(values) == 0 {
 		return self
 	}
-	condit := Condition{IN_, key, nil, values, ""}
+	condit := Condition{Key: key, Values: values, Logic: IN_}
 	return addDefaultCondit(self, condit)
 }
 
@@ -253,7 +283,7 @@ func (self *Cnd) NotIn(key string, values ...interface{}) *Cnd {
 	if values == nil || len(values) == 0 {
 		return self
 	}
-	condit := Condition{NOT_IN_, key, nil, values, ""}
+	condit := Condition{Key: key, Values: values, Logic: NOT_IN_}
 	return addDefaultCondit(self, condit)
 }
 
@@ -262,7 +292,7 @@ func (self *Cnd) Like(key string, value interface{}) *Cnd {
 	if value == nil {
 		return self
 	}
-	condit := Condition{LIKE_, key, value, nil, ""}
+	condit := Condition{Key: key, Value: value, Logic: LIKE_}
 	return addDefaultCondit(self, condit)
 }
 
@@ -271,7 +301,7 @@ func (self *Cnd) NotLike(key string, value interface{}) *Cnd {
 	if value == nil {
 		return self
 	}
-	condit := Condition{NOT_LIKE_, key, value, nil, ""}
+	condit := Condition{Key: key, Value: value, Logic: NOT_LIKE_}
 	return addDefaultCondit(self, condit)
 }
 
@@ -288,7 +318,7 @@ func (self *Cnd) Or(cnds ...interface{}) *Cnd {
 	if cnds == nil || len(cnds) == 0 {
 		return self
 	}
-	condit := Condition{OR_, "", nil, cnds, ""}
+	condit := Condition{Values: cnds, Logic: OR_}
 	return addDefaultCondit(self, condit)
 }
 
@@ -303,7 +333,7 @@ func (self *Cnd) Join(join int, table string, on string) *Cnd {
 	if len(table) == 0 || len(on) == 0 {
 		return self
 	}
-	self.JoinCond = append(self.JoinCond, &JoinCond{join, table, "", on})
+	self.JoinCond = append(self.JoinCond, &JoinCond{Table: table, On: on, Type: join})
 	return self
 }
 
@@ -382,7 +412,7 @@ func (self *Cnd) Orderby(key string, sortby int) *Cnd {
 	if !(sortby == ASC_ || sortby == DESC_) {
 		panic("order by sort value invalid")
 	}
-	condit := Condition{ORDER_BY_, key, sortby, nil, ""}
+	condit := Condition{Key: key, Value: sortby, Logic: ORDER_BY_}
 	self.Orderbys = append(self.Orderbys, condit)
 	return self
 }
@@ -393,7 +423,7 @@ func (self *Cnd) Asc(keys ...string) *Cnd {
 		return self
 	}
 	for _, v := range keys {
-		condit := Condition{ORDER_BY_, v, ASC_, nil, ""}
+		condit := Condition{Key: v, Value: ASC_, Logic: ORDER_BY_}
 		self.Orderbys = append(self.Orderbys, condit)
 	}
 	return self
@@ -405,7 +435,7 @@ func (self *Cnd) Desc(keys ...string) *Cnd {
 		return self
 	}
 	for _, v := range keys {
-		condit := Condition{ORDER_BY_, v, DESC_, nil, ""}
+		condit := Condition{Key: v, Value: DESC_, Logic: ORDER_BY_}
 		self.Orderbys = append(self.Orderbys, condit)
 	}
 	return self

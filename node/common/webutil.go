@@ -2,14 +2,16 @@ package common
 
 import (
 	"fmt"
+	"unsafe"
+
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/crypto"
 	"go.mongodb.org/mongo-driver/bson/primitive"
-	"unsafe"
 )
 
 type Identify struct {
+	// 接口字段（16字节）
 	ID interface{}
 }
 
@@ -57,26 +59,40 @@ func (s *Identify) ObjectID() primitive.ObjectID {
 }
 
 type System struct {
+	// 字符串字段（16字节对齐）
 	Name    string // 系统名
 	Version string // 系统版本
 }
 
 type Context struct {
-	Identify   *Identify
+	// 指针字段（8字节）
+	Identify *Identify
+	System   *System
+
+	// 函数字段（8字节）
 	CacheAware func(ds ...string) (cache.Cache, error)
-	RSA        crypto.Cipher
-	Path       string
-	System     *System
+
+	// 接口字段（16字节）
+	RSA crypto.Cipher
+
+	// 字符串字段（16字节）
+	Path string
 }
 
 type BaseReq struct {
-	Context Context `json:"-"`
-	PrevID  int64   `json:"prevID"`
-	LastID  int64   `json:"lastID"`
-	CountQ  bool    `json:"countQ"`
-	Offset  int64   `json:"offset"`
-	Limit   int64   `json:"limit"`
-	Cmd     string  `json:"cmd"`
+	Context Context `json:"-"` // 這個字段不能修改偏移值 ⚠️ 必须保持第一位
+
+	// 字符串字段（16字节）
+	Cmd string `json:"cmd"`
+
+	// 数值字段（8字节对齐）
+	PrevID int64 `json:"prevID"`
+	LastID int64 `json:"lastID"`
+	Offset int64 `json:"offset"`
+	Limit  int64 `json:"limit"`
+
+	// bool字段（1字节）
+	CountQ bool `json:"countQ"`
 }
 
 func GetBasePtrReq(ptr uintptr) *BaseReq {

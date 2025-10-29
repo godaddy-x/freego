@@ -65,15 +65,20 @@ type DBConfig struct {
 
 // 数据选项
 type Option struct {
+	// 字符串字段
 	DsName      string // 数据源,分库时使用
 	Database    string // 数据库名称
 	Charset     string // 连接字符集,默认utf8mb4
-	OpenTx      bool   // 是否开启事务 true.是 false.否
-	AutoID      bool   // 是否自增ID
-	MongoSync   bool   // 是否自动同步mongo数据库写入
-	Timeout     int64  // 请求超时设置/毫秒,默认10000
-	SlowQuery   int64  // 0.不开启筛选 >0开启筛选查询 毫秒
 	SlowLogPath string // 慢查询写入地址
+
+	// 数值字段
+	Timeout   int64 // 请求超时设置/毫秒,默认10000
+	SlowQuery int64 // 0.不开启筛选 >0开启筛选查询 毫秒
+
+	// bool字段
+	OpenTx    bool // 是否开启事务 true.是 false.否
+	AutoID    bool // 是否自增ID
+	MongoSync bool // 是否自动同步mongo数据库写入
 }
 
 type MGOSyncData struct {

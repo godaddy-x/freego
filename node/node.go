@@ -47,18 +47,27 @@ var (
 )
 
 type HookNode struct {
+	// 指针字段（8字节）
 	Context *Context
+
+	// 切片字段（24字节）
 	filters []*FilterObject
 }
 
 type Configs struct {
-	jwtConfig     jwt.JwtConfig
+	// map字段（8字节）
 	routerConfigs map[string]*RouterConfig
 	langConfigs   map[string]map[string]string
-	defaultLang   string
+
+	// 字符串字段（16字节）
+	defaultLang string
+
+	// 结构体字段
+	jwtConfig jwt.JwtConfig
 }
 
 type RouterConfig struct {
+	// bool字段（1字节×4）
 	Guest       bool // 游客模式,原始请求 false.否 true.是
 	UseRSA      bool // 非登录状态使用RSA模式请求 false.否 true.是
 	AesRequest  bool // 请求是否必须AES加密 false.否 true.是
@@ -66,74 +75,110 @@ type RouterConfig struct {
 }
 
 type HttpLog struct {
-	Method   string // 请求方法
-	LogNo    string // 日志唯一标记
-	CreateAt int64  // 日志创建时间
-	UpdateAt int64  // 日志完成时间
-	CostMill int64  // 业务耗时,毫秒
+	// 字符串字段
+	Method string // 请求方法
+	LogNo  string // 日志唯一标记
+
+	// 数值字段
+	CreateAt int64 // 日志创建时间
+	UpdateAt int64 // 日志完成时间
+	CostMill int64 // 业务耗时,毫秒
 }
 
 type JsonBody struct {
-	Data  interface{} `json:"d"`
-	Time  int64       `json:"t"`
-	Nonce string      `json:"n"`
-	Plan  int64       `json:"p"` // 0.默认(登录状态) 1.AES(登录状态) 2.RSA/ECC模式(匿名状态) 3.独立验签模式(匿名状态)
-	Sign  string      `json:"s"`
+	// 接口字段
+	Data interface{} `json:"d"`
+
+	// 字符串字段
+	Nonce string `json:"n"`
+	Sign  string `json:"s"`
+
+	// 数值字段
+	Time int64 `json:"t"`
+	Plan int64 `json:"p"` // 0.默认(登录状态) 1.AES(登录状态) 2.RSA/ECC模式(匿名状态) 3.独立验签模式(匿名状态)
 }
 
 type JsonResp struct {
-	Code    int         `json:"c"`
-	Message string      `json:"m"`
-	Data    interface{} `json:"d"`
-	Time    int64       `json:"t"`
-	Nonce   string      `json:"n"`
-	Plan    int64       `json:"p"`
-	Sign    string      `json:"s"`
+	// 接口字段
+	Data interface{} `json:"d"`
+
+	// 字符串字段
+	Message string `json:"m"`
+	Nonce   string `json:"n"`
+	Sign    string `json:"s"`
+
+	// 数值字段
+	Code int   `json:"c"`
+	Time int64 `json:"t"`
+	Plan int64 `json:"p"`
 }
 
 type Permission struct {
+	// 切片字段
+	HasRole  []int64 // 拥有角色ID列表
+	NeedRole []int64 // 所需角色ID列表
+
+	// bool字段
 	//Ready     bool    // true.已有权限配置
-	MatchAll  bool    // true.满足所有权限角色才放行
-	NeedLogin bool    // true.需要登录状态
-	HasRole   []int64 // 拥有角色ID列表
-	NeedRole  []int64 // 所需角色ID列表
+	MatchAll  bool // true.满足所有权限角色才放行
+	NeedLogin bool // true.需要登录状态
 }
 
 type System struct {
-	Name          string // 系统名
-	Version       string // 系统版本
-	AcceptTimeout int64  // 超时主动断开客户端连接,秒
-	enableECC     bool
+	// 字符串字段（16字节）
+	Name    string // 系统名
+	Version string // 系统版本
+
+	// 数值字段（8字节）
+	AcceptTimeout int64 // 超时主动断开客户端连接,秒
+
+	// bool字段（1字节）
+	enableECC bool
 }
 
 type Context struct {
-	configs       *Configs
-	router        *fasthttprouter.Router
-	CacheAware    func(ds ...string) (cache.Cache, error)
-	Method        string
-	Path          string
-	System        *System
-	RequestCtx    *fasthttp.RequestCtx
-	Subject       *jwt.Subject
-	JsonBody      *JsonBody
-	Response      *Response
-	filterChain   *filterChain
-	RouterConfig  *RouterConfig
-	RSA           crypto.Cipher
-	roleRealm     func(ctx *Context, onlyRole bool) (*Permission, error) // 资源对象
-	Storage       map[string]interface{}
+	// 指针字段
+	configs      *Configs
+	router       *fasthttprouter.Router
+	System       *System
+	RequestCtx   *fasthttp.RequestCtx
+	Subject      *jwt.Subject
+	JsonBody     *JsonBody
+	Response     *Response
+	filterChain  *filterChain
+	RouterConfig *RouterConfig
+	RSA          crypto.Cipher
+
+	// 函数字段
+	CacheAware  func(ds ...string) (cache.Cache, error)
+	roleRealm   func(ctx *Context, onlyRole bool) (*Permission, error) // 资源对象
+	postHandle  PostHandle
+	errorHandle ErrorHandle
+
+	// 字符串字段
+	Method string
+	Path   string
+
+	// map字段
+	Storage map[string]interface{}
+
+	// bool字段
 	postCompleted bool
-	postHandle    PostHandle
-	errorHandle   ErrorHandle
 }
 
 type Response struct {
-	Encoding      string
-	ContentType   string
+	// 接口字段
 	ContentEntity interface{}
-	// response result
-	StatusCode        int
+
+	// 字符串字段
+	Encoding    string
+	ContentType string
+
+	// 大结构体字段
 	ContentEntityByte bytes.Buffer
+
+	// 数值字段
+	StatusCode int
 }
 
 func SetLengthCheck(bodyLen, tokenLen, codeLen int) {

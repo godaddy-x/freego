@@ -10,19 +10,28 @@ import (
 
 // 方言分页对象
 type Dialect struct {
-	PageNo             int64   // 页码索引
-	PageSize           int64   // 每页条数
-	PageTotal          int64   // 总条数
-	PageCount          int64   // 总页数
-	Spilled            bool    // 分页类型
-	IsOffset           bool    // 是否按下标分页
-	IsPage             bool    // 是否分页
-	IsFastPage         bool    // 是否快速分页
-	FastPageKey        string  // 快速分页索引
-	FastPageSort       int     // 快速分页正反序
-	FastPageParam      []int64 // 快速分页下标值
-	FastPageSortParam  int     // 快速分页正反序值
-	FastPageSortCountQ bool    // 是否执行count
+	// 数值字段（8字节对齐）
+	PageNo    int64 // 页码索引
+	PageSize  int64 // 每页条数
+	PageTotal int64 // 总条数
+	PageCount int64 // 总页数
+
+	// 字符串字段
+	FastPageKey string // 快速分页索引
+
+	// 切片字段
+	FastPageParam []int64 // 快速分页下标值
+
+	// 数值字段
+	FastPageSort      int // 快速分页正反序
+	FastPageSortParam int // 快速分页正反序值
+
+	// bool字段
+	Spilled            bool // 分页类型
+	IsOffset           bool // 是否按下标分页
+	IsPage             bool // 是否分页
+	IsFastPage         bool // 是否快速分页
+	FastPageSortCountQ bool // 是否执行count
 }
 
 type PageResult struct {

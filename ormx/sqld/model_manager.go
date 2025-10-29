@@ -4,11 +4,12 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"reflect"
+	"time"
+
 	"github.com/godaddy-x/freego/ormx/sqlc"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/decimal"
-	"reflect"
-	"time"
 )
 
 var (
@@ -17,21 +18,28 @@ var (
 )
 
 type FieldElem struct {
-	AutoId        bool
-	Primary       bool
-	Ignore        bool
-	IsDate        bool
-	IsDate2       bool
-	IsBlob        bool
+	// 字符串字段（16字节）
 	FieldName     string
 	FieldJsonName string
 	FieldBsonName string
-	FieldKind     reflect.Kind
 	FieldType     string
-	ValueKind     interface{}
 	FieldDBType   string
 	FieldComment  string
-	FieldOffset   uintptr
+
+	// 接口字段（16字节）
+	ValueKind interface{}
+
+	// 数值字段（8字节对齐）
+	FieldKind   reflect.Kind
+	FieldOffset uintptr
+
+	// bool字段（1字节）
+	AutoId  bool
+	Primary bool
+	Ignore  bool
+	IsDate  bool
+	IsDate2 bool
+	IsBlob  bool
 }
 
 type MdlTime struct {
@@ -41,18 +49,27 @@ type MdlTime struct {
 }
 
 type MdlDriver struct {
+	// 字符串字段
 	TableName  string
-	ToMongo    bool
-	PkOffset   uintptr
-	PkKind     reflect.Kind
 	PkName     string
 	PkBsonName string
-	AutoId     bool
 	PkType     string
 	Charset    string
 	Collate    string
-	FieldElem  []*FieldElem
-	Object     sqlc.Object
+
+	// 切片字段
+	FieldElem []*FieldElem
+
+	// 接口字段
+	Object sqlc.Object
+
+	// 数值字段
+	PkOffset uintptr
+	PkKind   reflect.Kind
+
+	// bool字段
+	ToMongo bool
+	AutoId  bool
 }
 
 func isPk(key string) bool {
@@ -76,7 +93,7 @@ func ModelTime(local *time.Location, fmt, fmt2 string) {
 }
 
 func ModelDriver(objects ...sqlc.Object) error {
-	if objects == nil || len(objects) == 0 {
+	if len(objects) == 0 {
 		panic("objects is nil")
 	}
 	for _, v := range objects {
