@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"fmt"
 	"reflect"
 	"sync"
 	"sync/atomic"
@@ -131,7 +132,7 @@ type IDBase interface {
 	// 按复杂条件查询数据列表
 	FindListComplex(cnd *sqlc.Cnd, data interface{}) error
 	// 构建数据表别名
-	BuildCondKey(cnd *sqlc.Cnd, key string) []byte
+	BuildCondKey(cnd *sqlc.Cnd, key string, buf *bytes.Buffer)
 	// 构建逻辑条件
 	BuildWhereCase(cnd *sqlc.Cnd) (*bytes.Buffer, []interface{})
 	// 构建分组条件
@@ -208,9 +209,8 @@ func (self *DBManager) Close() error {
 	return utils.Error("No implementation method [Close] was found")
 }
 
-func (self *DBManager) BuildCondKey(cnd *sqlc.Cnd, key string) []byte {
+func (self *DBManager) BuildCondKey(cnd *sqlc.Cnd, key string, buf *bytes.Buffer) {
 	zlog.Warn("No implementation method [BuildCondKey] was found", 0)
-	return nil
 }
 
 func (self *DBManager) BuildWhereCase(cnd *sqlc.Cnd) (*bytes.Buffer, []interface{}) {
@@ -753,27 +753,12 @@ func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) (int64, error) {
 	// 追加 where 条件参数
 	parameter = append(parameter, case_arg...)
 
-	// 优化：构建 where 条件部分
-	caseBytes := case_part.Bytes()
-	var vpartBytes []byte
-	if len(caseBytes) > 0 {
-		vpartCap := len(caseBytes) + 5 // "where" (5)
-		vpart := bytes.NewBuffer(make([]byte, 0, vpartCap))
-		vpart.WriteString("where")
-		if len(caseBytes) > 4 {
-			vpart.Write(caseBytes[0 : len(caseBytes)-4])
-		}
-		vpartBytes = vpart.Bytes()
-	}
-
-	// 优化：精确计算 sqlbuf 容量
-	// 固定字节："update " (7) + " set " (5) + " " (1) = 13
-	// 动态：TableName + fpart去掉最后一个逗号 + vpartBytes
+	// 直接在主buffer中构建SQL，避免额外buffer
 	fpartLen := 0
 	if len(fpartBytes) > 0 {
 		fpartLen = len(fpartBytes) - 1
 	}
-	sqlbufSize := 13 + len(obv.TableName) + fpartLen + len(vpartBytes)
+	sqlbufSize := 13 + len(obv.TableName) + fpartLen + case_part.Len()
 	sqlbuf := bytes.NewBuffer(make([]byte, 0, sqlbufSize))
 	sqlbuf.WriteString("update ")
 	sqlbuf.WriteString(obv.TableName)
@@ -781,9 +766,10 @@ func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) (int64, error) {
 	if fpartLen > 0 {
 		sqlbuf.Write(fpartBytes[0:fpartLen])
 	}
-	if len(vpartBytes) > 0 {
-		sqlbuf.WriteString(" ")
-		sqlbuf.Write(vpartBytes)
+	if case_part.Len() > 0 {
+		sqlbuf.WriteString(" where")
+		// BuildWhereCase返回的已经是去掉了尾部" and"的，直接使用
+		sqlbuf.Write(case_part.Bytes())
 	}
 
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
@@ -994,28 +980,14 @@ func (self *RDBManager) DeleteByCnd(cnd *sqlc.Cnd) (int64, error) {
 	}
 	parameter := case_arg
 
-	// 优化：构建 where 条件部分
-	caseBytes := case_part.Bytes()
-	var vpartBytes []byte
-	if len(caseBytes) > 0 {
-		vpartCap := len(caseBytes) + 6 // " where" (6)
-		vpart := bytes.NewBuffer(make([]byte, 0, vpartCap))
-		vpart.WriteString(" where")
-		if len(caseBytes) > 4 {
-			vpart.Write(caseBytes[0 : len(caseBytes)-4])
-		}
-		vpartBytes = vpart.Bytes()
-	}
-
-	// 优化：精确计算 sqlbuf 容量
-	// 固定字节："delete from " (12)
-	// 动态：TableName + vpartBytes
-	sqlbufSize := 12 + len(obv.TableName) + len(vpartBytes)
-	sqlbuf := bytes.NewBuffer(make([]byte, 0, sqlbufSize))
+	// 直接在主buffer中构建where条件，避免额外buffer
+	sqlbuf := bytes.NewBuffer(make([]byte, 0, 12+len(obv.TableName)+case_part.Len()))
 	sqlbuf.WriteString("delete from ")
 	sqlbuf.WriteString(obv.TableName)
-	if len(vpartBytes) > 0 {
-		sqlbuf.Write(vpartBytes)
+	if case_part.Len() > 0 {
+		sqlbuf.WriteString(" where")
+		// BuildWhereCase返回的已经是去掉了尾部" and"的，直接使用
+		sqlbuf.Write(case_part.Bytes())
 	}
 
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
@@ -1190,26 +1162,10 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
 	}
 	case_part, case_arg := self.BuildWhereCase(cnd.Offset(0, 1))
 	parameter := case_arg
-	var vpart *bytes.Buffer
-	var vpartBytes []byte
-	if case_part.Len() > 0 {
-		// 优化：直接操作 bytes，避免字符串转换
-		caseBytes := case_part.Bytes()
-		vpartCap := len(caseBytes) + 9 // "where" (5) + 4 (extra)
-		vpart = bytes.NewBuffer(make([]byte, 0, vpartCap))
-		vpart.WriteString("where")
-		// 优化：直接操作字节，去掉最后的 " and"（4字节）
-		if len(caseBytes) > 4 {
-			vpart.Write(caseBytes[0 : len(caseBytes)-4])
-		}
-		vpartBytes = vpart.Bytes()
-	}
 	sortby := self.BuildSortBy(cnd)
-	// 优化：精确计算 sqlbuf 容量
+	// 直接在主buffer中构建SQL，避免额外buffer
 	fbytes := fpart.Bytes()
-	// 固定字节："select " (7) + " from " (6) + " " (1) + " limit 1" (8) = 22
-	// 动态：fbytes去掉最后一个逗号 + TableName + vpartBytes + sortby
-	sqlBufSize := 22 + len(obv.TableName) + (len(fbytes) - 1) + len(vpartBytes) + len(sortby)
+	sqlBufSize := 22 + len(obv.TableName) + (len(fbytes) - 1) + case_part.Len() + len(sortby)
 	sqlbuf := bytes.NewBuffer(make([]byte, 0, sqlBufSize))
 	sqlbuf.WriteString("select ")
 	if len(fbytes) > 1 {
@@ -1218,8 +1174,14 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
 	sqlbuf.WriteString(" from ")
 	sqlbuf.WriteString(obv.TableName)
 	sqlbuf.WriteString(" ")
-	if len(vpartBytes) > 0 {
-		sqlbuf.Write(vpartBytes)
+	if case_part.Len() > 0 {
+		sqlbuf.WriteString("where")
+		// 去掉BuildWhereCase返回的最后的" and"（4字节）
+		caseBytes := case_part.Bytes()
+		if len(caseBytes) > 4 {
+			sqlbuf.Write(caseBytes[0 : len(caseBytes)-4])
+		}
+		sqlbuf.WriteString(" ")
 	}
 	if len(sortby) > 0 {
 		sqlbuf.WriteString(sortby)
@@ -1307,28 +1269,11 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	case_part, case_arg := self.BuildWhereCase(cnd)
 	parameter := case_arg
 
-	var vpart *bytes.Buffer
-	var vpartBytes []byte
-	if case_part.Len() > 0 {
-		// 优化：直接操作 bytes，避免字符串转换
-		caseBytes := case_part.Bytes()
-		vpartCap := len(caseBytes) + 9 // "where" (5) + 4 (extra)
-		vpart = bytes.NewBuffer(make([]byte, 0, vpartCap))
-		vpart.WriteString("where")
-		// 优化：直接操作字节，去掉最后的 " and"（4字节）
-		if len(caseBytes) > 4 {
-			vpart.Write(caseBytes[0 : len(caseBytes)-4])
-		}
-		vpartBytes = vpart.Bytes()
-	}
 	groupby := self.BuildGroupBy(cnd)
 	sortby := self.BuildSortBy(cnd)
-	// 优化：直接操作 bytes，避免字符串转换
+	// 直接在主buffer中构建SQL，避免额外buffer
 	fbytes := fpart.Bytes()
-	// 优化：精确计算 sqlbuf 容量
-	// 固定字节："select " (7) + " from " (6) + " " (1) = 14
-	// 动态：fbytes去掉最后一个逗号 + TableName + vpartBytes + groupby + sortby
-	sqlBufSize := 14 + len(obv.TableName) + (len(fbytes) - 1) + len(vpartBytes) + len(groupby) + len(sortby)
+	sqlBufSize := 14 + len(obv.TableName) + (len(fbytes) - 1) + case_part.Len() + len(groupby) + len(sortby)
 	sqlbuf := bytes.NewBuffer(make([]byte, 0, sqlBufSize))
 	sqlbuf.WriteString("select ")
 	if len(fbytes) > 1 {
@@ -1337,8 +1282,14 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	sqlbuf.WriteString(" from ")
 	sqlbuf.WriteString(obv.TableName)
 	sqlbuf.WriteString(" ")
-	if len(vpartBytes) > 0 {
-		sqlbuf.Write(vpartBytes)
+	if case_part.Len() > 0 {
+		sqlbuf.WriteString("where")
+		// 去掉BuildWhereCase返回的最后的" and"（4字节）
+		caseBytes := case_part.Bytes()
+		if len(caseBytes) > 4 {
+			sqlbuf.Write(caseBytes[0 : len(caseBytes)-4])
+		}
+		sqlbuf.WriteString(" ")
 	}
 	if len(groupby) > 0 {
 		sqlbuf.WriteString(groupby)
@@ -1463,33 +1414,21 @@ func (self *RDBManager) Count(cnd *sqlc.Cnd) (int64, error) {
 	}
 	case_part, case_arg := self.BuildWhereCase(cnd)
 	parameter := case_arg
-	var vpartBytes []byte
-	if case_part.Len() > 0 {
-		// 优化：直接操作 bytes，避免字符串转换
-		caseBytes := case_part.Bytes()
-		// 修复：精确计算 vpart 容量
-		// 实际写入："where" (5字节) + caseBytes去掉最后4字节 = 5 + len(caseBytes) - 4 = len(caseBytes) + 1
-		vpartCap := len(caseBytes) + 1
-		vpart := bytes.NewBuffer(make([]byte, 0, vpartCap))
-		vpart.WriteString("where")
-		// 优化：直接操作字节，去掉最后的 " and"（4字节）
-		if len(caseBytes) > 4 {
-			vpart.Write(caseBytes[0 : len(caseBytes)-4])
-		}
-		vpartBytes = vpart.Bytes()
-	}
 	groupby := self.BuildGroupBy(cnd)
-	// 优化：精确计算 sqlbuf 容量
-	// 固定字节："select count(1) from " (21) + " " (1) = 22
-	// 动态：TableName + vpartBytes + groupby
-	// 注意：groupby 已经去掉了最后的逗号，所以直接使用 len(groupby)
-	sqlBufSize := 22 + len(obv.TableName) + len(vpartBytes) + len(groupby)
+	// 直接在主buffer中构建SQL，避免额外buffer
+	sqlBufSize := 22 + len(obv.TableName) + case_part.Len() + len(groupby)
 	sqlbuf := bytes.NewBuffer(make([]byte, 0, sqlBufSize))
 	sqlbuf.WriteString("select count(1) from ")
 	sqlbuf.WriteString(obv.TableName)
 	sqlbuf.WriteString(" ")
-	if len(vpartBytes) > 0 {
-		sqlbuf.Write(vpartBytes)
+	if case_part.Len() > 0 {
+		sqlbuf.WriteString("where")
+		// 去掉BuildWhereCase返回的最后的" and"（4字节）
+		caseBytes := case_part.Bytes()
+		if len(caseBytes) > 4 {
+			sqlbuf.Write(caseBytes[0 : len(caseBytes)-4])
+		}
+		sqlbuf.WriteString(" ")
 	}
 	if len(groupby) > 0 {
 		sqlbuf.WriteString(groupby)
@@ -1551,31 +1490,20 @@ func (self *RDBManager) Exists(cnd *sqlc.Cnd) (bool, error) {
 	}
 	case_part, case_arg := self.BuildWhereCase(cnd)
 	parameter := case_arg
-	var vpartBytes []byte
-	if case_part.Len() > 0 {
-		// 优化：直接操作 bytes，避免字符串转换
-		caseBytes := case_part.Bytes()
-		// 修复：精确计算 vpart 容量
-		// 实际写入："where" (5字节) + caseBytes去掉最后4字节 = 5 + len(caseBytes) - 4 = len(caseBytes) + 1
-		vpartCap := len(caseBytes) + 1
-		vpart := bytes.NewBuffer(make([]byte, 0, vpartCap))
-		vpart.WriteString("where")
-		// 优化：直接操作字节，去掉最后的 " and"（4字节）
-		if len(caseBytes) > 4 {
-			vpart.Write(caseBytes[0 : len(caseBytes)-4])
-		}
-		vpartBytes = vpart.Bytes()
-	}
-	// 优化：精确计算 sqlbuf 容量
-	// 固定字节："select exists(select 1 from " (28) + " limit 1 ) as pub_exists" (25) = 53
-	// 动态：TableName + vpartBytes
-	sqlBufSize := 53 + len(obv.TableName) + len(vpartBytes)
+	// 直接在主buffer中构建SQL，避免额外buffer
+	sqlBufSize := 53 + len(obv.TableName) + case_part.Len()
 	sqlbuf := bytes.NewBuffer(make([]byte, 0, sqlBufSize))
 	sqlbuf.WriteString("select exists(select 1 from ")
 	sqlbuf.WriteString(obv.TableName)
 	sqlbuf.WriteString(" ")
-	if len(vpartBytes) > 0 {
-		sqlbuf.Write(vpartBytes)
+	if case_part.Len() > 0 {
+		sqlbuf.WriteString("where")
+		// 去掉BuildWhereCase返回的最后的" and"（4字节）
+		caseBytes := case_part.Bytes()
+		if len(caseBytes) > 4 {
+			sqlbuf.Write(caseBytes[0 : len(caseBytes)-4])
+		}
+		sqlbuf.WriteString(" ")
 	}
 	sqlbuf.WriteString(" limit 1 ) as pub_exists")
 
@@ -1656,18 +1584,6 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 	case_part, case_arg := self.BuildWhereCase(cnd)
 	parameter := case_arg
 
-	var vpartBytes []byte
-	if case_part.Len() > 0 {
-		caseBytes := case_part.Bytes()
-		vpartCap := len(caseBytes) + 9 // "where" (5) + 4 (extra)
-		vpart := bytes.NewBuffer(make([]byte, 0, vpartCap))
-		vpart.WriteString("where")
-		if len(caseBytes) > 4 {
-			vpart.Write(caseBytes[0 : len(caseBytes)-4])
-		}
-		vpartBytes = vpart.Bytes()
-	}
-
 	groupby := self.BuildGroupBy(cnd)
 	sortby := self.BuildSortBy(cnd)
 
@@ -1685,14 +1601,12 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 		}
 	}
 
-	// 优化：精确计算 sqlbuf 容量
-	// 固定字节："select " (7) + " from " (6) + " " (1) + " " (1) = 15
-	// 动态：fpart去掉最后一个逗号 + Table + Alias + vpartBytes + joinSize + groupby + sortby
+	// 直接在主buffer中构建SQL，避免额外buffer
 	fpartLen := 0
 	if len(fpartBytes) > 0 {
 		fpartLen = len(fpartBytes) - 1
 	}
-	sqlbufSize := 15 + fpartLen + len(cnd.FromCond.Table) + len(cnd.FromCond.Alias) + len(vpartBytes) + joinSize + len(groupby) + len(sortby)
+	sqlbufSize := 15 + fpartLen + len(cnd.FromCond.Table) + len(cnd.FromCond.Alias) + case_part.Len() + joinSize + len(groupby) + len(sortby)
 	sqlbuf := bytes.NewBuffer(make([]byte, 0, sqlbufSize))
 	sqlbuf.WriteString("select ")
 	if fpartLen > 0 {
@@ -1723,8 +1637,14 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 			sqlbuf.WriteString(" ")
 		}
 	}
-	if len(vpartBytes) > 0 {
-		sqlbuf.Write(vpartBytes)
+	if case_part.Len() > 0 {
+		sqlbuf.WriteString("where")
+		// 去掉BuildWhereCase返回的最后的" and"（4字节）
+		caseBytes := case_part.Bytes()
+		if len(caseBytes) > 4 {
+			sqlbuf.Write(caseBytes[0 : len(caseBytes)-4])
+		}
+		sqlbuf.WriteString(" ")
 	}
 	if len(groupby) > 0 {
 		sqlbuf.WriteString(groupby)
@@ -1873,18 +1793,6 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data sqlc.Object) error {
 	case_part, case_arg := self.BuildWhereCase(cnd.Offset(0, 1))
 	parameter := case_arg
 
-	var vpartBytes []byte
-	if case_part.Len() > 0 {
-		caseBytes := case_part.Bytes()
-		vpartCap := len(caseBytes) + 9 // "where" (5) + 4 (extra)
-		vpart := bytes.NewBuffer(make([]byte, 0, vpartCap))
-		vpart.WriteString("where")
-		if len(caseBytes) > 4 {
-			vpart.Write(caseBytes[0 : len(caseBytes)-4])
-		}
-		vpartBytes = vpart.Bytes()
-	}
-
 	groupby := self.BuildGroupBy(cnd)
 	sortby := self.BuildSortBy(cnd)
 
@@ -1902,14 +1810,12 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data sqlc.Object) error {
 		}
 	}
 
-	// 优化：精确计算 sqlbuf 容量
-	// 固定字节："select " (7) + " from " (6) + " " (1) + " " (1) + " limit 1" (8) = 23
-	// 动态：fpart去掉最后一个逗号 + Table + Alias + vpartBytes + joinSize + groupby + sortby
+	// 直接在主buffer中构建SQL，避免额外buffer
 	fpartLen := 0
 	if len(fpartBytes) > 0 {
 		fpartLen = len(fpartBytes) - 1
 	}
-	sqlbufSize := 23 + fpartLen + len(cnd.FromCond.Table) + len(cnd.FromCond.Alias) + len(vpartBytes) + joinSize + len(groupby) + len(sortby)
+	sqlbufSize := 23 + fpartLen + len(cnd.FromCond.Table) + len(cnd.FromCond.Alias) + case_part.Len() + joinSize + len(groupby) + len(sortby)
 	sqlbuf := bytes.NewBuffer(make([]byte, 0, sqlbufSize))
 	sqlbuf.WriteString("select ")
 	if fpartLen > 0 {
@@ -1940,8 +1846,14 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data sqlc.Object) error {
 			sqlbuf.WriteString(" ")
 		}
 	}
-	if len(vpartBytes) > 0 {
-		sqlbuf.Write(vpartBytes)
+	if case_part.Len() > 0 {
+		sqlbuf.WriteString("where")
+		// 去掉BuildWhereCase返回的最后的" and"（4字节）
+		caseBytes := case_part.Bytes()
+		if len(caseBytes) > 4 {
+			sqlbuf.Write(caseBytes[0 : len(caseBytes)-4])
+		}
+		sqlbuf.WriteString(" ")
 	}
 	if len(groupby) > 0 {
 		sqlbuf.WriteString(groupby)
@@ -2115,26 +2027,16 @@ func OutDestWithCapacity(rows *sql.Rows, flen int, estimatedRows int) ([][][]byt
 	return out, nil
 }
 
-func (self *RDBManager) BuildCondKey(cnd *sqlc.Cnd, key string) []byte {
-	// 优化：根据 Escape 标志精确计算容量
-	// Escape=true: " " (1) + "`" (1) + key + "`" (1) = 3 + len(key)
-	// Escape=false: " " (1) + key = 1 + len(key)
-	var bufCap int
+// BuildCondKey 将条件键写入传入的buffer
+func (self *RDBManager) BuildCondKey(cnd *sqlc.Cnd, key string, buf *bytes.Buffer) {
+	buf.WriteString(" ")
 	if cnd.Escape {
-		bufCap = 3 + len(key)
+		buf.WriteString("`")
+		buf.WriteString(key)
+		buf.WriteString("`")
 	} else {
-		bufCap = 1 + len(key)
+		buf.WriteString(key)
 	}
-	fieldPart := bytes.NewBuffer(make([]byte, 0, bufCap))
-	fieldPart.WriteString(" ")
-	if cnd.Escape {
-		fieldPart.WriteString("`")
-		fieldPart.WriteString(key)
-		fieldPart.WriteString("`")
-	} else {
-		fieldPart.WriteString(key)
-	}
-	return fieldPart.Bytes()
 }
 
 type estimatedObject struct {
@@ -2142,7 +2044,12 @@ type estimatedObject struct {
 	estimatedArgs int
 }
 
-func estimatedSizePre(cnd *sqlc.Cnd, estimated *estimatedObject) {
+func estimatedSizePre(cnd *sqlc.Cnd, estimated *estimatedObject, writeTrailingAnd bool) {
+	if cnd == nil {
+		return
+	}
+
+	conditionsLen := len(cnd.Conditions)
 	for _, v := range cnd.Conditions {
 		// 统计 SQL 字符串容量
 		// BuildCondKey 会添加 " `key`" 或 " key"，需要加上这部分
@@ -2155,214 +2062,305 @@ func estimatedSizePre(cnd *sqlc.Cnd, estimated *estimatedObject) {
 
 		switch v.Logic {
 		case sqlc.EQ_:
-			estimated.estimatedSize += keyLen + 8 // " = ? and" (8字节)
+			estimated.estimatedSize += keyLen + 4 // " = ?" (4字节)
+			if writeTrailingAnd {
+				estimated.estimatedSize += 4 // " and" (4字节)
+			}
 			estimated.estimatedArgs++
 		case sqlc.NOT_EQ_:
-			estimated.estimatedSize += keyLen + 9 // " <> ? and" (9字节)
+			estimated.estimatedSize += keyLen + 5 // " <> ?" (5字节)
+			if writeTrailingAnd {
+				estimated.estimatedSize += 4 // " and" (4字节)
+			}
 			estimated.estimatedArgs++
 		case sqlc.LT_:
-			estimated.estimatedSize += keyLen + 8 // " < ? and" (8字节)
+			estimated.estimatedSize += keyLen + 4 // " < ?" (4字节)
+			if writeTrailingAnd {
+				estimated.estimatedSize += 4 // " and" (4字节)
+			}
 			estimated.estimatedArgs++
 		case sqlc.LTE_:
-			estimated.estimatedSize += keyLen + 9 // " <= ? and" (9字节)
+			estimated.estimatedSize += keyLen + 5 // " <= ?" (5字节)
+			if writeTrailingAnd {
+				estimated.estimatedSize += 4 // " and" (4字节)
+			}
 			estimated.estimatedArgs++
 		case sqlc.GT_:
-			estimated.estimatedSize += keyLen + 8 // " > ? and" (8字节)
+			estimated.estimatedSize += keyLen + 4 // " > ?" (4字节)
+			if writeTrailingAnd {
+				estimated.estimatedSize += 4 // " and" (4字节)
+			}
 			estimated.estimatedArgs++
 		case sqlc.GTE_:
-			estimated.estimatedSize += keyLen + 9 // " >= ? and" (9字节)
+			estimated.estimatedSize += keyLen + 5 // " >= ?" (5字节)
+			if writeTrailingAnd {
+				estimated.estimatedSize += 4 // " and" (4字节)
+			}
 			estimated.estimatedArgs++
 		case sqlc.IS_NULL_:
-			estimated.estimatedSize += keyLen + 12 // " is null and" (12字节)
+			estimated.estimatedSize += keyLen + 8 // " is null" (8字节)
+			if writeTrailingAnd {
+				estimated.estimatedSize += 4 // " and" (4字节)
+			}
 		case sqlc.IS_NOT_NULL_:
-			estimated.estimatedSize += keyLen + 16 // " is not null and" (16字节)
+			estimated.estimatedSize += keyLen + 12 // " is not null" (12字节)
+			if writeTrailingAnd {
+				estimated.estimatedSize += 4 // " and" (4字节)
+			}
 		case sqlc.BETWEEN_:
-			estimated.estimatedSize += keyLen + 20 // " between ? and ? and" (20字节)
+			estimated.estimatedSize += keyLen + 16 // " between ? and ?" (16字节)
+			if writeTrailingAnd {
+				estimated.estimatedSize += 4 // " and" (4字节)
+			}
 			estimated.estimatedArgs += 2
 		case sqlc.NOT_BETWEEN_:
-			estimated.estimatedSize += keyLen + 24 // " not between ? and ? and" (24字节)
+			estimated.estimatedSize += keyLen + 20 // " not between ? and ?" (20字节)
+			if writeTrailingAnd {
+				estimated.estimatedSize += 4 // " and" (4字节)
+			}
 			estimated.estimatedArgs += 2
 		case sqlc.IN_:
 			estimated.estimatedSize += keyLen + 4          // " in(" (4字节)
 			estimated.estimatedSize += len(v.Values)*2 - 1 // "?,?,?" = 2*n-1字节
-			estimated.estimatedSize += 5                   // ")" + " and" (5字节)
+			estimated.estimatedSize += 1                   // ")" (1字节)
+			if writeTrailingAnd {
+				estimated.estimatedSize += 4 // " and" (4字节)
+			}
 			estimated.estimatedArgs += len(v.Values)
 		case sqlc.NOT_IN_:
 			estimated.estimatedSize += keyLen + 8          // " not in(" (8字节)
 			estimated.estimatedSize += len(v.Values)*2 - 1 // "?,?,?" = 2*n-1字节
-			estimated.estimatedSize += 5                   // ")" + " and" (5字节)
+			estimated.estimatedSize += 1                   // ")" (1字节)
+			if writeTrailingAnd {
+				estimated.estimatedSize += 4 // " and" (4字节)
+			}
 			estimated.estimatedArgs += len(v.Values)
 		case sqlc.LIKE_:
-			estimated.estimatedSize += keyLen + 27 // " like concat('%',?,'%') and" (27字节)
+			estimated.estimatedSize += keyLen + 23 // " like concat('%',?,'%')" (23字节)
+			if writeTrailingAnd {
+				estimated.estimatedSize += 4 // " and" (4字节)
+			}
 			estimated.estimatedArgs++
 		case sqlc.NOT_LIKE_:
-			estimated.estimatedSize += keyLen + 31 // " not like concat('%',?,'%') and" (31字节)
+			estimated.estimatedSize += keyLen + 27 // " not like concat('%',?,'%')" (27字节)
+			if writeTrailingAnd {
+				estimated.estimatedSize += 4 // " and" (4字节)
+			}
 			estimated.estimatedArgs++
 		case sqlc.OR_:
-			// OR 条件递归调用，模拟实际实现逻辑
-			for _, v := range v.Values {
-				cnd, ok := v.(*sqlc.Cnd)
+			estimated.estimatedSize += 2 // " (" (2字节)
+			first := true
+			for _, sv := range v.Values {
+				c, ok := sv.(*sqlc.Cnd)
 				if !ok {
 					continue
 				}
-				// 递归调用estimatedSizePre获取子条件预估
-				subEstimated := &estimatedObject{}
-				estimatedSizePre(cnd, subEstimated)
-
-				// 模拟实际实现：orpart.Write(bufBytes[0 : len(bufBytes)-3])
-				// 去掉最后的" and"(3字节)
-				if subEstimated.estimatedSize > 3 {
-					estimated.estimatedSize += subEstimated.estimatedSize - 3
+				if !first {
+					estimated.estimatedSize += 4 // " or " (4字节，包含空格)
 				}
-				// 模拟实际实现：orpart.WriteString(" or")
-				estimated.estimatedSize += 4 // " or" = 4字节
+				first = false
+				subEstimated := &estimatedObject{}
+				estimatedSizePre(c, subEstimated, true) // 子条件预估已经正确处理了尾部 " and"
+				estimated.estimatedSize += subEstimated.estimatedSize
 				estimated.estimatedArgs += subEstimated.estimatedArgs
 			}
-			// 模拟实际实现：case_part.WriteString(" (")
-			estimated.estimatedSize += 2 // " (" = 2字节
-			// 模拟实际实现：case_part.Write(orBytes[0 : len(orBytes)-3])
-			// 去掉最后的" or"(3字节)
-			if estimated.estimatedSize > 3 {
-				estimated.estimatedSize -= 3
+			estimated.estimatedSize += 1 // ")" (1字节)
+			if writeTrailingAnd {
+				estimated.estimatedSize += 4 // " and" (4字节)
 			}
-			// 模拟实际实现：case_part.WriteString(") and")
-			estimated.estimatedSize += 3 // ") and" = 5字节
 		}
+	}
+
+	// 如果允许写尾部and且有条件，则减去最后的" and"
+	if writeTrailingAnd && conditionsLen > 0 {
+		estimated.estimatedSize -= 4 // " and" = 4字节
 	}
 }
 
-// 构建where条件
+// 构建where条件 - 使用单一buffer对象贯穿
 func (self *RDBManager) BuildWhereCase(cnd *sqlc.Cnd) (*bytes.Buffer, []interface{}) {
 	if cnd == nil {
 		return bytes.NewBuffer(make([]byte, 0, 64)), []interface{}{}
 	}
-	// 优化：先遍历统计，精确计算容量（优先防止扩容）
-	// 注意：预估应该基于 BuildWhereCase 返回的完整长度（包含最后的 " and"）
-	estimated := &estimatedObject{}
 
-	estimatedSizePre(cnd, estimated)
+	// 优化：先遍历统计，精确计算容量（优先防止扩容）
+	estimated := &estimatedObject{}
+	estimatedSizePre(cnd, estimated, true)
 
 	case_part := bytes.NewBuffer(make([]byte, 0, estimated.estimatedSize))
 	case_arg := make([]interface{}, 0, estimated.estimatedArgs)
+
+	// 递归构建函数，确保全程使用同一个buffer
+	self.buildWhereCaseRecursive(cnd, case_part, &case_arg, true)
+
+	fmt.Println(estimated.estimatedSize, case_part.Len())
+	fmt.Println(estimated.estimatedArgs, len(case_arg))
+
+	return case_part, case_arg
+}
+
+// buildWhereCaseRecursive 递归构建where条件，使用单一buffer
+func (self *RDBManager) buildWhereCaseRecursive(cnd *sqlc.Cnd, buf *bytes.Buffer, args *[]interface{}, writeTrailingAnd bool) {
+	if cnd == nil {
+		return
+	}
+
+	conditionsLen := len(cnd.Conditions)
 	for _, v := range cnd.Conditions {
 		key := v.Key
 		value := v.Value
 		values := v.Values
+
 		switch v.Logic {
-		// case condition
 		case sqlc.EQ_:
-			case_part.Write(self.BuildCondKey(cnd, key))
-			case_part.WriteString(" = ? and")
-			case_arg = append(case_arg, value)
+			self.BuildCondKey(cnd, key, buf)
+			buf.WriteString(" = ?")
+			if writeTrailingAnd {
+				buf.WriteString(" and")
+			}
+			*args = append(*args, value)
 		case sqlc.NOT_EQ_:
-			case_part.Write(self.BuildCondKey(cnd, key))
-			case_part.WriteString(" <> ? and")
-			case_arg = append(case_arg, value)
+			self.BuildCondKey(cnd, key, buf)
+			buf.WriteString(" <> ?")
+			if writeTrailingAnd {
+				buf.WriteString(" and")
+			}
+			*args = append(*args, value)
 		case sqlc.LT_:
-			case_part.Write(self.BuildCondKey(cnd, key))
-			case_part.WriteString(" < ? and")
-			case_arg = append(case_arg, value)
+			self.BuildCondKey(cnd, key, buf)
+			buf.WriteString(" < ?")
+			if writeTrailingAnd {
+				buf.WriteString(" and")
+			}
+			*args = append(*args, value)
 		case sqlc.LTE_:
-			case_part.Write(self.BuildCondKey(cnd, key))
-			case_part.WriteString(" <= ? and")
-			case_arg = append(case_arg, value)
+			self.BuildCondKey(cnd, key, buf)
+			buf.WriteString(" <= ?")
+			if writeTrailingAnd {
+				buf.WriteString(" and")
+			}
+			*args = append(*args, value)
 		case sqlc.GT_:
-			case_part.Write(self.BuildCondKey(cnd, key))
-			case_part.WriteString(" > ? and")
-			case_arg = append(case_arg, value)
+			self.BuildCondKey(cnd, key, buf)
+			buf.WriteString(" > ?")
+			if writeTrailingAnd {
+				buf.WriteString(" and")
+			}
+			*args = append(*args, value)
 		case sqlc.GTE_:
-			case_part.Write(self.BuildCondKey(cnd, key))
-			case_part.WriteString(" >= ? and")
-			case_arg = append(case_arg, value)
+			self.BuildCondKey(cnd, key, buf)
+			buf.WriteString(" >= ?")
+			if writeTrailingAnd {
+				buf.WriteString(" and")
+			}
+			*args = append(*args, value)
 		case sqlc.IS_NULL_:
-			case_part.Write(self.BuildCondKey(cnd, key))
-			case_part.WriteString(" is null and")
+			self.BuildCondKey(cnd, key, buf)
+			buf.WriteString(" is null")
+			if writeTrailingAnd {
+				buf.WriteString(" and")
+			}
 		case sqlc.IS_NOT_NULL_:
-			case_part.Write(self.BuildCondKey(cnd, key))
-			case_part.WriteString(" is not null and")
+			self.BuildCondKey(cnd, key, buf)
+			buf.WriteString(" is not null")
+			if writeTrailingAnd {
+				buf.WriteString(" and")
+			}
 		case sqlc.BETWEEN_:
-			case_part.Write(self.BuildCondKey(cnd, key))
-			case_part.WriteString(" between ? and ? and")
-			case_arg = append(case_arg, values[0])
-			case_arg = append(case_arg, values[1])
+			self.BuildCondKey(cnd, key, buf)
+			buf.WriteString(" between ? and ?")
+			if writeTrailingAnd {
+				buf.WriteString(" and")
+			}
+			*args = append(*args, values[0], values[1])
 		case sqlc.NOT_BETWEEN_:
-			case_part.Write(self.BuildCondKey(cnd, key))
-			case_part.WriteString(" not between ? and ? and")
-			case_arg = append(case_arg, values[0])
-			case_arg = append(case_arg, values[1])
+			self.BuildCondKey(cnd, key, buf)
+			buf.WriteString(" not between ? and ?")
+			if writeTrailingAnd {
+				buf.WriteString(" and")
+			}
+			*args = append(*args, values[0], values[1])
 		case sqlc.IN_:
-			case_part.Write(self.BuildCondKey(cnd, key))
-			case_part.WriteString(" in(")
-			// 优化：精确计算容量，直接操作字节
-			if len(values) > 0 {
-				inPart := bytes.NewBuffer(make([]byte, 0, 2*len(values)))
-				for _, v := range values {
-					inPart.WriteString("?,")
-					case_arg = append(case_arg, v)
+			self.BuildCondKey(cnd, key, buf)
+			buf.WriteString(" in(")
+			for i, vv := range values {
+				if i > 0 {
+					buf.WriteString(",")
 				}
-				inBytes := inPart.Bytes()
-				if len(inBytes) > 1 {
-					case_part.Write(inBytes[0 : len(inBytes)-1])
-				}
+				buf.WriteString("?")
+				*args = append(*args, vv)
 			}
-			case_part.WriteString(") and")
+			buf.WriteString(")")
+			if writeTrailingAnd {
+				buf.WriteString(" and")
+			}
 		case sqlc.NOT_IN_:
-			case_part.Write(self.BuildCondKey(cnd, key))
-			case_part.WriteString(" not in(")
-			// 优化：精确计算容量，直接操作字节
-			if len(values) > 0 {
-				inPart := bytes.NewBuffer(make([]byte, 0, 2*len(values)))
-				for _, v := range values {
-					inPart.WriteString("?,")
-					case_arg = append(case_arg, v)
+			self.BuildCondKey(cnd, key, buf)
+			buf.WriteString(" not in(")
+			for i, vv := range values {
+				if i > 0 {
+					buf.WriteString(",")
 				}
-				inBytes := inPart.Bytes()
-				if len(inBytes) > 1 {
-					case_part.Write(inBytes[0 : len(inBytes)-1])
-				}
+				buf.WriteString("?")
+				*args = append(*args, vv)
 			}
-			case_part.WriteString(") and")
+			buf.WriteString(")")
+			if writeTrailingAnd {
+				buf.WriteString(" and")
+			}
 		case sqlc.LIKE_:
-			case_part.Write(self.BuildCondKey(cnd, key))
-			case_part.WriteString(" like concat('%',?,'%') and")
-			case_arg = append(case_arg, value)
+			self.BuildCondKey(cnd, key, buf)
+			buf.WriteString(" like concat('%',?,'%')")
+			if writeTrailingAnd {
+				buf.WriteString(" and")
+			}
+			*args = append(*args, value)
 		case sqlc.NOT_LIKE_:
-			case_part.Write(self.BuildCondKey(cnd, key))
-			case_part.WriteString(" not like concat('%',?,'%') and")
-			case_arg = append(case_arg, value)
+			self.BuildCondKey(cnd, key, buf)
+			buf.WriteString(" not like concat('%',?,'%')")
+			if writeTrailingAnd {
+				buf.WriteString(" and")
+			}
+			*args = append(*args, value)
 		case sqlc.OR_:
-			// 优化：预估 OR 条件容量（与第一次遍历预估保持一致：100字节，5个参数）
-			orpart := bytes.NewBuffer(make([]byte, 0, len(values)*100))
-			// 递归调用可能导致参数数量较多，保守估计每个OR子条件平均5个参数
-			args := make([]interface{}, 0, len(values)*5)
-			for _, v := range values {
-				cnd, ok := v.(*sqlc.Cnd)
+			buf.WriteString(" (")
+			first := true
+			for _, sv := range values {
+				c, ok := sv.(*sqlc.Cnd)
 				if !ok {
 					continue
 				}
-				buf, arg := self.BuildWhereCase(cnd)
-				// 优化：直接操作字节，避免字符串转换
-				bufBytes := buf.Bytes()
-				if len(bufBytes) > 3 {
-					orpart.Write(bufBytes[0 : len(bufBytes)-3])
+				if !first {
+					buf.WriteString(" or ")
 				}
-				orpart.WriteString(" or")
-				// 优化：批量追加参数
-				args = append(args, arg...)
+				first = false
+				// 使用临时buffer构建子条件，确保子条件内部有" and"连接但无尾部" and"
+				tempBuf := bytes.NewBuffer(make([]byte, 0, 64))
+				tempArgs := make([]interface{}, 0, 8)
+				self.buildWhereCaseRecursive(c, tempBuf, &tempArgs, true)
+				// 检查临时buffer是否以" and"结尾，如果是则去掉
+				tempBytes := tempBuf.Bytes()
+				if len(tempBytes) >= 4 && string(tempBytes[len(tempBytes)-4:]) == " and" {
+					buf.Write(tempBytes[0 : len(tempBytes)-4])
+				} else {
+					buf.Write(tempBytes)
+				}
+				*args = append(*args, tempArgs...)
 			}
-			// 优化：直接操作字节，避免字符串转换
-			orBytes := orpart.Bytes()
-			case_part.WriteString(" (")
-			if len(orBytes) > 3 {
-				case_part.Write(orBytes[0 : len(orBytes)-3])
+			buf.WriteString(")")
+			if writeTrailingAnd {
+				buf.WriteString(" and")
 			}
-			case_part.WriteString(") and")
-			// 优化：批量追加参数
-			case_arg = append(case_arg, args...)
 		}
 	}
 
-	return case_part, case_arg
+	// 如果允许写尾部and且有条件，则去掉最后的" and"
+	if writeTrailingAnd && conditionsLen > 0 {
+		bufBytes := buf.Bytes()
+		if len(bufBytes) >= 4 { // " and" = 4字节
+			buf.Truncate(len(bufBytes) - 4)
+		}
+	}
 }
 
 // 构建分组命令
