@@ -655,8 +655,8 @@ func (self *RDBManager) Update(data ...sqlc.Object) error {
 		if v.Primary {
 			continue
 		}
-		// " `" + FieldJsonName + "` = ?," = 10 + len(FieldJsonName)
-		fieldPartSize += len(v.FieldJsonName) + 10
+		// " `" + FieldJsonName + "` = ?," = 8 + len(FieldJsonName)
+		fieldPartSize += len(v.FieldJsonName) + 8
 	}
 	parameter := make([]interface{}, 0, len(obv.FieldElem))
 	fpart := bytes.NewBuffer(make([]byte, 0, fieldPartSize))
@@ -680,6 +680,7 @@ func (self *RDBManager) Update(data ...sqlc.Object) error {
 		fpart.WriteString("` = ?,")
 		parameter = append(parameter, fval)
 	}
+
 	parameter = append(parameter, lastInsertId)
 	// 检查是否有字段需要更新
 	fbytes := fpart.Bytes()
