@@ -1597,7 +1597,12 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data sqlc.Object) error {
 	if len(fpartBytes) > 0 {
 		fpartLen = len(fpartBytes) - 1
 	}
-	sqlBufSize := 23 + fpartLen + len(cnd.FromCond.Table) + len(cnd.FromCond.Alias) + case_part.Len() + joinSize + len(groupby) + len(sortby)
+	// 根据是否有where条件调整固定字节数
+	fixedSize := 22 // "select " (7) + " from " (6) + " " (1) + " " (1) + " limit 1" (8) - 1 (调整) = 22
+	if case_part.Len() > 0 {
+		fixedSize += 6 // "where" (5) + 空格修正 (1)
+	}
+	sqlBufSize := fixedSize + fpartLen + len(cnd.FromCond.Table) + len(cnd.FromCond.Alias) + case_part.Len() + joinSize + len(groupby) + len(sortby)
 	sqlbuf := bytes.NewBuffer(make([]byte, 0, sqlBufSize))
 	sqlbuf.WriteString("select ")
 	if fpartLen > 0 {
@@ -1607,7 +1612,6 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data sqlc.Object) error {
 	sqlbuf.WriteString(cnd.FromCond.Table)
 	sqlbuf.WriteString(" ")
 	sqlbuf.WriteString(cnd.FromCond.Alias)
-	sqlbuf.WriteString(" ")
 	if len(cnd.JoinCond) > 0 {
 		for _, v := range cnd.JoinCond {
 			if len(v.Table) == 0 || len(v.On) == 0 {
@@ -1763,7 +1767,12 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 	if len(fpartBytes) > 0 {
 		fpartLen = len(fpartBytes) - 1
 	}
-	sqlbufSize := 15 + fpartLen + len(cnd.FromCond.Table) + len(cnd.FromCond.Alias) + case_part.Len() + joinSize + len(groupby) + len(sortby)
+	// 根据是否有where条件调整固定字节数
+	fixedSize := 15 // "select " (7) + " from " (6) + " " (1) + " " (1) = 15
+	if case_part.Len() > 0 {
+		fixedSize += 6 // "where" (5) + 空格修正 (1)
+	}
+	sqlbufSize := fixedSize + fpartLen + len(cnd.FromCond.Table) + len(cnd.FromCond.Alias) + case_part.Len() + joinSize + len(groupby) + len(sortby)
 	sqlbuf := bytes.NewBuffer(make([]byte, 0, sqlbufSize))
 	sqlbuf.WriteString("select ")
 	if fpartLen > 0 {
