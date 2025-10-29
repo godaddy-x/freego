@@ -2093,10 +2093,15 @@ func OutDestWithCapacity(rows *sql.Rows, flen int, estimatedRows int) ([][][]byt
 	}
 
 	out := make([][][]byte, 0, initialCap)
+
+	// 优化：复用 dest 数组，避免每次循环都分配
+	// dest 数组只是指针容器，每次循环只需要更新指针指向即可
+	dest := make([]interface{}, flen)
+
 	for rows.Next() {
 		rets := make([][]byte, flen)
-		dest := make([]interface{}, flen)
-		for i, _ := range rets {
+		// 更新 dest 中的指针指向新的 rets
+		for i := range rets {
 			dest[i] = &rets[i]
 		}
 		if err := rows.Scan(dest...); err != nil {
