@@ -1064,14 +1064,15 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
 		return self.Error("[Mysql.FindOne] registration object type not found [", data.GetTable(), "]")
 	}
 	// 使用公共函数构建字段列表，精确计算容量
-	fieldCapacity := self.calculateFieldListCapacity(obv, true)
+	fieldCapacity := self.calculateFieldListCapacity(obv, cnd.Escape)
 	fpart := bytes.NewBuffer(make([]byte, 0, fieldCapacity))
-	self.buildFieldListFromModel(obv, true, fpart)
-	case_part, case_arg := self.BuildWhereCase(cnd.Offset(0, 1))
-	parameter := case_arg
+	self.buildFieldListFromModel(obv, cnd.Escape, fpart)
+	case_part, parameter := self.BuildWhereCase(cnd.Offset(0, 1))
+
 	sortby := self.BuildSortBy(cnd)
 	// 直接在主buffer中构建SQL，避免额外buffer
 	fbytes := fpart.Bytes()
+
 	// 根据是否有where条件调整固定字节数
 	fixedSize := 22 // "select " (7) + " from " (6) + " " (1) + " limit 1" (8) = 22
 	if case_part.Len() > 0 {
@@ -1158,9 +1159,9 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 		return self.Error("[Mysql.FindList] registration object type not found [", cnd.Model.GetTable(), "]")
 	}
 	// 使用公共函数构建字段列表，精确计算容量
-	fieldCapacity := self.calculateFieldListCapacity(obv, true)
+	fieldCapacity := self.calculateFieldListCapacity(obv, cnd.Escape)
 	fpart := bytes.NewBuffer(make([]byte, 0, fieldCapacity))
-	self.buildFieldListFromModel(obv, true, fpart)
+	self.buildFieldListFromModel(obv, cnd.Escape, fpart)
 	case_part, case_arg := self.BuildWhereCase(cnd)
 	parameter := case_arg
 
@@ -1168,6 +1169,7 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	sortby := self.BuildSortBy(cnd)
 	// 直接在主buffer中构建SQL，避免额外buffer
 	fbytes := fpart.Bytes()
+
 	// 根据是否有where条件调整固定字节数
 	fixedSize := 14 // "select " (7) + " from " (6) + " " (1) = 14
 	if case_part.Len() > 0 {
@@ -1309,8 +1311,7 @@ func (self *RDBManager) Count(cnd *sqlc.Cnd) (int64, error) {
 	if !ok {
 		return 0, self.Error("[Mysql.Count] registration object type not found [", cnd.Model.GetTable(), "]")
 	}
-	case_part, case_arg := self.BuildWhereCase(cnd)
-	parameter := case_arg
+	case_part, parameter := self.BuildWhereCase(cnd)
 	groupby := self.BuildGroupBy(cnd)
 	// 直接在主buffer中构建SQL，避免额外buffer
 	// 根据是否有where条件调整固定字节数
@@ -1479,8 +1480,7 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data sqlc.Object) error {
 	}
 	fpartBytes := fpart.Bytes()
 
-	case_part, case_arg := self.BuildWhereCase(cnd.Offset(0, 1))
-	parameter := case_arg
+	case_part, parameter := self.BuildWhereCase(cnd.Offset(0, 1))
 
 	groupby := self.BuildGroupBy(cnd)
 	sortby := self.BuildSortBy(cnd)
@@ -1649,8 +1649,7 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 	}
 	fpartBytes := fpart.Bytes()
 
-	case_part, case_arg := self.BuildWhereCase(cnd)
-	parameter := case_arg
+	case_part, parameter := self.BuildWhereCase(cnd)
 
 	groupby := self.BuildGroupBy(cnd)
 	sortby := self.BuildSortBy(cnd)

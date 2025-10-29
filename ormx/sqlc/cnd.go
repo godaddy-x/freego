@@ -161,7 +161,7 @@ func M(model ...Object) *Cnd {
 	if model != nil && len(model) > 0 {
 		c.Model = model[0]
 	}
-	c.Escape = true
+	c.Escape = false
 	return c
 }
 
