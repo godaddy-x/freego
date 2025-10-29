@@ -685,9 +685,9 @@ func (self *RDBManager) Update(data ...sqlc.Object) error {
 		return self.Error("[Mysql.Update] no fields to update")
 	}
 	// 优化：直接操作 bytes，避免 Substr 创建新字符串
-	// 计算精确容量："update " + TableName + " set " + (fbytes去掉最后一个逗号) + " where `" + PkName + "` = ?"
-	// = 7 + len(TableName) + 5 + (len(fbytes)-1) + 8 + len(PkName) + 5 = 25 + len(TableName) + len(fbytes) + len(PkName)
-	sqlBufSize := 7 + len(obv.TableName) + 5 + (len(fbytes) - 1) + 8 + len(obv.PkName) + 5
+	// 计算精确容量："update " + TableName + " set " + (fbytes去掉最后一个逗号) + " where " + PkName + "=?"
+	// = 7 + len(TableName) + 5 + (len(fbytes)-1) + 7 + len(PkName) + 2 = 21 + len(TableName) + len(fbytes) + len(PkName)
+	sqlBufSize := 7 + len(obv.TableName) + 5 + (len(fbytes) - 1) + 7 + len(obv.PkName) + 2
 	sqlbuf := bytes.NewBuffer(make([]byte, 0, sqlBufSize))
 	sqlbuf.WriteString("update ")
 	sqlbuf.WriteString(obv.TableName)
@@ -695,9 +695,9 @@ func (self *RDBManager) Update(data ...sqlc.Object) error {
 	if len(fbytes) > 1 {
 		sqlbuf.Write(fbytes[0 : len(fbytes)-1])
 	}
-	sqlbuf.WriteString(" where `")
+	sqlbuf.WriteString(" where ")
 	sqlbuf.WriteString(obv.PkName)
-	sqlbuf.WriteString("` = ?")
+	sqlbuf.WriteString("=?")
 
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
