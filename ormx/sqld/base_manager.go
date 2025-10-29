@@ -482,7 +482,7 @@ func (self *RDBManager) Save(data ...sqlc.Object) error {
 			continue // AutoID 模式跳过主键
 		}
 		// 注意：obv.AutoId 时，如果值非 0 会写入，只有值为 0 才跳过，无法提前判断，需要按最坏情况计算
-		fieldPartSize += len(vv.FieldJsonName) + 3 // "`" + FieldJsonName + "`" + ","
+		fieldPartSize += len(vv.FieldJsonName) + 1 // FieldJsonName + "," (去掉反引号)
 	}
 	fpart := bytes.NewBuffer(make([]byte, 0, fieldPartSize))
 	// 优化：根据实际有效字段数计算容量
@@ -550,9 +550,7 @@ func (self *RDBManager) Save(data ...sqlc.Object) error {
 			}
 			// 关键修复：只有成功处理的字段才写入字段名和占位符，确保 fpart 和 vpart_ 数量一致
 			if !prefixReady {
-				fpart.WriteString("`")
 				fpart.WriteString(vv.FieldJsonName)
-				fpart.WriteString("`")
 				fpart.WriteString(",")
 			}
 			vpart_.WriteString("?,")
@@ -570,9 +568,9 @@ func (self *RDBManager) Save(data ...sqlc.Object) error {
 	// 优化：避免 Bytes2Str 转换，直接使用 bytes
 	fbytes := fpart.Bytes()
 	vbytes := vpart.Bytes()
-	// 计算精确容量："insert into " + TableName + " (" + fbytes[0:len-1] + ") values " + vbytes[0:len-1]
-	// = 12 + len(TableName) + 2 + (len(fbytes)-1) + 9 + (len(vbytes)-1) = 21 + len(TableName) + len(fbytes) + len(vbytes)
-	sqlBufSize := 12 + len(obv.TableName) + 2 + (len(fbytes) - 1) + 9 + (len(vbytes) - 1)
+	// 计算精确容量："insert into " + TableName + " (" + fbytes[0:len-1] + ") values" + vbytes[0:len-1]
+	// = 12 + len(TableName) + 2 + (len(fbytes)-1) + 8 + (len(vbytes)-1) = 20 + len(TableName) + len(fbytes) + len(vbytes)
+	sqlBufSize := 12 + len(obv.TableName) + 2 + (len(fbytes) - 1) + 8 + (len(vbytes) - 1)
 	sqlbuf := bytes.NewBuffer(make([]byte, 0, sqlBufSize))
 	sqlbuf.WriteString("insert into ")
 	sqlbuf.WriteString(obv.TableName)
@@ -581,7 +579,7 @@ func (self *RDBManager) Save(data ...sqlc.Object) error {
 	if len(fbytes) > 1 {
 		sqlbuf.Write(fbytes[0 : len(fbytes)-1])
 	}
-	sqlbuf.WriteString(") values ")
+	sqlbuf.WriteString(") values")
 	if len(vbytes) > 1 {
 		sqlbuf.Write(vbytes[0 : len(vbytes)-1])
 	}
@@ -667,6 +665,7 @@ func (self *RDBManager) Update(data ...sqlc.Object) error {
 		if v.Primary {
 			continue
 		}
+		// 这里建议去掉，时间字段应该使用int64的时间戳会更完美
 		fval, err := GetValue(oneData, v)
 		if err != nil {
 			zlog.Error("[Mysql.update] parameter value acquisition failed", 0, zlog.String("field", v.FieldName), zlog.AddError(err))
