@@ -872,16 +872,16 @@ func (self *RDBManager) Delete(data ...sqlc.Object) error {
 	if len(vbytes) == 0 {
 		return self.Error("[Mysql.Delete] where case is nil")
 	}
-	// 优化：精确计算 sqlbuf 容量："delete from " + TableName + " where `" + PkName + "` in (" + (vbytes去掉最后一个逗号) + ")"
-	// = "delete from " (12) + TableName + " where `" (8) + PkName + "` in (" (6) + (len(vbytes)-1) + ")" (1)
-	// = 12 + 8 + 6 + 1 + len(TableName) + len(PkName) + len(vbytes) - 1 = 26 + len(TableName) + len(PkName) + len(vbytes)
-	sqlBufSize := 26 + len(obv.TableName) + len(obv.PkName) + len(vbytes)
+	// 优化：精确计算 sqlbuf 容量："delete from " + TableName + " where " + PkName + " in (" + (vbytes去掉最后一个逗号) + ")"
+	// = "delete from " (12) + TableName + " where " (7) + PkName + " in (" (5) + (len(vbytes)-1) + ")" (1)
+	// = 12 + 7 + 5 + 1 + len(TableName) + len(PkName) + len(vbytes) - 1 = 24 + len(TableName) + len(PkName) + len(vbytes)
+	sqlBufSize := 24 + len(obv.TableName) + len(obv.PkName) + len(vbytes)
 	sqlbuf := bytes.NewBuffer(make([]byte, 0, sqlBufSize))
 	sqlbuf.WriteString("delete from ")
 	sqlbuf.WriteString(obv.TableName)
-	sqlbuf.WriteString(" where `")
+	sqlbuf.WriteString(" where ")
 	sqlbuf.WriteString(obv.PkName)
-	sqlbuf.WriteString("` in (")
+	sqlbuf.WriteString(" in (")
 	if len(vbytes) > 1 {
 		sqlbuf.Write(vbytes[0 : len(vbytes)-1])
 	}
@@ -946,16 +946,16 @@ func (self *RDBManager) DeleteById(object sqlc.Object, data ...interface{}) (int
 	if len(vbytes) == 0 {
 		return 0, self.Error("[Mysql.DeleteById] where case is nil")
 	}
-	// 优化：精确计算 sqlbuf 容量："delete from " + TableName + " where `" + PkName + "` in (" + (vbytes去掉最后一个逗号) + ")"
-	// = "delete from " (12) + TableName + " where `" (8) + PkName + "` in (" (6) + (len(vbytes)-1) + ")" (1)
-	// = 12 + 8 + 6 + 1 + len(TableName) + len(PkName) + len(vbytes) - 1 = 26 + len(TableName) + len(PkName) + len(vbytes)
-	sqlBufSize := 26 + len(obv.TableName) + len(obv.PkName) + len(vbytes)
+	// 优化：精确计算 sqlbuf 容量："delete from " + TableName + " where " + PkName + " in (" + (vbytes去掉最后一个逗号) + ")"
+	// = "delete from " (12) + TableName + " where " (7) + PkName + " in (" (5) + (len(vbytes)-1) + ")" (1)
+	// = 12 + 7 + 5 + 1 + len(TableName) + len(PkName) + len(vbytes) - 1 = 24 + len(TableName) + len(PkName) + len(vbytes)
+	sqlBufSize := 24 + len(obv.TableName) + len(obv.PkName) + len(vbytes)
 	sqlbuf := bytes.NewBuffer(make([]byte, 0, sqlBufSize))
 	sqlbuf.WriteString("delete from ")
 	sqlbuf.WriteString(obv.TableName)
-	sqlbuf.WriteString(" where `")
+	sqlbuf.WriteString(" where ")
 	sqlbuf.WriteString(obv.PkName)
-	sqlbuf.WriteString("` in (")
+	sqlbuf.WriteString(" in (")
 	if len(vbytes) > 1 {
 		sqlbuf.Write(vbytes[0 : len(vbytes)-1])
 	}
@@ -1053,100 +1053,6 @@ func (self *RDBManager) DeleteByCnd(cnd *sqlc.Cnd) (int64, error) {
 		self.MGOSyncData = append(self.MGOSyncData, &MGOSyncData{DELETE, cnd.Model, cnd, nil})
 	}
 	return rowsAffected, nil
-}
-
-func (self *RDBManager) FindById(data sqlc.Object) error {
-	if data == nil {
-		return self.Error("[Mysql.FindById] data is nil")
-	}
-	obv, ok := modelDrivers[data.GetTable()]
-	if !ok {
-		return self.Error("[Mysql.FindById] registration object type not found [", data.GetTable(), "]")
-	}
-	// 优化：FindById 只有一个参数（主键），直接初始化长度为1
-	var lastInsertId interface{}
-	if obv.PkKind == reflect.Int64 {
-		lastInsertId = utils.GetInt64(utils.GetPtr(data, obv.PkOffset))
-		if lastInsertId == 0 {
-			return self.Error("[Mysql.FindById] data object id is nil")
-		}
-	} else if obv.PkKind == reflect.String {
-		lastInsertId = utils.GetString(utils.GetPtr(data, obv.PkOffset))
-		if len(lastInsertId.(string)) == 0 {
-			return self.Error("[Mysql.FindById] data object id is nil")
-		}
-	}
-	// 使用公共函数构建字段列表，精确计算容量
-	fieldCapacity := self.calculateFieldListCapacity(obv, true)
-	fpart := bytes.NewBuffer(make([]byte, 0, fieldCapacity))
-	self.buildFieldListFromModel(obv, true, fpart)
-	// 优化：直接操作 bytes，避免字符串转换
-	fbytes := fpart.Bytes()
-	// 优化：精确计算 sqlbuf 容量
-	// SQL: "select " + fbytes[0:len-1] + " from " + TableName + " where `" + PkName + "` = ? limit 1"
-	// 固定字节：7(select ) + 6( from ) + 8( where `) + 5(` = ?) + 8( limit 1) - 1(fbytes多减1因为要去掉逗号) = 34
-	// 总计：34 + len(TableName) + len(PkName) + len(fbytes) - 1
-	sqlBufSize := 34 + len(obv.TableName) + len(obv.PkName) + len(fbytes) - 1
-	sqlbuf := bytes.NewBuffer(make([]byte, 0, sqlBufSize))
-	sqlbuf.WriteString("select ")
-	if len(fbytes) > 1 {
-		sqlbuf.Write(fbytes[0 : len(fbytes)-1])
-	}
-	sqlbuf.WriteString(" from ")
-	sqlbuf.WriteString(obv.TableName)
-	sqlbuf.WriteString(" where `")
-	sqlbuf.WriteString(obv.PkName)
-	sqlbuf.WriteString("` = ?")
-	sqlbuf.WriteString(" limit 1")
-
-	prepare := utils.Bytes2Str(sqlbuf.Bytes())
-	if zlog.IsDebug() {
-		zlog.Debug("[Mysql.FindById] byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
-		defer zlog.Debug("[Mysql.FindById] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("value", lastInsertId))
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
-	defer cancel()
-	var err error
-	var stmt *sql.Stmt
-	var rows *sql.Rows
-	if self.OpenTx {
-		stmt, err = self.Tx.PrepareContext(ctx, prepare)
-	} else {
-		stmt, err = self.Db.PrepareContext(ctx, prepare)
-	}
-	if err != nil {
-		return self.Error("[Mysql.FindById] [", prepare, "] prepare failed: ", err)
-	}
-	defer stmt.Close()
-	rows, err = stmt.QueryContext(ctx, lastInsertId)
-	if err != nil {
-		return self.Error("[Mysql.FindById] query failed: ", err)
-	}
-	defer rows.Close()
-	cols, err := rows.Columns()
-	if err != nil {
-		return self.Error("[Mysql.FindById] read columns failed: ", err)
-	}
-	var first [][]byte
-	if out, err := OutDestWithCapacity(rows, len(cols), 1); err != nil {
-		return self.Error("[Mysql.FindById] read result failed: ", err)
-	} else if len(out) == 0 {
-		return nil
-	} else {
-		first = out[0]
-	}
-	// 修复：使用独立索引，避免 Ignore 字段导致索引错位
-	idx := 0
-	for _, vv := range obv.FieldElem {
-		if vv.Ignore {
-			continue
-		}
-		if err := SetValue(data, vv, first[idx]); err != nil {
-			return self.Error(err)
-		}
-		idx++
-	}
-	return nil
 }
 
 func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
