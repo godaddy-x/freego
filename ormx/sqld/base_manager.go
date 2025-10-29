@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
-	"fmt"
 	"reflect"
 	"sync"
 	"sync/atomic"
@@ -44,6 +43,32 @@ const (
 
 	cacheExpiry  = time.Minute * 5
 	maxCacheSize = 1000
+
+	// SQL 字符串常量
+	AND           = " and"
+	OR            = " or "
+	SPACE         = " "
+	BACKTICK      = "`"
+	COMMA         = ","
+	QUESTION      = "?"
+	EQUALS        = " = ?"
+	NOT_EQUALS    = " <> ?"
+	LESS_THAN     = " < ?"
+	LESS_EQUAL    = " <= ?"
+	GREATER_THAN  = " > ?"
+	GREATER_EQUAL = " >= ?"
+	IS_NULL       = " is null"
+	IS_NOT_NULL   = " is not null"
+	BETWEEN       = " between ? and ?"
+	NOT_BETWEEN   = " not between ? and ?"
+	IN_START      = " in("
+	NOT_IN_START  = " not in("
+	IN_END        = ")"
+	LIKE          = " like concat('%',?,'%')"
+	NOT_LIKE      = " not like concat('%',?,'%')"
+	PAREN_OPEN    = " ("
+	PAREN_CLOSE   = ")"
+	WHERE         = "where"
 )
 
 type cacheEntry struct {
@@ -546,8 +571,8 @@ func (self *RDBManager) Save(data ...sqlc.Object) error {
 	fbytes := fpart.Bytes()
 	vbytes := vpart.Bytes()
 	// 计算精确容量："insert into " + TableName + " (" + fbytes[0:len-1] + ") values " + vbytes[0:len-1]
-	// = 12 + len(TableName) + 2 + (len(fbytes)-1) + 11 + (len(vbytes)-1) = 23 + len(TableName) + len(fbytes) + len(vbytes)
-	sqlBufSize := 12 + len(obv.TableName) + 2 + (len(fbytes) - 1) + 11 + (len(vbytes) - 1)
+	// = 12 + len(TableName) + 2 + (len(fbytes)-1) + 9 + (len(vbytes)-1) = 21 + len(TableName) + len(fbytes) + len(vbytes)
+	sqlBufSize := 12 + len(obv.TableName) + 2 + (len(fbytes) - 1) + 9 + (len(vbytes) - 1)
 	sqlbuf := bytes.NewBuffer(make([]byte, 0, sqlBufSize))
 	sqlbuf.WriteString("insert into ")
 	sqlbuf.WriteString(obv.TableName)
@@ -562,6 +587,7 @@ func (self *RDBManager) Save(data ...sqlc.Object) error {
 	}
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
+		zlog.Debug("byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
 		defer zlog.Debug("[Mysql.Save] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
@@ -662,8 +688,8 @@ func (self *RDBManager) Update(data ...sqlc.Object) error {
 	}
 	// 优化：直接操作 bytes，避免 Substr 创建新字符串
 	// 计算精确容量："update " + TableName + " set " + (fbytes去掉最后一个逗号) + " where `" + PkName + "` = ?"
-	// = 6 + len(TableName) + 5 + (len(fbytes)-1) + 10 + len(PkName) + 5 = 26 + len(TableName) + len(fbytes) + len(PkName)
-	sqlBufSize := 6 + len(obv.TableName) + 5 + (len(fbytes) - 1) + 10 + len(obv.PkName) + 5
+	// = 7 + len(TableName) + 5 + (len(fbytes)-1) + 8 + len(PkName) + 5 = 25 + len(TableName) + len(fbytes) + len(PkName)
+	sqlBufSize := 7 + len(obv.TableName) + 5 + (len(fbytes) - 1) + 8 + len(obv.PkName) + 5
 	sqlbuf := bytes.NewBuffer(make([]byte, 0, sqlBufSize))
 	sqlbuf.WriteString("update ")
 	sqlbuf.WriteString(obv.TableName)
@@ -677,6 +703,7 @@ func (self *RDBManager) Update(data ...sqlc.Object) error {
 
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
+		zlog.Debug("byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
 		defer zlog.Debug("[Mysql.Update] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
@@ -758,8 +785,8 @@ func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) (int64, error) {
 	if len(fpartBytes) > 0 {
 		fpartLen = len(fpartBytes) - 1
 	}
-	sqlbufSize := 13 + len(obv.TableName) + fpartLen + case_part.Len()
-	sqlbuf := bytes.NewBuffer(make([]byte, 0, sqlbufSize))
+	sqlBufSize := 18 + len(obv.TableName) + fpartLen + case_part.Len()
+	sqlbuf := bytes.NewBuffer(make([]byte, 0, sqlBufSize))
 	sqlbuf.WriteString("update ")
 	sqlbuf.WriteString(obv.TableName)
 	sqlbuf.WriteString(" set ")
@@ -774,6 +801,7 @@ func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) (int64, error) {
 
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
+		zlog.Debug("byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
 		defer zlog.Debug("[Mysql.UpdateByCnd] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
@@ -863,6 +891,7 @@ func (self *RDBManager) Delete(data ...sqlc.Object) error {
 
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
+		zlog.Debug("byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
 		defer zlog.Debug("[Mysql.Delete] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
@@ -936,6 +965,7 @@ func (self *RDBManager) DeleteById(object sqlc.Object, data ...interface{}) (int
 
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
+		zlog.Debug("byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
 		defer zlog.Debug("[Mysql.DeleteById] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
@@ -981,7 +1011,8 @@ func (self *RDBManager) DeleteByCnd(cnd *sqlc.Cnd) (int64, error) {
 	parameter := case_arg
 
 	// 直接在主buffer中构建where条件，避免额外buffer
-	sqlbuf := bytes.NewBuffer(make([]byte, 0, 12+len(obv.TableName)+case_part.Len()))
+	sqlBufSize := 18 + len(obv.TableName) + case_part.Len()
+	sqlbuf := bytes.NewBuffer(make([]byte, 0, sqlBufSize))
 	sqlbuf.WriteString("delete from ")
 	sqlbuf.WriteString(obv.TableName)
 	if case_part.Len() > 0 {
@@ -992,6 +1023,7 @@ func (self *RDBManager) DeleteByCnd(cnd *sqlc.Cnd) (int64, error) {
 
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
+		zlog.Debug("byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
 		defer zlog.Debug("[Mysql.DeleteByCnd] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
@@ -1046,30 +1078,14 @@ func (self *RDBManager) FindById(data sqlc.Object) error {
 			return self.Error("[Mysql.FindById] data object id is nil")
 		}
 	}
-	// 优化：精确计算 fpart 容量
-	fieldPartSize := 0
-	for _, vv := range obv.FieldElem {
-		if vv.Ignore {
-			continue
-		}
-		// "`" + FieldJsonName + "`," = len(FieldJsonName) + 3
-		fieldPartSize += len(vv.FieldJsonName) + 3
-	}
-	fpart := bytes.NewBuffer(make([]byte, 0, fieldPartSize))
-	for _, vv := range obv.FieldElem {
-		if vv.Ignore {
-			continue
-		}
-		fpart.WriteString("`")
-		fpart.WriteString(vv.FieldJsonName)
-		fpart.WriteString("`")
-		fpart.WriteString(",")
-	}
+	// 使用公共函数构建字段列表
+	fpart := bytes.NewBuffer(make([]byte, 0, 128))
+	self.buildFieldListFromModel(obv, &sqlc.Cnd{Escape: true}, fpart)
 	// 优化：直接操作 bytes，避免字符串转换
 	fbytes := fpart.Bytes()
 	// 优化：精确计算 sqlbuf 容量
 	// SQL: "select " + fbytes[0:len-1] + " from " + TableName + " where `" + PkName + "` = ? limit 1"
-	// 固定字节：7(select ) + 6( from ) + 9( where `) + 5(` = ?) + 8( limit 1) - 1(fbytes多减1因为要去掉逗号) = 34
+	// 固定字节：7(select ) + 6( from ) + 8( where `) + 5(` = ?) + 8( limit 1) - 1(fbytes多减1因为要去掉逗号) = 34
 	// 总计：34 + len(TableName) + len(PkName) + len(fbytes) - 1
 	sqlBufSize := 34 + len(obv.TableName) + len(obv.PkName) + len(fbytes) - 1
 	sqlbuf := bytes.NewBuffer(make([]byte, 0, sqlBufSize))
@@ -1086,6 +1102,7 @@ func (self *RDBManager) FindById(data sqlc.Object) error {
 
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
+		zlog.Debug("byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
 		defer zlog.Debug("[Mysql.FindById] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("value", lastInsertId))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
@@ -1141,31 +1158,20 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
 	if !ok {
 		return self.Error("[Mysql.FindOne] registration object type not found [", data.GetTable(), "]")
 	}
-	// 优化：精确计算 fpart 容量
-	fieldPartSize := 0
-	for _, vv := range obv.FieldElem {
-		if vv.Ignore {
-			continue
-		}
-		// "`" + FieldJsonName + "`," = len(FieldJsonName) + 3
-		fieldPartSize += len(vv.FieldJsonName) + 3
-	}
-	fpart := bytes.NewBuffer(make([]byte, 0, fieldPartSize))
-	for _, vv := range obv.FieldElem {
-		if vv.Ignore {
-			continue
-		}
-		fpart.WriteString("`")
-		fpart.WriteString(vv.FieldJsonName)
-		fpart.WriteString("`")
-		fpart.WriteString(",")
-	}
+	// 使用公共函数构建字段列表
+	fpart := bytes.NewBuffer(make([]byte, 0, 128))
+	self.buildFieldListFromModel(obv, &sqlc.Cnd{Escape: true}, fpart)
 	case_part, case_arg := self.BuildWhereCase(cnd.Offset(0, 1))
 	parameter := case_arg
 	sortby := self.BuildSortBy(cnd)
 	// 直接在主buffer中构建SQL，避免额外buffer
 	fbytes := fpart.Bytes()
-	sqlBufSize := 22 + len(obv.TableName) + (len(fbytes) - 1) + case_part.Len() + len(sortby)
+	// 根据是否有where条件调整固定字节数
+	fixedSize := 22 // "select " (7) + " from " (6) + " " (1) + " limit 1" (8) = 22
+	if case_part.Len() > 0 {
+		fixedSize += 6 // "where" (5) + " " (1)
+	}
+	sqlBufSize := fixedSize + len(obv.TableName) + (len(fbytes) - 1) + case_part.Len() + len(sortby)
 	sqlbuf := bytes.NewBuffer(make([]byte, 0, sqlBufSize))
 	sqlbuf.WriteString("select ")
 	if len(fbytes) > 1 {
@@ -1176,7 +1182,7 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
 	sqlbuf.WriteString(" ")
 	if case_part.Len() > 0 {
 		sqlbuf.WriteString("where")
-		// 去掉BuildWhereCase返回的最后的" and"（4字节）
+		// BuildWhereCase返回的已经是去掉了尾部" and"的，直接使用
 		sqlbuf.Write(case_part.Bytes())
 		sqlbuf.WriteString(" ")
 	}
@@ -1186,6 +1192,7 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
 	sqlbuf.WriteString(" limit 1")
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
+		zlog.Debug("byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
 		defer zlog.Debug("[Mysql.FindOne] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
@@ -1244,25 +1251,9 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	if !ok {
 		return self.Error("[Mysql.FindList] registration object type not found [", cnd.Model.GetTable(), "]")
 	}
-	// 优化：精确计算 fpart 容量
-	fieldPartSize := 0
-	for _, vv := range obv.FieldElem {
-		if vv.Ignore {
-			continue
-		}
-		// "`" + FieldJsonName + "`," = len(FieldJsonName) + 3
-		fieldPartSize += len(vv.FieldJsonName) + 3
-	}
-	fpart := bytes.NewBuffer(make([]byte, 0, fieldPartSize))
-	for _, vv := range obv.FieldElem {
-		if vv.Ignore {
-			continue
-		}
-		fpart.WriteString("`")
-		fpart.WriteString(vv.FieldJsonName)
-		fpart.WriteString("`")
-		fpart.WriteString(",")
-	}
+	// 使用公共函数构建字段列表
+	fpart := bytes.NewBuffer(make([]byte, 0, 128))
+	self.buildFieldListFromModel(obv, &sqlc.Cnd{Escape: true}, fpart)
 	case_part, case_arg := self.BuildWhereCase(cnd)
 	parameter := case_arg
 
@@ -1270,7 +1261,12 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	sortby := self.BuildSortBy(cnd)
 	// 直接在主buffer中构建SQL，避免额外buffer
 	fbytes := fpart.Bytes()
-	sqlBufSize := 14 + len(obv.TableName) + (len(fbytes) - 1) + case_part.Len() + len(groupby) + len(sortby)
+	// 根据是否有where条件调整固定字节数
+	fixedSize := 14 // "select " (7) + " from " (6) + " " (1) = 14
+	if case_part.Len() > 0 {
+		fixedSize += 5 // "where" (5)
+	}
+	sqlBufSize := fixedSize + len(obv.TableName) + (len(fbytes) - 1) + case_part.Len() + len(groupby) + len(sortby)
 	sqlbuf := bytes.NewBuffer(make([]byte, 0, sqlBufSize))
 	sqlbuf.WriteString("select ")
 	if len(fbytes) > 1 {
@@ -1281,9 +1277,8 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	sqlbuf.WriteString(" ")
 	if case_part.Len() > 0 {
 		sqlbuf.WriteString("where")
-		// 去掉BuildWhereCase返回的最后的" and"（4字节）
+		// BuildWhereCase返回的已经是去掉了尾部" and"的，直接使用
 		sqlbuf.Write(case_part.Bytes())
-		sqlbuf.WriteString(" ")
 	}
 	if len(groupby) > 0 {
 		sqlbuf.WriteString(groupby)
@@ -1298,6 +1293,7 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	}
 	prepare := utils.Bytes2Str(prepareBytes)
 	if zlog.IsDebug() {
+		zlog.Debug("byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
 		defer zlog.Debug("[Mysql.FindList] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
@@ -1410,22 +1406,27 @@ func (self *RDBManager) Count(cnd *sqlc.Cnd) (int64, error) {
 	parameter := case_arg
 	groupby := self.BuildGroupBy(cnd)
 	// 直接在主buffer中构建SQL，避免额外buffer
-	sqlBufSize := 22 + len(obv.TableName) + case_part.Len() + len(groupby)
+	// 根据是否有where条件调整固定字节数
+	fixedSize := 21 // "select count(1) from " (20) + " " (1) = 21
+	if case_part.Len() > 0 {
+		fixedSize += 5 // "where" (5)
+	}
+	sqlBufSize := fixedSize + len(obv.TableName) + case_part.Len() + len(groupby) + 1
 	sqlbuf := bytes.NewBuffer(make([]byte, 0, sqlBufSize))
 	sqlbuf.WriteString("select count(1) from ")
 	sqlbuf.WriteString(obv.TableName)
 	sqlbuf.WriteString(" ")
 	if case_part.Len() > 0 {
 		sqlbuf.WriteString("where")
-		// 去掉BuildWhereCase返回的最后的" and"（4字节）
+		// BuildWhereCase返回的已经是去掉了尾部" and"的，直接使用
 		sqlbuf.Write(case_part.Bytes())
-		sqlbuf.WriteString(" ")
 	}
 	if len(groupby) > 0 {
 		sqlbuf.WriteString(groupby)
 	}
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
+		zlog.Debug("byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
 		defer zlog.Debug("[Mysql.Count] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
@@ -1482,21 +1483,26 @@ func (self *RDBManager) Exists(cnd *sqlc.Cnd) (bool, error) {
 	case_part, case_arg := self.BuildWhereCase(cnd)
 	parameter := case_arg
 	// 直接在主buffer中构建SQL，避免额外buffer
-	sqlBufSize := 53 + len(obv.TableName) + case_part.Len()
+	// 根据是否有where条件调整固定字节数
+	fixedSize := 51 // "select exists(select 1 from " (27) + " " (1) + " limit 1 ) as pub_exists" (23) = 51
+	if case_part.Len() > 0 {
+		fixedSize += 5 // "where" (5)
+	}
+	sqlBufSize := fixedSize + len(obv.TableName) + case_part.Len() + 2
 	sqlbuf := bytes.NewBuffer(make([]byte, 0, sqlBufSize))
 	sqlbuf.WriteString("select exists(select 1 from ")
 	sqlbuf.WriteString(obv.TableName)
 	sqlbuf.WriteString(" ")
 	if case_part.Len() > 0 {
 		sqlbuf.WriteString("where")
-		// 去掉BuildWhereCase返回的最后的" and"（4字节）
+		// BuildWhereCase返回的已经是去掉了尾部" and"的，直接使用
 		sqlbuf.Write(case_part.Bytes())
-		sqlbuf.WriteString(" ")
 	}
 	sqlbuf.WriteString(" limit 1 ) as pub_exists")
 
 	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
+		zlog.Debug("byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
 		defer zlog.Debug("[Mysql.Exists] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
@@ -1528,6 +1534,169 @@ func (self *RDBManager) Exists(cnd *sqlc.Cnd) (bool, error) {
 		return false, self.Error("[Mysql.Exists] read result failed: ", err)
 	}
 	return exists > 0, nil
+}
+
+func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data sqlc.Object) error {
+	if data == nil {
+		return self.Error("[Mysql.FindOneComplex] data is nil")
+	}
+	if cnd.FromCond == nil || len(cnd.FromCond.Table) == 0 {
+		return self.Error("[Mysql.FindOneComplex] from table is nil")
+	}
+	if len(cnd.AnyFields) == 0 {
+		return self.Error("[Mysql.FindOneComplex] any fields is nil")
+	}
+	obv, ok := modelDrivers[data.GetTable()]
+	if !ok {
+		return self.Error("[Mysql.FindOneComplex] registration object type not found [", data.GetTable(), "]")
+	}
+	// 优化：精确计算 fpart 容量
+	fpartSize := 0
+	for _, vv := range cnd.AnyFields {
+		if cnd.Escape {
+			fpartSize += len(vv) + 3 // "`field`,"
+		} else {
+			fpartSize += len(vv) + 1 // "field,"
+		}
+	}
+	fpart := bytes.NewBuffer(make([]byte, 0, fpartSize))
+	for _, vv := range cnd.AnyFields {
+		if cnd.Escape {
+			fpart.WriteString("`")
+			fpart.WriteString(vv)
+			fpart.WriteString("`")
+		} else {
+			fpart.WriteString(vv)
+		}
+		fpart.WriteString(",")
+	}
+	fpartBytes := fpart.Bytes()
+
+	case_part, case_arg := self.BuildWhereCase(cnd.Offset(0, 1))
+	parameter := case_arg
+
+	groupby := self.BuildGroupBy(cnd)
+	sortby := self.BuildSortBy(cnd)
+
+	// 优化：计算 join 条件大小
+	joinSize := 0
+	for _, v := range cnd.JoinCond {
+		if len(v.Table) > 0 && len(v.On) > 0 {
+			if v.Type == sqlc.LEFT_ {
+				joinSize += 12 + len(v.Table) + 4 + len(v.On) // " left join " + table + " on " + on
+			} else if v.Type == sqlc.RIGHT_ {
+				joinSize += 13 + len(v.Table) + 4 + len(v.On) // " right join " + table + " on " + on
+			} else if v.Type == sqlc.INNER_ {
+				joinSize += 13 + len(v.Table) + 4 + len(v.On) // " inner join " + table + " on " + on
+			}
+		}
+	}
+
+	// 直接在主buffer中构建SQL，避免额外buffer
+	fpartLen := 0
+	if len(fpartBytes) > 0 {
+		fpartLen = len(fpartBytes) - 1
+	}
+	sqlBufSize := 23 + fpartLen + len(cnd.FromCond.Table) + len(cnd.FromCond.Alias) + case_part.Len() + joinSize + len(groupby) + len(sortby)
+	sqlbuf := bytes.NewBuffer(make([]byte, 0, sqlBufSize))
+	sqlbuf.WriteString("select ")
+	if fpartLen > 0 {
+		sqlbuf.Write(fpartBytes[0:fpartLen])
+	}
+	sqlbuf.WriteString(" from ")
+	sqlbuf.WriteString(cnd.FromCond.Table)
+	sqlbuf.WriteString(" ")
+	sqlbuf.WriteString(cnd.FromCond.Alias)
+	sqlbuf.WriteString(" ")
+	if len(cnd.JoinCond) > 0 {
+		for _, v := range cnd.JoinCond {
+			if len(v.Table) == 0 || len(v.On) == 0 {
+				continue
+			}
+			if v.Type == sqlc.LEFT_ {
+				sqlbuf.WriteString(" left join ")
+			} else if v.Type == sqlc.RIGHT_ {
+				sqlbuf.WriteString(" right join ")
+			} else if v.Type == sqlc.INNER_ {
+				sqlbuf.WriteString(" inner join ")
+			} else {
+				continue
+			}
+			sqlbuf.WriteString(v.Table)
+			sqlbuf.WriteString(" on ")
+			sqlbuf.WriteString(v.On)
+			sqlbuf.WriteString(" ")
+		}
+	}
+	if case_part.Len() > 0 {
+		sqlbuf.WriteString("where")
+		// BuildWhereCase返回的已经是去掉了尾部" and"的，直接使用
+		sqlbuf.Write(case_part.Bytes())
+		sqlbuf.WriteString(" ")
+	}
+	if len(groupby) > 0 {
+		sqlbuf.WriteString(groupby)
+	}
+	if len(sortby) > 0 {
+		sqlbuf.WriteString(sortby)
+	}
+	sqlbuf.WriteString(" limit 1")
+
+	prepare := utils.Bytes2Str(sqlbuf.Bytes())
+	if zlog.IsDebug() {
+		zlog.Debug("byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
+		defer zlog.Debug("[Mysql.FindOneComplex] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
+	defer cancel()
+	var err error
+	var stmt *sql.Stmt
+	var rows *sql.Rows
+	if self.OpenTx {
+		stmt, err = self.Tx.PrepareContext(ctx, prepare)
+	} else {
+		stmt, err = self.Db.PrepareContext(ctx, prepare)
+	}
+	if err != nil {
+		return self.Error("[Mysql.FindOneComplex] [ ", prepare, " ] prepare failed: ", err)
+	}
+	defer stmt.Close()
+	rows, err = stmt.QueryContext(ctx, parameter...)
+	if err != nil {
+		return self.Error("[Mysql.FindOneComplex] query failed: ", err)
+	}
+	defer rows.Close()
+	cols, err := rows.Columns()
+	if err != nil {
+		return self.Error("[Mysql.FindOneComplex] read columns failed: ", err)
+	}
+	if len(cols) != len(cnd.AnyFields) {
+		return self.Error("[Mysql.FindOneComplex] read columns length invalid")
+	}
+	var first [][]byte
+	if out, err := OutDestWithCapacity(rows, len(cols), 1); err != nil {
+		return self.Error("[Mysql.FindOneComplex] read result failed: ", err)
+	} else if len(out) == 0 {
+		return nil
+	} else {
+		first = out[0]
+	}
+	// 优化：建立字段名到字段信息的映射，避免O(n²)查找
+	fieldMap := make(map[string]*FieldElem, len(obv.FieldElem))
+	for _, vv := range obv.FieldElem {
+		if !vv.Ignore {
+			fieldMap[vv.FieldJsonName] = vv
+		}
+	}
+
+	for i := 0; i < len(cols); i++ {
+		if field, ok := fieldMap[cols[i]]; ok {
+			if err := SetValue(data, field, first[i]); err != nil {
+				return self.Error(err)
+			}
+		}
+	}
+	return nil
 }
 
 func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
@@ -1627,7 +1796,7 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 	}
 	if case_part.Len() > 0 {
 		sqlbuf.WriteString("where")
-		// 去掉BuildWhereCase返回的最后的" and"（4字节）
+		// BuildWhereCase返回的已经是去掉了尾部" and"的，直接使用
 		sqlbuf.Write(case_part.Bytes())
 		sqlbuf.WriteString(" ")
 	}
@@ -1644,6 +1813,7 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 	}
 	prepare := utils.Bytes2Str(prepareBytes)
 	if zlog.IsDebug() {
+		zlog.Debug("byte size", 0, zlog.Int("estimatedSize", sqlbufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
 		defer zlog.Debug("[Mysql.FindListComplex] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
@@ -1735,168 +1905,6 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 			targetSlice.Index(i).Set(reflect.ValueOf(object))
 		}
 		resultv.Elem().Set(targetSlice)
-	}
-	return nil
-}
-
-func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data sqlc.Object) error {
-	if data == nil {
-		return self.Error("[Mysql.FindOneComplex] data is nil")
-	}
-	if cnd.FromCond == nil || len(cnd.FromCond.Table) == 0 {
-		return self.Error("[Mysql.FindOneComplex] from table is nil")
-	}
-	if len(cnd.AnyFields) == 0 {
-		return self.Error("[Mysql.FindOneComplex] any fields is nil")
-	}
-	obv, ok := modelDrivers[data.GetTable()]
-	if !ok {
-		return self.Error("[Mysql.FindOneComplex] registration object type not found [", data.GetTable(), "]")
-	}
-	// 优化：精确计算 fpart 容量
-	fpartSize := 0
-	for _, vv := range cnd.AnyFields {
-		if cnd.Escape {
-			fpartSize += len(vv) + 3 // "`field`,"
-		} else {
-			fpartSize += len(vv) + 1 // "field,"
-		}
-	}
-	fpart := bytes.NewBuffer(make([]byte, 0, fpartSize))
-	for _, vv := range cnd.AnyFields {
-		if cnd.Escape {
-			fpart.WriteString("`")
-			fpart.WriteString(vv)
-			fpart.WriteString("`")
-		} else {
-			fpart.WriteString(vv)
-		}
-		fpart.WriteString(",")
-	}
-	fpartBytes := fpart.Bytes()
-
-	case_part, case_arg := self.BuildWhereCase(cnd.Offset(0, 1))
-	parameter := case_arg
-
-	groupby := self.BuildGroupBy(cnd)
-	sortby := self.BuildSortBy(cnd)
-
-	// 优化：计算 join 条件大小
-	joinSize := 0
-	for _, v := range cnd.JoinCond {
-		if len(v.Table) > 0 && len(v.On) > 0 {
-			if v.Type == sqlc.LEFT_ {
-				joinSize += 12 + len(v.Table) + 4 + len(v.On) // " left join " + table + " on " + on
-			} else if v.Type == sqlc.RIGHT_ {
-				joinSize += 13 + len(v.Table) + 4 + len(v.On) // " right join " + table + " on " + on
-			} else if v.Type == sqlc.INNER_ {
-				joinSize += 13 + len(v.Table) + 4 + len(v.On) // " inner join " + table + " on " + on
-			}
-		}
-	}
-
-	// 直接在主buffer中构建SQL，避免额外buffer
-	fpartLen := 0
-	if len(fpartBytes) > 0 {
-		fpartLen = len(fpartBytes) - 1
-	}
-	sqlbufSize := 23 + fpartLen + len(cnd.FromCond.Table) + len(cnd.FromCond.Alias) + case_part.Len() + joinSize + len(groupby) + len(sortby)
-	sqlbuf := bytes.NewBuffer(make([]byte, 0, sqlbufSize))
-	sqlbuf.WriteString("select ")
-	if fpartLen > 0 {
-		sqlbuf.Write(fpartBytes[0:fpartLen])
-	}
-	sqlbuf.WriteString(" from ")
-	sqlbuf.WriteString(cnd.FromCond.Table)
-	sqlbuf.WriteString(" ")
-	sqlbuf.WriteString(cnd.FromCond.Alias)
-	sqlbuf.WriteString(" ")
-	if len(cnd.JoinCond) > 0 {
-		for _, v := range cnd.JoinCond {
-			if len(v.Table) == 0 || len(v.On) == 0 {
-				continue
-			}
-			if v.Type == sqlc.LEFT_ {
-				sqlbuf.WriteString(" left join ")
-			} else if v.Type == sqlc.RIGHT_ {
-				sqlbuf.WriteString(" right join ")
-			} else if v.Type == sqlc.INNER_ {
-				sqlbuf.WriteString(" inner join ")
-			} else {
-				continue
-			}
-			sqlbuf.WriteString(v.Table)
-			sqlbuf.WriteString(" on ")
-			sqlbuf.WriteString(v.On)
-			sqlbuf.WriteString(" ")
-		}
-	}
-	if case_part.Len() > 0 {
-		sqlbuf.WriteString("where")
-		// 去掉BuildWhereCase返回的最后的" and"（4字节）
-		sqlbuf.Write(case_part.Bytes())
-		sqlbuf.WriteString(" ")
-	}
-	if len(groupby) > 0 {
-		sqlbuf.WriteString(groupby)
-	}
-	if len(sortby) > 0 {
-		sqlbuf.WriteString(sortby)
-	}
-	sqlbuf.WriteString(" limit 1")
-
-	prepare := utils.Bytes2Str(sqlbuf.Bytes())
-	if zlog.IsDebug() {
-		defer zlog.Debug("[Mysql.FindOneComplex] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
-	defer cancel()
-	var err error
-	var stmt *sql.Stmt
-	var rows *sql.Rows
-	if self.OpenTx {
-		stmt, err = self.Tx.PrepareContext(ctx, prepare)
-	} else {
-		stmt, err = self.Db.PrepareContext(ctx, prepare)
-	}
-	if err != nil {
-		return self.Error("[Mysql.FindOneComplex] [ ", prepare, " ] prepare failed: ", err)
-	}
-	defer stmt.Close()
-	rows, err = stmt.QueryContext(ctx, parameter...)
-	if err != nil {
-		return self.Error("[Mysql.FindOneComplex] query failed: ", err)
-	}
-	defer rows.Close()
-	cols, err := rows.Columns()
-	if err != nil {
-		return self.Error("[Mysql.FindOneComplex] read columns failed: ", err)
-	}
-	if len(cols) != len(cnd.AnyFields) {
-		return self.Error("[Mysql.FindOneComplex] read columns length invalid")
-	}
-	var first [][]byte
-	if out, err := OutDestWithCapacity(rows, len(cols), 1); err != nil {
-		return self.Error("[Mysql.FindOneComplex] read result failed: ", err)
-	} else if len(out) == 0 {
-		return nil
-	} else {
-		first = out[0]
-	}
-	// 优化：建立字段名到字段信息的映射，避免O(n²)查找
-	fieldMap := make(map[string]*FieldElem, len(obv.FieldElem))
-	for _, vv := range obv.FieldElem {
-		if !vv.Ignore {
-			fieldMap[vv.FieldJsonName] = vv
-		}
-	}
-
-	for i := 0; i < len(cols); i++ {
-		if field, ok := fieldMap[cols[i]]; ok {
-			if err := SetValue(data, field, first[i]); err != nil {
-				return self.Error(err)
-			}
-		}
 	}
 	return nil
 }
@@ -2009,15 +2017,47 @@ func OutDestWithCapacity(rows *sql.Rows, flen int, estimatedRows int) ([][][]byt
 	return out, nil
 }
 
-// BuildCondKey 将条件键写入传入的buffer
+// BuildCondKey 将条件键写入传入的buffer（不包含前导空格）
 func (self *RDBManager) BuildCondKey(cnd *sqlc.Cnd, key string, buf *bytes.Buffer) {
-	buf.WriteString(" ")
 	if cnd.Escape {
-		buf.WriteString("`")
+		buf.WriteString(BACKTICK)
 		buf.WriteString(key)
-		buf.WriteString("`")
+		buf.WriteString(BACKTICK)
 	} else {
 		buf.WriteString(key)
+	}
+}
+
+// buildFieldList 构建字段列表到buffer（公共函数）
+func (self *RDBManager) buildFieldList(cnd *sqlc.Cnd, fields []string, buf *bytes.Buffer) {
+	for i, field := range fields {
+		if i > 0 {
+			buf.WriteString(COMMA)
+		}
+		if cnd.Escape {
+			buf.WriteString(BACKTICK)
+			buf.WriteString(field)
+			buf.WriteString(BACKTICK)
+		} else {
+			buf.WriteString(field)
+		}
+	}
+}
+
+// buildFieldListFromModel 构建模型字段列表到buffer（公共函数）
+func (self *RDBManager) buildFieldListFromModel(obv *MdlDriver, cnd *sqlc.Cnd, buf *bytes.Buffer) {
+	for _, vv := range obv.FieldElem {
+		if vv.Ignore {
+			continue
+		}
+		if cnd.Escape {
+			buf.WriteString(BACKTICK)
+			buf.WriteString(vv.FieldJsonName)
+			buf.WriteString(BACKTICK)
+		} else {
+			buf.WriteString(vv.FieldJsonName)
+		}
+		buf.WriteString(COMMA)
 	}
 }
 
@@ -2175,9 +2215,6 @@ func (self *RDBManager) BuildWhereCase(cnd *sqlc.Cnd) (*bytes.Buffer, []interfac
 	// 递归构建函数，确保全程使用同一个buffer
 	self.buildWhereCaseRecursive(cnd, case_part, &case_arg, true)
 
-	fmt.Println(estimated.estimatedSize, case_part.Len())
-	fmt.Println(estimated.estimatedArgs, len(case_arg))
-
 	return case_part, case_arg
 }
 
@@ -2195,117 +2232,131 @@ func (self *RDBManager) buildWhereCaseRecursive(cnd *sqlc.Cnd, buf *bytes.Buffer
 
 		switch v.Logic {
 		case sqlc.EQ_:
+			buf.WriteString(SPACE)
 			self.BuildCondKey(cnd, key, buf)
-			buf.WriteString(" = ?")
+			buf.WriteString(EQUALS)
 			if writeTrailingAnd {
 				buf.WriteString(" and")
 			}
 			*args = append(*args, value)
 		case sqlc.NOT_EQ_:
+			buf.WriteString(SPACE)
 			self.BuildCondKey(cnd, key, buf)
-			buf.WriteString(" <> ?")
+			buf.WriteString(NOT_EQUALS)
 			if writeTrailingAnd {
 				buf.WriteString(" and")
 			}
 			*args = append(*args, value)
 		case sqlc.LT_:
+			buf.WriteString(SPACE)
 			self.BuildCondKey(cnd, key, buf)
-			buf.WriteString(" < ?")
+			buf.WriteString(LESS_THAN)
 			if writeTrailingAnd {
-				buf.WriteString(" and")
+				buf.WriteString(AND)
 			}
 			*args = append(*args, value)
 		case sqlc.LTE_:
+			buf.WriteString(SPACE)
 			self.BuildCondKey(cnd, key, buf)
-			buf.WriteString(" <= ?")
+			buf.WriteString(LESS_EQUAL)
 			if writeTrailingAnd {
-				buf.WriteString(" and")
+				buf.WriteString(AND)
 			}
 			*args = append(*args, value)
 		case sqlc.GT_:
+			buf.WriteString(SPACE)
 			self.BuildCondKey(cnd, key, buf)
-			buf.WriteString(" > ?")
+			buf.WriteString(GREATER_THAN)
 			if writeTrailingAnd {
-				buf.WriteString(" and")
+				buf.WriteString(AND)
 			}
 			*args = append(*args, value)
 		case sqlc.GTE_:
+			buf.WriteString(SPACE)
 			self.BuildCondKey(cnd, key, buf)
-			buf.WriteString(" >= ?")
+			buf.WriteString(GREATER_EQUAL)
 			if writeTrailingAnd {
-				buf.WriteString(" and")
+				buf.WriteString(AND)
 			}
 			*args = append(*args, value)
 		case sqlc.IS_NULL_:
+			buf.WriteString(SPACE)
 			self.BuildCondKey(cnd, key, buf)
-			buf.WriteString(" is null")
+			buf.WriteString(IS_NULL)
 			if writeTrailingAnd {
-				buf.WriteString(" and")
+				buf.WriteString(AND)
 			}
 		case sqlc.IS_NOT_NULL_:
+			buf.WriteString(SPACE)
 			self.BuildCondKey(cnd, key, buf)
-			buf.WriteString(" is not null")
+			buf.WriteString(IS_NOT_NULL)
 			if writeTrailingAnd {
-				buf.WriteString(" and")
+				buf.WriteString(AND)
 			}
 		case sqlc.BETWEEN_:
+			buf.WriteString(SPACE)
 			self.BuildCondKey(cnd, key, buf)
-			buf.WriteString(" between ? and ?")
+			buf.WriteString(BETWEEN)
 			if writeTrailingAnd {
-				buf.WriteString(" and")
+				buf.WriteString(AND)
 			}
 			*args = append(*args, values[0], values[1])
 		case sqlc.NOT_BETWEEN_:
+			buf.WriteString(SPACE)
 			self.BuildCondKey(cnd, key, buf)
-			buf.WriteString(" not between ? and ?")
+			buf.WriteString(NOT_BETWEEN)
 			if writeTrailingAnd {
-				buf.WriteString(" and")
+				buf.WriteString(AND)
 			}
 			*args = append(*args, values[0], values[1])
 		case sqlc.IN_:
+			buf.WriteString(SPACE)
 			self.BuildCondKey(cnd, key, buf)
-			buf.WriteString(" in(")
+			buf.WriteString(IN_START)
 			for i, vv := range values {
 				if i > 0 {
-					buf.WriteString(",")
+					buf.WriteString(COMMA)
 				}
-				buf.WriteString("?")
+				buf.WriteString(QUESTION)
 				*args = append(*args, vv)
 			}
-			buf.WriteString(")")
+			buf.WriteString(IN_END)
 			if writeTrailingAnd {
-				buf.WriteString(" and")
+				buf.WriteString(AND)
 			}
 		case sqlc.NOT_IN_:
+			buf.WriteString(SPACE)
 			self.BuildCondKey(cnd, key, buf)
-			buf.WriteString(" not in(")
+			buf.WriteString(NOT_IN_START)
 			for i, vv := range values {
 				if i > 0 {
-					buf.WriteString(",")
+					buf.WriteString(COMMA)
 				}
-				buf.WriteString("?")
+				buf.WriteString(QUESTION)
 				*args = append(*args, vv)
 			}
-			buf.WriteString(")")
+			buf.WriteString(IN_END)
 			if writeTrailingAnd {
-				buf.WriteString(" and")
+				buf.WriteString(AND)
 			}
 		case sqlc.LIKE_:
+			buf.WriteString(SPACE)
 			self.BuildCondKey(cnd, key, buf)
-			buf.WriteString(" like concat('%',?,'%')")
+			buf.WriteString(LIKE)
 			if writeTrailingAnd {
-				buf.WriteString(" and")
+				buf.WriteString(AND)
 			}
 			*args = append(*args, value)
 		case sqlc.NOT_LIKE_:
+			buf.WriteString(SPACE)
 			self.BuildCondKey(cnd, key, buf)
-			buf.WriteString(" not like concat('%',?,'%')")
+			buf.WriteString(NOT_LIKE)
 			if writeTrailingAnd {
-				buf.WriteString(" and")
+				buf.WriteString(AND)
 			}
 			*args = append(*args, value)
 		case sqlc.OR_:
-			buf.WriteString(" (")
+			buf.WriteString(PAREN_OPEN)
 			first := true
 			for _, sv := range values {
 				c, ok := sv.(*sqlc.Cnd)
@@ -2313,15 +2364,15 @@ func (self *RDBManager) buildWhereCaseRecursive(cnd *sqlc.Cnd, buf *bytes.Buffer
 					continue
 				}
 				if !first {
-					buf.WriteString(" or ")
+					buf.WriteString(OR)
 				}
 				first = false
 				// 直接在主buffer构建子条件，条件间写" and"，但会自动去掉尾部" and"
 				self.buildWhereCaseRecursive(c, buf, args, true)
 			}
-			buf.WriteString(")")
+			buf.WriteString(PAREN_CLOSE)
 			if writeTrailingAnd {
-				buf.WriteString(" and")
+				buf.WriteString(AND)
 			}
 		}
 	}
@@ -2329,7 +2380,7 @@ func (self *RDBManager) buildWhereCaseRecursive(cnd *sqlc.Cnd, buf *bytes.Buffer
 	// 如果允许写尾部and且有条件，则去掉最后的" and"
 	if writeTrailingAnd && conditionsLen > 0 {
 		bufBytes := buf.Bytes()
-		if len(bufBytes) >= 4 { // " and" = 4字节
+		if len(bufBytes) >= 4 { // AND = 4字节
 			buf.Truncate(len(bufBytes) - 4)
 		}
 	}
