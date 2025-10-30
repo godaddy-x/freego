@@ -1126,7 +1126,7 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
 		return self.Error("[Mysql.FindOne] read columns failed: ", err)
 	}
 	var first [][]byte
-	out, err := OutDestWithCapacity(rows, len(cols), 1)
+	out, err := OutDestWithCapacity(obv, rows, cols, 1)
 	// 显式释放字节数组对象
 	defer ReleaseOutDest(out)
 	if err != nil {
@@ -1239,7 +1239,7 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 		estimatedRows = int(cnd.Pagination.PageSize)
 	}
 
-	out, err := OutDestWithCapacity(rows, len(cols), estimatedRows)
+	out, err := OutDestWithCapacity(obv, rows, cols, estimatedRows)
 	// 显式释放字节数组对象
 	defer ReleaseOutDest(out)
 	if err != nil {
@@ -1592,7 +1592,7 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data sqlc.Object) error {
 		return self.Error("[Mysql.FindOneComplex] read columns length invalid")
 	}
 	var first [][]byte
-	out, err := OutDestWithCapacity(rows, len(cols), 1)
+	out, err := OutDestWithCapacity(obv, rows, cols, 1)
 	// 显式释放字节数组对象
 	defer ReleaseOutDest(out)
 	if err != nil {
@@ -1767,7 +1767,7 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 	if len(cols) != len(cnd.AnyFields) {
 		return self.Error("[Mysql.FindListComplex] read columns length invalid")
 	}
-	out, err := OutDestWithCapacity(rows, len(cols), 0)
+	out, err := OutDestWithCapacity(obv, rows, cols, 0)
 	// 显式释放字节数组对象
 	defer ReleaseOutDest(out)
 	if err != nil {
@@ -1903,11 +1903,6 @@ func (self *RDBManager) mongoSyncData(option int, model sqlc.Object, cnd *sqlc.C
 	return nil
 }
 
-// 输出查询结果集
-//func OutDest(rows *sql.Rows, flen int) ([][][]byte, error) {
-//	return OutDestWithCapacity(rows, flen, 0)
-//}
-
 // 全局对象池：复用 [][]byte（每行数据的切片容器），避免每次循环创建新切片
 var rowByteSlicePool = sync.Pool{
 	New: func() interface{} {
@@ -1928,8 +1923,9 @@ func ReleaseOutDest(out [][][]byte) {
 }
 
 // OutDestWithCapacity 带容量预估的查询结果集输出，减少内存分配
-func OutDestWithCapacity(rows *sql.Rows, flen int, estimatedRows int) ([][][]byte, error) {
+func OutDestWithCapacity(obv *MdlDriver, rows *sql.Rows, cols []string, estimatedRows int) ([][][]byte, error) {
 	// 1. 优化外层 out 切片预分配：按预估行数定容量，减少 append 扩容
+	flen := len(cols)
 	initialCap := 16
 	if estimatedRows > 0 {
 		initialCap = estimatedRows

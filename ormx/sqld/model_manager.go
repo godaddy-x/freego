@@ -5,10 +5,11 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"github.com/godaddy-x/freego/zlog"
 	"reflect"
 	"strings"
 	"time"
+
+	"github.com/godaddy-x/freego/zlog"
 
 	"github.com/godaddy-x/freego/ormx/sqlc"
 	"github.com/godaddy-x/freego/utils"
