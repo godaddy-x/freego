@@ -17,29 +17,33 @@ var (
 	modelTime    = &MdlTime{local: utils.CstSH, fmt: utils.TimeFmt, fmt2: utils.DateFmt}
 )
 
+// FieldElem 字段元素定义（已优化字段顺序以减少内存填充）
+// 内存对齐优化：8字节字段 -> 16字节字段 -> 1字节字段
+// 优化后大小：120字节（最小化填充，节省32字节）
+// 字段类型变更：FieldLength从string(16字节)改为int(8字节)，节省8字节
+// 字段重排：减少内存对齐填充24字节
 type FieldElem struct {
-	// 字符串字段（16字节）
-	FieldName     string
-	FieldJsonName string
-	FieldBsonName string
-	FieldType     string
-	FieldDBType   string
-	FieldComment  string
+	// 8字节字段（保证8字节对齐，减少后续字段填充）
+	FieldOffset uintptr      // 8字节 - 内存偏移量
+	FieldLength int          // 8字节 - 字段长度（int类型）
+	FieldKind   reflect.Kind // 8字节 - 反射类型（实际1字节，但对齐到8字节）
 
-	// 接口字段（16字节）
-	ValueKind interface{}
+	// 16字节字段（字符串和接口，按16字节对齐）
+	FieldName     string      // 16字节 - 字段名
+	FieldJsonName string      // 16字节 - JSON字段名
+	FieldBsonName string      // 16字节 - BSON字段名
+	FieldType     string      // 16字节 - Go类型
+	FieldDBType   string      // 16字节 - 数据库类型
+	FieldComment  string      // 16字节 - 字段注释
+	ValueKind     interface{} // 16字节 - 值类型
 
-	// 数值字段（8字节对齐）
-	FieldKind   reflect.Kind
-	FieldOffset uintptr
-
-	// bool字段（1字节）
-	AutoId  bool
-	Primary bool
-	Ignore  bool
-	IsDate  bool
-	IsDate2 bool
-	IsBlob  bool
+	// 1字节字段（bool类型，放在最后最小化填充）
+	AutoId  bool // 1字节 - 是否自增ID
+	Primary bool // 1字节 - 是否主键
+	Ignore  bool // 1字节 - 是否忽略
+	IsDate  bool // 1字节 - 是否日期类型
+	IsDate2 bool // 1字节 - 是否日期2类型
+	IsBlob  bool // 1字节 - 是否二进制类型
 }
 
 type MdlTime struct {

@@ -1126,9 +1126,13 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
 		return self.Error("[Mysql.FindOne] read columns failed: ", err)
 	}
 	var first [][]byte
-	if out, err := OutDestWithCapacity(rows, len(cols), 1); err != nil {
+	out, err := OutDestWithCapacity(rows, len(cols), 1)
+	// 显式释放字节数组对象
+	defer ReleaseOutDest(out)
+	if err != nil {
 		return self.Error("[Mysql.FindOne] read result failed: ", err)
-	} else if len(out) == 0 {
+	}
+	if len(out) == 0 {
 		return nil
 	} else {
 		first = out[0]
@@ -1236,9 +1240,12 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	}
 
 	out, err := OutDestWithCapacity(rows, len(cols), estimatedRows)
+	// 显式释放字节数组对象
+	defer ReleaseOutDest(out)
 	if err != nil {
 		return self.Error("[Mysql.FindList] read result failed: ", err)
-	} else if len(out) == 0 {
+	}
+	if len(out) == 0 {
 		if cnd.Pagination.IsPage {
 			cnd.Pagination.PageCount = 0
 			cnd.Pagination.PageTotal = 0
@@ -1585,9 +1592,13 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data sqlc.Object) error {
 		return self.Error("[Mysql.FindOneComplex] read columns length invalid")
 	}
 	var first [][]byte
-	if out, err := OutDestWithCapacity(rows, len(cols), 1); err != nil {
+	out, err := OutDestWithCapacity(rows, len(cols), 1)
+	// 显式释放字节数组对象
+	defer ReleaseOutDest(out)
+	if err != nil {
 		return self.Error("[Mysql.FindOneComplex] read result failed: ", err)
-	} else if len(out) == 0 {
+	}
+	if len(out) == 0 {
 		return nil
 	} else {
 		first = out[0]
@@ -1757,9 +1768,12 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 		return self.Error("[Mysql.FindListComplex] read columns length invalid")
 	}
 	out, err := OutDestWithCapacity(rows, len(cols), 0)
+	// 显式释放字节数组对象
+	defer ReleaseOutDest(out)
 	if err != nil {
 		return self.Error("[Mysql.FindListComplex] read result failed: ", err)
-	} else if len(out) == 0 {
+	}
+	if len(out) == 0 {
 		if cnd.Pagination.IsPage {
 			cnd.Pagination.PageCount = 0
 			cnd.Pagination.PageTotal = 0
@@ -1894,42 +1908,97 @@ func (self *RDBManager) mongoSyncData(option int, model sqlc.Object, cnd *sqlc.C
 //	return OutDestWithCapacity(rows, flen, 0)
 //}
 
-// OutDestWithCapacity 带容量预估的查询结果集输出
-func OutDestWithCapacity(rows *sql.Rows, flen int, estimatedRows int) ([][][]byte, error) {
-	// 优化：根据预估行数智能分配容量
-	var initialCap int
-	if estimatedRows > 0 {
-		// 使用预估行数，但限制最大容量避免过度分配
-		if estimatedRows > 10000 {
-			initialCap = 10000 // 限制最大初始容量
-		} else {
-			initialCap = estimatedRows
-		}
-	} else {
-		initialCap = 16 // 默认容量
-	}
+// 全局对象池：复用 [][]byte（每行数据的切片容器），避免每次循环创建新切片
+var rowByteSlicePool = sync.Pool{
+	New: func() interface{} {
+		// 优化：预分配合理的容量，减少扩容开销
+		// 32 是常见的字段数，预留一些缓冲空间
+		return make([][]byte, 0, 32)
+	},
+}
 
+// ReleaseOutDest 释放资源（必须调用）
+func ReleaseOutDest(out [][][]byte) {
+	if out == nil {
+		return
+	}
+	for _, rets := range out {
+		rowByteSlicePool.Put(rets)
+	}
+}
+
+// OutDestWithCapacity 带容量预估的查询结果集输出，减少内存分配
+func OutDestWithCapacity(rows *sql.Rows, flen int, estimatedRows int) ([][][]byte, error) {
+	// 1. 优化外层 out 切片预分配：按预估行数定容量，减少 append 扩容
+	initialCap := 16
+	if estimatedRows > 0 {
+		initialCap = estimatedRows
+		if initialCap > 10000 { // 限制最大预分配，避免内存浪费
+			initialCap = 10000
+		}
+	}
 	out := make([][][]byte, 0, initialCap)
 
-	// 优化：复用 dest 数组，避免每次循环都分配
-	// dest 数组只是指针容器，每次循环只需要更新指针指向即可
+	// 2. 复用 dest 数组：全程只分配1次，避免每次循环创建接口切片
 	dest := make([]interface{}, flen)
 
+	// 3. 循环扫描：复用 [][]byte 容器，减少每行的切片分配
 	for rows.Next() {
-		rets := make([][]byte, flen)
-		// 更新 dest 中的指针指向新的 rets
-		for i := range rets {
-			dest[i] = &rets[i]
+		// 从对象池获取复用的 [][]byte（避免每次 make([][]byte, flen)）
+		rets := rowByteSlicePool.Get().([][]byte)
+
+		// 优化：简化容量调整逻辑，减少判断分支
+		currentLen := len(rets)
+		currentCap := cap(rets)
+
+		if currentCap >= flen {
+			// 容量足够，使用现有切片
+			rets = rets[:flen]
+			// 补充缺失的子切片
+			for i := currentLen; i < flen; i++ {
+				rets[i] = make([]byte, 0, 64) // 预分配容量
+			}
+		} else {
+			// 容量不足，重建切片但复用可用的子切片
+			newRets := make([][]byte, flen)
+			if currentLen > 0 {
+				copy(newRets, rets[:min(currentLen, flen)])
+			}
+			// 为新位置创建子切片
+			for i := currentLen; i < flen; i++ {
+				newRets[i] = make([]byte, 0, 64)
+			}
+			rets = newRets
 		}
+
+		// 优化：合并重置和绑定操作，减少循环次数
+		for i := 0; i < flen; i++ {
+			rets[i] = rets[i][:0] // 重置长度，复用底层数组
+			dest[i] = &rets[i]    // 绑定指针
+		}
+
+		// 扫描数据
 		if err := rows.Scan(dest...); err != nil {
 			return nil, utils.Error("rows scan failed: ", err)
 		}
+
 		out = append(out, rets)
 	}
+
+	// 检查迭代错误
 	if err := rows.Err(); err != nil {
 		return nil, utils.Error("rows.Err(): ", err)
 	}
+
 	return out, nil
+}
+
+// min 返回两个整数中的较小值
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // BuildCondKey 将条件键写入传入的buffer（不包含前导空格）
