@@ -176,7 +176,7 @@ func TestMysqlFindOne(t *testing.T) {
 	}
 	defer db.Close()
 	wallet := OwWallet{}
-	if err := db.FindOne(sqlc.M().Eq("id", 1983681980977381376).Orderby("id", sqlc.DESC_), &wallet); err != nil {
+	if err := db.FindOne(sqlc.M().Eq("id", 218418572484169728).Orderby("id", sqlc.DESC_), &wallet); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println(wallet)
@@ -191,7 +191,7 @@ func TestMysqlFindList(t *testing.T) {
 	defer db.Close()
 	l := utils.UnixMilli()
 	var result []*OwWallet
-	if err := db.FindList(sqlc.M(&OwWallet{}).Eq("id", 1983681980977381376).Between("id", 1983681980977381376, 1983681980977381376).Limit(1, 1000).Orderby("id", sqlc.DESC_).Orderby("appID", sqlc.ASC_), &result); err != nil {
+	if err := db.FindList(sqlc.M(&OwWallet{}).Between("id", 1983681980977381376, 2983681980977381376).Limit(1, 1000).Orderby("id", sqlc.DESC_).Orderby("appID", sqlc.ASC_), &result); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println(result)
