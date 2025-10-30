@@ -283,6 +283,57 @@ var typeCapacityPresets = map[string]func(dbDefinedLen int) int{
 		}
 		return min(dbDefinedLen, 256) // 限制最大256
 	},
+
+	// 高精度小数：结合数据库定义的精度（M,D）
+	"decimal": func(dbDefinedLen int) int {
+		if dbDefinedLen <= 0 {
+			return 16 // 默认精度
+		}
+		// 总长度 = 数字位数 + 小数点 + 符号（如 -123.45 共6字符）
+		return min(dbDefinedLen+2, 32) // 限制最大32
+	},
+
+	// 位类型：按位数计算字节数
+	"bit": func(dbDefinedLen int) int {
+		if dbDefinedLen <= 0 {
+			return 8 // 默认1字节
+		}
+		// 向上取整到字节边界
+		return (dbDefinedLen + 7) / 8
+	},
+
+	// 二进制类型：定长和变长
+	"binary": func(dbDefinedLen int) int {
+		if dbDefinedLen <= 0 {
+			return 64 // 兜底
+		}
+		// binary是定长，直接用定义长度（限制最大256，避免超长）
+		return min(dbDefinedLen, 256)
+	},
+	"varbinary": func(dbDefinedLen int) int {
+		if dbDefinedLen <= 0 {
+			return 128 // 兜底
+		}
+		// 按数据库定义长度动态调整（高频短二进制不缩减）
+		switch {
+		case dbDefinedLen <= 32:
+			return dbDefinedLen // 短二进制直接用定义长度
+		case dbDefinedLen <= 256:
+			return dbDefinedLen * 3 / 4 // 中等长度：75%
+		case dbDefinedLen <= 1024:
+			return dbDefinedLen / 2 // 较长：50%
+		default:
+			return min(dbDefinedLen/4, 1024) // 超长：限制最大1024
+		}
+	},
+
+	// 大二进制对象：数据库定义无长度，按类型分级
+	"blob":       func(int) int { return 512 },
+	"mediumblob": func(int) int { return 2048 },
+	"longblob":   func(int) int { return 8192 },
+
+	// JSON类型：MySQL 8.0+
+	"json": func(int) int { return 1024 },
 }
 
 // GetPresetCapacity 根据字段类型和数据库定义长度获取预分配容量
