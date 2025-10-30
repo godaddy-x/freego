@@ -176,7 +176,7 @@ func TestMysqlFindOne(t *testing.T) {
 	}
 	defer db.Close()
 	wallet := OwWallet{}
-	if err := db.FindOne(sqlc.M().Eq("id", 218418572484169728).Orderby("id", sqlc.DESC_), &wallet); err != nil {
+	if err := db.FindOne(sqlc.M().Eq("id", 1983821936127377408).Orderby("id", sqlc.DESC_), &wallet); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println(wallet)

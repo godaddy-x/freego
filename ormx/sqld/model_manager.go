@@ -249,7 +249,9 @@ var typeCapacityPresets = map[string]func(dbDefinedLen int) int{
 		switch {
 		case dbDefinedLen <= 32:
 			return dbDefinedLen // 短字符串直接用定义长度
-		case dbDefinedLen <= 256:
+		//case dbDefinedLen <= 256:
+		//	return dbDefinedLen
+		case dbDefinedLen <= 512:
 			return dbDefinedLen * 3 / 4 // 中等长度：75%
 		case dbDefinedLen <= 1024:
 			return dbDefinedLen / 2 // 较长：50%
