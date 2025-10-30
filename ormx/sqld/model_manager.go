@@ -447,10 +447,11 @@ func ModelDriver(objects ...sqlc.Object) error {
 			}
 			md.FieldElem = append(md.FieldElem, f)
 		}
-		if _, b := modelDrivers[md.TableName]; b {
-			panic("table name: " + md.TableName + " exist")
+		if _, b := modelDrivers[md.TableName]; !b {
+			// 表不存在时才注册，避免并发注册冲突
+			modelDrivers[md.TableName] = md
+			zlog.Error("register model driver exists", 0, zlog.String("table", md.TableName))
 		}
-		modelDrivers[md.TableName] = md
 	}
 	return nil
 }
