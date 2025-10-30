@@ -1,10 +1,13 @@
 package sqld
 
 import (
+	"database/sql"
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/godaddy-x/freego/zlog"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/godaddy-x/freego/ormx/sqlc"
@@ -63,6 +66,8 @@ type MdlDriver struct {
 
 	// 切片字段
 	FieldElem []*FieldElem
+	// 数据库字段预估集合
+	FieldDBMap map[string]int
 
 	// 接口字段
 	Object sqlc.Object
@@ -81,6 +86,213 @@ func isPk(key string) bool {
 		return true
 	}
 	return false
+}
+
+type SQLColumn struct {
+	ColumnName   string // 字段名
+	DataType     string // 数据类型（如 varchar、int、datetime）
+	Length       int    // 长度（如 varchar(64) 的 64，无长度则为 0）
+	IsNullable   bool   // 是否允许为NULL
+	IsPrimaryKey bool   // 是否为主键
+}
+
+func getTypeCapacityPresets(tableName string) (map[string]int, error) {
+	if tableName == "" {
+		return nil, errors.New("表名不能为空")
+	}
+
+	sqlColumnMap := map[string]int{}
+
+	// 查询information_schema.columns获取字段信息
+	query := `
+		SELECT 
+			column_name,        -- 字段名
+			data_type,          -- 数据类型
+			character_maximum_length,  -- 字符类型长度（如varchar）
+			numeric_precision,         -- 数值类型长度（如int(11)的11）
+			is_nullable = 'YES',       -- 是否允许NULL
+			column_key = 'PRI'         -- 是否为主键（PRI表示主键）
+		FROM information_schema.columns 
+		WHERE table_schema = ? 
+		  AND table_name = ? 
+		ORDER BY ordinal_position  -- 按字段定义顺序排序
+	`
+
+	db, err := NewMysqlTx(false)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	rows, err := db.Db.Query(query, db.Option.Database, tableName)
+	if err != nil {
+		return nil, fmt.Errorf("查询表结构失败：%w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var col SQLColumn
+		var charLen sql.NullInt64      // 字符类型长度（varchar等）
+		var numPrecision sql.NullInt64 // 数值类型长度（int等）
+
+		// 扫描字段值（注意：不同类型的长度存储在不同列）
+		err := rows.Scan(
+			&col.ColumnName,
+			&col.DataType,
+			&charLen,
+			&numPrecision,
+			&col.IsNullable,
+			&col.IsPrimaryKey,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("解析字段信息失败：%w", err)
+		}
+
+		// 确定字段长度（优先取字符类型长度，再取数值类型长度）
+		switch {
+		case charLen.Valid:
+			col.Length = int(charLen.Int64)
+		case numPrecision.Valid:
+			col.Length = int(numPrecision.Int64)
+		default:
+			col.Length = 0 // 无长度的类型（如datetime、text）
+		}
+
+		sqlColumnMap[tableName+col.ColumnName] = getPresetCapacity(col.DataType, col.Length)
+
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍历字段信息失败：%w", err)
+	}
+
+	if len(sqlColumnMap) == 0 {
+		return nil, fmt.Errorf("表 %s.%s 不存在或无字段信息", db.Option.Database, tableName)
+	}
+
+	return sqlColumnMap, nil
+}
+
+// 常见数据库字段类型的优化预设
+// 调整预设容量，更贴近实际数据存储长度
+// typeCapacityPresets 按字段类型和数据库定义长度计算预分配容量
+// 参数 dbDefinedLen：数据库中定义的长度（如 varchar(64) 的 64，无长度则为 0）
+var typeCapacityPresets = map[string]func(dbDefinedLen int) int{
+	// 整数类型：按字符串表示的最大长度（结合数据库定义的显示长度）
+	"tinyint": func(dbDefinedLen int) int {
+		// tinyint(M) 中 M 是显示长度，实际存储范围固定，取 M 和实际最大长度的较小值
+		maxDisplay := 4 // 实际最大：-128~127（4字符）
+		if dbDefinedLen > 0 {
+			return min(dbDefinedLen, maxDisplay)
+		}
+		return maxDisplay
+	},
+	"smallint": func(dbDefinedLen int) int {
+		maxDisplay := 6 // -32768~32767（6字符）
+		if dbDefinedLen > 0 {
+			return min(dbDefinedLen, maxDisplay)
+		}
+		return maxDisplay
+	},
+	"mediumint": func(dbDefinedLen int) int {
+		maxDisplay := 8 // -8388608~8388607（8字符）
+		if dbDefinedLen > 0 {
+			return min(dbDefinedLen, maxDisplay)
+		}
+		return maxDisplay
+	},
+	"int": func(dbDefinedLen int) int {
+		maxDisplay := 11 // -2147483648~2147483647（11字符）
+		if dbDefinedLen > 0 {
+			return min(dbDefinedLen, maxDisplay)
+		}
+		return maxDisplay
+	},
+	"bigint": func(dbDefinedLen int) int {
+		maxDisplay := 20 // 最大19位数字+符号（20字符）
+		if dbDefinedLen > 0 {
+			return min(dbDefinedLen, maxDisplay)
+		}
+		return maxDisplay
+	},
+
+	// 浮点类型：结合数据库定义的精度（M,D）
+	"float": func(dbDefinedLen int) int {
+		// dbDefinedLen 对应 float(M,D) 中的 M（总位数）
+		if dbDefinedLen <= 0 {
+			return 16 // 默认精度
+		}
+		// 总长度 = 数字位数 + 小数点 + 符号（如 -123.45 共6字符）
+		return min(dbDefinedLen+2, 24) // 限制最大24
+	},
+	"double": func(dbDefinedLen int) int {
+		if dbDefinedLen <= 0 {
+			return 24 // 默认精度
+		}
+		return min(dbDefinedLen+2, 32) // 限制最大32
+	},
+
+	// 字符串类型：优先使用数据库定义长度，再按比例调整
+	"char": func(dbDefinedLen int) int {
+		if dbDefinedLen <= 0 {
+			return 64 // 兜底
+		}
+		// char是定长，直接用定义长度（限制最大256，避免超长）
+		return min(dbDefinedLen, 256)
+	},
+	"varchar": func(dbDefinedLen int) int {
+		if dbDefinedLen <= 0 {
+			return 128 // 兜底
+		}
+		// 按数据库定义长度动态调整（高频短字符串不缩减）
+		switch {
+		case dbDefinedLen <= 32:
+			return dbDefinedLen // 短字符串直接用定义长度
+		case dbDefinedLen <= 256:
+			return dbDefinedLen * 3 / 4 // 中等长度：75%
+		case dbDefinedLen <= 1024:
+			return dbDefinedLen / 2 // 较长：50%
+		default:
+			return min(dbDefinedLen/4, 1024) // 超长：限制最大1024
+		}
+	},
+
+	// 文本类型：数据库定义无长度，按类型分级
+	"text":       func(int) int { return 512 },
+	"mediumtext": func(int) int { return 2048 },
+	"longtext":   func(int) int { return 8192 },
+
+	// 时间类型：固定长度（不受数据库定义影响）
+	"date":      func(int) int { return 10 }, // YYYY-MM-DD
+	"time":      func(int) int { return 8 },  // HH:MM:SS
+	"datetime":  func(int) int { return 19 }, // YYYY-MM-DD HH:MM:SS
+	"timestamp": func(int) int { return 19 }, // 同上
+	"year":      func(int) int { return 4 },  // YYYY
+
+	// 枚举/集合：结合数据库定义的选项最大长度
+	"enum": func(dbDefinedLen int) int {
+		if dbDefinedLen <= 0 {
+			return 32
+		}
+		return min(dbDefinedLen, 64) // 限制最大64
+	},
+	"set": func(dbDefinedLen int) int {
+		if dbDefinedLen <= 0 {
+			return 64
+		}
+		return min(dbDefinedLen, 256) // 限制最大256
+	},
+}
+
+// GetPresetCapacity 根据字段类型和数据库定义长度获取预分配容量
+// typeFullName：字段完整类型（如 "varchar(64)"）
+// dbDefinedLen：数据库定义的长度（如 64，无则传 0）
+func getPresetCapacity(typeFullName string, dbDefinedLen int) int {
+	baseType := strings.SplitN(strings.ToLower(typeFullName), "(", 2)[0]
+	if fn, ok := typeCapacityPresets[baseType]; ok {
+		return fn(dbDefinedLen)
+	}
+	return 64 // 未知类型兜底
 }
 
 // ModelTime fmt: timestamp fmt2: date
@@ -119,6 +331,14 @@ func ModelDriver(objects ...sqlc.Object) error {
 			TableName: v.GetTable(),
 			FieldElem: []*FieldElem{},
 		}
+		if !strings.HasPrefix(md.TableName, "temp_q_") {
+			col, err := getTypeCapacityPresets(md.TableName)
+			if err != nil {
+				zlog.Warn("getSQLTableColumns fail", 0, zlog.String("table", md.TableName))
+			}
+			md.FieldDBMap = col
+		}
+
 		tof := reflect.TypeOf(model).Elem()
 		vof := reflect.ValueOf(model).Elem()
 		for i := 0; i < tof.NumField(); i++ {

@@ -13,7 +13,6 @@ import (
 )
 
 func init() {
-	initDriver()
 	zlog.InitDefaultLog(&zlog.ZapConfig{Layout: 0, Location: time.Local, Level: zlog.INFO, Console: false})
 }
 

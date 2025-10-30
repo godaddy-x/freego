@@ -9,39 +9,6 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
-type OwWallet struct {
-	Id           int64  `json:"id" bson:"_id"`
-	AppID        string `json:"appID" bson:"appID"`
-	WalletID     string `json:"walletID" bson:"walletID"`
-	Alias        string `json:"alias" bson:"alias"`
-	IsTrust      int64  `json:"isTrust" bson:"isTrust"`
-	PasswordType int64  `json:"passwordType" bson:"passwordType"`
-	Password     string `json:"password" bson:"password"`
-	AuthKey      string `json:"authKey" bson:"authKey"`
-	RootPath     string `json:"rootPath" bson:"rootPath"`
-	AccountIndex int64  `json:"accountIndex" bson:"accountIndex"`
-	Keystore     string `json:"keyJson" bson:"keyJson"`
-	Applytime    int64  `json:"applytime" bson:"applytime"`
-	Succtime     int64  `json:"succtime" bson:"succtime"`
-	Dealstate    int64  `json:"dealstate" bson:"dealstate"`
-	Ctime        int64  `json:"ctime" bson:"ctime"`
-	Utime        int64  `json:"utime" bson:"utime"`
-	State        int64  `json:"state" bson:"state"`
-}
-
-func (o *OwWallet) GetTable() string {
-	return "ow_wallet"
-}
-
-func (o *OwWallet) NewObject() sqlc.Object {
-	return &OwWallet{}
-}
-
-func (o *OwWallet) NewIndex() []sqlc.Index {
-	appID := sqlc.Index{Name: "appID", Key: []string{"appID"}}
-	return []sqlc.Index{appID}
-}
-
 type OwWallet2 struct {
 	Id           primitive.ObjectID `json:"id" bson:"_id"`
 	AppID        string             `json:"appID" bson:"appID"`
@@ -183,20 +150,6 @@ func init() {
 	//	return
 	//}
 	//MyClient = client
-}
-
-func initDriver() {
-	//sqld.ModelTime(time.UTC, utils.TimeFmt2, utils.DateFmt)
-	sqld.ModelDriver(
-		&OwWallet{},
-		//&OwWallet2{},
-		//&OwBlock{},
-		//&OwContract{},
-		//&OwAuth{},
-		//&User{},
-		//&KycIdentityPayload{},
-		//&UserProfileNatural{},
-	)
 }
 
 //func BenchmarkSave(b *testing.B) {
