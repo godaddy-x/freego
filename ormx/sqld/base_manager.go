@@ -1924,6 +1924,7 @@ func ReleaseOutDest(out [][][]byte) {
 
 // OutDestWithCapacity 带容量预估的查询结果集输出，减少内存分配
 func OutDestWithCapacity(obv *MdlDriver, rows *sql.Rows, cols []string, estimatedRows int) ([][][]byte, error) {
+
 	// 1. 优化外层 out 切片预分配：按预估行数定容量，减少 append 扩容
 	flen := len(cols)
 	initialCap := 16
@@ -1950,9 +1951,15 @@ func OutDestWithCapacity(obv *MdlDriver, rows *sql.Rows, cols []string, estimate
 		if currentCap >= flen {
 			// 容量足够，使用现有切片
 			rets = rets[:flen]
-			// 补充缺失的子切片
+			// 补充缺失的子切片，使用预设容量
 			for i := currentLen; i < flen; i++ {
-				rets[i] = make([]byte, 0, 64) // 预分配容量
+				capacity := 64 // 默认容量
+				if obv != nil && obv.FieldDBMap != nil && i < len(cols) {
+					if presetCap, exists := obv.FieldDBMap[obv.TableName+cols[i]]; exists && presetCap > 0 {
+						capacity = presetCap
+					}
+				}
+				rets[i] = make([]byte, 0, capacity)
 			}
 		} else {
 			// 容量不足，重建切片但复用可用的子切片
@@ -1960,9 +1967,15 @@ func OutDestWithCapacity(obv *MdlDriver, rows *sql.Rows, cols []string, estimate
 			if currentLen > 0 {
 				copy(newRets, rets[:min(currentLen, flen)])
 			}
-			// 为新位置创建子切片
+			// 为新位置创建子切片，使用预设容量
 			for i := currentLen; i < flen; i++ {
-				newRets[i] = make([]byte, 0, 64)
+				capacity := 64 // 默认容量
+				if obv != nil && obv.FieldDBMap != nil && i < len(cols) {
+					if presetCap, exists := obv.FieldDBMap[obv.TableName+cols[i]]; exists && presetCap > 0 {
+						capacity = presetCap
+					}
+				}
+				newRets[i] = make([]byte, 0, capacity)
 			}
 			rets = newRets
 		}
