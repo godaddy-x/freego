@@ -1923,43 +1923,137 @@ func ReleaseOutDest(out [][][]byte) {
 }
 
 // OutDestWithCapacity 带容量预估的查询结果集输出，减少内存分配
-func OutDestWithCapacity(obv *MdlDriver, rows *sql.Rows, cols []string, estimatedRows int) ([][][]byte, error) {
+//func OutDestWithCapacity(obv *MdlDriver, rows *sql.Rows, cols []string, estimatedRows int) ([][][]byte, error) {
+//
+//	// 1. 优化外层 out 切片预分配：按预估行数定容量，减少 append 扩容
+//	flen := len(cols)
+//	initialCap := 16
+//	if estimatedRows > 0 {
+//		initialCap = estimatedRows
+//		if initialCap > 10000 { // 限制最大预分配，避免内存浪费
+//			initialCap = 10000
+//		}
+//	}
+//	out := make([][][]byte, 0, initialCap)
+//
+//	// 2. 复用 dest 数组：全程只分配1次，避免每次循环创建接口切片
+//	dest := make([]interface{}, flen)
+//
+//	// 3. 循环扫描：复用 [][]byte 容器，减少每行的切片分配
+//	for rows.Next() {
+//		// 从对象池获取复用的 [][]byte（避免每次 make([][]byte, flen)）
+//		rets := rowByteSlicePool.Get().([][]byte)
+//
+//		// 优化：简化容量调整逻辑，减少判断分支
+//		currentLen := len(rets)
+//		currentCap := cap(rets)
+//
+//		if currentCap >= flen {
+//			// 容量足够，使用现有切片
+//			rets = rets[:flen]
+//			// 补充缺失的子切片，使用预设容量
+//			for i := currentLen; i < flen; i++ {
+//				capacity := 64 // 默认容量
+//				if obv != nil && obv.FieldDBMap != nil && i < len(cols) {
+//					if presetCap, exists := obv.FieldDBMap[obv.TableName+cols[i]]; exists && presetCap > 0 {
+//						capacity = presetCap
+//					}
+//				}
+//				rets[i] = make([]byte, 0, capacity)
+//			}
+//		} else {
+//			// 容量不足，重建切片但复用可用的子切片
+//			newRets := make([][]byte, flen)
+//			if currentLen > 0 {
+//				copy(newRets, rets[:min(currentLen, flen)])
+//			}
+//			// 为新位置创建子切片，使用预设容量
+//			for i := currentLen; i < flen; i++ {
+//				capacity := 64 // 默认容量
+//				if obv != nil && obv.FieldDBMap != nil && i < len(cols) {
+//					if presetCap, exists := obv.FieldDBMap[obv.TableName+cols[i]]; exists && presetCap > 0 {
+//						capacity = presetCap
+//					}
+//				}
+//				newRets[i] = make([]byte, 0, capacity)
+//			}
+//			rets = newRets
+//		}
+//
+//		// 优化：合并重置和绑定操作，减少循环次数
+//		for i := 0; i < flen; i++ {
+//			rets[i] = rets[i][:0] // 重置长度，复用底层数组
+//			dest[i] = &rets[i]    // 绑定指针
+//		}
+//
+//		// 扫描数据
+//		if err := rows.Scan(dest...); err != nil {
+//			return nil, utils.Error("rows scan failed: ", err)
+//		}
+//
+//		out = append(out, rets)
+//	}
+//
+//	// 检查迭代错误
+//	if err := rows.Err(); err != nil {
+//		return nil, utils.Error("rows.Err(): ", err)
+//	}
+//
+//	return out, nil
+//}
 
-	// 1. 优化外层 out 切片预分配：按预估行数定容量，减少 append 扩容
+// OutDestWithCapacity 带容量预估的查询结果集输出，使用mdl的预估字段长度
+func OutDestWithCapacity(obv *MdlDriver, rows *sql.Rows, cols []string, estimatedRows int) ([][][]byte, error) {
+	// 优化：根据预估行数智能分配容量
 	flen := len(cols)
-	initialCap := 16
+	var initialCap int
 	if estimatedRows > 0 {
-		initialCap = estimatedRows
-		if initialCap > 10000 { // 限制最大预分配，避免内存浪费
-			initialCap = 10000
+		// 使用预估行数，但限制最大容量避免过度分配
+		if estimatedRows > 10000 {
+			initialCap = 10000 // 限制最大初始容量
+		} else {
+			initialCap = estimatedRows
 		}
+	} else {
+		initialCap = 16 // 默认容量
 	}
+
 	out := make([][][]byte, 0, initialCap)
 
-	// 2. 复用 dest 数组：全程只分配1次，避免每次循环创建接口切片
+	// 预先计算每个字段的预估容量，使用mdl的FieldDBMap
+	fieldCapacities := make([]int, flen)
+	if obv != nil && obv.FieldDBMap != nil {
+		for i, colName := range cols {
+			if presetCap, exists := obv.FieldDBMap[obv.TableName+colName]; exists && presetCap > 0 {
+				fieldCapacities[i] = presetCap
+			} else {
+				fieldCapacities[i] = 64 // 默认容量
+			}
+		}
+	} else {
+		// 如果没有mdl信息，使用默认容量
+		for i := range fieldCapacities {
+			fieldCapacities[i] = 64
+		}
+	}
+
+	// 优化：复用 dest 数组，避免每次循环都分配
 	dest := make([]interface{}, flen)
 
-	// 3. 循环扫描：复用 [][]byte 容器，减少每行的切片分配
 	for rows.Next() {
-		// 从对象池获取复用的 [][]byte（避免每次 make([][]byte, flen)）
+		// 从对象池获取复用的 [][]byte 切片
 		rets := rowByteSlicePool.Get().([][]byte)
 
-		// 优化：简化容量调整逻辑，减少判断分支
+		// 优化：根据池中切片的容量和需要的长度进行调整
 		currentLen := len(rets)
 		currentCap := cap(rets)
 
 		if currentCap >= flen {
 			// 容量足够，使用现有切片
 			rets = rets[:flen]
-			// 补充缺失的子切片，使用预设容量
+			// 补充缺失的子切片，使用预估容量
 			for i := currentLen; i < flen; i++ {
-				capacity := 64 // 默认容量
-				if obv != nil && obv.FieldDBMap != nil && i < len(cols) {
-					if presetCap, exists := obv.FieldDBMap[obv.TableName+cols[i]]; exists && presetCap > 0 {
-						capacity = presetCap
-					}
-				}
-				rets[i] = make([]byte, 0, capacity)
+				rets[i] = make([]byte, 0, fieldCapacities[i])
 			}
 		} else {
 			// 容量不足，重建切片但复用可用的子切片
@@ -1967,15 +2061,9 @@ func OutDestWithCapacity(obv *MdlDriver, rows *sql.Rows, cols []string, estimate
 			if currentLen > 0 {
 				copy(newRets, rets[:min(currentLen, flen)])
 			}
-			// 为新位置创建子切片，使用预设容量
+			// 为新位置创建子切片，使用预估容量
 			for i := currentLen; i < flen; i++ {
-				capacity := 64 // 默认容量
-				if obv != nil && obv.FieldDBMap != nil && i < len(cols) {
-					if presetCap, exists := obv.FieldDBMap[obv.TableName+cols[i]]; exists && presetCap > 0 {
-						capacity = presetCap
-					}
-				}
-				newRets[i] = make([]byte, 0, capacity)
+				newRets[i] = make([]byte, 0, fieldCapacities[i])
 			}
 			rets = newRets
 		}
@@ -1986,19 +2074,14 @@ func OutDestWithCapacity(obv *MdlDriver, rows *sql.Rows, cols []string, estimate
 			dest[i] = &rets[i]    // 绑定指针
 		}
 
-		// 扫描数据
 		if err := rows.Scan(dest...); err != nil {
 			return nil, utils.Error("rows scan failed: ", err)
 		}
-
 		out = append(out, rets)
 	}
-
-	// 检查迭代错误
 	if err := rows.Err(); err != nil {
 		return nil, utils.Error("rows.Err(): ", err)
 	}
-
 	return out, nil
 }
 
