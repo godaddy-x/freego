@@ -1252,32 +1252,8 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 		}
 		return nil
 	}
-	resultv := reflect.ValueOf(data)
-	if resultv.Kind() != reflect.Ptr {
-		return self.Error("[Mysql.FindList] target value kind not ptr")
-	}
-	slicev := resultv.Elem()
-	if slicev.Kind() != reflect.Slice {
-		return self.Error("[Mysql.FindList] target value kind not slice")
-	}
-	// 优化：检查切片元素类型是否为 sqlc.Object 接口，避免反射
-	//sliceType := slicev.Type().Elem()
-	//if !sliceType.Implements(reflect.TypeOf((*sqlc.Object)(nil)).Elem()) {
-	//	return self.Error("[Mysql.FindList] target value kind not implements sqlc.Object")
-	//}
 
-	// 统一优化：所有实现了 sqlc.Object 接口的类型都使用零反射处理
-	expectedLen := len(out)
-
-	// 预分配目标切片容量
-	var targetSlice reflect.Value
-	if slicev.Cap() >= expectedLen {
-		targetSlice = slicev.Slice(0, expectedLen)
-	} else {
-		targetSlice = reflect.MakeSlice(slicev.Type(), expectedLen, expectedLen)
-	}
-
-	for i, v := range out {
+	for _, v := range out {
 		model := cnd.Model.NewObject()
 		// 修复：使用独立索引，避免 Ignore 字段导致索引错位
 		idx := 0
@@ -1285,16 +1261,13 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 			if vv.Ignore {
 				continue
 			}
-			// IsDate 为 nil 时也调用 SetValue，由 SetValue 内部处理
 			if err := SetValue(model, vv, v[idx]); err != nil {
 				return self.Error(err)
 			}
 			idx++
 		}
-		targetSlice.Index(i).Set(reflect.ValueOf(model))
+		cnd.Model.AppendObject(data, model)
 	}
-
-	resultv.Elem().Set(targetSlice)
 	return nil
 
 }
@@ -1783,24 +1756,7 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 		colIndexMap[col] = i
 	}
 
-	// 检查切片元素类型是否为 sqlc.Object 接口
-	sliceType := slicev.Type().Elem()
-	if !sliceType.Implements(reflect.TypeOf((*sqlc.Object)(nil)).Elem()) {
-		return self.Error("[Mysql.FindListComplex] target value kind not implements sqlc.Object")
-	}
-
-	// 统一优化：使用中间变量避免循环中的反射
-	expectedLen := len(out)
-
-	// 预分配目标切片容量
-	var targetSlice reflect.Value
-	if slicev.Cap() >= expectedLen {
-		targetSlice = slicev.Slice(0, expectedLen)
-	} else {
-		targetSlice = reflect.MakeSlice(slicev.Type(), expectedLen, expectedLen)
-	}
-
-	for i, v := range out {
+	for _, v := range out {
 		model := cnd.Model.NewObject()
 		for _, vv := range obv.FieldElem {
 			if vv.Ignore {
@@ -1812,10 +1768,9 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 				}
 			}
 		}
-		targetSlice.Index(i).Set(reflect.ValueOf(model))
+		cnd.Model.AppendObject(data, model)
 	}
 
-	resultv.Elem().Set(targetSlice)
 	return nil
 }
 

@@ -9,6 +9,7 @@ type Index struct {
 type Object interface {
 	GetTable() string
 	NewObject() Object
+	AppendObject(data interface{}, target Object)
 	NewIndex() []Index
 }
 
@@ -20,6 +21,9 @@ func (o *DefaultObject) GetTable() string {
 
 func (o *DefaultObject) NewObject() Object {
 	return nil
+}
+
+func (o *DefaultObject) AppendObject(data interface{}, target Object) {
 }
 
 func (o *DefaultObject) NewIndex() []Index {

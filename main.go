@@ -51,6 +51,10 @@ func (o *OwWallet) NewObject() sqlc.Object {
 	return &OwWallet{}
 }
 
+func (o *OwWallet) AppendObject(data interface{}, target sqlc.Object) {
+	*data.(*[]*OwWallet) = append(*data.(*[]*OwWallet), target.(*OwWallet))
+}
+
 func (o *OwWallet) NewIndex() []sqlc.Index {
 	appID := sqlc.Index{Name: "appID", Key: []string{"appID"}}
 	return []sqlc.Index{appID}

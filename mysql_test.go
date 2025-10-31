@@ -191,7 +191,7 @@ func TestMysqlFindList(t *testing.T) {
 	defer db.Close()
 	l := utils.UnixMilli()
 	var result []*OwWallet
-	if err := db.FindList(sqlc.M(&OwWallet{}).Between("id", 1983681980977381376, 2983681980977381376).Limit(1, 1000).Orderby("id", sqlc.DESC_).Orderby("appID", sqlc.ASC_), &result); err != nil {
+	if err := db.FindList(sqlc.M(&OwWallet{}).Between("id", 218418572484169728, 1983821936127377429).Limit(1, 10).Orderby("id", sqlc.DESC_), &result); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println(result)
@@ -255,7 +255,7 @@ func TestMysqlFindListComplex(t *testing.T) {
 	defer db.Close()
 	l := utils.UnixMilli()
 	var result []*OwWallet
-	if err := db.FindListComplex(sqlc.M(&OwWallet{}).Fields("a.id id", "a.appID appID").From("ow_wallet a").Join(sqlc.LEFT_, "user b", "a.id = b.id").Eq("a.id", 218418572484169728).Eq("a.appID", "updated_app_yzNQSr").Orderby("a.id", sqlc.ASC_).Limit(1, 5), &result); err != nil {
+	if err := db.FindListComplex(sqlc.M(&OwWallet{}).Fields("a.id id", "a.appID appID").From("ow_wallet a").Join(sqlc.LEFT_, "user b", "a.id = b.id").Eq("a.id", 218418572484169728).Eq("a.appID", "find_bench_app_123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890").Orderby("a.id", sqlc.ASC_).Limit(1, 5), &result); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println(result)
