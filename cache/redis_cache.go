@@ -1,15 +1,18 @@
 package cache
 
 import (
+	"sync"
+	"time"
+
 	"github.com/garyburd/redigo/redis"
 	DIC "github.com/godaddy-x/freego/common"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/zlog"
-	"time"
 )
 
 var (
 	redisSessions = make(map[string]*RedisManager, 0)
+	redisMutex    sync.RWMutex
 )
 
 type RedisConfig struct {
@@ -34,12 +37,28 @@ type RedisManager struct {
 
 func (self *RedisManager) InitConfig(input ...RedisConfig) (*RedisManager, error) {
 	for _, v := range input {
-		dsName := DIC.MASTER
-		if len(v.DsName) > 0 {
-			dsName = v.DsName
+		// 1. 配置参数校验
+		if len(v.Host) == 0 {
+			return nil, utils.Error("redis config invalid: host is required")
 		}
-		if _, b := redisSessions[dsName]; b {
-			return nil, utils.Error("init redis pool failed: [", v.DsName, "] exist")
+		if v.Port <= 0 {
+			return nil, utils.Error("redis config invalid: port is required")
+		}
+
+		// 2. 设置连接池默认值
+		if v.MaxIdle <= 0 {
+			v.MaxIdle = 10
+		}
+		if v.MaxActive <= 0 {
+			v.MaxActive = 100
+		}
+		if v.IdleTimeout <= 0 {
+			v.IdleTimeout = 300 // 5分钟
+		}
+
+		// 3. 设置网络和超时默认值
+		if len(v.Network) == 0 {
+			v.Network = "tcp"
 		}
 		connTimeout := 10
 		readTimeout := 10
@@ -53,6 +72,22 @@ func (self *RedisManager) InitConfig(input ...RedisConfig) (*RedisManager, error
 		if v.WriteTimeout > 0 {
 			writeTimeout = v.WriteTimeout
 		}
+
+		// 4. 生成数据源名称
+		dsName := DIC.MASTER
+		if len(v.DsName) > 0 {
+			dsName = v.DsName
+		}
+
+		// 5. 并发安全检查：检查是否已存在
+		redisMutex.Lock()
+		if _, b := redisSessions[dsName]; b {
+			redisMutex.Unlock()
+			return nil, utils.Error("redis init failed: [", v.DsName, "] exist")
+		}
+		redisMutex.Unlock()
+
+		// 6. 创建连接池
 		pool := &redis.Pool{
 			MaxIdle:     v.MaxIdle,
 			MaxActive:   v.MaxActive,
@@ -62,28 +97,51 @@ func (self *RedisManager) InitConfig(input ...RedisConfig) (*RedisManager, error
 					v.Network,
 					utils.AddStr(v.Host, ":", utils.AnyToStr(v.Port)),
 					redis.DialConnectTimeout(time.Duration(connTimeout)*time.Second), // 连接建立超时
-					redis.DialReadTimeout(time.Duration(readTimeout)*time.Second),    // 读取超时（适用于 GET、LRANGE 等）
-					redis.DialWriteTimeout(time.Duration(writeTimeout)*time.Second),  // 写入超时（适用于 SET、LPUSH 等）
+					redis.DialReadTimeout(time.Duration(readTimeout)*time.Second),    // 读取超时
+					redis.DialWriteTimeout(time.Duration(writeTimeout)*time.Second),  // 写入超时
 				)
 				if err != nil {
 					return nil, err
 				}
+				// 密码认证
 				if len(v.Password) > 0 {
 					if _, err := c.Do("AUTH", v.Password); err != nil {
-						if err := c.Close(); err != nil {
-							zlog.Error("redis close failed", 0, zlog.AddError(err))
+						if closeErr := c.Close(); closeErr != nil {
+							zlog.Error("redis close failed", 0, zlog.AddError(closeErr))
 						}
 						return nil, err
 					}
 				}
-				return c, err
-			}}
+				return c, nil
+			},
+		}
+
+		// 7. 验证连接
+		conn := pool.Get()
+		defer conn.Close()
+		if _, err := conn.Do("PING"); err != nil {
+			return nil, utils.Error("redis connect failed: ", err)
+		}
+
+		// 8. 并发安全地注册数据源（再次检查避免重复）
+		redisMutex.Lock()
+		if _, b := redisSessions[dsName]; b {
+			redisMutex.Unlock()
+			return nil, utils.Error("redis init failed: [", v.DsName, "] exist (concurrent init)")
+		}
 		redisSessions[dsName] = &RedisManager{Pool: pool, DsName: dsName}
+		redisMutex.Unlock()
+
 		zlog.Printf("redis service【%s】has been started successful", dsName)
 	}
+
+	// 9. 验证至少初始化一个数据源
+	redisMutex.RLock()
+	defer redisMutex.RUnlock()
 	if len(redisSessions) == 0 {
-		return nil, utils.Error("init redis pool failed: sessions is nil")
+		return nil, utils.Error("redis init failed: sessions is nil")
 	}
+
 	return self, nil
 }
 
@@ -92,9 +150,13 @@ func (self *RedisManager) Client(ds ...string) (*RedisManager, error) {
 	if len(ds) > 0 && len(ds[0]) > 0 {
 		dsName = ds[0]
 	}
+
+	redisMutex.RLock()
 	manager := redisSessions[dsName]
+	redisMutex.RUnlock()
+
 	if manager == nil {
-		return nil, utils.Error("redis session [", ds, "] not found...")
+		return nil, utils.Error("redis session [", dsName, "] not found...")
 	}
 	return manager, nil
 }
