@@ -1,6 +1,7 @@
 package sdk
 
 import (
+	"crypto/ecdsa"
 	"encoding/base64"
 	"fmt"
 	"time"
@@ -24,6 +25,8 @@ type HttpSDK struct {
 	AuthDomain string
 	KeyPath    string
 	LoginPath  string
+	publicKey  string
+	privateKey *ecdsa.PrivateKey
 	language   string
 	timeout    int64
 	authObject interface{}
@@ -47,6 +50,14 @@ func (s *HttpSDK) SetLanguage(language string) {
 	s.language = language
 }
 
+func (s *HttpSDK) SetPublicKey(publicKey string) {
+	s.publicKey = publicKey
+}
+
+func (s *HttpSDK) SetPrivateKey(privateKey *ecdsa.PrivateKey) {
+	s.privateKey = privateKey
+}
+
 func (s *HttpSDK) debugOut(a ...interface{}) {
 	if !s.Debug {
 		return
@@ -64,6 +75,9 @@ func (s *HttpSDK) getURI(path string) string {
 }
 
 func (s *HttpSDK) GetPublicKey() (string, error) {
+	if len(s.publicKey) > 0 {
+		return s.publicKey, nil
+	}
 	request := fasthttp.AcquireRequest()
 	request.Header.SetMethod("GET")
 	defer fasthttp.ReleaseRequest(request)
@@ -104,7 +118,7 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 		return ex.Throw{Msg: "load ECC public key failed"}
 	}
 	clientSecretKeyBase64 := utils.Base64Encode(clientSecretKey)
-	r, err := ecc.Encrypt(nil, pubBs, clientSecretKey)
+	r, err := ecc.Encrypt(s.privateKey, pubBs, clientSecretKey)
 	if err != nil {
 		return ex.Throw{Msg: "ECC encrypt failed"}
 	}

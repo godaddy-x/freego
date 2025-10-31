@@ -452,6 +452,7 @@ func ModelDriver(objects ...sqlc.Object) error {
 		if _, b := modelDrivers[md.TableName]; !b {
 			// 表不存在时才注册，避免并发注册冲突
 			modelDrivers[md.TableName] = md
+		} else {
 			zlog.Error("register model driver exists", 0, zlog.String("table", md.TableName))
 		}
 	}
