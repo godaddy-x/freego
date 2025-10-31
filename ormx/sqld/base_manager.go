@@ -1261,25 +1261,23 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 		return self.Error("[Mysql.FindList] target value kind not slice")
 	}
 	// 优化：检查切片元素类型是否为 sqlc.Object 接口，避免反射
-	sliceType := slicev.Type().Elem()
-	if !sliceType.Implements(reflect.TypeOf((*sqlc.Object)(nil)).Elem()) {
-		return self.Error("[Mysql.FindList] target value kind not implements sqlc.Object")
-	}
+	//sliceType := slicev.Type().Elem()
+	//if !sliceType.Implements(reflect.TypeOf((*sqlc.Object)(nil)).Elem()) {
+	//	return self.Error("[Mysql.FindList] target value kind not implements sqlc.Object")
+	//}
 
 	// 统一优化：所有实现了 sqlc.Object 接口的类型都使用零反射处理
 	expectedLen := len(out)
 
 	// 预分配目标切片容量
-	if slicev.Cap() < expectedLen {
-		newSlice := reflect.MakeSlice(slicev.Type(), 0, expectedLen)
-		slicev = newSlice
+	var targetSlice reflect.Value
+	if slicev.Cap() >= expectedLen {
+		targetSlice = slicev.Slice(0, expectedLen)
 	} else {
-		slicev = slicev.Slice(0, 0)
+		targetSlice = reflect.MakeSlice(slicev.Type(), expectedLen, expectedLen)
 	}
 
-	baseObject := make([]sqlc.Object, 0, expectedLen)
-
-	for _, v := range out {
+	for i, v := range out {
 		model := cnd.Model.NewObject()
 		// 修复：使用独立索引，避免 Ignore 字段导致索引错位
 		idx := 0
@@ -1293,19 +1291,10 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 			}
 			idx++
 		}
-		baseObject = append(baseObject, model)
+		targetSlice.Index(i).Set(reflect.ValueOf(model))
 	}
 
-	// 设置最终结果：将 []sqlc.Object 转换回原始类型
-	if len(baseObject) > 0 {
-		// 优化：一次性创建目标切片并批量设置
-		targetSlice := reflect.MakeSlice(slicev.Type(), len(baseObject), len(baseObject))
-		for i, object := range baseObject {
-			targetSlice.Index(i).Set(reflect.ValueOf(object))
-		}
-		resultv.Elem().Set(targetSlice)
-	}
-	// 如果没有结果，保持原有空切片，避免不必要的 make
+	resultv.Elem().Set(targetSlice)
 	return nil
 
 }
@@ -1804,14 +1793,14 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 	expectedLen := len(out)
 
 	// 预分配目标切片容量
-	if slicev.Cap() < expectedLen {
-		newSlice := reflect.MakeSlice(slicev.Type(), 0, expectedLen)
-		slicev = newSlice
+	var targetSlice reflect.Value
+	if slicev.Cap() >= expectedLen {
+		targetSlice = slicev.Slice(0, expectedLen)
+	} else {
+		targetSlice = reflect.MakeSlice(slicev.Type(), expectedLen, expectedLen)
 	}
 
-	baseObject := make([]sqlc.Object, 0, expectedLen)
-
-	for _, v := range out {
+	for i, v := range out {
 		model := cnd.Model.NewObject()
 		for _, vv := range obv.FieldElem {
 			if vv.Ignore {
@@ -1823,18 +1812,10 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 				}
 			}
 		}
-		baseObject = append(baseObject, model)
+		targetSlice.Index(i).Set(reflect.ValueOf(model))
 	}
 
-	// 设置最终结果：将 []sqlc.Object 转换回原始类型
-	if len(baseObject) > 0 {
-		// 优化：一次性创建目标切片并批量设置
-		targetSlice := reflect.MakeSlice(slicev.Type(), len(baseObject), len(baseObject))
-		for i, object := range baseObject {
-			targetSlice.Index(i).Set(reflect.ValueOf(object))
-		}
-		resultv.Elem().Set(targetSlice)
-	}
+	resultv.Elem().Set(targetSlice)
 	return nil
 }
 
