@@ -1153,7 +1153,7 @@ xorm         → +126.6% (传统ORM)
 
 ## 📞 联系与支持
 
-- 📧 **Github**: [godaddy-x]
+- 📧 **Github**: [https://github.com/godaddy-x]
 - 🐛 **Issues**: [GitHub Issues](https://github.com/godaddy-x/freego/issues)
 - 📖 **文档**: [详细文档](./docs/)
 - 💬 **讨论**: [GitHub Discussions](https://github.com/godaddy-x/freego/discussions)
