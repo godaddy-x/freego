@@ -988,23 +988,6 @@ sqlbuf := bytes.NewBufferString("")
 - 运行时类型检查开销
 - 性能损失明显
 
-```go
-// FreeGo ORM - 零反射
-baseObject := make([]sqlc.Object, 0, expectedLen)
-for _, v := range out {
-    model := cnd.Model.NewObject()
-    // 直接设置值，无反射
-    baseObject = append(baseObject, model)
-}
-
-// 主流框架 - 大量反射
-for _, v := range out {
-    model := reflect.New(modelType).Interface()
-    // 大量反射操作
-    reflect.ValueOf(model).Elem().FieldByName("Field").Set(reflect.ValueOf(value))
-}
-```
-
 #### 3. 递归 OR 条件预估
 
 **FreeGo ORM 优势：**
@@ -1170,7 +1153,7 @@ xorm         → +126.6% (传统ORM)
 
 ## 📞 联系与支持
 
-- 📧 **邮箱**: [your-email@example.com]
+- 📧 **Github**: [godaddy-x]
 - 🐛 **Issues**: [GitHub Issues](https://github.com/godaddy-x/freego/issues)
 - 📖 **文档**: [详细文档](./docs/)
 - 💬 **讨论**: [GitHub Discussions](https://github.com/godaddy-x/freego/discussions)
