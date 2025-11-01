@@ -159,7 +159,8 @@ func (self *Subject) Verify(token, key string, decode bool) error {
 	// 2. 尝试从缓存获取Payload指针
 	if value, b, err := localSubjectCache.Get(cacheKey, nil); err == nil && b && value != nil {
 		simple := value.(*SimplePayload)
-		if simple.Exp <= utils.UnixSecond() {
+		// 分布式系统时间同步缓冲区：提前300秒判断过期，避免时间同步误差
+		if simple.Exp <= utils.UnixSecond()-300 {
 			// 失效的token主动清退
 			_ = localSubjectCache.Del(cacheKey)
 			return utils.Error("token expired")
@@ -186,7 +187,8 @@ func (self *Subject) Verify(token, key string, decode bool) error {
 		return utils.Error("token part base64 data decode failed")
 	}
 	exp := utils.GetJsonInt64(decodeb64, "exp")
-	if exp <= utils.UnixSecond() {
+	// 分布式系统时间同步缓冲区：提前300秒判断过期，避免时间同步误差
+	if exp <= utils.UnixSecond()-300 {
 		return utils.Error("token expired or invalid")
 	}
 
@@ -203,8 +205,8 @@ func (self *Subject) Verify(token, key string, decode bool) error {
 	self.Payload.Exp = exp
 	self.Payload.Sub = self.getStringValue("sub", decodeb64)
 
-	// 9. 缓存结果，1天有效期（平衡性能和内存占用）
-	if err := localSubjectCache.Put(cacheKey, &SimplePayload{Sub: self.Payload.Sub, Exp: self.Payload.Exp}, 86400); err != nil {
+	// 9. 缓存结果，1小时有效期（平衡性能和内存占用）
+	if err := localSubjectCache.Put(cacheKey, &SimplePayload{Sub: self.Payload.Sub, Exp: self.Payload.Exp}, 3600); err != nil {
 		zlog.Error("put localSubjectCache token verify failed", 0, zlog.AddError(err))
 	}
 
@@ -344,8 +346,8 @@ func (self *Subject) GetTokenSecretEnhanced(token, secret string) string {
 	// 8. 转换为Base64字符串
 	result := utils.Base64Encode(enhancedHashBytes)
 
-	// 9. 缓存结果，1天有效期（平衡性能和内存占用）
-	if err := localSubjectCache.Put(cacheKey, result, 86400); err != nil {
+	// 9. 缓存结果，1小时有效期（平衡性能和内存占用）
+	if err := localSubjectCache.Put(cacheKey, result, 3600); err != nil {
 		zlog.Error("put localSubjectCache token secret failed", 0, zlog.AddError(err))
 	}
 	return result

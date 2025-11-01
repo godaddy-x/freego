@@ -1151,6 +1151,19 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
 	return nil
 }
 
+// FindList 根据条件查询多条记录
+// 支持复杂的查询条件、分页、排序等功能
+// 参数:
+//   - cnd: 查询条件对象，包含模型、WHERE条件、排序、分页等
+//   - data: 结果集指针，必须是切片类型，建议预分配容量避免扩容
+//
+// 返回:
+//   - error: 查询错误信息
+//
+// 注意:
+//   - 建议使用 make([]T, 0, capacity) 预分配切片容量
+//   - 支持JOIN、GROUP BY、HAVING等复杂查询
+//   - 自动处理分页和排序逻辑
 func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	if data == nil {
 		return self.Error("[Mysql.FindList] data is nil")
@@ -1583,6 +1596,19 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data sqlc.Object) error {
 	return nil
 }
 
+// FindListComplex 根据条件查询多条记录
+// 支持复杂的查询条件、分页、排序等功能
+// 参数:
+//   - cnd: 查询条件对象，包含模型、WHERE条件、排序、分页等
+//   - data: 结果集指针，必须是切片类型，建议预分配容量避免扩容
+//
+// 返回:
+//   - error: 查询错误信息
+//
+// 注意:
+//   - 建议使用 make([]T, 0, capacity) 预分配切片容量
+//   - 支持JOIN、GROUP BY、HAVING等复杂查询
+//   - 自动处理分页和排序逻辑
 func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 	if data == nil {
 		return self.Error("[Mysql.FindListComplex] data is nil")
