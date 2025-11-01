@@ -170,7 +170,7 @@ func (self *JsonBody) RawData() []byte {
 }
 
 func (self *Context) GetTokenSecret() string {
-	return jwt.GetTokenSecret(utils.Bytes2Str(self.Subject.GetRawBytes()), self.configs.jwtConfig.TokenKey)
+	return jwt.GetTokenSecret(utils.Bytes2Str(self.GetRawTokenBytes()), self.configs.jwtConfig.TokenKey)
 }
 
 func (self *Context) GetHmac256Sign(d, n string, t, p int64, key string) string {
@@ -283,12 +283,10 @@ func (self *Context) readParams() error {
 		return nil
 	}
 	// 安全请求模式
-	auth := self.RequestCtx.Request.Header.Peek(Authorization)
+	auth := self.GetRawTokenBytes()
 	if len(auth) > MAX_TOKEN_LEN {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "authorization parameters length is too long"}
 	}
-	self.Subject.ResetTokenBytes(auth)
-	//self.Subject.ResetTokenBytes(self.RequestCtx.Request.Header.Peek(Authorization))
 	if body == nil || len(body) == 0 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters is nil"}
 	}
@@ -327,6 +325,10 @@ func (self *Context) validReplayAttack(sign string) error {
 	return nil
 }
 
+func (self *Context) GetRawTokenBytes() []byte {
+	return self.RequestCtx.Request.Header.Peek(Authorization)
+}
+
 func (self *Context) validJsonBody() error {
 	if self.JsonBody == nil {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request json body is nil"}
@@ -354,7 +356,10 @@ func (self *Context) validJsonBody() error {
 	if !utils.CheckStrLen(body.Sign, 32, 64) {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature length invalid"}
 	}
-	if utils.CheckInt64(body.Plan, 0, 1) && len(self.Subject.GetRawBytes()) == 0 {
+
+	auth := self.GetRawTokenBytes()
+
+	if utils.CheckInt64(body.Plan, 0, 1) && len(auth) == 0 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request header token is nil"}
 	}
 
@@ -540,10 +545,6 @@ func (self *Context) resetSubject() {
 	payload.Dev = ""
 	payload.Jti = ""
 	payload.Ext = ""
-
-	// 重置token和payload字节数据
-	self.Subject.ResetTokenBytes(nil)
-	self.Subject.ResetPayloadBytes(nil)
 }
 
 func (self *Context) Json(data interface{}) error {

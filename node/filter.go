@@ -147,10 +147,11 @@ func (self *SessionFilter) DoFilter(chain Filter, ctx *Context, args ...interfac
 	}
 	// 验证JWT token（SessionFilter的核心职责）
 	// 这是第一次明确验证JWT的签名和过期时间
-	if len(ctx.Subject.GetRawBytes()) == 0 {
+	auth := ctx.GetRawTokenBytes()
+	if len(auth) == 0 {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "token is nil"}
 	}
-	if err := ctx.Subject.Verify(utils.Bytes2Str(ctx.Subject.GetRawBytes()), ctx.GetJwtConfig().TokenKey, true); err != nil {
+	if err := ctx.Subject.Verify(auth, ctx.GetJwtConfig().TokenKey); err != nil {
 		return ex.Throw{Code: http.StatusUnauthorized, Msg: "token invalid or expired", Err: err}
 	}
 	return chain.DoFilter(chain, ctx, args...)

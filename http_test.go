@@ -47,7 +47,7 @@ func TestGetUser(t *testing.T) {
 	httpSDK.AuthToken(sdk.AuthToken{Token: access_token, Secret: token_secret, Expired: token_expire})
 	requestObj := map[string]interface{}{"uid": 123, "name": "我爱中国/+_=/1df", "limit": 20, "offset": 5}
 	responseData := map[string]string{}
-	if err := httpSDK.PostByAuth("/getUser", &requestObj, &responseData, false); err != nil {
+	if err := httpSDK.PostByAuth("/getUser", &requestObj, &responseData, true); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println(responseData)

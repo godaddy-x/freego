@@ -81,7 +81,7 @@ func (self *WsServer) addRouterConfig(path string, routerConfig *RouterConfig) {
 }
 
 func (self *Context) readWsToken(auth string) error {
-	self.Subject.ResetTokenBytes(utils.Str2Bytes(auth))
+	//self.Subject.ResetTokenBytes(utils.Str2Bytes(auth))
 	return nil
 }
 
@@ -362,11 +362,11 @@ func (self *WsServer) wsHandler(path string, handle Handle) websocket.Handler {
 		ctx := createCtx(self, path)
 		_ = ctx.readWsToken(ws.Request().Header.Get("Authorization"))
 
-		if len(ctx.Subject.GetRawBytes()) == 0 {
-			_ = ctx.writeError(ws, ex.Throw{Code: http.StatusUnauthorized, Msg: "token is nil"})
-			return
-		}
-		if err := ctx.Subject.Verify(utils.Bytes2Str(ctx.Subject.GetRawBytes()), ctx.GetJwtConfig().TokenKey, true); err != nil {
+		//if len(ctx.Subject.GetRawBytes()) == 0 {
+		//	_ = ctx.writeError(ws, ex.Throw{Code: http.StatusUnauthorized, Msg: "token is nil"})
+		//	return
+		//}
+		if err := ctx.Subject.Verify(nil, ctx.GetJwtConfig().TokenKey); err != nil {
 			_ = ctx.writeError(ws, ex.Throw{Code: http.StatusUnauthorized, Msg: "token invalid or expired", Err: err})
 			return
 		}

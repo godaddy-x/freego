@@ -31,9 +31,8 @@ const (
 )
 
 type Subject struct {
-	Header     *Header
-	Payload    *Payload
-	tokenBytes []byte
+	Header  *Header
+	Payload *Payload
 }
 
 type JwtConfig struct {
@@ -140,10 +139,12 @@ func (self *Subject) GetTokenSecret(token, secret string) string {
 	return self.GetTokenSecretEnhanced(token, secret)
 }
 
-func (self *Subject) Verify(token, key string, decode bool) error {
-	if len(token) == 0 {
+func (self *Subject) Verify(auth []byte, key string) error {
+	if len(auth) == 0 {
 		return utils.Error("token is nil")
 	}
+
+	token := utils.Bytes2Str(auth)
 
 	// 1. 获取本地密钥
 	localKey := utils.GetLocalTokenSecretKey()
@@ -220,34 +221,34 @@ func (self *Subject) CheckReady() bool {
 	return true
 }
 
-func (self *Subject) ResetTokenBytes(b []byte) {
-	if b == nil && len(self.tokenBytes) == 0 {
-		return
-	}
-	self.tokenBytes = nil
-	if b == nil {
-		return
-	}
-	self.tokenBytes = b
-}
+//func (self *Subject) ResetTokenBytes(b []byte) {
+//	if b == nil && len(self.tokenBytes) == 0 {
+//		return
+//	}
+//	self.tokenBytes = nil
+//	if b == nil {
+//		return
+//	}
+//	self.tokenBytes = b
+//}
 
-func (self *Subject) ResetPayloadBytes(b []byte) {
-	//if b == nil && len(self.payloadBytes) == 0 {
-	//	return
-	//}
-	//self.payloadBytes = nil
-	//if b == nil {
-	//	return
-	//}
-	//self.payloadBytes = b
-}
-
-func (self *Subject) GetRawBytes() []byte {
-	if len(self.tokenBytes) == 0 {
-		return []byte{}
-	}
-	return self.tokenBytes
-}
+//func (self *Subject) ResetPayloadBytes(b []byte) {
+//	//if b == nil && len(self.payloadBytes) == 0 {
+//	//	return
+//	//}
+//	//self.payloadBytes = nil
+//	//if b == nil {
+//	//	return
+//	//}
+//	//self.payloadBytes = b
+//}
+//
+//func (self *Subject) GetRawBytes() []byte {
+//	if len(self.tokenBytes) == 0 {
+//		return []byte{}
+//	}
+//	return self.tokenBytes
+//}
 
 func (self *Subject) GetSub(b []byte) string {
 	if self.Payload == nil {

@@ -7,7 +7,6 @@ import (
 	"github.com/godaddy-x/freego/cache/limiter"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/utils"
-	"github.com/godaddy-x/freego/utils/jwt"
 	"github.com/godaddy-x/freego/zlog"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
@@ -58,24 +57,24 @@ func (self *GRPCManager) checkToken(ctx context.Context, method string) error {
 	if !self.authenticate {
 		return nil
 	}
-	if utils.CheckStr(method, unauthorizedUrl...) {
-		return nil
-	}
-	md, ok := metadata.FromIncomingContext(ctx)
-	if !ok {
-		return errors.New("rpc context key/value is nil")
-	}
-	token, b := md[token]
-	if !b || len(token) == 0 {
-		return errors.New("rpc context token is nil")
-	}
-	if len(jwtConfig.TokenKey) == 0 {
-		return errors.New("rpc context jwt is nil")
-	}
-	subject := &jwt.Subject{}
-	if err := subject.Verify(token[0], jwtConfig.TokenKey, false); err != nil {
-		return err
-	}
+	//if utils.CheckStr(method, unauthorizedUrl...) {
+	//	return nil
+	//}
+	//md, ok := metadata.FromIncomingContext(ctx)
+	//if !ok {
+	//	return errors.New("rpc context key/value is nil")
+	//}
+	//token, b := md[token]
+	//if !b || len(token) == 0 {
+	//	return errors.New("rpc context token is nil")
+	//}
+	//if len(jwtConfig.TokenKey) == 0 {
+	//	return errors.New("rpc context jwt is nil")
+	//}
+	//subject := &jwt.Subject{}
+	//if err := subject.Verify(token[0], jwtConfig.TokenKey, false); err != nil {
+	//	return err
+	//}
 	return nil
 }
 
