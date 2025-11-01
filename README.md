@@ -305,9 +305,23 @@ type User struct {
     Status   int    `json:"status"`
 }
 
-// 实现 sqlc.Object 接口
+// 实现 sqlc.Object 接口的所有必需方法
+func (u *User) GetTable() string {
+    return "user"  // 返回表名
+}
+
 func (u *User) NewObject() sqlc.Object {
-    return &User{}
+    return &User{}  // 创建新对象实例
+}
+
+func (u *User) AppendObject(data interface{}, target sqlc.Object) {
+    // 将对象追加到结果切片中
+    *data.(*[]*User) = append(*data.(*[]*User), target.(*User))
+}
+
+func (u *User) NewIndex() []sqlc.Index {
+    // 可选：定义数据库索引
+    return nil
 }
 
 // 在 handlers 中使用
@@ -319,12 +333,34 @@ func getUserHandler(ctx *node.Context) error {
     defer db.Close()
 
     user := &User{}
-    err := db.FindOne(sqlc.M("ow_user").Where("id", userID), user)
+    err := db.FindOne(sqlc.M().Eq("id", userID), user)
     if err != nil {
         return ex.Throw{Code: 500, Msg: "查询失败"}
     }
 
     return ctx.Json(user)
+}
+
+// 批量查询示例
+func listUsersHandler(ctx *node.Context) error {
+    limit := utils.GetJsonInt(ctx.JsonBody.Data, "limit")
+    if limit <= 0 {
+        limit = 20
+    }
+
+    db, _ := sqld.NewMysqlTx(false)
+    defer db.Close()
+
+    var users []*User
+    err := db.FindList(sqlc.M(&User{}).Eq("status", 1).Limit(1, limit).Orderby("id", sqlc.DESC_), &users)
+    if err != nil {
+        return ex.Throw{Code: 500, Msg: "查询失败"}
+    }
+
+    return ctx.Json(map[string]interface{}{
+        "users": users,
+        "total": len(users),
+    })
 }
 ````
 
