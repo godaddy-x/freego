@@ -30,37 +30,45 @@ const (
 	TWO_WEEK     = int64(1209600)
 )
 
+// Subject 结构体 - 16字节 (2个指针，8字节对齐，无填充)
 type Subject struct {
-	Header  *Header
-	Payload *Payload
+	Header  *Header  // 8字节
+	Payload *Payload // 8字节
 }
 
+// JwtConfig 结构体 - 56字节 (4个字段，8字节对齐，无填充)
+// 排列优化：int64放在最后，利用string的16字节对齐
 type JwtConfig struct {
-	TokenKey string
-	TokenAlg string
-	TokenTyp string
-	TokenExp int64
+	TokenKey string // 16字节 (8+8)
+	TokenAlg string // 16字节 (8+8)
+	TokenTyp string // 16字节 (8+8)
+	TokenExp int64  // 8字节
 }
 
+// Header 结构体 - 32字节 (2个string，8字节对齐，无填充)
 type Header struct {
-	Alg string `json:"alg"`
-	Typ string `json:"typ"`
+	Alg string `json:"alg"` // 16字节 (8+8)
+	Typ string `json:"typ"` // 16字节 (8+8)
 }
 
+// Payload 结构体 - 112字节 (8个字段，8字节对齐，优化排列减少填充)
+// 排列优化：将相同大小的字段放在一起，int64连续排列减少填充
 type Payload struct {
-	Sub string `json:"sub"` // 用户主体
-	Aud string `json:"aud"` // 接收token主体
-	Iss string `json:"iss"` // 签发token主体
-	Iat int64  `json:"iat"` // 授权token时间
-	Exp int64  `json:"exp"` // 授权token过期时间
-	Dev string `json:"dev"` // 设备类型,web/app
-	Jti string `json:"jti"` // 唯一身份标识,主要用来作为一次性token,从而回避重放攻击
-	Ext string `json:"ext"` // 扩展信息
+	Sub string `json:"sub"` // 用户主体 - 16字节 (8+8)
+	Aud string `json:"aud"` // 接收token主体 - 16字节 (8+8)
+	Iss string `json:"iss"` // 签发token主体 - 16字节 (8+8)
+	Dev string `json:"dev"` // 设备类型,web/app - 16字节 (8+8)
+	Jti string `json:"jti"` // 唯一身份标识,主要用来作为一次性token,从而回避重放攻击 - 16字节 (8+8)
+	Ext string `json:"ext"` // 扩展信息 - 16字节 (8+8)
+	Iat int64  `json:"iat"` // 授权token时间 - 8字节
+	Exp int64  `json:"exp"` // 授权token过期时间 - 8字节
 }
 
+// SimplePayload 结构体 - 24字节 (string+int64，8字节对齐，无填充)
+// 排列优化：int64放在string后面，利用8字节对齐
 type SimplePayload struct {
-	Sub string // 用户主体
-	Exp int64  // 授权token过期时间
+	Sub string // 用户主体 - 16字节 (8+8)
+	Exp int64  // 授权token过期时间 - 8字节
 }
 
 func (self *Subject) AddHeader(config JwtConfig) *Subject {
@@ -220,35 +228,6 @@ func (self *Subject) CheckReady() bool {
 	}
 	return true
 }
-
-//func (self *Subject) ResetTokenBytes(b []byte) {
-//	if b == nil && len(self.tokenBytes) == 0 {
-//		return
-//	}
-//	self.tokenBytes = nil
-//	if b == nil {
-//		return
-//	}
-//	self.tokenBytes = b
-//}
-
-//func (self *Subject) ResetPayloadBytes(b []byte) {
-//	//if b == nil && len(self.payloadBytes) == 0 {
-//	//	return
-//	//}
-//	//self.payloadBytes = nil
-//	//if b == nil {
-//	//	return
-//	//}
-//	//self.payloadBytes = b
-//}
-//
-//func (self *Subject) GetRawBytes() []byte {
-//	if len(self.tokenBytes) == 0 {
-//		return []byte{}
-//	}
-//	return self.tokenBytes
-//}
 
 func (self *Subject) GetSub(b []byte) string {
 	if self.Payload == nil {

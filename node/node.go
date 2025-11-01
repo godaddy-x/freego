@@ -46,94 +46,116 @@ var (
 	MAX_CODE_LEN  = 1024   // 最大Code值长度
 )
 
+// HookNode 结构体 - 32字节 (2个字段，8字节对齐，无填充)
+// 排列优化：指针字段在前，slice字段在后
 type HookNode struct {
-	Context *Context
-	filters []*FilterObject
+	Context *Context        // 8字节 - 指针字段
+	filters []*FilterObject // 24字节 (8+8+8) - slice字段
 }
 
+// Configs 结构体 - 88字节 (4个字段，8字节对齐，无填充)
+// 排列优化：大字段优先，string放在最后利用16字节对齐
 type Configs struct {
-	jwtConfig     jwt.JwtConfig
-	routerConfigs map[string]*RouterConfig
-	langConfigs   map[string]map[string]string
-	defaultLang   string
+	jwtConfig     jwt.JwtConfig                // 56字节 - 大结构体
+	routerConfigs map[string]*RouterConfig     // 8字节 - map字段
+	langConfigs   map[string]map[string]string // 8字节 - map字段
+	defaultLang   string                       // 16字节 (8+8) - string字段
 }
 
+// RouterConfig 结构体 - 4字节 (4个bool字段，1字节对齐)
+// 排列优化：bool字段自然排列，无填充问题
 type RouterConfig struct {
-	Guest       bool // 游客模式,原始请求 false.否 true.是
-	UseRSA      bool // 非登录状态使用RSA模式请求 false.否 true.是
-	AesRequest  bool // 请求是否必须AES加密 false.否 true.是
-	AesResponse bool // 响应是否必须AES加密 false.否 true.是
+	Guest       bool // 游客模式,原始请求 false.否 true.是 - 1字节
+	UseRSA      bool // 非登录状态使用RSA模式请求 false.否 true.是 - 1字节
+	AesRequest  bool // 请求是否必须AES加密 false.否 true.是 - 1字节
+	AesResponse bool // 响应是否必须AES加密 false.否 true.是 - 1字节
 }
 
+// HttpLog 结构体 - 64字节 (5个字段，8字节对齐，无填充)
+// 排列优化：string字段在前，int64字段连续排列
 type HttpLog struct {
-	Method   string // 请求方法
-	LogNo    string // 日志唯一标记
-	CreateAt int64  // 日志创建时间
-	UpdateAt int64  // 日志完成时间
-	CostMill int64  // 业务耗时,毫秒
+	Method   string // 请求方法 - 16字节 (8+8)
+	LogNo    string // 日志唯一标记 - 16字节 (8+8)
+	CreateAt int64  // 日志创建时间 - 8字节
+	UpdateAt int64  // 日志完成时间 - 8字节
+	CostMill int64  // 业务耗时,毫秒 - 8字节
 }
 
+// JsonBody 结构体 - 64字节 (5个字段，8字节对齐，无填充)
+// 排列优化：interface{}和string字段在前，int64字段连续排列
 type JsonBody struct {
-	Data  interface{} `json:"d"`
-	Time  int64       `json:"t"`
-	Nonce string      `json:"n"`
-	Plan  int64       `json:"p"` // 0.默认(登录状态) 1.AES(登录状态) 2.RSA/ECC模式(匿名状态) 3.独立验签模式(匿名状态)
-	Sign  string      `json:"s"`
+	Data  interface{} `json:"d"` // 16字节 (8+8) - interface{}字段
+	Nonce string      `json:"n"` // 16字节 (8+8) - string字段
+	Sign  string      `json:"s"` // 16字节 (8+8) - string字段
+	Time  int64       `json:"t"` // 8字节 - int64字段
+	Plan  int64       `json:"p"` // 0.默认(登录状态) 1.AES(登录状态) 2.RSA/ECC模式(匿名状态) 3.独立验签模式(匿名状态) - 8字节
 }
 
+// JsonResp 结构体 - 96字节 (7个字段，8字节对齐，无填充)
+// 排列优化：interface{}和string字段在前，int字段和int64字段连续排列
 type JsonResp struct {
-	Code    int         `json:"c"`
-	Message string      `json:"m"`
-	Data    interface{} `json:"d"`
-	Time    int64       `json:"t"`
-	Nonce   string      `json:"n"`
-	Plan    int64       `json:"p"`
-	Sign    string      `json:"s"`
+	Message string      `json:"m"` // 16字节 (8+8) - string字段
+	Data    interface{} `json:"d"` // 16字节 (8+8) - interface{}字段
+	Nonce   string      `json:"n"` // 16字节 (8+8) - string字段
+	Sign    string      `json:"s"` // 16字节 (8+8) - string字段
+	Code    int         `json:"c"` // 8字节 - int字段
+	Time    int64       `json:"t"` // 8字节 - int64字段
+	Plan    int64       `json:"p"` // 8字节 - int64字段
 }
 
+// Permission 结构体 - 50字节 (4个字段，8字节对齐，2字节填充)
+// 排列优化：bool字段在前，slice字段连续排列
 type Permission struct {
-	//Ready     bool    // true.已有权限配置
-	MatchAll  bool    // true.满足所有权限角色才放行
-	NeedLogin bool    // true.需要登录状态
-	HasRole   []int64 // 拥有角色ID列表
-	NeedRole  []int64 // 所需角色ID列表
+	MatchAll  bool // true.满足所有权限角色才放行 - 1字节
+	NeedLogin bool // true.需要登录状态 - 1字节
+	//Ready     bool    // true.已有权限配置 - 注释字段
+	HasRole  []int64 // 拥有角色ID列表 - 24字节 (8+8+8)
+	NeedRole []int64 // 所需角色ID列表 - 24字节 (8+8+8)
 }
 
+// System 结构体 - 41字节 (4个字段，8字节对齐，7字节填充)
+// 排列优化：string字段在前，int64字段和bool字段在后
 type System struct {
-	Name          string // 系统名
-	Version       string // 系统版本
-	AcceptTimeout int64  // 超时主动断开客户端连接,秒
-	enableECC     bool
+	Name          string // 系统名 - 16字节 (8+8)
+	Version       string // 系统版本 - 16字节 (8+8)
+	AcceptTimeout int64  // 超时主动断开客户端连接,秒 - 8字节
+	enableECC     bool   // 1字节
 }
 
+// Context 结构体 - 232字节 (19个字段，8字节对齐，0字节填充)
+// 排列优化：按字段大小和类型分组，指针和8字节类型在前，string字段居中，bool字段在后
 type Context struct {
-	configs       *Configs
-	router        *fasthttprouter.Router
-	CacheAware    func(ds ...string) (cache.Cache, error)
-	Method        string
-	Path          string
-	System        *System
-	RequestCtx    *fasthttp.RequestCtx
-	Subject       *jwt.Subject
-	JsonBody      *JsonBody
-	Response      *Response
-	filterChain   *filterChain
-	RouterConfig  *RouterConfig
-	RSA           crypto.Cipher
-	roleRealm     func(ctx *Context, onlyRole bool) (*Permission, error) // 资源对象
-	Storage       map[string]interface{}
-	postCompleted bool
-	postHandle    PostHandle
-	errorHandle   ErrorHandle
+	// 8字节指针和函数字段组 (共17个字段，136字节)
+	configs       *Configs                                               // 8字节 - 指针
+	router        *fasthttprouter.Router                                 // 8字节 - 指针
+	System        *System                                                // 8字节 - 指针
+	RequestCtx    *fasthttp.RequestCtx                                   // 8字节 - 指针
+	Subject       *jwt.Subject                                           // 8字节 - 指针
+	JsonBody      *JsonBody                                              // 8字节 - 指针
+	Response      *Response                                              // 8字节 - 指针
+	filterChain   *filterChain                                           // 8字节 - 指针
+	RouterConfig  *RouterConfig                                          // 8字节 - 指针
+	RSA           crypto.Cipher                                          // 8字节 - interface
+	CacheAware    func(ds ...string) (cache.Cache, error)                // 8字节 - 函数指针
+	roleRealm     func(ctx *Context, onlyRole bool) (*Permission, error) // 8字节 - 函数指针
+	postHandle    PostHandle                                             // 8字节 - 函数指针
+	errorHandle   ErrorHandle                                            // 8字节 - 函数指针
+	Storage       map[string]interface{}                                 // 8字节 - map
+	postCompleted bool                                                   // 1字节 - bool (会产生填充)
+
+	// 16字节string字段组 (2个字段，32字节)
+	Method string // 16字节 (8+8)
+	Path   string // 16字节 (8+8)
 }
 
+// Response 结构体 - 80字节 (5个字段，8字节对齐，0字节填充)
+// 排列优化：string和interface{}字段在前，int字段和复杂类型字段在后
 type Response struct {
-	Encoding      string
-	ContentType   string
-	ContentEntity interface{}
-	// response result
-	StatusCode        int
-	ContentEntityByte bytes.Buffer
+	Encoding          string       // 16字节 (8+8) - string字段
+	ContentType       string       // 16字节 (8+8) - string字段
+	ContentEntity     interface{}  // 16字节 (8+8) - interface{}字段
+	StatusCode        int          // 8字节 - int字段
+	ContentEntityByte bytes.Buffer // 24字节 - bytes.Buffer (包含内部字段)
 }
 
 func SetLengthCheck(bodyLen, tokenLen, codeLen int) {

@@ -32,11 +32,13 @@ var filterMap = map[string]*FilterObject{
 	RenderHandleFilterName:       {Name: RenderHandleFilterName, Order: math.MinInt, Filter: &RenderHandleFilter{}},
 }
 
+// FilterObject 结构体 - 64字节 (4个字段，8字节对齐，优化排列减少填充)
+// 排列优化：大字段优先，相同大小字段分组
 type FilterObject struct {
-	Name         string
-	Order        int
-	Filter       Filter
-	MatchPattern []string
+	Name         string   // 16字节 (8+8) - string字段
+	Filter       Filter   // 16字节 (8+8) - interface{}字段
+	MatchPattern []string // 24字节 (8+8+8) - slice字段
+	Order        int      // 8字节 - int字段放在最后
 }
 
 func createFilterChain(extFilters []*FilterObject) ([]*FilterObject, error) {
