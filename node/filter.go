@@ -79,17 +79,20 @@ type filterChain struct {
 }
 
 func (self *filterChain) DoFilter(chain Filter, ctx *Context, args ...interface{}) error {
-	fs := self.filters
-	for self.pos < len(fs) {
-		f := fs[self.pos]
+	// 优化：直接使用self.filters，避免局部变量赋值
+	for self.pos < len(self.filters) {
+		f := self.filters[self.pos]
 		if f == nil || f.Filter == nil {
 			return ex.Throw{Code: ex.SYSTEM, Msg: fmt.Sprintf("filter at index %d is nil", self.pos)}
 		}
 		self.pos++
+
 		// 优化：Empty MatchPattern表示匹配所有，直接跳过URL检查
 		if len(f.MatchPattern) > 0 && !utils.MatchFilterURL(ctx.Path, f.MatchPattern) {
 			continue
 		}
+
+		// 执行过滤器并返回（责任链模式：一个过滤器执行完成后继续下一个）
 		return f.Filter.DoFilter(chain, ctx, args...)
 	}
 	return nil

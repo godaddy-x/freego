@@ -456,6 +456,7 @@ func (self *Context) RemoteIP() string {
 }
 
 func (self *Context) reset(ctx *Context, handle PostHandle, request *fasthttp.RequestCtx, fs []*FilterObject) {
+	// 全局函数配置（只在首次设置）
 	if self.CacheAware == nil {
 		self.CacheAware = ctx.CacheAware
 	}
@@ -468,17 +469,25 @@ func (self *Context) reset(ctx *Context, handle PostHandle, request *fasthttp.Re
 	if self.errorHandle == nil {
 		self.errorHandle = ctx.errorHandle
 	}
-	if len(self.filterChain.filters) == 0 {
-		self.filterChain.filters = fs
+
+	// System配置（直接赋值，避免对象池浪费）
+	if ctx.System != nil {
+		*self.System = *ctx.System // 复制内容而不是重新赋值指针
 	}
-	self.System = ctx.System
+
+	// 请求相关状态重置
 	self.postHandle = handle
 	self.RequestCtx = request
 	self.Method = utils.Bytes2Str(self.RequestCtx.Method())
 	self.Path = utils.Bytes2Str(self.RequestCtx.Path())
 	self.RouterConfig = self.configs.routerConfigs[self.Path]
 	self.postCompleted = false
+
+	// 过滤器链重置（优化：减少条件检查）
 	self.filterChain.pos = 0
+	// 注意：filters已在对象池中预设，无需重置
+
+	// 重置请求处理对象
 	self.resetJsonBody()
 	self.resetResponse()
 	self.resetSubject()
@@ -486,18 +495,21 @@ func (self *Context) reset(ctx *Context, handle PostHandle, request *fasthttp.Re
 }
 
 func (self *Context) resetTokenStorage() {
-	if len(self.Storage) == 0 {
+	// 优化：延迟初始化Storage map
+	if self.Storage == nil {
+		self.Storage = make(map[string]interface{}, 4) // 预分配小容量
 		return
 	}
-	for k, _ := range self.Storage {
-		delete(self.Storage, k)
+
+	// 优化：只有在确实使用过Storage时才清空
+	if len(self.Storage) > 0 {
+		// 高效清空：重新分配而不是逐个删除
+		self.Storage = make(map[string]interface{}, 4)
 	}
 }
 
 func (self *Context) resetJsonBody() {
-	if self.JsonBody == nil {
-		self.JsonBody = &JsonBody{}
-	}
+	// 对象池已预创建，无需nil检查
 	self.JsonBody.Data = nil
 	self.JsonBody.Nonce = ""
 	self.JsonBody.Sign = ""
@@ -506,36 +518,30 @@ func (self *Context) resetJsonBody() {
 }
 
 func (self *Context) resetResponse() {
-	if self.Response == nil {
-		self.Response = &Response{}
-	}
-	if len(self.Response.Encoding) == 0 {
-		self.Response.Encoding = UTF8
-	}
-	if len(self.Response.ContentType) == 0 {
-		self.Response.ContentType = APPLICATION_JSON
-	}
+	// 对象池已预创建并初始化，无需nil检查和初始化检查
 	self.Response.ContentEntity = nil
 	self.Response.StatusCode = 0
+	// 优化：只有在确实有内容时才Reset
 	if self.Response.ContentEntityByte.Len() > 0 {
 		self.Response.ContentEntityByte.Reset()
 	}
 }
 
 func (self *Context) resetSubject() {
-	if self.Subject == nil {
-		self.Subject = &jwt.Subject{}
-		self.Subject.Header = &jwt.Header{}
-		self.Subject.Payload = &jwt.Payload{}
-	}
-	self.Subject.Payload.Sub = ""
-	self.Subject.Payload.Iss = ""
-	self.Subject.Payload.Aud = ""
-	self.Subject.Payload.Iat = 0
-	self.Subject.Payload.Exp = 0
-	self.Subject.Payload.Dev = ""
-	self.Subject.Payload.Jti = ""
-	self.Subject.Payload.Ext = ""
+	// 对象池已预创建，无需nil检查
+
+	// 优化：批量重置Payload字段
+	payload := self.Subject.Payload
+	payload.Sub = ""
+	payload.Iss = ""
+	payload.Aud = ""
+	payload.Iat = 0
+	payload.Exp = 0
+	payload.Dev = ""
+	payload.Jti = ""
+	payload.Ext = ""
+
+	// 重置token和payload字节数据
 	self.Subject.ResetTokenBytes(nil)
 	self.Subject.ResetPayloadBytes(nil)
 }

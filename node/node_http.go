@@ -189,13 +189,20 @@ func (self *HttpNode) AddFilter(object *FilterObject) {
 func (self *HttpNode) createCtxPool() sync.Pool {
 	return sync.Pool{New: func() interface{} {
 		ctx := &Context{}
+		// 设置静态配置（启动时确定）
 		ctx.configs = self.Context.configs
-		ctx.filterChain = &filterChain{}
+		ctx.router = self.Context.router
+		ctx.filterChain = &filterChain{filters: self.filters} // 直接设置过滤器列表
+
+		// 预创建可重用对象
 		ctx.System = &System{}
 		ctx.JsonBody = &JsonBody{}
 		ctx.Subject = &jwt.Subject{Header: &jwt.Header{}, Payload: &jwt.Payload{}}
 		ctx.Response = &Response{Encoding: UTF8, ContentType: APPLICATION_JSON, ContentEntity: nil}
-		ctx.Storage = map[string]interface{}{}
+
+		// 延迟初始化Storage map（在需要时创建）
+		// ctx.Storage = nil // 不预创建，在reset中按需创建
+
 		return ctx
 	}}
 }
