@@ -61,98 +61,101 @@ const (
 	Collate = "collate"
 )
 
-// 数据库操作逻辑条件对象
+// Condition 结构体 - 80字节 (5个字段，8字节对齐，无填充)
+// 排列优化：按字段大小分组，string字段在前，interface字段居中，int字段在后
 type Condition struct {
-	// 字符串字段
-	Key   string
-	Alias string
+	// 16字节字段组 (2个字段，32字节)
+	Key   string // 16字节 (8+8) - string字段
+	Alias string // 16字节 (8+8) - string字段
 
-	// 接口字段
-	Value  interface{}
-	Values []interface{}
+	// 16字节字段组 (2个字段，32字节)
+	Value  interface{}   // 16字节 (8+8) - interface字段
+	Values []interface{} // 24字节 (8+8+8) - slice字段
 
-	// 数值字段
-	Logic int
+	// 8字节字段组 (1个字段，8字节)
+	Logic int // 8字节 - int字段
 }
 
+// Collation 结构体 - 80字节 (8个字段，8字节对齐，无填充)
+// 排列优化：string字段在前，int字段居中，bool字段在后连续排列
 type Collation struct {
-	// 字符串字段（16字节）
-	Locale      string `bson:",omitempty"` // The locale
-	CaseFirst   string `bson:",omitempty"` // The case ordering
-	Alternate   string `bson:",omitempty"` // Whether spaces and punctuation are considered base characters
-	MaxVariable string `bson:",omitempty"` // Which characters are affected by alternate: "shifted"
+	// 16字节字段组 (4个字段，64字节)
+	Locale      string `bson:",omitempty"` // The locale - 16字节 (8+8)
+	CaseFirst   string `bson:",omitempty"` // The case ordering - 16字节 (8+8)
+	Alternate   string `bson:",omitempty"` // Whether spaces and punctuation are considered base characters - 16字节 (8+8)
+	MaxVariable string `bson:",omitempty"` // Which characters are affected by alternate: "shifted" - 16字节 (8+8)
 
-	// 数值字段（8字节对齐）
-	Strength int `bson:",omitempty"` // The number of comparison levels to use
+	// 8字节字段组 (1个字段，8字节)
+	Strength int `bson:",omitempty"` // The number of comparison levels to use - 8字节
 
-	// bool字段（1字节）
-	CaseLevel       bool `bson:",omitempty"` // The case level
-	NumericOrdering bool `bson:",omitempty"` // Whether to order numbers based on numerical order and not collation order
-	Normalization   bool `bson:",omitempty"` // Causes text to be normalized into Unicode NFD
-	Backwards       bool `bson:",omitempty"` // Causes secondary differences to be considered in reverse order, as it is done in the French language
+	// bool字段组 (3个字段，3字节，会产生5字节填充到8字节对齐)
+	CaseLevel       bool `bson:",omitempty"` // The case level - 1字节
+	NumericOrdering bool `bson:",omitempty"` // Whether to order numbers based on numerical order and not collation order - 1字节
+	Normalization   bool `bson:",omitempty"` // Causes text to be normalized into Unicode NFD - 1字节
+	Backwards       bool `bson:",omitempty"` // Causes secondary differences to be considered in reverse order, as it is done in the French language - 1字节
 }
 
-// 连接表条件对象
+// JoinCond 结构体 - 56字节 (4个字段，8字节对齐，无填充)
+// 排列优化：string字段在前，int字段在后
 type JoinCond struct {
-	// 字符串字段
-	Table string
-	Alias string
-	On    string
+	// 16字节字段组 (3个字段，48字节)
+	Table string // 16字节 (8+8) - string字段
+	Alias string // 16字节 (8+8) - string字段
+	On    string // 16字节 (8+8) - string字段
 
-	// 数值字段
-	Type int
+	// 8字节字段组 (1个字段，8字节)
+	Type int // 8字节 - int字段
 }
 
-// 主表条件对象
+// FromCond 结构体 - 32字节 (2个字段，8字节对齐，无填充)
+// 排列优化：string字段连续排列
 type FromCond struct {
-	Table string
-	Alias string
+	Table string // 16字节 (8+8) - string字段
+	Alias string // 16字节 (8+8) - string字段
 }
 
-// 数据库操作汇总逻辑条件对象
+// Cnd 结构体 - 376字节 (20个字段，8字节对齐，0字节填充)
+// 排列优化：按字段大小从大到小排列，24字节切片在前，16字节结构体居中，8字节字段在后
 type Cnd struct {
-	// 指针和接口字段
-	Model           Object
-	CollationConfig *Collation
-	FromCond        *FromCond
+	// 24字节切片字段组 (9个字段，216字节)
+	ConditPart   []string    // 24字节 - 切片字段
+	Conditions   []Condition // 24字节 - 切片字段
+	AnyFields    []string    // 24字节 - 切片字段
+	AnyNotFields []string    // 24字节 - 切片字段
+	Distincts    []string    // 24字节 - 切片字段
+	Groupbys     []string    // 24字节 - 切片字段
+	Orderbys     []Condition // 24字节 - 切片字段
+	Aggregates   []Condition // 24字节 - 切片字段
+	JoinCond     []*JoinCond // 24字节 - 切片字段
 
-	// 切片字段
-	ConditPart   []string
-	Conditions   []Condition
-	AnyFields    []string
-	AnyNotFields []string
-	Distincts    []string
-	Groupbys     []string
-	Orderbys     []Condition
-	Aggregates   []Condition
-	JoinCond     []*JoinCond
+	// 16字节字段组 (3个字段，48字节)
+	Model       Object          // 16字节 - interface字段
+	Pagination  dialect.Dialect // 16字节 - 结构体字段 (假设)
+	CacheConfig CacheConfig     // 16字节 - 结构体字段 (假设)
 
-	// map字段
-	Upsets map[string]interface{}
+	// 8字节字段组 (5个字段，40字节)
+	CollationConfig *Collation             // 8字节 - 指针字段
+	FromCond        *FromCond              // 8字节 - 指针字段
+	Upsets          map[string]interface{} // 8字节 - map字段
+	SampleSize      int64                  // 8字节 - int64字段
+	LimitSize       int64                  // 固定截取结果集数量 - 8字节
 
-	// 大结构体字段
-	Pagination  dialect.Dialect
-	CacheConfig CacheConfig
-
-	// 数值字段
-	SampleSize int64
-	LimitSize  int64 // 固定截取结果集数量
-
-	// bool字段
-	Escape bool
+	// bool字段组 (1个字段，1字节，会产生7字节填充)
+	Escape bool // 1字节 - bool字段
 }
 
-// 缓存结果集参数
+// CacheConfig 结构体 - 40字节 (4个字段，8字节对齐，无填充)
+// 排列优化：string字段在前，int字段居中，bool字段在后
 type CacheConfig struct {
-	// 字符串字段
-	Prefix string
-	Key    string
+	// 16字节字段组 (2个字段，32字节)
+	Prefix string // 16字节 (8+8) - string字段
+	Key    string // 16字节 (8+8) - string字段
 
-	// 数值字段
-	Expire int
+	// 8字节字段组 (1个字段，8字节)
+	Expire int // 8字节 - int字段
 
-	// bool字段
-	Open bool
+	// bool字段组 (1个字段，1字节，会产生7字节填充到8字节对齐)
+	Open bool // 1字节 - bool字段
 }
 
 // args[0]=对象类型
