@@ -230,7 +230,7 @@ func (self *Context) Parser(dst interface{}) error {
 	// TODO 备注: 已有会话状态时,指针填充context值,不能随意修改指针偏移值
 	identify := &common.Identify{}
 	if self.Authenticated() {
-		identify.ID = self.Subject.GetSub()
+		identify.ID = self.Subject.Payload.Sub
 	}
 	context := common.Context{
 		Identify:   identify,

@@ -31,10 +31,9 @@ const (
 )
 
 type Subject struct {
-	Header       *Header
-	Payload      *Payload
-	tokenBytes   []byte
-	payloadBytes []byte
+	Header     *Header
+	Payload    *Payload
+	tokenBytes []byte
 }
 
 type JwtConfig struct {
@@ -58,6 +57,11 @@ type Payload struct {
 	Dev string `json:"dev"` // 设备类型,web/app
 	Jti string `json:"jti"` // 唯一身份标识,主要用来作为一次性token,从而回避重放攻击
 	Ext string `json:"ext"` // 扩展信息
+}
+
+type SimplePayload struct {
+	Sub string // 用户主体
+	Exp int64  // 授权token过期时间
 }
 
 func (self *Subject) AddHeader(config JwtConfig) *Subject {
@@ -140,6 +144,34 @@ func (self *Subject) Verify(token, key string, decode bool) error {
 	if len(token) == 0 {
 		return utils.Error("token is nil")
 	}
+
+	// 1. 获取本地密钥
+	localKey := utils.GetLocalTokenSecretKey()
+
+	// 2. 从token中提取sub（JWT中已包含sub，不同用户的sub不同，token也不同）
+	//    token本身就包含了sub信息，所以使用token即可区分不同用户
+	password := utils.AddStr("TokenVerify", token, localKey, key)
+
+	// 3. 计算缓存键：基于password的SHA256
+	//    不同token（包含不同sub）产生不同的缓存键
+	cacheKey := utils.SHA256(password)
+
+	// 2. 尝试从缓存获取Payload指针
+	if value, b, err := localSubjectCache.Get(cacheKey, nil); err == nil && b && value != nil {
+		simple := value.(*SimplePayload)
+		if simple.Exp <= utils.UnixSecond() {
+			// 失效的token主动清退
+			_ = localSubjectCache.Del(cacheKey)
+			return utils.Error("token expired")
+		}
+		if self.Payload == nil {
+			self.Payload = &Payload{}
+		}
+		self.Payload.Sub = simple.Sub
+		self.Payload.Exp = simple.Exp
+		return nil
+	}
+
 	part := strings.Split(token, ".")
 	if part == nil || len(part) != 3 {
 		return utils.Error("token part length invalid")
@@ -149,11 +181,12 @@ func (self *Subject) Verify(token, key string, decode bool) error {
 	part2 := part[2]
 
 	// 性能优化1: 先检查过期时间（计算量小），避免过期token的昂贵签名验证
-	b64 := utils.Base64Decode(part1)
-	if len(b64) == 0 {
+	decodeb64 := utils.Base64Decode(part1)
+	if len(decodeb64) == 0 {
 		return utils.Error("token part base64 data decode failed")
 	}
-	if int64(utils.GetJsonInt(b64, "exp")) <= utils.UnixSecond() {
+	exp := utils.GetJsonInt64(decodeb64, "exp")
+	if exp <= utils.UnixSecond() {
 		return utils.Error("token expired or invalid")
 	}
 
@@ -163,14 +196,18 @@ func (self *Subject) Verify(token, key string, decode bool) error {
 		return utils.Error("token signature invalid")
 	}
 
-	if !decode {
-		return nil
-	}
 	if self.Payload == nil {
 		self.Payload = &Payload{}
 	}
-	self.payloadBytes = b64
-	self.Payload.Sub = self.getStringValue("sub")
+	//self.payloadBytes = b64
+	self.Payload.Exp = exp
+	self.Payload.Sub = self.getStringValue("sub", decodeb64)
+
+	// 9. 缓存结果，1天有效期（平衡性能和内存占用）
+	if err := localSubjectCache.Put(cacheKey, &SimplePayload{Sub: self.Payload.Sub, Exp: self.Payload.Exp}, 86400); err != nil {
+		zlog.Error("put localSubjectCache token verify failed", 0, zlog.AddError(err))
+	}
+
 	return nil
 }
 
@@ -193,14 +230,14 @@ func (self *Subject) ResetTokenBytes(b []byte) {
 }
 
 func (self *Subject) ResetPayloadBytes(b []byte) {
-	if b == nil && len(self.payloadBytes) == 0 {
-		return
-	}
-	self.payloadBytes = nil
-	if b == nil {
-		return
-	}
-	self.payloadBytes = b
+	//if b == nil && len(self.payloadBytes) == 0 {
+	//	return
+	//}
+	//self.payloadBytes = nil
+	//if b == nil {
+	//	return
+	//}
+	//self.payloadBytes = b
 }
 
 func (self *Subject) GetRawBytes() []byte {
@@ -210,56 +247,56 @@ func (self *Subject) GetRawBytes() []byte {
 	return self.tokenBytes
 }
 
-func (self *Subject) GetSub() string {
+func (self *Subject) GetSub(b []byte) string {
 	if self.Payload == nil {
 		self.Payload = &Payload{}
 	}
 	if len(self.Payload.Sub) == 0 {
-		self.Payload.Sub = self.getStringValue("sub")
+		self.Payload.Sub = self.getStringValue("sub", b)
 	}
 	return self.Payload.Sub
 }
 
-func (self *Subject) GetIss() string {
-	return self.getStringValue("iss")
+func (self *Subject) GetIss(b []byte) string {
+	return self.getStringValue("iss", b)
 }
 
-func (self *Subject) GetAud() string {
-	return self.getStringValue("aud")
+func (self *Subject) GetAud(b []byte) string {
+	return self.getStringValue("aud", b)
 }
 
-func (self *Subject) GetIat() int64 {
-	return self.getInt64Value("iat")
+func (self *Subject) GetIat(b []byte) int64 {
+	return self.getInt64Value("iat", b)
 }
 
-func (self *Subject) GetExp() int64 {
-	return self.getInt64Value("exp")
+func (self *Subject) GetExp(b []byte) int64 {
+	return self.getInt64Value("exp", b)
 }
 
-func (self *Subject) GetDev() string {
-	return self.getStringValue("dev")
+func (self *Subject) GetDev(b []byte) string {
+	return self.getStringValue("dev", b)
 }
 
-func (self *Subject) GetJti() string {
-	return self.getStringValue("jti")
+func (self *Subject) GetJti(b []byte) string {
+	return self.getStringValue("jti", b)
 }
 
-func (self *Subject) GetExt() string {
-	return self.getStringValue("ext")
+func (self *Subject) GetExt(b []byte) string {
+	return self.getStringValue("ext", b)
 }
 
-func (self *Subject) getStringValue(k string) string {
-	if len(self.payloadBytes) == 0 {
+func (self *Subject) getStringValue(k string, payload []byte) string {
+	if len(payload) == 0 {
 		return ""
 	}
-	return utils.GetJsonString(self.payloadBytes, k)
+	return utils.GetJsonString(payload, k)
 }
 
-func (self *Subject) getInt64Value(k string) int64 {
-	if len(self.payloadBytes) == 0 {
+func (self *Subject) getInt64Value(k string, payload []byte) int64 {
+	if len(payload) == 0 {
 		return 0
 	}
-	return utils.GetJsonInt64(self.payloadBytes, k)
+	return utils.GetJsonInt64(payload, k)
 }
 
 // 获取token的私钥
@@ -280,7 +317,7 @@ func (self *Subject) GetTokenSecretEnhanced(token, secret string) string {
 
 	// 2. 从token中提取sub（JWT中已包含sub，不同用户的sub不同，token也不同）
 	//    token本身就包含了sub信息，所以使用token即可区分不同用户
-	password := utils.AddStr(token, localKey, secret)
+	password := utils.AddStr("GetTokenSecretEnhanced", token, localKey, secret)
 
 	// 3. 计算缓存键：基于password的SHA256
 	//    不同token（包含不同sub）产生不同的缓存键
@@ -309,7 +346,7 @@ func (self *Subject) GetTokenSecretEnhanced(token, secret string) string {
 
 	// 9. 缓存结果，1天有效期（平衡性能和内存占用）
 	if err := localSubjectCache.Put(cacheKey, result, 86400); err != nil {
-		zlog.Error("put localSubjectCache failed", 0, zlog.AddError(err))
+		zlog.Error("put localSubjectCache token secret failed", 0, zlog.AddError(err))
 	}
 	return result
 }

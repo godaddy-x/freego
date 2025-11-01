@@ -30,7 +30,7 @@ func TestWsServer(t *testing.T) {
 		if err := utils.JsonUnmarshal(message, &result); err != nil {
 			return nil, err
 		}
-		result["subject"] = ctx.Subject.GetSub()
+		result["subject"] = ctx.Subject.GetSub(nil)
 		//fmt.Println("receive ack:", result)
 		return nil, nil
 	}

@@ -248,9 +248,9 @@ func (self *WsServer) SendMessage(data interface{}, subject string, dev ...strin
 func (self *WsServer) addConn(conn *websocket.Conn, ctx *Context) error {
 	self.mu.Lock()
 	defer self.mu.Unlock()
-	sub := ctx.Subject.GetSub()
-	dev := ctx.Subject.GetDev()
-	exp := ctx.Subject.GetExp()
+	sub := ctx.Subject.GetSub(nil)
+	dev := ctx.Subject.GetDev(nil)
+	exp := ctx.Subject.GetExp(nil)
 	if len(dev) == 0 {
 		dev = "web"
 	}
@@ -263,7 +263,7 @@ func (self *WsServer) addConn(conn *websocket.Conn, ctx *Context) error {
 	}
 
 	if len(self.pool) >= self.max {
-		closeConn("add conn max pool close", &DevConn{Conn: conn, Dev: ctx.Subject.GetDev(), Sub: ctx.Subject.GetSub()})
+		closeConn("add conn max pool close", &DevConn{Conn: conn, Dev: ctx.Subject.GetDev(nil), Sub: ctx.Subject.GetSub(nil)})
 		return utils.Error("conn pool full: ", len(self.pool))
 	}
 
@@ -296,7 +296,7 @@ func (self *WsServer) refConn(ctx *Context) error {
 	self.mu.Lock()
 	defer self.mu.Unlock()
 	sub := ctx.Subject.Payload.Sub
-	dev := ctx.Subject.GetDev()
+	dev := ctx.Subject.GetDev(nil)
 	if len(dev) == 0 {
 		dev = "web"
 	}
@@ -371,8 +371,8 @@ func (self *WsServer) wsHandler(path string, handle Handle) websocket.Handler {
 			return
 		}
 
-		devConn.Sub = ctx.Subject.GetSub()
-		devConn.Dev = ctx.Subject.GetDev()
+		devConn.Sub = ctx.Subject.GetSub(nil)
+		devConn.Dev = ctx.Subject.GetDev(nil)
 
 		if err := self.addConn(ws, ctx); err != nil {
 			zlog.Error("add conn error", 0, zlog.String("sub", devConn.Sub), zlog.String("dev", devConn.Dev), zlog.AddError(err))
