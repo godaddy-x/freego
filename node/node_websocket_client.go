@@ -38,23 +38,23 @@ func authReq(path string, requestObj interface{}, secret string, encrypted ...bo
 	}
 	jsonBody := &JsonResp{
 		Code:  http.StatusOK,
-		Data:  jsonData,
+		Data:  string(jsonData),
 		Time:  utils.UnixSecond(),
 		Nonce: utils.RandNonce(),
 		Plan:  0,
 	}
 	if len(encrypted) > 0 && encrypted[0] {
-		d, err := utils.AesCBCEncrypt(jsonBody.Data.([]byte), secret)
+		d, err := utils.AesCBCEncrypt(utils.Str2Bytes(jsonBody.Data), secret)
 		if err != nil {
 			return nil, ex.Throw{Msg: "request data AES encrypt failed"}
 		}
 		jsonBody.Data = d
 		jsonBody.Plan = 1
 	} else {
-		d := utils.Base64Encode(jsonBody.Data.([]byte))
+		d := utils.Base64Encode(jsonBody.Data)
 		jsonBody.Data = d
 	}
-	jsonBody.Sign = utils.HMAC_SHA256(utils.AddStr(path, jsonBody.Data.(string), jsonBody.Nonce, jsonBody.Time, jsonBody.Plan), secret, true)
+	jsonBody.Sign = utils.HMAC_SHA256(utils.AddStr(path, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan), secret, true)
 	bytesData, err := utils.JsonMarshal(jsonBody)
 	if err != nil {
 		return nil, ex.Throw{Msg: "jsonBody data JsonMarshal invalid"}
@@ -90,7 +90,7 @@ func authRes(client *WsClient, respBytes []byte) ([]byte, error) {
 	if respData.Plan == 0 {
 		dec = utils.Base64Decode(respData.Data)
 	} else if respData.Plan == 1 {
-		dec, err = utils.AesCBCDecrypt(respData.Data.(string), client.auth.Secret)
+		dec, err = utils.AesCBCDecrypt(respData.Data, client.auth.Secret)
 		if err != nil {
 			return nil, ex.Throw{Msg: "post response data AES decrypt failed"}
 		}

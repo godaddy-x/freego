@@ -2,6 +2,7 @@ package node
 
 import (
 	"bytes"
+	"github.com/mailru/easyjson"
 	"net/http"
 	"strings"
 	"unsafe"
@@ -81,28 +82,6 @@ type HttpLog struct {
 	CostMill int64  // 业务耗时,毫秒 - 8字节
 }
 
-// JsonBody 结构体 - 64字节 (5个字段，8字节对齐，无填充)
-// 排列优化：interface{}和string字段在前，int64字段连续排列
-type JsonBody struct {
-	Data  interface{} `json:"d"` // 16字节 (8+8) - interface{}字段
-	Nonce string      `json:"n"` // 16字节 (8+8) - string字段
-	Sign  string      `json:"s"` // 16字节 (8+8) - string字段
-	Time  int64       `json:"t"` // 8字节 - int64字段
-	Plan  int64       `json:"p"` // 0.默认(登录状态) 1.AES(登录状态) 2.RSA/ECC模式(匿名状态) 3.独立验签模式(匿名状态) - 8字节
-}
-
-// JsonResp 结构体 - 96字节 (7个字段，8字节对齐，无填充)
-// 排列优化：interface{}和string字段在前，int字段和int64字段连续排列
-type JsonResp struct {
-	Message string      `json:"m"` // 16字节 (8+8) - string字段
-	Data    interface{} `json:"d"` // 16字节 (8+8) - interface{}字段
-	Nonce   string      `json:"n"` // 16字节 (8+8) - string字段
-	Sign    string      `json:"s"` // 16字节 (8+8) - string字段
-	Code    int         `json:"c"` // 8字节 - int字段
-	Time    int64       `json:"t"` // 8字节 - int64字段
-	Plan    int64       `json:"p"` // 8字节 - int64字段
-}
-
 // Permission 结构体 - 50字节 (4个字段，8字节对齐，2字节填充)
 // 排列优化：bool字段在前，slice字段连续排列
 type Permission struct {
@@ -176,19 +155,11 @@ func SetLocalSecret(key string) {
 }
 
 func (self *JsonBody) ParseData(dst interface{}) error {
-	raw, b := self.Data.([]byte)
-	if !b {
-		return utils.Error("jsonBody data not string")
-	}
-	return utils.JsonUnmarshal(raw, dst)
+	return utils.JsonUnmarshal(utils.Str2Bytes(self.Data), dst)
 }
 
 func (self *JsonBody) RawData() []byte {
-	raw, b := self.Data.([]byte)
-	if !b {
-		return nil
-	}
-	return raw
+	return utils.Str2Bytes(self.Data)
 }
 
 func (self *Context) GetTokenSecret() string {
@@ -241,7 +212,7 @@ func (self *Context) Authenticated() bool {
 }
 
 func (self *Context) Parser(dst interface{}) error {
-	if self.JsonBody == nil || self.JsonBody.Data == nil {
+	if self.JsonBody == nil || len(self.JsonBody.Data) == 0 {
 		return nil
 	}
 	if err := self.JsonBody.ParseData(dst); err != nil {
@@ -298,10 +269,11 @@ func (self *Context) readParams() error {
 	body := self.RequestCtx.PostBody()
 	// 原始请求模式
 	if self.RouterConfig.Guest {
-		if body == nil || len(body) == 0 {
+		if len(body) == 0 {
 			return nil
 		}
-		self.JsonBody.Data = body
+		// 复制副本防止底层引用
+		self.JsonBody.Data = string(body)
 		return nil
 	}
 	// 安全请求模式
@@ -315,14 +287,11 @@ func (self *Context) readParams() error {
 	if len(body) > (MAX_BODY_LEN) {
 		return ex.Throw{Code: http.StatusLengthRequired, Msg: "body parameters length is too long"}
 	}
-	self.JsonBody.Data = utils.GetJsonString(body, "d")
-	self.JsonBody.Time = utils.GetJsonInt64(body, "t")
-	self.JsonBody.Nonce = utils.GetJsonString(body, "n")
-	self.JsonBody.Plan = utils.GetJsonInt64(body, "p")
-	self.JsonBody.Sign = utils.GetJsonString(body, "s")
-	//if err := utils.JsonUnmarshal(body, self.JsonBody); err != nil {
-	//	panic(err)
-	//}
+
+	if err := easyjson.Unmarshal(body, self.JsonBody); err != nil {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters parse error"}
+	}
+
 	if err := self.validJsonBody(); err != nil { // TODO important
 		return err
 	}
@@ -356,8 +325,8 @@ func (self *Context) validJsonBody() error {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request json body is nil"}
 	}
 	body := self.JsonBody
-	d, b := body.Data.(string)
-	if !b || len(d) == 0 {
+	d := body.Data
+	if len(d) == 0 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request data is nil"}
 	}
 	if !utils.CheckInt64(body.Plan, 0, 1, 2) {
@@ -379,10 +348,10 @@ func (self *Context) validJsonBody() error {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature length invalid"}
 	}
 
-	auth := self.GetRawTokenBytes()
-
-	if utils.CheckInt64(body.Plan, 0, 1) && len(auth) == 0 {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "request header token is nil"}
+	if utils.CheckInt64(body.Plan, 0, 1) {
+		if len(self.GetRawTokenBytes()) == 0 {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "request header token is nil"}
+		}
 	}
 
 	var key string
@@ -442,7 +411,7 @@ func (self *Context) validJsonBody() error {
 	} else {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters plan invalid"}
 	}
-	self.JsonBody.Data = rawData
+	self.JsonBody.Data = utils.Bytes2Str(rawData)
 	return nil
 }
 
@@ -537,7 +506,7 @@ func (self *Context) resetTokenStorage() {
 
 func (self *Context) resetJsonBody() {
 	// 对象池已预创建，无需nil检查
-	self.JsonBody.Data = nil
+	self.JsonBody.Data = ""
 	self.JsonBody.Nonce = ""
 	self.JsonBody.Sign = ""
 	self.JsonBody.Time = 0

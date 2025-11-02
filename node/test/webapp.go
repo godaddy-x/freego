@@ -21,8 +21,8 @@ type MyWebNode struct {
 
 type GetUserReq struct {
 	common.BaseReq
-	Uid  int    `json:"uid"`
-	Name string `json:"name"`
+	Uid  string `json:"token"`
+	Name string `json:"secret"`
 }
 
 func (self *MyWebNode) test(ctx *node.Context) error {
@@ -40,7 +40,7 @@ func (self *MyWebNode) getUser(ctx *node.Context) error {
 	if err := ctx.Parser(req); err != nil {
 		return err
 	}
-	return self.Json(ctx, map[string]interface{}{"test": "我爱中国+-/+_=/1df"})
+	return self.Json(ctx, map[string]interface{}{"token": "我爱中国+-/+_=/1df"})
 }
 
 func testCallRPC() {

@@ -34,7 +34,7 @@ func TestECCLogin(t *testing.T) {
 	prk, _ := ecc.CreateECDSA()
 	httpSDK.SetPrivateKey(prk)
 	httpSDK.SetPublicKey("BKNoaVapAlKywv5sXfag/LHa8mp6sdGFX6QHzfXIjBojkoCfCgZg6RPBXwLUUpPDzOC3uhDC60ECz2i1EbITsGY=")
-	requestData := map[string]string{"username": "1234567890123456", "password": "1234567890123456"}
+	requestData := sdk.AuthToken{Token: "我爱中国，祖国强大！！！"}
 	responseData := sdk.AuthToken{}
 	if err := httpSDK.PostByECC("/login", &requestData, &responseData); err != nil {
 		fmt.Println(err)
@@ -45,8 +45,8 @@ func TestECCLogin(t *testing.T) {
 func TestGetUser(t *testing.T) {
 	httpSDK.AuthObject(&map[string]string{"username": "1234567890123456", "password": "1234567890123456"})
 	httpSDK.AuthToken(sdk.AuthToken{Token: access_token, Secret: token_secret, Expired: token_expire})
-	requestObj := map[string]interface{}{"uid": 123, "name": "我爱中国/+_=/1df", "limit": 20, "offset": 5}
-	responseData := map[string]string{}
+	requestObj := sdk.AuthToken{Token: "我爱中国，祖国强大！！！", Secret: "安排测试下吧123456789@@@"}
+	responseData := sdk.AuthToken{}
 	if err := httpSDK.PostByAuth("/getUser", &requestObj, &responseData, true); err != nil {
 		fmt.Println(err)
 	}

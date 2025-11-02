@@ -399,9 +399,9 @@ func (self *WsServer) wsHandler(path string, handle Handle) websocket.Handler {
 				continue
 			}
 
-			dec, b := ctx.JsonBody.Data.([]byte)
+			dec := utils.Str2Bytes(ctx.JsonBody.Data)
 
-			if b && utils.GetJsonString(dec, "healthCheck") == pingCmd {
+			if utils.GetJsonString(dec, "healthCheck") == pingCmd {
 				_ = self.refConn(ctx)
 				continue
 			}

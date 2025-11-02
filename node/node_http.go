@@ -3,6 +3,7 @@ package node
 import (
 	"context"
 	"fmt"
+	"github.com/mailru/easyjson"
 	"net"
 	"net/http"
 	"os"
@@ -513,27 +514,25 @@ func defaultRenderPre(ctx *Context) error {
 				}
 				resp.Plan = 2
 				key, _ = v.(string)
-				data, err := utils.AesGCMEncryptWithAAD(data, key, utils.AddStr(resp.Time, resp.Nonce, resp.Plan, ctx.Path))
+				resp.Data, err = utils.AesGCMEncryptWithAAD(data, key, utils.AddStr(resp.Time, resp.Nonce, resp.Plan, ctx.Path))
 				if err != nil {
 					return ex.Throw{Code: http.StatusInternalServerError, Msg: "AES encryption response data failed", Err: err}
 				}
-				resp.Data = data
 				ctx.DelStorage(RandomCode)
 			} else {
 				return ex.Throw{Msg: "anonymous response plan invalid"}
 			}
 		} else if routerConfig.AesResponse {
 			resp.Plan = 1
-			data, err := utils.AesGCMEncryptWithAAD(data, ctx.GetTokenSecret(), utils.AddStr(resp.Time, resp.Nonce, resp.Plan, ctx.Path))
+			resp.Data, err = utils.AesGCMEncryptWithAAD(data, ctx.GetTokenSecret(), utils.AddStr(resp.Time, resp.Nonce, resp.Plan, ctx.Path))
 			if err != nil {
 				return ex.Throw{Code: http.StatusInternalServerError, Msg: "AES encryption response data failed", Err: err}
 			}
-			resp.Data = data
 		} else {
 			resp.Data = utils.Base64Encode(data)
 		}
-		resp.Sign = ctx.GetHmac256Sign(resp.Data.(string), resp.Nonce, resp.Time, resp.Plan, key)
-		if result, err := utils.JsonMarshal(resp); err != nil {
+		resp.Sign = ctx.GetHmac256Sign(resp.Data, resp.Nonce, resp.Time, resp.Plan, key)
+		if result, err := easyjson.Marshal(resp); err != nil {
 			return ex.Throw{Code: http.StatusInternalServerError, Msg: "response JSON data failed", Err: err}
 		} else {
 			ctx.Response.ContentEntityByte.Write(result)
