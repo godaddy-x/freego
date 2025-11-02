@@ -112,7 +112,7 @@ func BenchmarkPublicKey(b *testing.B) {
 
 // go test http_test.go -bench=BenchmarkPubkey  -benchmem -count=10 -cpuprofile cpuprofile.out -memprofile memprofile.out
 // go test http_test.go -bench=BenchmarkGetUser  -benchmem -count=10
-func BenchmarkGetUser(b *testing.B) {
+func BenchmarkAesGetUser(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {

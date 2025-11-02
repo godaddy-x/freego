@@ -43,7 +43,7 @@ func JsonValidString(s string) bool {
 
 // JSON字符串转对象
 func JsonUnmarshal(data []byte, v interface{}) error {
-	if data == nil || len(data) == 0 {
+	if len(data) == 0 {
 		return nil
 	}
 	if v == nil {
