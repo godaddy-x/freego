@@ -869,7 +869,7 @@ CMD ["./main"]
 安全特性: ECC证书验证 + HMAC签名 + AES-GCM认证加密 + JSON序列化 + 重放攻击防护
 ```
 
-#### BenchmarkAesGetUser - AES 加密用户查询
+#### BenchmarkAesGetUser - AES+HMAC API 查询
 
 ```
 性能指标:
