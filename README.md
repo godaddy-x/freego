@@ -206,7 +206,7 @@ CMD ["./main"]
 
 - 📧 **GitHub**: [https://github.com/godaddy-x/freego](https://github.com/godaddy-x/freego)
 - 🐛 **Issues**: [报告问题](https://github.com/godaddy-x/freego/issues)
-- 📖 **文档**: [详细文档](./docs/)
+- 📖 **文档**: [详细文档](./README_SECURITY.md)
 
 ---
 
