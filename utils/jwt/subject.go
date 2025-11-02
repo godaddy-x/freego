@@ -7,7 +7,6 @@ package jwt
 
 import (
 	"crypto/sha512"
-	"github.com/mailru/easyjson"
 	"strings"
 
 	"github.com/godaddy-x/freego/cache"
@@ -96,11 +95,11 @@ func (self *Subject) Aud(aud string) *Subject {
 
 func (self *Subject) Generate(config JwtConfig) string {
 	self.AddHeader(config)
-	headerBs, err := easyjson.Marshal(self.Header)
+	headerBs, err := utils.JsonMarshal(self.Header)
 	if err != nil {
 		return ""
 	}
-	headerB64 := utils.Base64Encode(headerBs)
+	headerB64 := utils.Base64EncodeWithPool(headerBs)
 	if config.TokenExp > 0 {
 		if self.Payload.Iat > 0 {
 			self.Payload.Exp = self.Payload.Iat + config.TokenExp
@@ -108,11 +107,11 @@ func (self *Subject) Generate(config JwtConfig) string {
 			self.Payload.Exp = utils.UnixSecond() + config.TokenExp
 		}
 	}
-	payloadBs, err := easyjson.Marshal(self.Payload)
+	payloadBs, err := utils.JsonMarshal(self.Payload)
 	if err != nil {
 		return ""
 	}
-	payloadB64 := utils.Base64Encode(payloadBs)
+	payloadB64 := utils.Base64EncodeWithPool(payloadBs)
 	part1 := utils.AddStr(headerB64, ".", payloadB64)
 	return part1 + "." + self.Signature(part1, config.TokenKey)
 }
@@ -169,12 +168,12 @@ func (self *Subject) Verify(auth []byte, key string) error {
 	part2 := part[2]
 
 	// 性能优化1: 先检查过期时间（计算量小），避免过期token的昂贵签名验证
-	decodeB64 := utils.Base64Decode(part1)
+	decodeB64 := utils.Base64DecodeWithPool(part1)
 	if len(decodeB64) == 0 {
 		return utils.Error("token part base64 data decode failed")
 	}
 
-	if err := easyjson.Unmarshal(decodeB64, self.Payload); err != nil {
+	if err := utils.JsonUnmarshal(decodeB64, self.Payload); err != nil {
 		return utils.Error("token part parse failed")
 	}
 	// 分布式系统时间同步缓冲区：提前300秒判断过期，避免时间同步误差

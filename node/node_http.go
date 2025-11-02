@@ -3,7 +3,6 @@ package node
 import (
 	"context"
 	"fmt"
-	"github.com/mailru/easyjson"
 	"net"
 	"net/http"
 	"os"
@@ -148,7 +147,9 @@ func (self *HttpNode) StartServer(addr string) {
 func (self *HttpNode) checkContextReady(path string, routerConfig *RouterConfig) {
 	self.readyContext()
 	self.AddCache(nil)
-	self.AddCipher(nil)
+	if err := self.AddCipher(nil); err != nil {
+		panic("add cipher failed: " + err.Error())
+	}
 	self.addRouterConfig(path, routerConfig)
 	self.newRouter()
 }
@@ -239,26 +240,27 @@ func (self *HttpNode) AddCache(cacheAware CacheAware) {
 	}
 }
 
-func (self *HttpNode) AddCipher(cipher crypto.Cipher) {
+func (self *HttpNode) AddCipher(cipher crypto.Cipher) error {
 	self.readyContext()
 	if self.Context.RSA == nil {
 		if cipher == nil {
 			if self.Context.System.enableECC {
 				defaultECC := &crypto.EccObj{}
 				if err := defaultECC.CreateS256ECC(); err != nil {
-					panic("ECC certificate generation failed")
+					return utils.Error("ECC certificate generation failed")
 				}
 				cipher = defaultECC
 			} else {
 				defaultRSA := &crypto.RsaObj{}
 				if err := defaultRSA.CreateRsa2048(); err != nil {
-					panic("RSA certificate generation failed")
+					return utils.Error("RSA certificate generation failed")
 				}
 				cipher = defaultRSA
 			}
 		}
 		self.Context.RSA = cipher
 	}
+	return nil
 }
 
 func (self *HttpNode) AddLanguage(langDs, filePath string) error {
@@ -324,18 +326,19 @@ func (self *HttpNode) newRouter() {
 	}
 }
 
-func (self *HttpNode) AddJwtConfig(config jwt.JwtConfig) {
+func (self *HttpNode) AddJwtConfig(config jwt.JwtConfig) error {
 	self.readyContext()
 	if len(config.TokenKey) == 0 {
-		panic("jwt config key is nil")
+		return utils.Error("jwt config key is nil")
 	}
 	if config.TokenExp < 0 {
-		panic("jwt config exp invalid")
+		return utils.Error("jwt config exp invalid")
 	}
 	self.Context.configs.jwtConfig.TokenAlg = config.TokenAlg
 	self.Context.configs.jwtConfig.TokenTyp = config.TokenTyp
 	self.Context.configs.jwtConfig.TokenKey = config.TokenKey
 	self.Context.configs.jwtConfig.TokenExp = config.TokenExp
+	return nil
 }
 
 // EnableECC default: true
@@ -532,7 +535,7 @@ func defaultRenderPre(ctx *Context) error {
 			resp.Data = utils.Base64Encode(data)
 		}
 		resp.Sign = ctx.GetHmac256Sign(resp.Data, resp.Nonce, resp.Time, resp.Plan, key)
-		if result, err := easyjson.Marshal(resp); err != nil {
+		if result, err := utils.JsonMarshal(resp); err != nil {
 			return ex.Throw{Code: http.StatusInternalServerError, Msg: "response JSON data failed", Err: err}
 		} else {
 			ctx.Response.ContentEntityByte.Write(result)

@@ -37,7 +37,7 @@ func TestWsServer(t *testing.T) {
 	server.AddRouter("/websocket", handle, nil)
 	go func() {
 		for {
-			reply := MsgReply{Id: utils.NextSID(), Type: "transfer", Data: "我爱中国"}
+			reply := MsgReply{Id: utils.NextSID(), Type: "transfer", Data: "AI工具人，鲨鱼宝宝！QWER123456@##！"}
 			server.SendMessage(&reply, "1756510920302919681", "APP")
 			time.Sleep(5 * time.Second)
 		}

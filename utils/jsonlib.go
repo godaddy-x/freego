@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
+	"github.com/mailru/easyjson"
 	"github.com/valyala/fastjson"
 )
 
@@ -14,7 +16,12 @@ func JsonMarshal(v interface{}) ([]byte, error) {
 	if v == nil {
 		return nil, errors.New("data is nil")
 	}
-	return json.Marshal(v)
+	// 判断是否实现 easyjson.Marshaler 接口（即是否生成过 easyjson 代码）
+	if em, ok := v.(easyjson.Marshaler); ok {
+		// 使用类型断言确保类型安全，然后调用easyjson.Marshal
+		return easyjson.Marshal(em) // 用 easyjson 高性能序列化
+	}
+	return json.Marshal(v) // 用标准库序列化
 }
 
 // 校验JSON格式是否合法
@@ -45,13 +52,13 @@ func JsonUnmarshal(data []byte, v interface{}) error {
 	if !JsonValid(data) {
 		return errors.New("JSON format invalid")
 	}
-	//buf := bytes.NewBuffer(data)
-	//d := json.NewDecoder(buf)
-	//d.UseNumber()
-	//if err := d.Decode(v); err != nil {
-	//	return err
-	//}
-	//buf.Reset()
+
+	// 判断目标对象是否实现 easyjson.Unmarshaler 接口
+	if eu, ok := v.(easyjson.Unmarshaler); ok {
+		return easyjson.Unmarshal(data, eu) // 用 easyjson 高性能反序列化
+	}
+
+	// 使用标准库反序列化
 	return json.Unmarshal(data, v)
 }
 

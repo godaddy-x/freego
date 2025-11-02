@@ -12,7 +12,6 @@ import (
 	"github.com/godaddy-x/freego/utils/crypto"
 	"github.com/godaddy-x/freego/utils/jwt"
 	"github.com/godaddy-x/freego/utils/sdk"
-	"github.com/mailru/easyjson"
 )
 
 type MyWebNode struct {
@@ -40,7 +39,7 @@ func (self *MyWebNode) getUser(ctx *node.Context) error {
 	if err := ctx.Parser(req); err != nil {
 		return err
 	}
-	return self.Json(ctx, map[string]interface{}{"token": "我爱中国+-/+_=/1df"})
+	return self.Json(ctx, map[string]interface{}{"token": "AI工具人，鲨鱼宝宝！QWER123456@##！"})
 }
 
 func testCallRPC() {
@@ -67,7 +66,7 @@ func (self *MyWebNode) login(ctx *node.Context) error {
 	config := ctx.GetJwtConfig()
 	token := ctx.Subject.Create(utils.NextSID()).Dev("APP").Generate(config)
 	secret := ctx.Subject.GetTokenSecret(token, config.TokenKey)
-	bs, err := easyjson.Marshal(&sdk.AuthToken{
+	bs, err := utils.JsonMarshal(&sdk.AuthToken{
 		Token:   token,
 		Secret:  secret,
 		Expired: ctx.Subject.Payload.Exp,

@@ -2,7 +2,6 @@ package node
 
 import (
 	"bytes"
-	"github.com/mailru/easyjson"
 	"net/http"
 	"strings"
 	"unsafe"
@@ -217,7 +216,8 @@ func (self *Context) Parser(dst interface{}) error {
 	}
 	if err := self.JsonBody.ParseData(dst); err != nil {
 		msg := "JSON parameter parsing failed"
-		zlog.Error(msg, 0, zlog.String("path", self.Path), zlog.String("device", self.ClientDevice()), zlog.Any("data", self.JsonBody), zlog.AddError(err))
+		// 安全修复：避免记录敏感的JsonBody数据，只记录基本信息
+		zlog.Error(msg, 0, zlog.String("path", self.Path), zlog.String("device", self.ClientDevice()), zlog.Int64("time", self.JsonBody.Time), zlog.Int64("plan", self.JsonBody.Plan), zlog.AddError(err))
 		return ex.Throw{Msg: msg, Err: err}
 	}
 	// TODO 备注: 已有会话状态时,指针填充context值,不能随意修改指针偏移值
@@ -288,7 +288,7 @@ func (self *Context) readParams() error {
 		return ex.Throw{Code: http.StatusLengthRequired, Msg: "body parameters length is too long"}
 	}
 
-	if err := easyjson.Unmarshal(body, self.JsonBody); err != nil {
+	if err := utils.JsonUnmarshal(body, self.JsonBody); err != nil {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters parse error"}
 	}
 
@@ -393,7 +393,7 @@ func (self *Context) validJsonBody() error {
 	var rawData []byte
 	var err error
 	if body.Plan == 0 && !anonymous { // 登录状态 P0 Base64
-		rawData = utils.Base64Decode(d)
+		rawData = utils.Base64DecodeWithPool(d)
 		if len(rawData) == 0 {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter Base64 parsing failed"}
 		}

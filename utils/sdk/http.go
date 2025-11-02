@@ -3,7 +3,6 @@ package sdk
 import (
 	"crypto/ecdsa"
 	"fmt"
-	"github.com/mailru/easyjson"
 	"time"
 
 	ecc "github.com/godaddy-x/eccrypto"
@@ -105,7 +104,7 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 		Plan:  int64(2),
 	}
 	if v, b := requestObj.(*AuthToken); b {
-		jsonData, err := easyjson.Marshal(v)
+		jsonData, err := utils.JsonMarshal(v)
 		if err != nil {
 			return ex.Throw{Msg: "request data JsonMarshal invalid"}
 		}
@@ -142,7 +141,7 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	}
 	jsonBody.Data = d
 	jsonBody.Sign = utils.HMAC_SHA256(utils.AddStr(path, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan), clientSecretKeyBase64, true)
-	bytesData, err := easyjson.Marshal(jsonBody)
+	bytesData, err := utils.JsonMarshal(jsonBody)
 	if err != nil {
 		return ex.Throw{Msg: "jsonBody data JsonMarshal invalid"}
 	}
@@ -170,7 +169,7 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	s.debugOut("response data: ")
 	s.debugOut(utils.Bytes2Str(respBytes))
 	respData := &node.JsonResp{}
-	if err := easyjson.Unmarshal(respBytes, respData); err != nil {
+	if err := utils.JsonUnmarshal(respBytes, respData); err != nil {
 		return ex.Throw{Msg: "response data parse failed: " + err.Error()}
 	}
 	if respData.Code != 200 {
@@ -193,7 +192,7 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	}
 	s.debugOut("response data decrypted: ", utils.Bytes2Str(dec))
 	if v, b := responseObj.(*AuthToken); b {
-		if err := easyjson.Unmarshal(dec, v); err != nil {
+		if err := utils.JsonUnmarshal(dec, v); err != nil {
 			return ex.Throw{Msg: "response data JsonUnmarshal invalid"}
 		}
 	} else {
@@ -261,7 +260,7 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 		Plan:  0,
 	}
 	if v, b := requestObj.(*AuthToken); b {
-		jsonData, err := easyjson.Marshal(v)
+		jsonData, err := utils.JsonMarshal(v)
 		if err != nil {
 			return ex.Throw{Msg: "request data JsonMarshal invalid"}
 		}
@@ -286,7 +285,7 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 		s.debugOut("request data base64: ", jsonBody.Data)
 	}
 	jsonBody.Sign = utils.HMAC_SHA256(utils.AddStr(path, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan), s.authToken.Secret, true)
-	bytesData, err := easyjson.Marshal(jsonBody)
+	bytesData, err := utils.JsonMarshal(jsonBody)
 	if err != nil {
 		return ex.Throw{Msg: "jsonBody data JsonMarshal invalid"}
 	}
@@ -313,7 +312,7 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 	s.debugOut("response data: ")
 	s.debugOut(utils.Bytes2Str(respBytes))
 	respData := &node.JsonResp{}
-	if err := easyjson.Unmarshal(respBytes, respData); err != nil {
+	if err := utils.JsonUnmarshal(respBytes, respData); err != nil {
 		return ex.Throw{Msg: "response data parse failed: " + err.Error()}
 	}
 	if respData.Code != 200 {
@@ -350,7 +349,7 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 		return ex.Throw{Msg: "response data is empty"}
 	}
 	if v, b := responseObj.(*AuthToken); b {
-		if err := easyjson.Unmarshal(dec, v); err != nil {
+		if err := utils.JsonUnmarshal(dec, v); err != nil {
 			return ex.Throw{Msg: "response data JsonUnmarshal invalid"}
 		}
 	} else {

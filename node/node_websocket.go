@@ -1,15 +1,16 @@
 package node
 
 import (
+	"net/http"
+	"sync"
+	"time"
+
 	rate "github.com/godaddy-x/freego/cache/limiter"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/jwt"
 	"github.com/godaddy-x/freego/zlog"
 	"golang.org/x/net/websocket"
-	"net/http"
-	"sync"
-	"time"
 )
 
 type ConnPool map[string]map[string]*DevConn
@@ -57,18 +58,19 @@ func (self *WsServer) checkContextReady(path string, routerConfig *RouterConfig)
 	self.addRouterConfig(path, routerConfig)
 }
 
-func (self *WsServer) AddJwtConfig(config jwt.JwtConfig) {
+func (self *WsServer) AddJwtConfig(config jwt.JwtConfig) error {
 	self.readyContext()
 	if len(config.TokenKey) == 0 {
-		panic("jwt config key is nil")
+		return utils.Error("jwt config key is nil")
 	}
 	if config.TokenExp < 0 {
-		panic("jwt config exp invalid")
+		return utils.Error("jwt config exp invalid")
 	}
 	self.Context.configs.jwtConfig.TokenAlg = config.TokenAlg
 	self.Context.configs.jwtConfig.TokenTyp = config.TokenTyp
 	self.Context.configs.jwtConfig.TokenKey = config.TokenKey
 	self.Context.configs.jwtConfig.TokenExp = config.TokenExp
+	return nil
 }
 
 func (self *WsServer) addRouterConfig(path string, routerConfig *RouterConfig) {

@@ -116,7 +116,7 @@ func BenchmarkGetUser(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			requestObj := sdk.AuthToken{Token: "我爱中国，祖国强大！！！", Secret: "安排测试下吧123456789@@@"}
+			requestObj := sdk.AuthToken{Token: "AI工具人，鲨鱼宝宝！QWER123456@##！", Secret: "安排测试下吧123456789@@@"}
 			responseData := sdk.AuthToken{}
 			if err := client.PostByAuth("/getUser", &requestObj, &responseData, true); err != nil {
 				fmt.Println(err)
