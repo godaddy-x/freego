@@ -2,7 +2,7 @@ package gauth
 
 import (
 	"bytes"
-	"encoding/base64"
+	"github.com/godaddy-x/freego/utils"
 	"github.com/pquerna/otp/totp"
 	"github.com/skip2/go-qrcode"
 	"image/png"
@@ -22,7 +22,7 @@ func getBase64Image(image *qrcode.QRCode, size int) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return "data:image/png;base64," + base64.StdEncoding.EncodeToString(buf.Bytes()), nil
+	return "data:image/png;base64," + utils.Base64Encode(buf.Bytes()), nil
 }
 
 func Create(issuer, accountName string, size int) (string, string, error) {

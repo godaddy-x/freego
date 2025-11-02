@@ -2,7 +2,6 @@ package sdk
 
 import (
 	"crypto/ecdsa"
-	"encoding/base64"
 	"fmt"
 	"github.com/mailru/easyjson"
 	"time"
@@ -132,7 +131,7 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	if err != nil {
 		return ex.Throw{Msg: "ECC encrypt failed"}
 	}
-	randomCode := base64.StdEncoding.EncodeToString(r)
+	randomCode := utils.Base64Encode(r)
 	s.debugOut("server key: ", publicKey)
 	s.debugOut("client key: ", clientSecretKey)
 	s.debugOut("client key encrypted: ", randomCode)

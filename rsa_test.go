@@ -4,9 +4,9 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
-	"encoding/base64"
 	"encoding/pem"
 	"fmt"
+	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/crypto"
 	"testing"
 )
@@ -157,7 +157,7 @@ func TestRsaSignAndVerify(t *testing.T) {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println("RSA私钥签名结果: ", base64.StdEncoding.EncodeToString(res))
+	fmt.Println("RSA私钥签名结果: ", utils.Base64Encode(res))
 	if err := obj.Verify([]byte(testmsg), res); err == nil {
 		fmt.Println("RSA公钥验签结果: ", err == nil)
 	} else {

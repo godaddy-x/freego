@@ -12,7 +12,6 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
-	"encoding/base64"
 	"encoding/gob"
 	"encoding/hex"
 	"errors"
@@ -558,38 +557,12 @@ func SHA1_BASE(s []byte) []byte {
 
 // default base64 - 正向
 func Base64Encode(input interface{}) string {
-	var dataByte []byte
-	if v, b := input.(string); b {
-		dataByte = Str2Bytes(v)
-	} else if v, b := input.([]byte); b {
-		dataByte = v
-	} else {
-		return ""
-	}
-	if len(dataByte) == 0 {
-		return ""
-	}
-	return base64.StdEncoding.EncodeToString(dataByte)
+	return Base64EncodeWithPool(input)
 }
 
 // default base64 - 逆向
 func Base64Decode(input interface{}) []byte {
-	dataStr := ""
-	if v, b := input.(string); b {
-		dataStr = v
-	} else if v, b := input.([]byte); b {
-		dataStr = Bytes2Str(v)
-	} else {
-		return nil
-	}
-	if len(dataStr) == 0 {
-		return nil
-	}
-	if r, err := base64.StdEncoding.DecodeString(dataStr); err != nil {
-		return nil
-	} else {
-		return r
-	}
+	return Base64DecodeWithPool(input)
 }
 
 func ToJsonBase64(input interface{}) (string, error) {

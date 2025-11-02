@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"errors"
+	"github.com/godaddy-x/freego/utils"
 	"os"
 )
 
@@ -282,13 +283,13 @@ func (self *RsaObj) Encrypt(msg []byte) (string, error) {
 		}
 		buffer.Write(bytes)
 	}
-	return base64.StdEncoding.EncodeToString(buffer.Bytes()), nil
+	return utils.Base64Encode(buffer.Bytes()), nil
 }
 
 func (self *RsaObj) Decrypt(msg string) ([]byte, error) {
 	partLen := self.publicKey.N.BitLen() / 8
-	raw, err := base64.StdEncoding.DecodeString(msg)
-	if err != nil {
+	raw := utils.Base64Decode(msg)
+	if len(raw) == 0 {
 		return nil, errors.New("msg base64 decode failed")
 	}
 	chunks := split(raw, partLen)
@@ -300,7 +301,7 @@ func (self *RsaObj) Decrypt(msg string) ([]byte, error) {
 		}
 		buffer.Write(decrypted)
 	}
-	return buffer.Bytes(), err
+	return buffer.Bytes(), nil
 }
 
 func (self *RsaObj) Sign(msg []byte) ([]byte, error) {

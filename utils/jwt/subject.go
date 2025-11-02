@@ -7,7 +7,6 @@ package jwt
 
 import (
 	"crypto/sha512"
-	"encoding/base64"
 	"github.com/mailru/easyjson"
 	"strings"
 
@@ -101,11 +100,7 @@ func (self *Subject) Generate(config JwtConfig) string {
 	if err != nil {
 		return ""
 	}
-	headerB64 := base64.StdEncoding.EncodeToString(headerBs)
-	//header, err := utils.ToJsonBase64(self.Header)
-	//if err != nil {
-	//	return ""
-	//}
+	headerB64 := utils.Base64Encode(headerBs)
 	if config.TokenExp > 0 {
 		if self.Payload.Iat > 0 {
 			self.Payload.Exp = self.Payload.Iat + config.TokenExp
@@ -117,11 +112,7 @@ func (self *Subject) Generate(config JwtConfig) string {
 	if err != nil {
 		return ""
 	}
-	payloadB64 := base64.StdEncoding.EncodeToString(payloadBs)
-	//payload, err := utils.ToJsonBase64(self.Payload)
-	//if err != nil {
-	//	return ""
-	//}
+	payloadB64 := utils.Base64Encode(payloadBs)
 	part1 := utils.AddStr(headerB64, ".", payloadB64)
 	return part1 + "." + self.Signature(part1, config.TokenKey)
 }
@@ -178,8 +169,8 @@ func (self *Subject) Verify(auth []byte, key string) error {
 	part2 := part[2]
 
 	// 性能优化1: 先检查过期时间（计算量小），避免过期token的昂贵签名验证
-	decodeB64, err := base64.StdEncoding.DecodeString(part1)
-	if err != nil || len(decodeB64) == 0 {
+	decodeB64 := utils.Base64Decode(part1)
+	if len(decodeB64) == 0 {
 		return utils.Error("token part base64 data decode failed")
 	}
 

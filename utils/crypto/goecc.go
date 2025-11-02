@@ -2,9 +2,9 @@ package crypto
 
 import (
 	"crypto/ecdsa"
-	"encoding/base64"
 	"errors"
 	"github.com/godaddy-x/eccrypto"
+	"github.com/godaddy-x/freego/utils"
 )
 
 type EccObj struct {
@@ -22,8 +22,7 @@ func (self *EccObj) CreateS256ECC() error {
 	_, pubBs, err := ecc.GetObjectBytes(nil, &prk.PublicKey)
 	self.privateKey = prk
 	self.publicKey = &prk.PublicKey
-	//self.PrivateKeyBase64 = base64.StdEncoding.EncodeToString(prkBs)
-	self.PublicKeyBase64 = base64.StdEncoding.EncodeToString(pubBs)
+	self.PublicKeyBase64 = utils.Base64Encode(pubBs)
 	return nil
 }
 
@@ -35,8 +34,7 @@ func (self *EccObj) LoadS256ECC(b64 string) error {
 	_, pubBs, err := ecc.GetObjectBytes(nil, &prk.PublicKey)
 	self.privateKey = prk
 	self.publicKey = &prk.PublicKey
-	//self.PrivateKeyBase64 = base64.StdEncoding.EncodeToString(prkBs)
-	self.PublicKeyBase64 = base64.StdEncoding.EncodeToString(pubBs)
+	self.PublicKeyBase64 = utils.Base64Encode(pubBs)
 	return nil
 }
 
@@ -55,8 +53,8 @@ func (self *EccObj) Encrypt(msg []byte) (string, error) {
 }
 
 func (self *EccObj) Decrypt(msg string) ([]byte, error) {
-	bs, err := base64.StdEncoding.DecodeString(msg)
-	if err != nil {
+	bs := utils.Base64Decode(msg)
+	if len(bs) == 0 {
 		return nil, errors.New("base64 parse failed")
 	}
 	r, err := ecc.Decrypt(self.privateKey, bs)
