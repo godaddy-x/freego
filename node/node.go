@@ -585,6 +585,12 @@ func (self *Context) Text(data string) error {
 	return nil
 }
 
+func (self *Context) Bytes(data []byte) error {
+	self.Response.ContentType = TEXT_PLAIN
+	self.Response.ContentEntity = data
+	return nil
+}
+
 func (self *Context) NoBody() error {
 	self.Response.ContentType = NO_BODY
 	self.Response.ContentEntity = nil

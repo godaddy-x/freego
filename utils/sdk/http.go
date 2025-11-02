@@ -13,6 +13,7 @@ import (
 	"github.com/valyala/fasthttp"
 )
 
+// easyjson:json
 type AuthToken struct {
 	Token   string `json:"token"`
 	Secret  string `json:"secret"`

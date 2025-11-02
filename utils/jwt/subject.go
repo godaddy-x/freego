@@ -7,6 +7,8 @@ package jwt
 
 import (
 	"crypto/sha512"
+	"encoding/base64"
+	"github.com/mailru/easyjson"
 	"strings"
 
 	"github.com/godaddy-x/freego/cache"
@@ -31,6 +33,8 @@ const (
 )
 
 // Subject 结构体 - 16字节 (2个指针，8字节对齐，无填充)
+//
+//easyjson:json
 type Subject struct {
 	Header  *Header  // 8字节
 	Payload *Payload // 8字节
@@ -46,6 +50,8 @@ type JwtConfig struct {
 }
 
 // Header 结构体 - 32字节 (2个string，8字节对齐，无填充)
+//
+//easyjson:json
 type Header struct {
 	Alg string `json:"alg"` // 16字节 (8+8)
 	Typ string `json:"typ"` // 16字节 (8+8)
@@ -53,6 +59,8 @@ type Header struct {
 
 // Payload 结构体 - 112字节 (8个字段，8字节对齐，优化排列减少填充)
 // 排列优化：将相同大小的字段放在一起，int64连续排列减少填充
+//
+//easyjson:json
 type Payload struct {
 	Sub string `json:"sub"` // 用户主体 - 16字节 (8+8)
 	Aud string `json:"aud"` // 接收token主体 - 16字节 (8+8)
@@ -120,10 +128,15 @@ func (self *Subject) Aud(aud string) *Subject {
 
 func (self *Subject) Generate(config JwtConfig) string {
 	self.AddHeader(config)
-	header, err := utils.ToJsonBase64(self.Header)
+	headerBs, err := easyjson.Marshal(self.Header)
 	if err != nil {
 		return ""
 	}
+	headerB64 := base64.StdEncoding.EncodeToString(headerBs)
+	//header, err := utils.ToJsonBase64(self.Header)
+	//if err != nil {
+	//	return ""
+	//}
 	if config.TokenExp > 0 {
 		if self.Payload.Iat > 0 {
 			self.Payload.Exp = self.Payload.Iat + config.TokenExp
@@ -131,11 +144,16 @@ func (self *Subject) Generate(config JwtConfig) string {
 			self.Payload.Exp = utils.UnixSecond() + config.TokenExp
 		}
 	}
-	payload, err := utils.ToJsonBase64(self.Payload)
+	payloadBs, err := easyjson.Marshal(self.Payload)
 	if err != nil {
 		return ""
 	}
-	part1 := utils.AddStr(header, ".", payload)
+	payloadB64 := base64.StdEncoding.EncodeToString(payloadBs)
+	//payload, err := utils.ToJsonBase64(self.Payload)
+	//if err != nil {
+	//	return ""
+	//}
+	part1 := utils.AddStr(headerB64, ".", payloadB64)
 	return part1 + "." + self.Signature(part1, config.TokenKey)
 }
 
@@ -191,13 +209,16 @@ func (self *Subject) Verify(auth []byte, key string) error {
 	part2 := part[2]
 
 	// 性能优化1: 先检查过期时间（计算量小），避免过期token的昂贵签名验证
-	decodeb64 := utils.Base64Decode(part1)
-	if len(decodeb64) == 0 {
+	decodeB64, err := base64.StdEncoding.DecodeString(part1)
+	if err != nil || len(decodeB64) == 0 {
 		return utils.Error("token part base64 data decode failed")
 	}
-	exp := utils.GetJsonInt64(decodeb64, "exp")
+
+	if err := easyjson.Unmarshal(decodeB64, self.Payload); err != nil {
+		return utils.Error("token part parse failed")
+	}
 	// 分布式系统时间同步缓冲区：提前300秒判断过期，避免时间同步误差
-	if exp <= utils.UnixSecond()-300 {
+	if self.Payload.Exp <= utils.UnixSecond()-300 {
 		return utils.Error("token expired or invalid")
 	}
 
@@ -206,13 +227,6 @@ func (self *Subject) Verify(auth []byte, key string) error {
 	if self.Signature(headerPayload, key) != part2 {
 		return utils.Error("token signature invalid")
 	}
-
-	if self.Payload == nil {
-		self.Payload = &Payload{}
-	}
-	//self.payloadBytes = b64
-	self.Payload.Exp = exp
-	self.Payload.Sub = self.getStringValue("sub", decodeb64)
 
 	// 9. 缓存结果，1小时有效期（平衡性能和内存占用）
 	if err := localSubjectCache.Put(cacheKey, &SimplePayload{Sub: self.Payload.Sub, Exp: self.Payload.Exp}, 3600); err != nil {

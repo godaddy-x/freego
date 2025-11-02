@@ -174,6 +174,10 @@ func (self *HttpNode) Text(ctx *Context, data string) error {
 	return ctx.Text(data)
 }
 
+func (self *HttpNode) Bytes(ctx *Context, data []byte) error {
+	return ctx.Bytes(data)
+}
+
 func (self *HttpNode) AddFilter(object *FilterObject) {
 	self.readyContext()
 	if object == nil {
@@ -466,6 +470,8 @@ func defaultRenderPre(ctx *Context) error {
 		content := ctx.Response.ContentEntity
 		if v, b := content.(string); b {
 			ctx.Response.ContentEntityByte.Write(utils.Str2Bytes(v))
+		} else if v, b := content.([]byte); b {
+			ctx.Response.ContentEntityByte.Write(v)
 		} else {
 			ctx.Response.ContentEntityByte.Write(utils.Str2Bytes(""))
 		}
@@ -481,9 +487,17 @@ func defaultRenderPre(ctx *Context) error {
 			}
 			break
 		}
-		data, err := utils.JsonMarshal(ctx.Response.ContentEntity)
-		if err != nil {
-			return ex.Throw{Code: http.StatusInternalServerError, Msg: "response conversion JSON failed", Err: err}
+		var err error
+		var data []byte
+		if v, b := ctx.Response.ContentEntity.([]byte); b {
+			data = v
+		} else if v, b := ctx.Response.ContentEntity.(string); b {
+			data = utils.Str2Bytes(v)
+		} else {
+			data, err = utils.JsonMarshal(ctx.Response.ContentEntity)
+			if err != nil {
+				return ex.Throw{Code: http.StatusInternalServerError, Msg: "response conversion JSON failed", Err: err}
+			}
 		}
 		resp := &JsonResp{
 			Code:  http.StatusOK,

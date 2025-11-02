@@ -12,6 +12,7 @@ import (
 	"github.com/godaddy-x/freego/utils/crypto"
 	"github.com/godaddy-x/freego/utils/jwt"
 	"github.com/godaddy-x/freego/utils/sdk"
+	"github.com/mailru/easyjson"
 )
 
 type MyWebNode struct {
@@ -66,11 +67,15 @@ func (self *MyWebNode) login(ctx *node.Context) error {
 	config := ctx.GetJwtConfig()
 	token := ctx.Subject.Create(utils.NextSID()).Dev("APP").Generate(config)
 	secret := ctx.Subject.GetTokenSecret(token, config.TokenKey)
-	return self.Json(ctx, &sdk.AuthToken{
+	bs, err := easyjson.Marshal(&sdk.AuthToken{
 		Token:   token,
 		Secret:  secret,
 		Expired: ctx.Subject.Payload.Exp,
 	})
+	if err != nil {
+		return err
+	}
+	return self.Json(ctx, bs)
 	//return self.Html(ctx, "/web/index.html", map[string]interface{}{"tewt": 1})
 }
 
