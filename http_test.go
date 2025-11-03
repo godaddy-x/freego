@@ -4,7 +4,9 @@ import (
 	"fmt"
 	ecc "github.com/godaddy-x/eccrypto"
 	"github.com/godaddy-x/freego/utils/sdk"
+	"github.com/valyala/fasthttp"
 	"testing"
+	"time"
 )
 
 //go test -v http_test.go -bench=BenchmarkPubkey -benchmem -count=10
@@ -16,7 +18,7 @@ const token_secret = "WZlK3jp1GNdXXi2lWM/DnfFkRbMSbO7JP/I+MhdblfLJZf6cZCzKsBi5i7
 const token_expire = 1763196292
 
 var httpSDK = &sdk.HttpSDK{
-	Debug:     false,
+	Debug:     true,
 	Domain:    domain,
 	KeyPath:   "/key",
 	LoginPath: "/login",
@@ -40,6 +42,25 @@ func TestECCLogin(t *testing.T) {
 		fmt.Println(err)
 	}
 	fmt.Println(responseData)
+}
+
+func TestOnlyServerECCLogin(t *testing.T) {
+	randomCode := `BARLw1KA4Erot6QrBsmlIFjR17yLtt9pNSfegWVMyaUcNJweGyJx6KGlVLUTnqo51fmmKbmMUJH+KKog5vsh6+GS+CEqlAhI1GnHe2pCmdnRzRfLdGgbf2M/p4dSqBB3Z0N49nFeQCLn+kbtin7ISq5ktdwdoc7zfc1kwwZdewtq+HfEzTIwUdjSkEAxl2GWo/DLrlNzUEtt5rhE92qHW+M=`
+	requestData := []byte(`{"d":"h7mfHikfR7DLRQoxhN6CxQi+Azz+dPErYRFebyicZfiskkh+Z00Okg7BA/W88hOFSJhQT0Ecfn9iac6gkThooX4gF9mqmKo0Vr9Byo5E5Ue2pFZeLKo/J3zD3ZCPRsHacP/v","n":"nscrHrGNGRaitGJxsegJ8w==","s":"qmEGqs5TarHpaiP0r2HE0oOeCpaiHdTjgPv5Vn3SNvY=","t":1762159303,"p":2}`)
+	request := fasthttp.AcquireRequest()
+	request.Header.SetContentType("application/json;charset=UTF-8")
+	request.Header.Set("Authorization", "")
+	request.Header.Set("RandomCode", randomCode)
+	request.Header.SetMethod("POST")
+	request.SetRequestURI(domain + "/login")
+	request.SetBody(requestData)
+	defer fasthttp.ReleaseRequest(request)
+	response := fasthttp.AcquireResponse()
+	defer fasthttp.ReleaseResponse(response)
+	if err := fasthttp.DoTimeout(request, response, time.Second*20); err != nil {
+		panic(err)
+	}
+	fmt.Println(string(response.Body()))
 }
 
 func TestGetUser(t *testing.T) {

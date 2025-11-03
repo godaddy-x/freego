@@ -23,7 +23,10 @@ import (
 	"github.com/valyala/fasthttp"
 )
 
-var emptyMap = map[string]string{}
+var (
+	emptyMap           = map[string]string{}
+	defaultCacheObject = cache.NewLocalCache(60, 10)
+)
 
 type CacheAware func(ds ...string) (cache.Cache, error)
 
@@ -239,7 +242,7 @@ func (self *HttpNode) AddCache(cacheAware CacheAware) {
 	if self.Context.CacheAware == nil {
 		if cacheAware == nil {
 			cacheAware = func(ds ...string) (cache.Cache, error) {
-				return cache.NewLocalCache(60, 10), nil
+				return defaultCacheObject, nil
 			}
 		}
 		self.Context.CacheAware = cacheAware

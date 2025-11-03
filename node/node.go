@@ -306,11 +306,12 @@ func (self *Context) validReplayAttack(sign string) error {
 	if err != nil {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "cache instance invalid"}
 	}
-	b, err := c.Exists(sign)
+	hex := utils.SHA256(sign)
+	b, err := c.Exists(hex)
 	if err != nil || b {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "replay attack invalid"}
 	}
-	if err := c.Put(sign, 1, 600); err != nil {
+	if err := c.Put(hex, 1, 600); err != nil {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "cache replay attack value error"}
 	}
 	return nil

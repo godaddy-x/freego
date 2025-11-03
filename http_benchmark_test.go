@@ -2,7 +2,9 @@ package main
 
 import (
 	"fmt"
+	"github.com/valyala/fasthttp"
 	"testing"
+	"time"
 
 	ecc "github.com/godaddy-x/eccrypto"
 
@@ -56,6 +58,30 @@ func BenchmarkECCLogin(b *testing.B) {
 			if err := client.PostByECC("/login", &requestData, &responseData); err != nil {
 				panic(err)
 			}
+		}
+	})
+}
+
+func BenchmarkOnlyServerECCLogin(b *testing.B) {
+	randomCode := `BPV/OyjWh6bkMrtinSdAj0Uq1OVqGkLuZH5t6OVgwllaEny5+AjD0Hk0GsB926UzhdtIUnCr6+2fe+6C0BHz34DxoY1KowhoUsWuROnwG+Ste2Hu67OYcPxEEQBlOaG/rO36ZFZW121nAIBB2prBgH02J7kKsuDmi3mFzl18dxusLIKr5Gb+bfW5x63GJ8ro17oTQAG9gAh6mrF320OAKTI=`
+	requestData := []byte(`{"d":"fkVuWG2whxNOlmi2ovxsDRPWgcUeaYEu9af/QyOxyeES6L/pDcc5P7GWjp6e6ILsJc9uhY4djNoCTZdkTe0ITSIKTo69tQgRoKd6Z1Icai2mLEZ84t8mLIMzLEHXIhDYoTSo","n":"OIuCkQNq60CPJLSp06IL+g==","s":"xRqaWc/r2f2jt3papz/ToT4FJIjgKzuYjReiblPgMtQ=","t":1762159032,"p":2}`)
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			request := fasthttp.AcquireRequest()
+			request.Header.SetContentType("application/json;charset=UTF-8")
+			request.Header.Set("Authorization", "")
+			request.Header.Set("RandomCode", randomCode)
+			request.Header.SetMethod("POST")
+			request.SetRequestURI(domain + "/login")
+			request.SetBody(requestData)
+			defer fasthttp.ReleaseRequest(request)
+			response := fasthttp.AcquireResponse()
+			defer fasthttp.ReleaseResponse(response)
+			if err := fasthttp.DoTimeout(request, response, time.Second*20); err != nil {
+				panic(err)
+			}
+			//fmt.Println(string(response.Body()))
 		}
 	})
 }
