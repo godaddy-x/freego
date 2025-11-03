@@ -5,7 +5,6 @@ import (
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/geetest"
 	"github.com/godaddy-x/freego/node"
-	"github.com/godaddy-x/freego/node/common"
 	"github.com/godaddy-x/freego/rpcx"
 	"github.com/godaddy-x/freego/rpcx/pb"
 	"github.com/godaddy-x/freego/utils"
@@ -18,19 +17,13 @@ type MyWebNode struct {
 	node.HttpNode
 }
 
-type GetUserReq struct {
-	common.BaseReq
-	Uid  string `json:"token"`
-	Name string `json:"secret"`
-}
-
 func (self *MyWebNode) test(ctx *node.Context) error {
 	req := &GetUserReq{}
 	if err := ctx.Parser(req); err != nil {
 		return err
 	}
 	//return self.Html(ctx, "/resource/index.html", map[string]interface{}{"tewt": 1})
-	return self.Json(ctx, map[string]interface{}{"test": 1})
+	return self.Json(ctx, req)
 	//return ex.Throw{Code: ex.BIZ, Msg: "测试错误"}
 }
 
@@ -39,7 +32,7 @@ func (self *MyWebNode) getUser(ctx *node.Context) error {
 	if err := ctx.Parser(req); err != nil {
 		return err
 	}
-	return self.Json(ctx, map[string]interface{}{"token": "AI工具人，鲨鱼宝宝！QWER123456@##！"})
+	return self.Json(ctx, req)
 }
 
 func testCallRPC() {

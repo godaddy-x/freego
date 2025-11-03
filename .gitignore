@@ -17,4 +17,3 @@ go.sum
 *.crt
 *.key
 *.csr
-test/
