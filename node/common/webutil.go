@@ -73,7 +73,7 @@ type Context struct {
 	CacheAware func(ds ...string) (cache.Cache, error)
 
 	// 接口字段（16字节）
-	RSA crypto.Cipher
+	RSA []crypto.Cipher
 
 	// 字符串字段（16字节）
 	Path string

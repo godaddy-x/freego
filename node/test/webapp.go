@@ -80,7 +80,7 @@ func (self *MyWebNode) login(ctx *node.Context) error {
 
 func (self *MyWebNode) publicKey(ctx *node.Context) error {
 	//testCallRPC()
-	_, publicKey := ctx.RSA.GetPublicKey()
+	_, publicKey := ctx.RSA[0].GetPublicKey()
 	return self.Text(ctx, publicKey)
 }
 
@@ -183,6 +183,9 @@ func NewHTTP() *MyWebNode {
 		panic("ECC certificate generation failed")
 	}
 	my.AddCipher(cipher)
+	backupECC := &crypto.EccObj{}
+	backupECC.CreateS256ECC()
+	my.AddCipher(backupECC)
 	//my.AddCache(func(ds ...string) (cache.Cache, error) {
 	//	rds, err := cache.NewRedis(ds...)
 	//	return rds, err

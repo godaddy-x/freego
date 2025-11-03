@@ -92,6 +92,8 @@ func (self *HttpNode) StartServer(addr string) {
 		} else {
 			zlog.Printf("RSA certificate service has been started successful")
 		}
+	} else {
+		panic("certificate setting exception, please execute the <AddCipher>")
 	}
 
 	// 创建上下文用于优雅关闭
@@ -147,9 +149,9 @@ func (self *HttpNode) StartServer(addr string) {
 func (self *HttpNode) checkContextReady(path string, routerConfig *RouterConfig) {
 	self.readyContext()
 	self.AddCache(nil)
-	if err := self.AddCipher(nil); err != nil {
-		panic("add cipher failed: " + err.Error())
-	}
+	//if err := self.AddCipher(nil); err != nil {
+	//	panic("add cipher failed: " + err.Error())
+	//}
 	self.addRouterConfig(path, routerConfig)
 	self.newRouter()
 }
@@ -233,7 +235,7 @@ func (self *HttpNode) AddCache(cacheAware CacheAware) {
 	if self.Context.CacheAware == nil {
 		if cacheAware == nil {
 			cacheAware = func(ds ...string) (cache.Cache, error) {
-				return cache.NewLocalCache(30, 2), nil
+				return cache.NewLocalCache(60, 10), nil
 			}
 		}
 		self.Context.CacheAware = cacheAware
@@ -241,25 +243,11 @@ func (self *HttpNode) AddCache(cacheAware CacheAware) {
 }
 
 func (self *HttpNode) AddCipher(cipher crypto.Cipher) error {
-	self.readyContext()
-	if self.Context.RSA == nil {
-		if cipher == nil {
-			if self.Context.System.enableECC {
-				defaultECC := &crypto.EccObj{}
-				if err := defaultECC.CreateS256ECC(); err != nil {
-					return utils.Error("ECC certificate generation failed")
-				}
-				cipher = defaultECC
-			} else {
-				defaultRSA := &crypto.RsaObj{}
-				if err := defaultRSA.CreateRsa2048(); err != nil {
-					return utils.Error("RSA certificate generation failed")
-				}
-				cipher = defaultRSA
-			}
-		}
-		self.Context.RSA = cipher
+	if cipher == nil {
+		return utils.Error("cipher is nil")
 	}
+	self.readyContext()
+	self.Context.RSA = append(self.Context.RSA, cipher)
 	return nil
 }
 

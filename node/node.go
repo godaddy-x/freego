@@ -113,7 +113,7 @@ type Context struct {
 	Response      *Response                                              // 8字节 - 指针
 	filterChain   *filterChain                                           // 8字节 - 指针
 	RouterConfig  *RouterConfig                                          // 8字节 - 指针
-	RSA           crypto.Cipher                                          // 8字节 - interface
+	RSA           []crypto.Cipher                                        // 8字节 - 0.主用公钥 1.备用公钥
 	CacheAware    func(ds ...string) (cache.Cache, error)                // 8字节 - 函数指针
 	roleRealm     func(ctx *Context, onlyRole bool) (*Permission, error) // 8字节 - 函数指针
 	postHandle    PostHandle                                             // 8字节 - 函数指针
@@ -373,12 +373,34 @@ func (self *Context) validJsonBody() error {
 		if len(randomCode) == 0 {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "client random code invalid"}
 		}
-		code, err := self.RSA.Decrypt(randomCode)
-		if err != nil {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "server private-key decrypt failed", Err: err}
+		if len(self.RSA) == 0 {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "no RSA private keys configured for decryption"}
 		}
-		if len(code) == 0 {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "server private-key decrypt data is nil", Err: err}
+
+		var code []byte
+		var lastErr error
+		for _, v := range self.RSA { // 尝试遍历存在的私钥进行解密
+			decrypted, err := v.Decrypt(randomCode)
+			if err != nil {
+				lastErr = err
+				// 记录解密失败，但继续尝试下一个私钥
+				_, pub := v.GetPublicKey()
+				zlog.Warn("server private-key decrypt error", 0, zlog.String("publicKey", pub))
+				continue
+			}
+			if len(decrypted) > 0 { // 解密成功
+				code = decrypted
+				break
+			}
+			// 解密成功但结果为空，记录错误但继续尝试
+			lastErr = ex.Throw{Code: http.StatusBadRequest, Msg: "server private-key decrypt returned empty data"}
+		}
+
+		if len(code) == 0 { // 所有私钥都无法解密成功
+			if lastErr != nil {
+				return ex.Throw{Code: http.StatusBadRequest, Msg: "all RSA private keys failed to decrypt client random code", Err: lastErr}
+			}
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "all RSA private keys failed to decrypt client random code"}
 		}
 		key = utils.Base64Encode(code) // 使用clientSecretKey验证签名
 	}
@@ -456,9 +478,14 @@ func (self *Context) reset(ctx *Context, handle PostHandle, request *fasthttp.Re
 	if self.CacheAware == nil {
 		self.CacheAware = ctx.CacheAware
 	}
-	if self.RSA == nil {
-		self.RSA = ctx.RSA
+	// RSA是全局配置，通常只在系统启动时设置一次
+	// 只在RSA未初始化时才从模板拷贝，避免不必要的内存分配
+	if len(self.RSA) == 0 && len(ctx.RSA) > 0 {
+		// 深拷贝全局RSA配置
+		self.RSA = make([]crypto.Cipher, len(ctx.RSA))
+		copy(self.RSA, ctx.RSA)
 	}
+	// 如果RSA已有值（全局配置），保持不变
 	if self.roleRealm == nil {
 		self.roleRealm = ctx.roleRealm
 	}
