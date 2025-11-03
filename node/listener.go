@@ -2,36 +2,39 @@ package node
 
 import (
 	"fmt"
-	"github.com/godaddy-x/freego/zlog"
 	"net"
 	"sync/atomic"
 	"time"
+
+	"github.com/godaddy-x/freego/zlog"
 )
 
+// GracefulListener 支持优雅关闭的TCP监听器，关闭时会等待现有连接处理完毕
 type GracefulListener struct {
-	// inner listener
-	ln net.Listener
-	// maximum wait time for graceful shutdown
-	maxWaitTime time.Duration
-	// this channel is closed during graceful shutdown on zero open connections.
-	done chan struct{}
-	// the number of open connections
-	connsCount uint64
-	// becomes non-zero when graceful shutdown starts
-	shutdown uint64
+	ln          net.Listener  // 底层监听器
+	maxWaitTime time.Duration // 优雅关闭的最大等待时间
+	done        chan struct{} // 所有连接关闭后关闭的通道
+	connsCount  uint64        // 当前活跃连接数（原子操作）
+	shutdown    uint64        // 优雅关闭启动标记（0：未启动，1：已启动）
+	doneOnce    uint64        // 确保done通道只被关闭一次（0：未关闭，1：已关闭）
 }
 
-// NewGracefulListener wraps the given listener into 'graceful shutdown' listener.
-func NewGracefulListener(address string, maxWaitTime time.Duration) net.Listener {
+// NewGracefulListener 创建一个新的优雅关闭监听器
+// 返回 (监听器, 错误)，避免直接panic，让调用者处理初始化失败
+func NewGracefulListener(address string, maxWaitTime time.Duration) (net.Listener, error) {
 	ln, err := net.Listen("tcp4", address)
 	if err != nil {
-		panic(err)
+		zlog.Error("创建优雅关闭监听器失败", 0,
+			zlog.String("address", address),
+			zlog.String("error", err.Error()))
+		return nil, fmt.Errorf("监听地址 %s 失败: %w", address, err)
 	}
+
 	return &GracefulListener{
 		ln:          ln,
 		maxWaitTime: maxWaitTime,
 		done:        make(chan struct{}),
-	}
+	}, nil
 }
 
 func (ln *GracefulListener) Accept() (net.Conn, error) {
@@ -43,51 +46,94 @@ func (ln *GracefulListener) Accept() (net.Conn, error) {
 	return &gracefulConn{Conn: c, ln: ln}, nil
 }
 
+// Addr 返回监听器的地址信息
 func (ln *GracefulListener) Addr() net.Addr {
 	return ln.ln.Addr()
 }
 
-// Close closes the inner listener and waits until all the pending open connections
-// are closed before returning.
+// Close 关闭监听器并等待所有活跃连接处理完毕（优雅关闭）
+// 1. 先关闭底层监听器，停止接受新连接
+// 2. 等待现有连接关闭，超时则返回错误
 func (ln *GracefulListener) Close() error {
+	// 先关闭底层监听器，阻止新连接进入
 	if err := ln.ln.Close(); err != nil {
-		return nil
+		return fmt.Errorf("关闭底层监听器失败: %w", err)
 	}
+
+	// 等待所有活跃连接关闭
 	return ln.waitForZeroConns()
 }
 
+// CloseWithTimeout 带超时的优雅关闭
+func (ln *GracefulListener) CloseWithTimeout(timeout time.Duration) error {
+	// 设置自定义超时时间
+	originalTimeout := ln.maxWaitTime
+	ln.maxWaitTime = timeout
+	defer func() {
+		ln.maxWaitTime = originalTimeout
+	}()
+
+	return ln.Close()
+}
+
+// waitForZeroConns 等待活跃连接数归零，或超时返回错误
 func (ln *GracefulListener) waitForZeroConns() error {
+	// 标记优雅关闭已启动
 	atomic.AddUint64(&ln.shutdown, 1)
-	zlog.Info("waitForZeroConns", 0, zlog.Uint64("conns", atomic.LoadUint64(&ln.connsCount)))
+	zlog.Info("开始等待活跃连接关闭", 0,
+		zlog.Uint64("当前活跃连接数", atomic.LoadUint64(&ln.connsCount)),
+		zlog.Duration("最大等待时间", ln.maxWaitTime))
+
+	// 若已无活跃连接，直接完成（使用closeDoneOnce确保只关闭一次）
 	if atomic.LoadUint64(&ln.connsCount) == 0 {
-		close(ln.done)
+		ln.closeDoneOnce()
+		zlog.Info("所有活跃连接已关闭，优雅关闭完成", 0)
 		return nil
 	}
+
+	// 等待连接关闭或超时
 	select {
 	case <-ln.done:
+		zlog.Info("所有活跃连接已关闭，优雅关闭完成", 0)
 		return nil
 	case <-time.After(ln.maxWaitTime):
-		return fmt.Errorf("cannot complete graceful shutdown in %s", ln.maxWaitTime)
+		err := fmt.Errorf("优雅关闭超时（%s），仍有 %d 个活跃连接未关闭",
+			ln.maxWaitTime, atomic.LoadUint64(&ln.connsCount))
+		zlog.Error("优雅关闭超时", 0, zlog.String("error", err.Error()))
+		return err
 	}
 }
 
 func (ln *GracefulListener) closeConn() {
-	// 相当于减1
-	connsCount := atomic.AddUint64(&ln.connsCount, ^uint64(0))
-	if atomic.LoadUint64(&ln.shutdown) != 0 && connsCount == 0 {
+	// 减少连接计数
+	atomic.AddUint64(&ln.connsCount, ^uint64(0))
+	// 重新检查最新的连接数，确保线程安全
+	if atomic.LoadUint64(&ln.shutdown) != 0 && atomic.LoadUint64(&ln.connsCount) == 0 {
+		ln.closeDoneOnce()
+	}
+}
+
+// closeDoneOnce 确保done通道只被关闭一次，避免重复关闭panic
+func (ln *GracefulListener) closeDoneOnce() {
+	if atomic.CompareAndSwapUint64(&ln.doneOnce, 0, 1) {
 		close(ln.done)
 	}
 }
 
+// gracefulConn 包装net.Conn，实现连接关闭时自动更新计数
 type gracefulConn struct {
-	net.Conn
-	ln *GracefulListener
+	net.Conn                   // 底层连接
+	ln       *GracefulListener // 关联的优雅监听器
 }
 
+// Close 关闭连接并更新活跃连接计数（关键修复：无论关闭是否成功都更新计数）
 func (c *gracefulConn) Close() error {
-	if err := c.Conn.Close(); err != nil {
-		return err
-	}
+	// 先关闭底层连接，记录可能的错误
+	err := c.Conn.Close()
+
+	// 无论底层关闭是否成功，都减少计数（避免计数泄漏）
 	c.ln.closeConn()
-	return nil
+
+	// 返回底层连接的关闭错误（不屏蔽原始错误）
+	return err
 }

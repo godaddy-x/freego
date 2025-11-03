@@ -463,7 +463,12 @@ func (self *WsServer) StartWebsocket(addr string) {
 	}()
 	go func() {
 		zlog.Printf("websocket【%s】service has been started successful", addr)
-		if err := http.Serve(NewGracefulListener(addr, time.Second*10), nil); err != nil {
+		listener, err := NewGracefulListener(addr, time.Second*10)
+		if err != nil {
+			zlog.Error("创建WebSocket监听器失败", 0, zlog.String("address", addr), zlog.String("error", err.Error()))
+			panic("创建WebSocket监听器失败: " + err.Error())
+		}
+		if err := http.Serve(listener, nil); err != nil {
 			panic(err)
 		}
 	}()

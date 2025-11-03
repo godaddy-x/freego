@@ -106,7 +106,11 @@ func (self *HttpNode) StartServer(addr string) {
 	}
 
 	// 启动服务器
-	self.listener = NewGracefulListener(addr, time.Second*time.Duration(defaultTimeout))
+	listener, err := NewGracefulListener(addr, time.Second*time.Duration(defaultTimeout))
+	if err != nil {
+		panic("创建HTTP监听器失败: " + err.Error())
+	}
+	self.listener = listener
 	go func() {
 		zlog.Printf("http【%s】service has been started successful", addr)
 		if err := self.server.Serve(self.listener); err != nil {

@@ -2,9 +2,10 @@ package main
 
 import (
 	"fmt"
-	"github.com/godaddy-x/freego/amqp"
 	"testing"
 	"time"
+
+	rabbitmq "github.com/godaddy-x/freego/amqp"
 )
 
 var exchange = "test.exchange"
@@ -48,11 +49,10 @@ func TestMQPublish(t *testing.T) {
 		err := cli.Publish(exchange, queue, 1, content)
 		if err != nil {
 			fmt.Println("send msg failed: ", err)
+			break
 		} else {
 			fmt.Println("send msg success: ", content)
 		}
 		time.Sleep(5 * time.Second)
 	}
-
-	time.Sleep(10000 * time.Second)
 }
