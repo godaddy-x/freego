@@ -3,15 +3,19 @@ package crypto
 import (
 	"crypto/ecdsa"
 	"errors"
-	"github.com/godaddy-x/eccrypto"
+
+	ecc "github.com/godaddy-x/eccrypto"
 	"github.com/godaddy-x/freego/utils"
 )
 
 type EccObj struct {
-	privateKey       *ecdsa.PrivateKey
-	publicKey        *ecdsa.PublicKey
+	// 16字节string字段组
 	PrivateKeyBase64 string
 	PublicKeyBase64  string
+
+	// 8字节指针字段组
+	privateKey *ecdsa.PrivateKey
+	publicKey  *ecdsa.PublicKey
 }
 
 func (self *EccObj) CreateS256ECC() error {

@@ -2043,8 +2043,8 @@ func unquoteIfQuoted(value interface{}) (string, error) {
 // NullDecimal represents a nullable decimal with compatibility for
 // scanning null values from the database.
 type NullDecimal struct {
-	Decimal Decimal
-	Valid   bool
+	Valid   bool    // 1字节bool字段
+	Decimal Decimal // 16字节Decimal字段
 }
 
 func NewNullDecimal(d Decimal) NullDecimal {

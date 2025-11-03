@@ -76,10 +76,13 @@ var ErrInvalidBase32 = errors.New("invalid base32")
 // A Node struct holds the basic information needed for a snowflake generator
 // node
 type Node struct {
-	mu   sync.Mutex
+	// 8字节字段组：三个int64字段
 	time int64
 	node int64
 	step int64
+
+	// sync.Mutex（通常8字节对齐）
+	mu sync.Mutex
 }
 
 // An ID is a custom type used for a snowflake ID.  This is used so we can

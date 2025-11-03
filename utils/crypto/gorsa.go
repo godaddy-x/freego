@@ -10,8 +10,9 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"errors"
-	"github.com/godaddy-x/freego/utils"
 	"os"
+
+	"github.com/godaddy-x/freego/utils"
 )
 
 const bits = 2048
@@ -26,10 +27,13 @@ type Cipher interface {
 }
 
 type RsaObj struct {
-	privateKey       *rsa.PrivateKey
-	publicKey        *rsa.PublicKey
+	// 16字节string字段组
 	PrivateKeyBase64 string
 	PublicKeyBase64  string
+
+	// 8字节指针字段组
+	privateKey *rsa.PrivateKey
+	publicKey  *rsa.PublicKey
 }
 
 func (self *RsaObj) CreateRsaFile(keyfile, pemfile string) error {

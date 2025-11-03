@@ -81,49 +81,50 @@ type HttpLog struct {
 	CostMill int64  // 业务耗时,毫秒 - 8字节
 }
 
-// Permission 结构体 - 50字节 (4个字段，8字节对齐，2字节填充)
-// 排列优化：bool字段在前，slice字段连续排列
+// Permission 结构体 - 48字节 (4个字段，8字节对齐，0字节填充)
+// 排列优化：bool字段在前，slice字段连续排列，利用8字节对齐
 type Permission struct {
-	MatchAll  bool // true.满足所有权限角色才放行 - 1字节
-	NeedLogin bool // true.需要登录状态 - 1字节
-	//Ready     bool    // true.已有权限配置 - 注释字段
-	HasRole  []int64 // 拥有角色ID列表 - 24字节 (8+8+8)
-	NeedRole []int64 // 所需角色ID列表 - 24字节 (8+8+8)
+	MatchAll  bool    // true.满足所有权限角色才放行 - 1字节
+	NeedLogin bool    // true.需要登录状态 - 1字节
+	HasRole   []int64 // 拥有角色ID列表 - 24字节 (8+8+8)
+	NeedRole  []int64 // 所需角色ID列表 - 24字节 (8+8+8)
 }
 
-// System 结构体 - 41字节 (4个字段，8字节对齐，7字节填充)
-// 排列优化：string字段在前，int64字段和bool字段在后
+// System 结构体 - 40字节 (4个字段，8字节对齐，0字节填充)
+// 排列优化：string字段在前，bool字段居中，int64字段在后，利用8字节对齐
 type System struct {
 	Name          string // 系统名 - 16字节 (8+8)
 	Version       string // 系统版本 - 16字节 (8+8)
-	AcceptTimeout int64  // 超时主动断开客户端连接,秒 - 8字节
 	enableECC     bool   // 1字节
+	AcceptTimeout int64  // 超时主动断开客户端连接,秒 - 8字节
 }
 
 // Context 结构体 - 232字节 (19个字段，8字节对齐，0字节填充)
-// 排列优化：按字段大小和类型分组，指针和8字节类型在前，string字段居中，bool字段在后
+// 排列优化：按字段大小和类型分组，string字段在前，指针和8字节类型居中，bool字段在后
 type Context struct {
-	// 8字节指针和函数字段组 (共17个字段，136字节)
-	configs       *Configs                                               // 8字节 - 指针
-	router        *fasthttprouter.Router                                 // 8字节 - 指针
-	System        *System                                                // 8字节 - 指针
-	RequestCtx    *fasthttp.RequestCtx                                   // 8字节 - 指针
-	Subject       *jwt.Subject                                           // 8字节 - 指针
-	JsonBody      *JsonBody                                              // 8字节 - 指针
-	Response      *Response                                              // 8字节 - 指针
-	filterChain   *filterChain                                           // 8字节 - 指针
-	RouterConfig  *RouterConfig                                          // 8字节 - 指针
-	RSA           []crypto.Cipher                                        // 8字节 - 0.主用公钥 1.备用公钥
-	CacheAware    func(ds ...string) (cache.Cache, error)                // 8字节 - 函数指针
-	roleRealm     func(ctx *Context, onlyRole bool) (*Permission, error) // 8字节 - 函数指针
-	postHandle    PostHandle                                             // 8字节 - 函数指针
-	errorHandle   ErrorHandle                                            // 8字节 - 函数指针
-	Storage       map[string]interface{}                                 // 8字节 - map
-	postCompleted bool                                                   // 1字节 - bool (会产生填充)
-
 	// 16字节string字段组 (2个字段，32字节)
 	Method string // 16字节 (8+8)
 	Path   string // 16字节 (8+8)
+
+	// 8字节指针和函数字段组 (共17个字段，136字节)
+	configs      *Configs                                               // 8字节 - 指针
+	router       *fasthttprouter.Router                                 // 8字节 - 指针
+	System       *System                                                // 8字节 - 指针
+	RequestCtx   *fasthttp.RequestCtx                                   // 8字节 - 指针
+	Subject      *jwt.Subject                                           // 8字节 - 指针
+	JsonBody     *JsonBody                                              // 8字节 - 指针
+	Response     *Response                                              // 8字节 - 指针
+	filterChain  *filterChain                                           // 8字节 - 指针
+	RouterConfig *RouterConfig                                          // 8字节 - 指针
+	RSA          []crypto.Cipher                                        // 8字节 - 0.主用公钥 1.备用公钥
+	CacheAware   func(ds ...string) (cache.Cache, error)                // 8字节 - 函数指针
+	roleRealm    func(ctx *Context, onlyRole bool) (*Permission, error) // 8字节 - 函数指针
+	postHandle   PostHandle                                             // 8字节 - 函数指针
+	errorHandle  ErrorHandle                                            // 8字节 - 函数指针
+	Storage      map[string]interface{}                                 // 8字节 - map
+
+	// bool字段 (1字节，会产生填充)
+	postCompleted bool // 1字节 - bool
 }
 
 // Response 结构体 - 80字节 (5个字段，8字节对齐，0字节填充)
