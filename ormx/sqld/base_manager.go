@@ -223,7 +223,7 @@ func (self *DBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 }
 
 func (self *DBManager) FindOneComplex(cnd *sqlc.Cnd, data sqlc.Object) error {
-	return utils.Error("No implementation method [FindOneComplexOne] was found")
+	return utils.Error("No implementation method [FindOneComplex] was found")
 }
 
 func (self *DBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
@@ -244,12 +244,12 @@ func (self *DBManager) BuildWhereCase(cnd *sqlc.Cnd) (*bytes.Buffer, []interface
 }
 
 func (self *DBManager) BuildGroupBy(cnd *sqlc.Cnd) string {
-	zlog.Warn("No implementation method [BuilGroupBy] was found", 0)
+	zlog.Warn("No implementation method [BuildGroupBy] was found", 0)
 	return ""
 }
 
 func (self *DBManager) BuildSortBy(cnd *sqlc.Cnd) string {
-	zlog.Warn("No implementation method [BuilSortBy] was found", 0)
+	zlog.Warn("No implementation method [BuildSortBy] was found", 0)
 	return ""
 }
 
@@ -1004,7 +1004,7 @@ func (self *RDBManager) DeleteByCnd(cnd *sqlc.Cnd) (int64, error) {
 	}
 	case_part, case_arg := self.BuildWhereCase(cnd)
 	if case_part.Len() == 0 || len(case_arg) == 0 {
-		return 0, self.Error("[Mysql.DeleteByCnd] update WhereCase is nil")
+		return 0, self.Error("[Mysql.DeleteByCnd] delete WhereCase is nil")
 	}
 	parameter := case_arg
 
@@ -1125,7 +1125,6 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
 	if err != nil {
 		return self.Error("[Mysql.FindOne] read columns failed: ", err)
 	}
-	var first [][]byte
 	out, err := OutDestWithCapacity(obv, rows, cols, 1)
 	// 显式释放字节数组对象
 	defer ReleaseOutDest(out)
@@ -1134,9 +1133,8 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
 	}
 	if len(out) == 0 {
 		return nil
-	} else {
-		first = out[0]
 	}
+	first := out[0]
 	// 修复：使用独立索引，避免 Ignore 字段导致索引错位
 	idx := 0
 	for _, vv := range obv.FieldElem {
@@ -1566,7 +1564,6 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data sqlc.Object) error {
 	if len(cols) != len(cnd.AnyFields) {
 		return self.Error("[Mysql.FindOneComplex] read columns length invalid")
 	}
-	var first [][]byte
 	out, err := OutDestWithCapacity(obv, rows, cols, 1)
 	// 显式释放字节数组对象
 	defer ReleaseOutDest(out)
@@ -1575,9 +1572,8 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data sqlc.Object) error {
 	}
 	if len(out) == 0 {
 		return nil
-	} else {
-		first = out[0]
 	}
+	first := out[0]
 	// 优化：建立字段名到字段信息的映射，避免O(n²)查找
 	fieldMap := make(map[string]*FieldElem, len(obv.FieldElem))
 	for _, vv := range obv.FieldElem {
