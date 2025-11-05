@@ -1,8 +1,9 @@
 package utils
 
 import (
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"unsafe"
+
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type emptyInter struct {
@@ -133,7 +134,7 @@ func SetInt64(ptr uintptr, v int64) {
 
 // set *int64 value
 func SetInt64P(ptr uintptr, v *int64) {
-	*(**int64)(unsafe.Pointer(ptr)) = v
+	*((**int64)(unsafe.Pointer(ptr))) = v
 }
 
 // get float32 value
