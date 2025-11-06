@@ -170,11 +170,37 @@ func NewMysqlTx(tx bool) (*MysqlManager, error) {
 
 // MysqlClose 关闭所有数据库连接（在服务器优雅关闭时调用）
 func MysqlClose() {
+	zlog.Info("mysql service closing starting", 0)
+
 	rdbsMutex.Lock()
 	defer rdbsMutex.Unlock()
 
+	// 在关闭数据库连接之前，先清理 stmt 缓存
+	// 注意：这里需要确保 defaultPrepareManager 的 Shutdown 方法被调用
+	// 由于 prepareManager 是单例，这里会清理所有缓存的 stmt
+	// Shutdown 方法会等待所有异步清理完成，确保资源完全释放
+	zlog.Info("mysql service calling prepareManager shutdown", 0)
+	defaultPrepareManager.Shutdown()
+	zlog.Info("mysql service prepareManager shutdown completed", 0)
+
+	// 短暂等待，确保所有 stmt 的异步清理都已完成
+	// 这是为了避免竞态条件：stmt 异步清理可能还在进行中
+	// 注意：这里等待的时间需要与 stmt 的异步清理延迟时间匹配
+	time.Sleep(200 * time.Millisecond)
+
 	for name, rdb := range rdbs {
+		zlog.Info("mysql service closing connection", 0, zlog.String("name", name))
 		if rdb.Db != nil {
+			// 获取连接池统计信息，帮助诊断活跃连接
+			stats := rdb.Db.Stats()
+			zlog.Info("mysql connection pool stats before close", 0,
+				zlog.String("name", name),
+				zlog.Int("open_connections", stats.OpenConnections),
+				zlog.Int("in_use", stats.InUse),
+				zlog.Int("idle", stats.Idle),
+				zlog.Int64("wait_count", stats.WaitCount),
+				zlog.Duration("wait_duration", stats.WaitDuration))
+
 			if err := rdb.Db.Close(); err != nil {
 				zlog.Error("mysql close failed: "+name, 0, zlog.AddError(err))
 			} else {
@@ -183,4 +209,6 @@ func MysqlClose() {
 		}
 		delete(rdbs, name)
 	}
+
+	zlog.Info("mysql service closing completed", 0)
 }

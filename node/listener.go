@@ -78,28 +78,28 @@ func (ln *GracefulListener) CloseWithTimeout(timeout time.Duration) error {
 
 // waitForZeroConns 等待活跃连接数归零，或超时返回错误
 func (ln *GracefulListener) waitForZeroConns() error {
-	// 标记优雅关闭已启动
+	// Mark graceful shutdown started
 	atomic.AddUint64(&ln.shutdown, 1)
-	zlog.Info("开始等待活跃连接关闭", 0,
-		zlog.Uint64("当前活跃连接数", atomic.LoadUint64(&ln.connsCount)),
-		zlog.Duration("最大等待时间", ln.maxWaitTime))
+	zlog.Info("Starting wait for active connections to close", 0,
+		zlog.Uint64("current active connections", atomic.LoadUint64(&ln.connsCount)),
+		zlog.Duration("max wait time", ln.maxWaitTime))
 
-	// 若已无活跃连接，直接完成（使用closeDoneOnce确保只关闭一次）
+	// If no active connections, complete immediately (using closeDoneOnce to ensure closed only once)
 	if atomic.LoadUint64(&ln.connsCount) == 0 {
 		ln.closeDoneOnce()
-		zlog.Info("所有活跃连接已关闭，优雅关闭完成", 0)
+		zlog.Info("All active connections closed, graceful shutdown completed", 0)
 		return nil
 	}
 
-	// 等待连接关闭或超时
+	// Wait for connections to close or timeout
 	select {
 	case <-ln.done:
-		zlog.Info("所有活跃连接已关闭，优雅关闭完成", 0)
+		zlog.Info("All active connections closed, graceful shutdown completed", 0)
 		return nil
 	case <-time.After(ln.maxWaitTime):
-		err := fmt.Errorf("优雅关闭超时（%s），仍有 %d 个活跃连接未关闭",
+		err := fmt.Errorf("Graceful shutdown timeout (%s), still %d active connections not closed",
 			ln.maxWaitTime, atomic.LoadUint64(&ln.connsCount))
-		zlog.Error("优雅关闭超时", 0, zlog.String("error", err.Error()))
+		zlog.Error("Graceful shutdown timeout", 0, zlog.String("error", err.Error()))
 		return err
 	}
 }

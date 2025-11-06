@@ -106,10 +106,13 @@ func (self *HttpNode) StartServer(addr string) {
 	self.server = &fasthttp.Server{
 		Handler:            self.Context.router.Handler,
 		MaxRequestBodySize: MAX_BODY_LEN,
+		// 保持 Keep-Alive 启用以获得更好的性能
+		// 但在关闭时会主动处理 Keep-Alive 连接
 	}
 
-	// 启动服务器
-	listener, err := NewGracefulListener(addr, time.Second*time.Duration(defaultTimeout))
+	// 启动服务器，使用更短的优雅关闭超时时间（10秒而不是默认的30秒）
+	// 这样可以减少程序关闭时的等待时间
+	listener, err := NewGracefulListener(addr, 10*time.Second)
 	if err != nil {
 		panic("创建HTTP监听器失败: " + err.Error())
 	}
@@ -131,19 +134,44 @@ func (self *HttpNode) StartServer(addr string) {
 	zlog.Printf("http server is shutting down...")
 
 	// 关闭数据库连接
+	zlog.Info("starting database connections close", 0)
 	sqld.MysqlClose()
+	zlog.Info("database connections close completed", 0)
 
-	// 关闭服务器（fasthttp的Shutdown已实现优雅关闭）
-	if err := self.server.Shutdown(); err != nil {
-		zlog.Error("server shutdown failed", 0, zlog.AddError(err))
-	}
+	// 等待一段时间，确保所有可能的异步数据库操作都已完成
+	// 这是为了避免数据库连接在 HTTP 请求处理过程中被关闭
+	zlog.Info("waiting for any pending database operations to complete", 0)
+	time.Sleep(500 * time.Millisecond)
 
-	// 关闭listener（确保所有连接正确关闭）
-	if self.listener != nil {
-		if err := self.listener.Close(); err != nil {
-			zlog.Error("listener close failed", 0, zlog.AddError(err))
+	// 给 Keep-Alive 连接充分的时间来自然关闭
+	// 这样可以在不完全禁用 Keep-Alive 的情况下解决关闭超时问题
+	zlog.Info("allowing time for keep-alive connections to close naturally", 0)
+	time.Sleep(5 * time.Second)
+
+	// 关闭服务器（fasthttp的Shutdown已实现优雅关闭，会自动关闭listener）
+	// 由于可能有长时间运行的数据库操作，增加关闭超时时间到60秒
+	zlog.Info("starting fasthttp server shutdown with extended timeout", 0)
+
+	serverShutdownDone := make(chan error, 1)
+	go func() {
+		serverShutdownDone <- self.server.Shutdown()
+	}()
+
+	select {
+	case err := <-serverShutdownDone:
+		if err != nil {
+			zlog.Error("server shutdown failed", 0, zlog.AddError(err))
+		} else {
+			zlog.Info("fasthttp server shutdown completed successfully", 0)
 		}
+	case <-time.After(60 * time.Second):
+		zlog.Warn("fasthttp server shutdown timeout after 60 seconds", 0)
+		// 即使超时也继续，因为我们已经尽力等待了
 	}
+
+	// 注意：fasthttp.Server.Shutdown() 会自动关闭底层listener
+	// 无需手动关闭，避免 "use of closed network connection" 错误
+	// 如果需要特殊处理listener，可以在这里添加但目前不需要
 
 	// 取消上下文
 	if self.cancel != nil {

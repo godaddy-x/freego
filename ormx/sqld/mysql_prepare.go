@@ -51,7 +51,7 @@ type prepareManager struct {
 }
 
 // stmtWrapper 包装预编译语句及元数据 (优化内存对齐)
-// 字段按类型和大小重新排列：指针(8字节) -> int32(4字节) -> string(16字节) -> atomic.Bool(1字节) -> time.Time(24字节) -> sync.Mutex(8字节) -> sync.Once(8字节) -> *time.Timer(8字节) -> sync.Mutex(8字节)
+// 字段按类型和大小重新排列：指针(8字节) -> int32(4字节) -> string(16字节) -> atomic.Bool(1字节) -> time.Time(24字节) -> sync.Mutex(8字节) -> sync.Once(8字节) -> *time.Timer(8字节) -> sync.Mutex(8字节) -> chan struct{}(8字节)
 type stmtWrapper struct {
 	// 8字节指针组
 	stmt         *sql.Stmt
@@ -76,6 +76,9 @@ type stmtWrapper struct {
 
 	// 8字节 Once 组
 	cleanupOnce sync.Once
+
+	// 8字节通道组（用于同步关闭）
+	shutdownDone chan struct{} // 新增：用于通知异步清理完成
 }
 
 // invalidMarker 标记无效SQL，防御缓存穿透
@@ -188,6 +191,7 @@ func (self *prepareManager) createNewStmt(db *sql.DB, sqlstr, sqlHash, cacheKey 
 		sqlHash:       sqlHash,
 		createdAt:     now,
 		cacheExpireAt: now.Add(initialExpireTime), // 初始过期时间
+		shutdownDone:  make(chan struct{}),        // 初始化关闭完成通道
 	}
 	wrapper.closed.Store(false)
 
@@ -202,29 +206,83 @@ func (self *prepareManager) createNewStmt(db *sql.DB, sqlstr, sqlHash, cacheKey 
 	return stmt, self.createReleaseFunc(wrapper, cacheKey), cacheKey, nil
 }
 
-// shutdown 优雅关闭，清理所有资源
+// shutdown 优雅关闭，清理所有资源并等待异步清理完成
 func (self *prepareManager) Shutdown() {
 	self.shutdownOnce.Do(func() {
+		zlog.Info("prepareManager shutdown starting", 0)
+
+		// 第一步：关闭shutdown通道，通知所有异步清理停止接收新任务
 		close(self.shutdownChan)
 
-		// 强制清理所有缓存的stmt
-		self.createMu.Lock()
-		defer self.createMu.Unlock()
+		// 第二步：收集所有需要等待的异步清理通道
+		var pendingCleanups []chan struct{}
+		var activeStmts, idleStmts int
 
+		// 第三步：强制清理所有缓存的stmt
+		self.createMu.Lock()
 		// 遍历所有缓存键（假设缓存支持Keys()，若不支持可维护cacheKeys集合）
 		if keys, err := self.cacheStmt.Keys(); err == nil {
+			zlog.Info("prepareManager cleaning cached stmts", 0, zlog.Int("stmt_count", len(keys)))
+
 			for _, key := range keys {
 				if value, exists, _ := self.cacheStmt.Get(key, nil); exists {
-					if wrapper, ok := value.(*stmtWrapper); ok && !wrapper.closed.Load() {
-						wrapper.closed.Store(true)
-						wrapper.stmt.Close() // 强制关闭连接
+					if wrapper, ok := value.(*stmtWrapper); ok {
+						refCount := atomic.LoadInt32(&wrapper.refCount)
+						isClosed := wrapper.closed.Load()
+
+						if !isClosed {
+							// 强制关闭活跃的 stmt
+							wrapper.closed.Store(true)
+							if err := wrapper.stmt.Close(); err != nil {
+								zlog.Warn("force close stmt failed", 0, zlog.String("key", key), zlog.AddError(err))
+							} else {
+								zlog.Debug("force closed active stmt", 0, zlog.String("key", key), zlog.Int32("ref_count", refCount))
+							}
+							activeStmts++
+						} else if refCount == 0 {
+							// 如果引用计数为0，可能有异步清理在进行，等待它完成
+							pendingCleanups = append(pendingCleanups, wrapper.shutdownDone)
+							idleStmts++
+							zlog.Debug("waiting for idle stmt cleanup", 0, zlog.String("key", key))
+						} else {
+							zlog.Debug("stmt still in use", 0, zlog.String("key", key), zlog.Int32("ref_count", refCount))
+						}
 					}
 				}
 				self.cacheStmt.Del(key)
 				delete(self.creating, key)
 			}
 		}
+		self.createMu.Unlock()
 
+		zlog.Info("prepareManager stmt cleanup summary", 0,
+			zlog.Int("active_stmts_closed", activeStmts),
+			zlog.Int("idle_stmts_waiting", idleStmts))
+
+		// 第四步：等待所有异步清理完成（最多等待5秒）
+		if len(pendingCleanups) > 0 {
+			zlog.Info("prepareManager waiting for async cleanup", 0, zlog.Int("pending_count", len(pendingCleanups)))
+
+			timeout := time.After(5 * time.Second)
+			cleanupCount := 0
+
+			for _, done := range pendingCleanups {
+				select {
+				case <-done:
+					// 异步清理完成
+					cleanupCount++
+				case <-timeout:
+					zlog.Warn("timeout waiting for stmt cleanup", 0,
+						zlog.Int("completed", cleanupCount),
+						zlog.Int("remaining", len(pendingCleanups)-cleanupCount))
+					goto cleanupDone
+				}
+			}
+
+			zlog.Info("prepareManager async cleanup completed", 0, zlog.Int("cleanup_count", cleanupCount))
+		}
+
+	cleanupDone:
 		zlog.Info("prepareManager shutdown completed", 0)
 	})
 }
@@ -268,6 +326,8 @@ func (self *prepareManager) createReleaseFunc(wrapper *stmtWrapper, cacheKey str
 						self.createMu.Lock()
 						delete(self.creating, cacheKey)
 						self.createMu.Unlock()
+						// 通知异步清理完成
+						close(wrapper.shutdownDone)
 					})
 				}
 			})
