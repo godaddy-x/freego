@@ -594,25 +594,57 @@ func (self *RDBManager) Save(data ...sqlc.Object) error {
 	var err error
 	var stmt *sql.Stmt
 	if self.OpenTx {
+		// 事务模式：不能使用stmt缓存，直接创建
 		stmt, err = self.Tx.PrepareContext(ctx, prepare)
+		if err != nil {
+			return self.Error("[Mysql.Save] [ ", prepare, " ] prepare failed: ", err)
+		}
+		defer stmt.Close()
+		ret, err := stmt.ExecContext(ctx, parameter...)
+		if err != nil {
+			return self.Error("[Mysql.Save] save failed: ", err)
+		}
+		rowsAffected, err := ret.RowsAffected()
+		if err != nil {
+			return self.Error("[Mysql.Save] affected rows failed: ", err)
+		}
+		if rowsAffected <= 0 {
+			return self.Error("[Mysql.Save] affected rows <= 0: ", rowsAffected)
+		}
+		if self.MongoSync && obv.ToMongo {
+			self.MGOSyncData = append(self.MGOSyncData, &MGOSyncData{SAVE, data[0], nil, data})
+		}
+		return nil
 	} else {
-		stmt, err = self.Db.PrepareContext(ctx, prepare)
+		// 非事务模式：使用stmt缓存提升性能
+		var cacheKey string
+		var releaseFunc func()
+		stmt, releaseFunc, cacheKey, err = defaultPrepareManager.getCacheStmt(self, prepare)
+		if err != nil {
+			return self.Error("[Mysql.Save] [ ", prepare, " ] prepare failed: ", err)
+		}
+		defer releaseFunc() // 确保释放引用
+
+		ret, err := stmt.ExecContext(ctx, parameter...)
+		if err != nil {
+			if errors.Is(err, ErrStmtClosed) || errors.Is(err, sql.ErrConnDone) {
+				defaultPrepareManager.cacheStmt.Del(cacheKey)
+				zlog.Warn("stmt invalid, cache cleared", 0, zlog.String("key", cacheKey))
+			}
+			return self.Error("[Mysql.Save] save failed: ", err)
+		}
+		rowsAffected, err := ret.RowsAffected()
+		if err != nil {
+			return self.Error("[Mysql.Save] affected rows failed: ", err)
+		}
+		if rowsAffected <= 0 {
+			return self.Error("[Mysql.Save] affected rows <= 0: ", rowsAffected)
+		}
+		if self.MongoSync && obv.ToMongo {
+			self.MGOSyncData = append(self.MGOSyncData, &MGOSyncData{SAVE, data[0], nil, data})
+		}
+		return nil
 	}
-	if err != nil {
-		return self.Error("[Mysql.Save] [ ", prepare, " ] prepare failed: ", err)
-	}
-	defer stmt.Close()
-	if ret, err := stmt.ExecContext(ctx, parameter...); err != nil {
-		return self.Error("[Mysql.Save] save failed: ", err)
-	} else if rowsAffected, err := ret.RowsAffected(); err != nil {
-		return self.Error("[Mysql.Save] affected rows failed: ", err)
-	} else if rowsAffected <= 0 {
-		return self.Error("[Mysql.Save] affected rows <= 0: ", rowsAffected)
-	}
-	if self.MongoSync && obv.ToMongo {
-		self.MGOSyncData = append(self.MGOSyncData, &MGOSyncData{SAVE, data[0], nil, data})
-	}
-	return nil
 }
 
 func (self *RDBManager) Update(data ...sqlc.Object) error {
@@ -710,26 +742,59 @@ func (self *RDBManager) Update(data ...sqlc.Object) error {
 	var err error
 	var stmt *sql.Stmt
 	if self.OpenTx {
+		// 事务模式：不能使用stmt缓存，直接创建
 		stmt, err = self.Tx.PrepareContext(ctx, prepare)
+		if err != nil {
+			return self.Error("[Mysql.Update] [ ", prepare, " ] prepare failed: ", err)
+		}
+		defer stmt.Close()
+		ret, err := stmt.ExecContext(ctx, parameter...)
+		if err != nil {
+			return self.Error("[Mysql.Update] update failed: ", err)
+		}
+		rowsAffected, err := ret.RowsAffected()
+		if err != nil {
+			return self.Error("[Mysql.Update] affected rows failed: ", err)
+		}
+		if rowsAffected <= 0 {
+			zlog.Warn(utils.AddStr("[Mysql.Update] affected rows <= 0 -> ", rowsAffected), 0, zlog.String("sql", prepare))
+			return nil
+		}
+		if self.MongoSync && obv.ToMongo {
+			self.MGOSyncData = append(self.MGOSyncData, &MGOSyncData{UPDATE, oneData, nil, nil})
+		}
+		return nil
 	} else {
-		stmt, err = self.Db.PrepareContext(ctx, prepare)
-	}
-	if err != nil {
-		return self.Error("[Mysql.Update] [ ", prepare, " ] prepare failed: ", err)
-	}
-	defer stmt.Close()
-	if ret, err := stmt.ExecContext(ctx, parameter...); err != nil {
-		return self.Error("[Mysql.Update] update failed: ", err)
-	} else if rowsAffected, err := ret.RowsAffected(); err != nil {
-		return self.Error("[Mysql.Update] affected rows failed: ", err)
-	} else if rowsAffected <= 0 {
-		zlog.Warn(utils.AddStr("[Mysql.Update] affected rows <= 0 -> ", rowsAffected), 0, zlog.String("sql", prepare))
+		// 非事务模式：使用stmt缓存提升性能
+		var cacheKey string
+		var releaseFunc func()
+		stmt, releaseFunc, cacheKey, err = defaultPrepareManager.getCacheStmt(self, prepare)
+		if err != nil {
+			return self.Error("[Mysql.Update] [ ", prepare, " ] prepare failed: ", err)
+		}
+		defer releaseFunc() // 确保释放引用
+
+		ret, err := stmt.ExecContext(ctx, parameter...)
+		if err != nil {
+			if errors.Is(err, ErrStmtClosed) || errors.Is(err, sql.ErrConnDone) {
+				defaultPrepareManager.cacheStmt.Del(cacheKey)
+				zlog.Warn("stmt invalid, cache cleared", 0, zlog.String("key", cacheKey))
+			}
+			return self.Error("[Mysql.Update] update failed: ", err)
+		}
+		rowsAffected, err := ret.RowsAffected()
+		if err != nil {
+			return self.Error("[Mysql.Update] affected rows failed: ", err)
+		}
+		if rowsAffected <= 0 {
+			zlog.Warn(utils.AddStr("[Mysql.Update] affected rows <= 0 -> ", rowsAffected), 0, zlog.String("sql", prepare))
+			return nil
+		}
+		if self.MongoSync && obv.ToMongo {
+			self.MGOSyncData = append(self.MGOSyncData, &MGOSyncData{UPDATE, oneData, nil, nil})
+		}
 		return nil
 	}
-	if self.MongoSync && obv.ToMongo {
-		self.MGOSyncData = append(self.MGOSyncData, &MGOSyncData{UPDATE, oneData, nil, nil})
-	}
-	return nil
 }
 
 func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) (int64, error) {
@@ -808,30 +873,59 @@ func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) (int64, error) {
 	var err error
 	var stmt *sql.Stmt
 	if self.OpenTx {
+		// 事务模式：不能使用stmt缓存，直接创建
 		stmt, err = self.Tx.PrepareContext(ctx, prepare)
+		if err != nil {
+			return 0, self.Error("[Mysql.UpdateByCnd] [ ", prepare, " ] prepare failed: ", err)
+		}
+		defer stmt.Close()
+		ret, err := stmt.ExecContext(ctx, parameter...)
+		if err != nil {
+			return 0, self.Error("[Mysql.UpdateByCnd] update failed: ", err)
+		}
+		rowsAffected, err := ret.RowsAffected()
+		if err != nil {
+			return 0, self.Error("[Mysql.UpdateByCnd] affected rows failed: ", err)
+		}
+		if rowsAffected <= 0 {
+			zlog.Warn(utils.AddStr("[Mysql.UpdateByCnd] affected rows <= 0 -> ", rowsAffected), 0, zlog.String("sql", prepare))
+			return 0, nil
+		}
+		if self.MongoSync && obv.ToMongo {
+			self.MGOSyncData = append(self.MGOSyncData, &MGOSyncData{UPDATE_BY_CND, cnd.Model, cnd, nil})
+		}
+		return rowsAffected, nil
 	} else {
-		stmt, err = self.Db.PrepareContext(ctx, prepare)
+		// 非事务模式：使用stmt缓存提升性能
+		var cacheKey string
+		var releaseFunc func()
+		stmt, releaseFunc, cacheKey, err = defaultPrepareManager.getCacheStmt(self, prepare)
+		if err != nil {
+			return 0, self.Error("[Mysql.UpdateByCnd] [ ", prepare, " ] prepare failed: ", err)
+		}
+		defer releaseFunc() // 确保释放引用
+
+		ret, err := stmt.ExecContext(ctx, parameter...)
+		if err != nil {
+			if errors.Is(err, ErrStmtClosed) || errors.Is(err, sql.ErrConnDone) {
+				defaultPrepareManager.cacheStmt.Del(cacheKey)
+				zlog.Warn("stmt invalid, cache cleared", 0, zlog.String("key", cacheKey))
+			}
+			return 0, self.Error("[Mysql.UpdateByCnd] update failed: ", err)
+		}
+		rowsAffected, err := ret.RowsAffected()
+		if err != nil {
+			return 0, self.Error("[Mysql.UpdateByCnd] affected rows failed: ", err)
+		}
+		if rowsAffected <= 0 {
+			zlog.Warn(utils.AddStr("[Mysql.UpdateByCnd] affected rows <= 0 -> ", rowsAffected), 0, zlog.String("sql", prepare))
+			return 0, nil
+		}
+		if self.MongoSync && obv.ToMongo {
+			self.MGOSyncData = append(self.MGOSyncData, &MGOSyncData{UPDATE_BY_CND, cnd.Model, cnd, nil})
+		}
+		return rowsAffected, nil
 	}
-	if err != nil {
-		return 0, self.Error("[Mysql.UpdateByCnd] [ ", prepare, " ] prepare failed: ", err)
-	}
-	defer stmt.Close()
-	ret, err := stmt.ExecContext(ctx, parameter...)
-	if err != nil {
-		return 0, self.Error("[Mysql.UpdateByCnd] update failed: ", err)
-	}
-	rowsAffected, err := ret.RowsAffected()
-	if err != nil {
-		return 0, self.Error("[Mysql.UpdateByCnd] affected rows failed: ", err)
-	}
-	if rowsAffected <= 0 {
-		zlog.Warn(utils.AddStr("[Mysql.UpdateByCnd] affected rows <= 0 -> ", rowsAffected), 0, zlog.String("sql", prepare))
-		return 0, nil
-	}
-	if self.MongoSync && obv.ToMongo {
-		self.MGOSyncData = append(self.MGOSyncData, &MGOSyncData{UPDATE_BY_CND, cnd.Model, cnd, nil})
-	}
-	return rowsAffected, nil
 }
 
 func (self *RDBManager) Delete(data ...sqlc.Object) error {
@@ -898,21 +992,50 @@ func (self *RDBManager) Delete(data ...sqlc.Object) error {
 	var err error
 	var stmt *sql.Stmt
 	if self.OpenTx {
+		// 事务模式：不能使用stmt缓存，直接创建
 		stmt, err = self.Tx.PrepareContext(ctx, prepare)
+		if err != nil {
+			return self.Error("[Mysql.Delete] [ ", prepare, " ] prepare failed: ", err)
+		}
+		defer stmt.Close()
+		ret, err := stmt.ExecContext(ctx, parameter...)
+		if err != nil {
+			return self.Error("[Mysql.Delete] delete failed: ", err)
+		}
+		rowsAffected, err := ret.RowsAffected()
+		if err != nil {
+			return self.Error("[Mysql.Delete] affected rows failed: ", err)
+		}
+		if rowsAffected <= 0 {
+			zlog.Warn(utils.AddStr("[Mysql.Delete] affected rows <= 0 -> ", rowsAffected), 0, zlog.String("sql", prepare))
+			return nil
+		}
 	} else {
-		stmt, err = self.Db.PrepareContext(ctx, prepare)
-	}
-	if err != nil {
-		return self.Error("[Mysql.Delete] [ ", prepare, " ] prepare failed: ", err)
-	}
-	defer stmt.Close()
-	if ret, err := stmt.ExecContext(ctx, parameter...); err != nil {
-		return self.Error("[Mysql.Delete] delete failed: ", err)
-	} else if rowsAffected, err := ret.RowsAffected(); err != nil {
-		return self.Error("[Mysql.Delete] affected rows failed: ", err)
-	} else if rowsAffected <= 0 {
-		zlog.Warn(utils.AddStr("[Mysql.Delete] affected rows <= 0 -> ", rowsAffected), 0, zlog.String("sql", prepare))
-		return nil
+		// 非事务模式：使用stmt缓存提升性能
+		var cacheKey string
+		var releaseFunc func()
+		stmt, releaseFunc, cacheKey, err = defaultPrepareManager.getCacheStmt(self, prepare)
+		if err != nil {
+			return self.Error("[Mysql.Delete] [ ", prepare, " ] prepare failed: ", err)
+		}
+		defer releaseFunc() // 确保释放引用
+
+		ret, err := stmt.ExecContext(ctx, parameter...)
+		if err != nil {
+			if errors.Is(err, ErrStmtClosed) || errors.Is(err, sql.ErrConnDone) {
+				defaultPrepareManager.cacheStmt.Del(cacheKey)
+				zlog.Warn("stmt invalid, cache cleared", 0, zlog.String("key", cacheKey))
+			}
+			return self.Error("[Mysql.Delete] delete failed: ", err)
+		}
+		rowsAffected, err := ret.RowsAffected()
+		if err != nil {
+			return self.Error("[Mysql.Delete] affected rows failed: ", err)
+		}
+		if rowsAffected <= 0 {
+			zlog.Warn(utils.AddStr("[Mysql.Delete] affected rows <= 0 -> ", rowsAffected), 0, zlog.String("sql", prepare))
+			return nil
+		}
 	}
 	if self.MongoSync && obv.ToMongo {
 		self.MGOSyncData = append(self.MGOSyncData, &MGOSyncData{DELETE, data[0], nil, data})
@@ -972,27 +1095,53 @@ func (self *RDBManager) DeleteById(object sqlc.Object, data ...interface{}) (int
 	var err error
 	var stmt *sql.Stmt
 	if self.OpenTx {
+		// 事务模式：不能使用stmt缓存，直接创建
 		stmt, err = self.Tx.PrepareContext(ctx, prepare)
+		if err != nil {
+			return 0, self.Error("[Mysql.DeleteById] [ ", prepare, " ] prepare failed: ", err)
+		}
+		defer stmt.Close()
+		ret, err := stmt.ExecContext(ctx, parameter...)
+		if err != nil {
+			return 0, self.Error("[Mysql.DeleteById] delete failed: ", err)
+		}
+		rowsAffected, err := ret.RowsAffected()
+		if err != nil {
+			return 0, self.Error("[Mysql.DeleteById] affected rows failed: ", err)
+		}
+		if rowsAffected <= 0 {
+			zlog.Warn(utils.AddStr("[Mysql.DeleteById] affected rows <= 0 -> ", rowsAffected), 0, zlog.String("sql", prepare))
+			return 0, nil
+		}
+		return rowsAffected, nil
 	} else {
-		stmt, err = self.Db.PrepareContext(ctx, prepare)
+		// 非事务模式：使用stmt缓存提升性能
+		var cacheKey string
+		var releaseFunc func()
+		stmt, releaseFunc, cacheKey, err = defaultPrepareManager.getCacheStmt(self, prepare)
+		if err != nil {
+			return 0, self.Error("[Mysql.DeleteById] [ ", prepare, " ] prepare failed: ", err)
+		}
+		defer releaseFunc() // 确保释放引用
+
+		ret, err := stmt.ExecContext(ctx, parameter...)
+		if err != nil {
+			if errors.Is(err, ErrStmtClosed) || errors.Is(err, sql.ErrConnDone) {
+				defaultPrepareManager.cacheStmt.Del(cacheKey)
+				zlog.Warn("stmt invalid, cache cleared", 0, zlog.String("key", cacheKey))
+			}
+			return 0, self.Error("[Mysql.DeleteById] delete failed: ", err)
+		}
+		rowsAffected, err := ret.RowsAffected()
+		if err != nil {
+			return 0, self.Error("[Mysql.DeleteById] affected rows failed: ", err)
+		}
+		if rowsAffected <= 0 {
+			zlog.Warn(utils.AddStr("[Mysql.DeleteById] affected rows <= 0 -> ", rowsAffected), 0, zlog.String("sql", prepare))
+			return 0, nil
+		}
+		return rowsAffected, nil
 	}
-	if err != nil {
-		return 0, self.Error("[Mysql.DeleteById] [ ", prepare, " ] prepare failed: ", err)
-	}
-	defer stmt.Close()
-	ret, err := stmt.ExecContext(ctx, parameter...)
-	if err != nil {
-		return 0, self.Error("[Mysql.DeleteById] delete failed: ", err)
-	}
-	rowsAffected, err := ret.RowsAffected()
-	if err != nil {
-		return 0, self.Error("[Mysql.DeleteById] affected rows failed: ", err)
-	}
-	if rowsAffected <= 0 {
-		zlog.Warn(utils.AddStr("[Mysql.DeleteById] affected rows <= 0 -> ", rowsAffected), 0, zlog.String("sql", prepare))
-		return 0, nil
-	}
-	return rowsAffected, nil
 }
 
 func (self *RDBManager) DeleteByCnd(cnd *sqlc.Cnd) (int64, error) {
@@ -1030,30 +1179,59 @@ func (self *RDBManager) DeleteByCnd(cnd *sqlc.Cnd) (int64, error) {
 	var err error
 	var stmt *sql.Stmt
 	if self.OpenTx {
+		// 事务模式：不能使用stmt缓存，直接创建
 		stmt, err = self.Tx.PrepareContext(ctx, prepare)
+		if err != nil {
+			return 0, self.Error("[Mysql.DeleteByCnd] [ ", prepare, " ] prepare failed: ", err)
+		}
+		defer stmt.Close()
+		ret, err := stmt.ExecContext(ctx, parameter...)
+		if err != nil {
+			return 0, self.Error("[Mysql.DeleteByCnd] update failed: ", err)
+		}
+		rowsAffected, err := ret.RowsAffected()
+		if err != nil {
+			return 0, self.Error("[Mysql.DeleteByCnd] affected rows failed: ", err)
+		}
+		if rowsAffected <= 0 {
+			zlog.Warn(utils.AddStr("[Mysql.DeleteByCnd] affected rows <= 0 -> ", rowsAffected), 0, zlog.String("sql", prepare))
+			return 0, nil
+		}
+		if self.MongoSync && obv.ToMongo {
+			self.MGOSyncData = append(self.MGOSyncData, &MGOSyncData{DELETE, cnd.Model, cnd, nil})
+		}
+		return rowsAffected, nil
 	} else {
-		stmt, err = self.Db.PrepareContext(ctx, prepare)
+		// 非事务模式：使用stmt缓存提升性能
+		var cacheKey string
+		var releaseFunc func()
+		stmt, releaseFunc, cacheKey, err = defaultPrepareManager.getCacheStmt(self, prepare)
+		if err != nil {
+			return 0, self.Error("[Mysql.DeleteByCnd] [ ", prepare, " ] prepare failed: ", err)
+		}
+		defer releaseFunc() // 确保释放引用
+
+		ret, err := stmt.ExecContext(ctx, parameter...)
+		if err != nil {
+			if errors.Is(err, ErrStmtClosed) || errors.Is(err, sql.ErrConnDone) {
+				defaultPrepareManager.cacheStmt.Del(cacheKey)
+				zlog.Warn("stmt invalid, cache cleared", 0, zlog.String("key", cacheKey))
+			}
+			return 0, self.Error("[Mysql.DeleteByCnd] update failed: ", err)
+		}
+		rowsAffected, err := ret.RowsAffected()
+		if err != nil {
+			return 0, self.Error("[Mysql.DeleteByCnd] affected rows failed: ", err)
+		}
+		if rowsAffected <= 0 {
+			zlog.Warn(utils.AddStr("[Mysql.DeleteByCnd] affected rows <= 0 -> ", rowsAffected), 0, zlog.String("sql", prepare))
+			return 0, nil
+		}
+		if self.MongoSync && obv.ToMongo {
+			self.MGOSyncData = append(self.MGOSyncData, &MGOSyncData{DELETE, cnd.Model, cnd, nil})
+		}
+		return rowsAffected, nil
 	}
-	if err != nil {
-		return 0, self.Error("[Mysql.DeleteByCnd] [ ", prepare, " ] prepare failed: ", err)
-	}
-	defer stmt.Close()
-	ret, err := stmt.ExecContext(ctx, parameter...)
-	if err != nil {
-		return 0, self.Error("[Mysql.DeleteByCnd] update failed: ", err)
-	}
-	rowsAffected, err := ret.RowsAffected()
-	if err != nil {
-		return 0, self.Error("[Mysql.DeleteByCnd] affected rows failed: ", err)
-	}
-	if rowsAffected <= 0 {
-		zlog.Warn(utils.AddStr("[Mysql.DeleteByCnd] affected rows <= 0 -> ", rowsAffected), 0, zlog.String("sql", prepare))
-		return 0, nil
-	}
-	if self.MongoSync && obv.ToMongo {
-		self.MGOSyncData = append(self.MGOSyncData, &MGOSyncData{DELETE, cnd.Model, cnd, nil})
-	}
-	return rowsAffected, nil
 }
 
 func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
@@ -1108,13 +1286,13 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
 	var err error
 	var stmt *sql.Stmt
 	var rows *sql.Rows
-	sqlStr := utils.Bytes2Str(sqlbuf.Bytes())
+	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 
 	if self.OpenTx {
 		// 事务模式：不能使用stmt缓存，直接创建
-		stmt, err = self.Tx.PrepareContext(ctx, sqlStr)
+		stmt, err = self.Tx.PrepareContext(ctx, prepare)
 		if err != nil {
-			return self.Error("[Mysql.FindOne] [ ", sqlStr, " ] prepare failed: ", err)
+			return self.Error("[Mysql.FindOne] [ ", prepare, " ] prepare failed: ", err)
 		}
 		defer stmt.Close()
 		rows, err = stmt.QueryContext(ctx, parameter...)
@@ -1126,23 +1304,21 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
 		// 非事务模式：使用stmt缓存提升性能
 		var cacheKey string
 		var releaseFunc func()
-		stmt, releaseFunc, cacheKey, err = defaultPrepareManager.getCacheStmt(self, sqlStr)
+		stmt, releaseFunc, cacheKey, err = defaultPrepareManager.getCacheStmt(self, prepare)
 		if err != nil {
-			return self.Error("[Mysql.FindOne] [ ", sqlStr, " ] prepare failed: ", err)
+			return self.Error("[Mysql.FindOne] [ ", prepare, " ] prepare failed: ", err)
 		}
+		defer releaseFunc() // 确保释放引用
+
 		rows, err = stmt.QueryContext(ctx, parameter...)
 		if err != nil {
-			releaseFunc() // 立即释放异常stmt
 			if errors.Is(err, ErrStmtClosed) || errors.Is(err, sql.ErrConnDone) {
-				defaultPrepareManager.cacheStmt.Del(cacheKey) // 确保缓存清理
+				defaultPrepareManager.cacheStmt.Del(cacheKey)
 				zlog.Warn("stmt invalid, cache cleared", 0, zlog.String("key", cacheKey))
 			}
 			return self.Error("[Mysql.FindOne] query failed: ", err)
 		}
-		defer func() {
-			rows.Close()
-			releaseFunc() // 释放stmt引用，确保引用计数正确管理
-		}()
+		defer rows.Close()
 	}
 	cols, err := rows.Columns()
 	if err != nil {
@@ -1247,20 +1423,39 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	defer cancel()
 	var stmt *sql.Stmt
 	var rows *sql.Rows
+
 	if self.OpenTx {
+		// 事务模式：不能使用stmt缓存，直接创建
 		stmt, err = self.Tx.PrepareContext(ctx, prepare)
+		if err != nil {
+			return self.Error("[Mysql.FindList] [ ", prepare, " ] prepare failed: ", err)
+		}
+		defer stmt.Close()
+		rows, err = stmt.QueryContext(ctx, parameter...)
+		if err != nil {
+			return self.Error("[Mysql.FindList] query failed: ", err)
+		}
+		defer rows.Close()
 	} else {
-		stmt, err = self.Db.PrepareContext(ctx, prepare)
+		// 非事务模式：使用stmt缓存提升性能
+		var cacheKey string
+		var releaseFunc func()
+		stmt, releaseFunc, cacheKey, err = defaultPrepareManager.getCacheStmt(self, prepare)
+		if err != nil {
+			return self.Error("[Mysql.FindList] [ ", prepare, " ] prepare failed: ", err)
+		}
+		defer releaseFunc() // 确保释放引用
+
+		rows, err = stmt.QueryContext(ctx, parameter...)
+		if err != nil {
+			if errors.Is(err, ErrStmtClosed) || errors.Is(err, sql.ErrConnDone) {
+				defaultPrepareManager.cacheStmt.Del(cacheKey)
+				zlog.Warn("stmt invalid, cache cleared", 0, zlog.String("key", cacheKey))
+			}
+			return self.Error("[Mysql.FindList] query failed: ", err)
+		}
+		defer rows.Close()
 	}
-	if err != nil {
-		return self.Error("[Mysql.FindList] [ ", prepare, " ] prepare failed: ", err)
-	}
-	defer stmt.Close()
-	rows, err = stmt.QueryContext(ctx, parameter...)
-	if err != nil {
-		return self.Error("[Mysql.FindList] query failed: ", err)
-	}
-	defer rows.Close()
 	cols, err := rows.Columns()
 	if err != nil {
 		return self.Error("[Mysql.FindList] read columns failed: ", err)
@@ -1346,19 +1541,37 @@ func (self *RDBManager) Count(cnd *sqlc.Cnd) (int64, error) {
 	var rows *sql.Rows
 	var stmt *sql.Stmt
 	if self.OpenTx {
+		// 事务模式：不能使用stmt缓存，直接创建
 		stmt, err = self.Tx.PrepareContext(ctx, prepare)
+		if err != nil {
+			return 0, self.Error("[Mysql.Count] [ ", prepare, " ] prepare failed: ", err)
+		}
+		defer stmt.Close()
+		rows, err = stmt.QueryContext(ctx, parameter...)
+		if err != nil {
+			return 0, utils.Error("[Mysql.Count] query failed: ", err)
+		}
+		defer rows.Close()
 	} else {
-		stmt, err = self.Db.PrepareContext(ctx, prepare)
+		// 非事务模式：使用stmt缓存提升性能
+		var cacheKey string
+		var releaseFunc func()
+		stmt, releaseFunc, cacheKey, err = defaultPrepareManager.getCacheStmt(self, prepare)
+		if err != nil {
+			return 0, self.Error("[Mysql.Count] [ ", prepare, " ] prepare failed: ", err)
+		}
+		defer releaseFunc() // 确保释放引用
+
+		rows, err = stmt.QueryContext(ctx, parameter...)
+		if err != nil {
+			if errors.Is(err, ErrStmtClosed) || errors.Is(err, sql.ErrConnDone) {
+				defaultPrepareManager.cacheStmt.Del(cacheKey)
+				zlog.Warn("stmt invalid, cache cleared", 0, zlog.String("key", cacheKey))
+			}
+			return 0, self.Error("[Mysql.Count] query failed: ", err)
+		}
+		defer rows.Close()
 	}
-	if err != nil {
-		return 0, self.Error("[Mysql.Count] [ ", prepare, " ] prepare failed: ", err)
-	}
-	defer stmt.Close()
-	rows, err = stmt.QueryContext(ctx, parameter...)
-	if err != nil {
-		return 0, utils.Error("[Mysql.Count] query failed: ", err)
-	}
-	defer rows.Close()
 	var pageTotal int64
 	for rows.Next() {
 		if err := rows.Scan(&pageTotal); err != nil {
@@ -1422,19 +1635,37 @@ func (self *RDBManager) Exists(cnd *sqlc.Cnd) (bool, error) {
 	var rows *sql.Rows
 	var stmt *sql.Stmt
 	if self.OpenTx {
+		// 事务模式：不能使用stmt缓存，直接创建
 		stmt, err = self.Tx.PrepareContext(ctx, prepare)
+		if err != nil {
+			return false, self.Error("[Mysql.Exists] [ ", prepare, " ] prepare failed: ", err)
+		}
+		defer stmt.Close()
+		rows, err = stmt.QueryContext(ctx, parameter...)
+		if err != nil {
+			return false, utils.Error("[Mysql.Exists] query failed: ", err)
+		}
+		defer rows.Close()
 	} else {
-		stmt, err = self.Db.PrepareContext(ctx, prepare)
+		// 非事务模式：使用stmt缓存提升性能
+		var cacheKey string
+		var releaseFunc func()
+		stmt, releaseFunc, cacheKey, err = defaultPrepareManager.getCacheStmt(self, prepare)
+		if err != nil {
+			return false, self.Error("[Mysql.Exists] [ ", prepare, " ] prepare failed: ", err)
+		}
+		defer releaseFunc() // 确保释放引用
+
+		rows, err = stmt.QueryContext(ctx, parameter...)
+		if err != nil {
+			if errors.Is(err, ErrStmtClosed) || errors.Is(err, sql.ErrConnDone) {
+				defaultPrepareManager.cacheStmt.Del(cacheKey)
+				zlog.Warn("stmt invalid, cache cleared", 0, zlog.String("key", cacheKey))
+			}
+			return false, self.Error("[Mysql.Exists] query failed: ", err)
+		}
+		defer rows.Close()
 	}
-	if err != nil {
-		return false, self.Error("[Mysql.Exists] [ ", prepare, " ] prepare failed: ", err)
-	}
-	defer stmt.Close()
-	rows, err = stmt.QueryContext(ctx, parameter...)
-	if err != nil {
-		return false, utils.Error("[Mysql.Exists] query failed: ", err)
-	}
-	defer rows.Close()
 	var exists int64
 	for rows.Next() {
 		if err := rows.Scan(&exists); err != nil {
@@ -1566,20 +1797,39 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data sqlc.Object) error {
 	var err error
 	var stmt *sql.Stmt
 	var rows *sql.Rows
+
 	if self.OpenTx {
+		// 事务模式：不能使用stmt缓存，直接创建
 		stmt, err = self.Tx.PrepareContext(ctx, prepare)
+		if err != nil {
+			return self.Error("[Mysql.FindOneComplex] [ ", prepare, " ] prepare failed: ", err)
+		}
+		defer stmt.Close()
+		rows, err = stmt.QueryContext(ctx, parameter...)
+		if err != nil {
+			return self.Error("[Mysql.FindOneComplex] query failed: ", err)
+		}
+		defer rows.Close()
 	} else {
-		stmt, err = self.Db.PrepareContext(ctx, prepare)
+		// 非事务模式：使用stmt缓存提升性能
+		var cacheKey string
+		var releaseFunc func()
+		stmt, releaseFunc, cacheKey, err = defaultPrepareManager.getCacheStmt(self, prepare)
+		if err != nil {
+			return self.Error("[Mysql.FindOneComplex] [ ", prepare, " ] prepare failed: ", err)
+		}
+		defer releaseFunc() // 确保释放引用
+
+		rows, err = stmt.QueryContext(ctx, parameter...)
+		if err != nil {
+			if errors.Is(err, ErrStmtClosed) || errors.Is(err, sql.ErrConnDone) {
+				defaultPrepareManager.cacheStmt.Del(cacheKey)
+				zlog.Warn("stmt invalid, cache cleared", 0, zlog.String("key", cacheKey))
+			}
+			return self.Error("[Mysql.FindOneComplex] query failed: ", err)
+		}
+		defer rows.Close()
 	}
-	if err != nil {
-		return self.Error("[Mysql.FindOneComplex] [ ", prepare, " ] prepare failed: ", err)
-	}
-	defer stmt.Close()
-	rows, err = stmt.QueryContext(ctx, parameter...)
-	if err != nil {
-		return self.Error("[Mysql.FindOneComplex] query failed: ", err)
-	}
-	defer rows.Close()
 	cols, err := rows.Columns()
 	if err != nil {
 		return self.Error("[Mysql.FindOneComplex] read columns failed: ", err)
@@ -1744,29 +1994,47 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 	if err != nil {
 		return self.Error(err)
 	}
-	prepare := utils.Bytes2Str(prepareBytes)
 	if zlog.IsDebug() {
 		zlog.Debug("[Mysql.FindListComplex] byte size", 0, zlog.Int("estimatedSize", sqlbufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
-		defer zlog.Debug("[Mysql.FindListComplex] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
+		defer zlog.Debug("[Mysql.FindListComplex] sql log", utils.UnixMilli(), zlog.String("sql", utils.Bytes2Str(prepareBytes)), zlog.Any("values", parameter))
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
 	defer cancel()
 	var stmt *sql.Stmt
 	var rows *sql.Rows
+
 	if self.OpenTx {
-		stmt, err = self.Tx.PrepareContext(ctx, prepare)
+		// 事务模式：不能使用stmt缓存，直接创建
+		stmt, err = self.Tx.PrepareContext(ctx, utils.Bytes2Str(prepareBytes))
+		if err != nil {
+			return self.Error("[Mysql.FindListComplex] [ ", utils.Bytes2Str(prepareBytes), " ] prepare failed: ", err)
+		}
+		defer stmt.Close()
+		rows, err = stmt.QueryContext(ctx, parameter...)
+		if err != nil {
+			return self.Error("[Mysql.FindListComplex] query failed: ", err)
+		}
+		defer rows.Close()
 	} else {
-		stmt, err = self.Db.PrepareContext(ctx, prepare)
+		// 非事务模式：使用stmt缓存提升性能
+		var cacheKey string
+		var releaseFunc func()
+		stmt, releaseFunc, cacheKey, err = defaultPrepareManager.getCacheStmt(self, utils.Bytes2Str(prepareBytes))
+		if err != nil {
+			return self.Error("[Mysql.FindListComplex] [ ", utils.Bytes2Str(prepareBytes), " ] prepare failed: ", err)
+		}
+		defer releaseFunc() // 确保释放引用
+
+		rows, err = stmt.QueryContext(ctx, parameter...)
+		if err != nil {
+			if errors.Is(err, ErrStmtClosed) || errors.Is(err, sql.ErrConnDone) {
+				defaultPrepareManager.cacheStmt.Del(cacheKey)
+				zlog.Warn("stmt invalid, cache cleared", 0, zlog.String("key", cacheKey))
+			}
+			return self.Error("[Mysql.FindListComplex] query failed: ", err)
+		}
+		defer rows.Close()
 	}
-	if err != nil {
-		return self.Error("[Mysql.FindListComplex] [ ", prepare, " ] prepare failed: ", err)
-	}
-	defer stmt.Close()
-	rows, err = stmt.QueryContext(ctx, parameter...)
-	if err != nil {
-		return self.Error("[Mysql.FindListComplex] query failed: ", err)
-	}
-	defer rows.Close()
 	cols, err := rows.Columns()
 	if err != nil {
 		return self.Error("[Mysql.FindListComplex] read columns failed: ", err)

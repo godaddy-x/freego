@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/godaddy-x/freego/ormx/sqlc"
@@ -178,6 +179,25 @@ func BenchmarkMysqlFindOne(b *testing.B) {
 	})
 }
 
+func BenchmarkMysqlFindOneComplex(b *testing.B) {
+	initMysqlDB()
+	db, err := sqld.NewMysqlTx(false)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer db.Close()
+
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			var result OwWallet
+			if err := db.FindOneComplex(sqlc.M().Fields("a.id id", "a.appID appID").From("ow_wallet a").Join(sqlc.LEFT_, "user b", "a.id = b.id").Eq("a.id", 218418572484169728).Eq("a.appID", "updated_app_yzNQSr").Orderby("a.id", sqlc.ASC_).Limit(1, 5), &result); err != nil {
+				fmt.Println(err)
+			}
+		}
+	})
+}
+
 func BenchmarkMysqlFindList(b *testing.B) { // 测试1000行数据查询性能
 	initMysqlDB()
 	db, err := sqld.NewMysqlTx(false)
@@ -186,64 +206,31 @@ func BenchmarkMysqlFindList(b *testing.B) { // 测试1000行数据查询性能
 	}
 	defer db.Close()
 
-	// 预先计算时间戳，避免在循环中重复调用
-	now := utils.UnixMilli()
-
-	// 预定义常量字符串，避免动态字符串操作
-	const (
-		listAppID    = "list_bench_app_123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890"
-		listWalletID = "list_bench_wallet_abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890"
-		listAlias    = "list_bench_wallet_alias_abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890"
-		listPassword = "list_bench_password_abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890"
-		listAuthKey  = "list_bench_auth_key_abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890"
-		listRootPath = "/list/bench/path/to/wallet/abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890"
-		listKeystore = `{"version":3,"id":"list-bench-1234-5678-9abc-def0-1234567890","address":"listbenchabcd1234ef5678901234567890","crypto":{"ciphertext":"list_bench_cipher_1234567890abcdefghij1234567890","cipherparams":{"iv":"list_bench_iv_1234567890"},"cipher":"aes-128-ctr","kdf":"scrypt","kdfparams":{"dklen":32,"salt":"list_bench_salt_1234567890","n":8192,"r":8,"p":1},"mac":"list_bench_mac_1234567890abcdefghij"}}`
-	)
-
-	// 预先准备测试数据，确保查询有稳定的数据
-	const listDataCount = 1100 // 准备1100条数据，支持1000行查询
-	var savedWallets []int64
-	for i := 0; i < listDataCount; i++ {
-		wallet := OwWallet{
-			Id:           utils.NextIID(),
-			AppID:        listAppID,
-			WalletID:     listWalletID,
-			Alias:        listAlias,
-			IsTrust:      1,
-			PasswordType: 1,
-			Password:     listPassword,
-			AuthKey:      listAuthKey,
-			RootPath:     listRootPath,
-			AccountIndex: 0,
-			Keystore:     listKeystore,
-			Applytime:    now,
-			Succtime:     now,
-			Dealstate:    1,
-			Ctime:        now,
-			Utime:        now,
-			State:        1,
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			var result []*OwWallet
+			if err := db.FindListComplex(sqlc.M(&OwWallet{}).Fields("a.id id", "a.appID appID").From("ow_wallet a").Join(sqlc.LEFT_, "user b", "a.id = b.id").Eq("a.id", 218418572484169728).Eq("a.appID", "find_bench_app_123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890").Orderby("a.id", sqlc.ASC_).Limit(1, 5), &result); err != nil {
+				fmt.Println(err)
+			}
 		}
+	})
+}
 
-		if err := db.Save(&wallet); err != nil {
-			b.Fatal(err)
-		}
-		savedWallets = append(savedWallets, wallet.Id)
+func BenchmarkMysqlFindListComplex(b *testing.B) {
+	initMysqlDB()
+	db, err := sqld.NewMysqlTx(false)
+	if err != nil {
+		b.Fatal(err)
 	}
-
-	// 确保至少有数据
-	if len(savedWallets) == 0 {
-		b.Fatal("No test data created")
-	}
+	defer db.Close()
 
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			var result []*OwWallet
-			// 查询预先准备的数据，使用固定的ID范围确保查询稳定的数据集
-			minID := savedWallets[0]
-			maxID := savedWallets[len(savedWallets)-1]
-			if err := db.FindList(sqlc.M(&OwWallet{}).Between("id", minID, maxID).Limit(1, 1000).Orderby("id", sqlc.DESC_), &result); err != nil {
-				b.Error(err)
+			if err := db.FindListComplex(sqlc.M(&OwWallet{}).Fields("a.id id", "a.appID appID").From("ow_wallet a").Join(sqlc.LEFT_, "user b", "a.id = b.id").Eq("a.id", 218418572484169728).Eq("a.appID", "find_bench_app_123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890").Orderby("a.id", sqlc.ASC_).Limit(1, 5), &result); err != nil {
+				fmt.Println(err)
 			}
 		}
 	})

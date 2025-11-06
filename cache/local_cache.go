@@ -91,6 +91,15 @@ func (self *LocalMapManager) Put(key string, input interface{}, expire ...int) e
 	return nil
 }
 
+func (self *LocalMapManager) Keys(pattern ...string) ([]string, error) {
+	items := self.c.Items()
+	keys := make([]string, 0, len(items))
+	for k, _ := range items {
+		keys = append(keys, k)
+	}
+	return keys, nil
+}
+
 func (self *LocalMapManager) Del(key ...string) error {
 	if key != nil {
 		for _, v := range key {

@@ -13,7 +13,7 @@ import (
 )
 
 func init() {
-	zlog.InitDefaultLog(&zlog.ZapConfig{Layout: 0, Location: time.Local, Level: zlog.INFO, Console: false})
+	zlog.InitDefaultLog(&zlog.ZapConfig{Layout: 0, Location: time.Local, Level: zlog.INFO, Console: true})
 }
 
 func TestMysqlSave(t *testing.T) {
@@ -246,17 +246,17 @@ func TestMysqlFindOneComplex(t *testing.T) {
 }
 
 func TestMysqlFindListComplex(t *testing.T) {
-	//initMysqlDB()
-	//db, err := sqld.NewMysqlTx(false)
-	//if err != nil {
-	//	panic(err)
-	//}
-	//defer db.Close()
-	//l := utils.UnixMilli()
-	//var result []*OwWallet
-	//if err := db.FindListComplex(sqlc.M(&OwWallet{}).Fields("a.id id", "a.appID appID").From("ow_wallet a").Join(sqlc.LEFT_, "user b", "a.id = b.id").Eq("a.id", 218418572484169728).Eq("a.appID", "find_bench_app_123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890").Orderby("a.id", sqlc.ASC_).Limit(1, 5), &result); err != nil {
-	//	fmt.Println(err)
-	//}
-	//fmt.Println(result)
-	//fmt.Println("cost: ", utils.UnixMilli()-l)
+	initMysqlDB()
+	db, err := sqld.NewMysqlTx(false)
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+	l := utils.UnixMilli()
+	var result []*OwWallet
+	if err := db.FindListComplex(sqlc.M(&OwWallet{}).Fields("a.id id", "a.appID appID").From("ow_wallet a").Join(sqlc.LEFT_, "user b", "a.id = b.id").Eq("a.id", 218418572484169728).Eq("a.appID", "find_bench_app_123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890").Orderby("a.id", sqlc.ASC_).Limit(1, 5), &result); err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println(result)
+	fmt.Println("cost: ", utils.UnixMilli()-l)
 }
