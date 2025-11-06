@@ -209,8 +209,8 @@ func BenchmarkMysqlFindList(b *testing.B) { // 测试1000行数据查询性能
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			var result []*OwWallet
-			if err := db.FindListComplex(sqlc.M(&OwWallet{}).Fields("a.id id", "a.appID appID").From("ow_wallet a").Join(sqlc.LEFT_, "user b", "a.id = b.id").Eq("a.id", 218418572484169728).Eq("a.appID", "find_bench_app_123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890").Orderby("a.id", sqlc.ASC_).Limit(1, 5), &result); err != nil {
+			result := make([]*OwWallet, 0, 3000)
+			if err := db.FindList(sqlc.M(&OwWallet{}).Between("id", 218418572484169728, 1986277638838157312).Limit(1, 3000).Orderby("id", sqlc.DESC_), &result); err != nil {
 				fmt.Println(err)
 			}
 		}

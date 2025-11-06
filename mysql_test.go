@@ -190,8 +190,8 @@ func TestMysqlFindList(t *testing.T) {
 	}
 	defer db.Close()
 	l := utils.UnixMilli()
-	result := make([]*OwWallet, 0, 10)
-	if err := db.FindList(sqlc.M(&OwWallet{}).Between("id", 218418572484169728, 1983821936127377429).Limit(1, 10).Orderby("id", sqlc.DESC_), &result); err != nil {
+	result := make([]*OwWallet, 0, 3000)
+	if err := db.FindList(sqlc.M(&OwWallet{}).Between("id", 218418572484169728, 1986277638838157312).Limit(1, 3000).Orderby("id", sqlc.DESC_), &result); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println("cost: ", utils.UnixMilli()-l)
