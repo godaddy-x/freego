@@ -12,20 +12,3 @@ type Object interface {
 	AppendObject(data interface{}, target Object)
 	NewIndex() []Index
 }
-
-type DefaultObject struct{}
-
-func (o *DefaultObject) GetTable() string {
-	return ""
-}
-
-func (o *DefaultObject) NewObject() Object {
-	return nil
-}
-
-func (o *DefaultObject) AppendObject(data interface{}, target Object) {
-}
-
-func (o *DefaultObject) NewIndex() []Index {
-	return nil
-}

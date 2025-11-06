@@ -167,60 +167,11 @@ func BenchmarkMysqlFindOne(b *testing.B) {
 	}
 	defer db.Close()
 
-	// 预先计算时间戳，避免在循环中重复调用
-	now := utils.UnixMilli()
-
-	// 预定义常量字符串，避免动态字符串操作（长度超过64字节以测试容量优化）
-	const (
-		findAppID    = "find_bench_app_123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890"
-		findWalletID = "find_bench_wallet_abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890"
-		findAlias    = "find_bench_wallet_alias_abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890"
-		findPassword = "find_bench_password_abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890"
-		findAuthKey  = "find_bench_auth_key_abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890"
-		findRootPath = "/find/bench/path/to/wallet/abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890abcdefghij1234567890"
-		findKeystore = `{"version":3,"id":"find-bench-1234-5678-9abc-def0-1234567890","address":"findbenchabcd1234ef5678901234567890","crypto":{"ciphertext":"find_bench_cipher_1234567890abcdefghij1234567890","cipherparams":{"iv":"find_bench_iv_1234567890"},"cipher":"aes-128-ctr","kdf":"scrypt","kdfparams":{"dklen":32,"salt":"find_bench_salt_1234567890","n":8192,"r":8,"p":1},"mac":"find_bench_mac_1234567890abcdefghij"}}`
-	)
-
-	// 创建多个测试数据，确保查询有足够的数据
-	const testDataCount = 50
-	var wallets []sqlc.Object
-	for i := 0; i < testDataCount; i++ {
-		wallet := &OwWallet{
-			Id:           utils.NextIID(),
-			AppID:        findAppID,
-			WalletID:     findWalletID,
-			Alias:        findAlias,
-			IsTrust:      1,
-			PasswordType: 1,
-			Password:     findPassword,
-			AuthKey:      findAuthKey,
-			RootPath:     findRootPath,
-			AccountIndex: 0,
-			Keystore:     findKeystore,
-			Applytime:    now,
-			Succtime:     now,
-			Dealstate:    1,
-			Ctime:        now,
-			Utime:        now,
-			State:        1,
-		}
-		wallets = append(wallets, wallet)
-	}
-
-	// 批量保存测试数据
-	if err := db.Save(wallets...); err != nil {
-		b.Fatal(err)
-	}
-
-	// 记录第一个wallet的ID用于查询
-	firstWallet := wallets[0].(*OwWallet)
-	queryID := firstWallet.Id
-
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			var result OwWallet
-			if err := db.FindOne(sqlc.M().Eq("id", queryID), &result); err != nil {
+			if err := db.FindOne(sqlc.M().Eq("id", 1983821936127377408), &result); err != nil {
 				b.Error(err)
 			}
 		}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"errors"
 	"reflect"
 	"sync"
 	"sync/atomic"
@@ -1097,8 +1098,8 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
 		sqlbuf.WriteString(sortby)
 	}
 	sqlbuf.WriteString(" limit 1")
-	prepare := utils.Bytes2Str(sqlbuf.Bytes())
 	if zlog.IsDebug() {
+		prepare := utils.Bytes2Str(sqlbuf.Bytes())
 		zlog.Debug("[Mysql.FindOne] byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
 		defer zlog.Debug("[Mysql.FindOne] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
@@ -1107,20 +1108,42 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
 	var err error
 	var stmt *sql.Stmt
 	var rows *sql.Rows
+	sqlStr := utils.Bytes2Str(sqlbuf.Bytes())
+
 	if self.OpenTx {
-		stmt, err = self.Tx.PrepareContext(ctx, prepare)
+		// 事务模式：不能使用stmt缓存，直接创建
+		stmt, err = self.Tx.PrepareContext(ctx, sqlStr)
+		if err != nil {
+			return self.Error("[Mysql.FindOne] [ ", sqlStr, " ] prepare failed: ", err)
+		}
+		defer stmt.Close()
+		rows, err = stmt.QueryContext(ctx, parameter...)
+		if err != nil {
+			return self.Error("[Mysql.FindOne] query failed: ", err)
+		}
+		defer rows.Close()
 	} else {
-		stmt, err = self.Db.PrepareContext(ctx, prepare)
+		// 非事务模式：使用stmt缓存提升性能
+		var cacheKey string
+		var releaseFunc func()
+		stmt, releaseFunc, cacheKey, err = defaultPrepareManager.getCacheStmt(self, sqlStr)
+		if err != nil {
+			return self.Error("[Mysql.FindOne] [ ", sqlStr, " ] prepare failed: ", err)
+		}
+		rows, err = stmt.QueryContext(ctx, parameter...)
+		if err != nil {
+			releaseFunc() // 立即释放异常stmt
+			if errors.Is(err, ErrStmtClosed) || errors.Is(err, sql.ErrConnDone) {
+				defaultPrepareManager.cacheStmt.Del(cacheKey) // 确保缓存清理
+				zlog.Warn("stmt invalid, cache cleared", 0, zlog.String("key", cacheKey))
+			}
+			return self.Error("[Mysql.FindOne] query failed: ", err)
+		}
+		defer func() {
+			rows.Close()
+			releaseFunc() // 释放stmt引用，确保引用计数正确管理
+		}()
 	}
-	if err != nil {
-		return self.Error("[Mysql.FindOne] [ ", prepare, " ] prepare failed: ", err)
-	}
-	defer stmt.Close()
-	rows, err = stmt.QueryContext(ctx, parameter...)
-	if err != nil {
-		return self.Error("[Mysql.FindOne] query failed: ", err)
-	}
-	defer rows.Close()
 	cols, err := rows.Columns()
 	if err != nil {
 		return self.Error("[Mysql.FindOne] read columns failed: ", err)
