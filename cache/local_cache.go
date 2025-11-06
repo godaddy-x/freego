@@ -17,9 +17,21 @@ func NewLocalCache(a, b int) Cache {
 	return new(LocalMapManager).NewCache(a, b)
 }
 
+// a默认缓存时间/分钟 b默认校验数据间隔时间/分钟, 默认淘汰回调
+func NewLocalCacheWithEvict(a, b int, f func(key string, value interface{})) Cache {
+	return new(LocalMapManager).NewCacheWithEvict(a, b, f)
+}
+
 // a默认缓存时间/分钟 b默认校验数据间隔时间/分钟
 func (self *LocalMapManager) NewCache(a, b int) Cache {
 	c := cache.New(time.Duration(a)*time.Minute, time.Duration(b)*time.Minute)
+	return &LocalMapManager{c: c}
+}
+
+// a默认缓存时间/分钟 b默认校验数据间隔时间/分钟
+func (self *LocalMapManager) NewCacheWithEvict(a, b int, f func(key string, value interface{})) Cache {
+	c := cache.New(time.Duration(a)*time.Minute, time.Duration(b)*time.Minute)
+	c.OnEvicted(f)
 	return &LocalMapManager{c: c}
 }
 

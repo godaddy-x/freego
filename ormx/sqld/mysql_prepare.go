@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -13,13 +14,28 @@ import (
 	"github.com/godaddy-x/freego/zlog"
 )
 
+// 缓存和清理相关的常量
+const (
+	defaultCacheCapacity = 100000           // 默认缓存容量
+	defaultCacheExpire   = 365 * 24 * 3600  // 1年兜底过期时间(秒)
+	cacheExtendThreshold = 5 * time.Second  // 缓存延长时间阈值
+	idleCleanupDelay     = 5 * time.Second  // 闲置清理延迟时间
+	invalidStmtExpire    = 10               // 无效stmt缓存时间(秒)
+	initialExpireTime    = 30 * time.Second // 初始缓存过期时间
+	useFastHash          = true             // 是否使用快速哈希算法（FNV-1a）
+)
+
 var (
 	ErrStmtClosed         = errors.New("sql: statement is closed")
 	ErrInvalidSQL         = errors.New("invalid SQL statement")
 	defaultPrepareManager = func() *prepareManager {
 		pm := &prepareManager{
-			creating:     make(map[string]*sync.Mutex),
-			cacheStmt:    cache.NewLocalCache(100000, 365*24*3600), // 1年兜底过期
+			creating: make(map[string]*sync.Mutex),
+			cacheStmt: cache.NewLocalCacheWithEvict(defaultCacheCapacity, defaultCacheExpire, func(key string, value interface{}) {
+				if wrapper, ok := value.(*stmtWrapper); ok && !wrapper.closed.Load() {
+					zlog.Warn("stmt cache evicted, may cause recreate", 0, zlog.String("key", key))
+				}
+			}),
 			shutdownChan: make(chan struct{}),
 		}
 		return pm
@@ -34,26 +50,53 @@ type prepareManager struct {
 	shutdownOnce sync.Once              // 确保只关闭一次
 }
 
-// stmtWrapper 包装预编译语句及元数据
+// stmtWrapper 包装预编译语句及元数据 (优化内存对齐)
+// 字段按类型和大小重新排列：指针(8字节) -> int32(4字节) -> string(16字节) -> atomic.Bool(1字节) -> time.Time(24字节) -> sync.Mutex(8字节) -> sync.Once(8字节) -> *time.Timer(8字节) -> sync.Mutex(8字节)
 type stmtWrapper struct {
-	stmt          *sql.Stmt
-	refCount      int32
-	sqlHash       string
-	closed        atomic.Bool
+	// 8字节指针组
+	stmt         *sql.Stmt
+	cleanupTimer *time.Timer // 移动到指针组
+
+	// 4字节整数组
+	refCount int32
+
+	// 16字节字符串组
+	sqlHash string
+
+	// 1字节原子布尔组
+	closed atomic.Bool
+
+	// 24字节时间组 (time.Time 内部对齐)
 	createdAt     time.Time
-	cacheExpireAt time.Time   // 记录缓存过期时间（用于条件性延长）
-	reuseMu       sync.Mutex  // 控制过期瞬间的并发复用
-	cleanupOnce   sync.Once   // 确保清理操作只执行一次
-	cleanupTimer  *time.Timer // 闲置清理定时器
-	timerMu       sync.Mutex  // 保护cleanupTimer的并发安全
+	cacheExpireAt time.Time
+
+	// 8字节互斥锁组
+	reuseMu sync.Mutex
+	timerMu sync.Mutex
+
+	// 8字节 Once 组
+	cleanupOnce sync.Once
 }
 
 // invalidMarker 标记无效SQL，防御缓存穿透
 type invalidMarker struct{}
 
+// fastHash 使用 FNV-1a 算法生成快速哈希（比 SHA256 快得多）
+func fastHash(data string) string {
+	h := fnv.New64a()
+	h.Write([]byte(data))
+	return fmt.Sprintf("%x", h.Sum64())
+}
+
 // getCacheStmt 获取或创建缓存的预编译语句
 func (self *prepareManager) getCacheStmt(manager *RDBManager, sqlstr string) (*sql.Stmt, func(), string, error) {
-	sqlHash := utils.SHA256(utils.AddStr(manager.Option.DsName, manager.Option.Database, sqlstr))
+	// 根据配置选择哈希算法：快速哈希 vs 强哈希
+	var sqlHash string
+	if useFastHash {
+		sqlHash = fastHash(manager.Option.DsName + manager.Option.Database + sqlstr)
+	} else {
+		sqlHash = utils.SHA256(utils.AddStr(manager.Option.DsName, manager.Option.Database, sqlstr))
+	}
 	cacheKey := sqlHash
 
 	// 快速路径：无锁查询缓存，命中则直接复用
@@ -79,12 +122,12 @@ func (self *prepareManager) getCacheStmt(manager *RDBManager, sqlstr string) (*s
 				// 校验stmt状态
 				if !wrapper.closed.Load() && wrapper.sqlHash == sqlHash {
 					atomic.AddInt32(&wrapper.refCount, 1)
-					// 条件性延长缓存：剩余时间<5秒时才延长，减少Put开销
+					// 条件性延长缓存：剩余时间<阈值时才延长，减少Put开销
 					now := time.Now()
-					if wrapper.cacheExpireAt.Sub(now) < 5*time.Second {
-						newExpire := now.Add(30 * time.Second)
+					if wrapper.cacheExpireAt.Sub(now) < cacheExtendThreshold {
+						newExpire := now.Add(initialExpireTime)
 						wrapper.cacheExpireAt = newExpire
-						_ = self.cacheStmt.Put(cacheKey, wrapper, 30) // 非关键操作，忽略错误
+						_ = self.cacheStmt.Put(cacheKey, wrapper, int(initialExpireTime.Seconds())) // 非关键操作，忽略错误
 					}
 					return wrapper.stmt, self.createReleaseFunc(wrapper, cacheKey), cacheKey, nil
 				}
@@ -133,7 +176,7 @@ func (self *prepareManager) createNewStmt(db *sql.DB, sqlstr, sqlHash, cacheKey 
 	// 创建预编译语句
 	stmt, err := db.Prepare(sqlstr)
 	if err != nil {
-		_ = self.cacheStmt.Put(cacheKey, &invalidMarker{}, 10) // 缓存无效标记10秒
+		_ = self.cacheStmt.Put(cacheKey, &invalidMarker{}, invalidStmtExpire) // 缓存无效标记
 		return nil, nil, cacheKey, fmt.Errorf("prepare stmt failed: %w", err)
 	}
 
@@ -144,12 +187,12 @@ func (self *prepareManager) createNewStmt(db *sql.DB, sqlstr, sqlHash, cacheKey 
 		refCount:      1,
 		sqlHash:       sqlHash,
 		createdAt:     now,
-		cacheExpireAt: now.Add(30 * time.Second), // 初始30秒过期
+		cacheExpireAt: now.Add(initialExpireTime), // 初始过期时间
 	}
 	wrapper.closed.Store(false)
 
-	// 存入缓存（1年兜底过期，实际由动态延长控制）
-	if err := self.cacheStmt.Put(cacheKey, wrapper, 365*24*3600); err != nil {
+	// 存入缓存（使用兜底过期时间，实际由动态延长控制）
+	if err := self.cacheStmt.Put(cacheKey, wrapper, defaultCacheExpire); err != nil {
 		zlog.Error("cache put failed", 0, zlog.String("key", cacheKey), zlog.AddError(err))
 		stmt.Close()
 		return nil, nil, cacheKey, fmt.Errorf("cache put failed: %w", err)
@@ -191,11 +234,11 @@ func (self *prepareManager) createReleaseFunc(wrapper *stmtWrapper, cacheKey str
 	return func() {
 		newCount := atomic.AddInt32(&wrapper.refCount, -1)
 
-		// 引用计数归0：设置5秒复用窗口，过期后自动清理
+		// 引用计数归0：设置复用窗口，过期后自动清理
 		if newCount == 0 {
-			// 更新缓存为5秒过期
-			_ = self.cacheStmt.Put(cacheKey, wrapper, 5)
-			wrapper.cacheExpireAt = time.Now().Add(5 * time.Second)
+			// 更新缓存为短时间过期
+			_ = self.cacheStmt.Put(cacheKey, wrapper, int(idleCleanupDelay.Seconds()))
+			wrapper.cacheExpireAt = time.Now().Add(idleCleanupDelay)
 
 			// 停止之前的定时器，避免重复清理
 			wrapper.timerMu.Lock()
@@ -203,7 +246,7 @@ func (self *prepareManager) createReleaseFunc(wrapper *stmtWrapper, cacheKey str
 				wrapper.cleanupTimer.Stop()
 			}
 			// 创建新定时器
-			wrapper.cleanupTimer = time.AfterFunc(5*time.Second, func() {
+			wrapper.cleanupTimer = time.AfterFunc(idleCleanupDelay, func() {
 				select {
 				case <-self.shutdownChan:
 					return // 程序关闭时不执行清理
