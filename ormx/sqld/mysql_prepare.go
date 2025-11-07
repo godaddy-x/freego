@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/dgraph-io/ristretto"
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/zlog"
@@ -31,9 +32,12 @@ var (
 	defaultPrepareManager = func() *prepareManager {
 		pm := &prepareManager{
 			creating: make(map[string]*sync.Mutex),
-			cacheStmt: cache.NewLocalCacheWithEvict(defaultCacheCapacity, defaultCacheExpire, func(key string, value interface{}) {
-				if wrapper, ok := value.(*stmtWrapper); ok && !wrapper.closed.Load() {
-					zlog.Warn("stmt cache evicted, may cause recreate", 0, zlog.String("key", key))
+			cacheStmt: cache.NewLocalCacheWithEvict(defaultCacheCapacity, defaultCacheExpire, func(item *ristretto.Item) {
+				// ristretto的淘汰回调无法访问原始字符串键，但可以记录淘汰事件
+				if wrapper, ok := item.Value.(*stmtWrapper); ok && !wrapper.closed.Load() {
+					zlog.Warn("stmt cache evicted, may cause recreate", 0,
+						zlog.Uint64("key_hash", item.Key),
+						zlog.Int64("cost", item.Cost))
 				}
 			}),
 			shutdownChan: make(chan struct{}),
@@ -202,7 +206,7 @@ func (self *prepareManager) createNewStmt(db *sql.DB, sqlstr, sqlHash, cacheKey 
 		return nil, nil, cacheKey, fmt.Errorf("cache put failed: %w", err)
 	}
 
-	//zlog.Info("new stmt created", 0, zlog.String("key", cacheKey))
+	// zlog.Info("new stmt created", 0, zlog.String("key", cacheKey))
 	return stmt, self.createReleaseFunc(wrapper, cacheKey), cacheKey, nil
 }
 
