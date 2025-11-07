@@ -1,12 +1,18 @@
 package jwt
 
-// Subject 结构体 - 16字节 (2个指针，8字节对齐，无填充)
-// 排列优化：指针字段连续排列
+import "github.com/godaddy-x/freego/cache"
+
+// Subject 结构体 - 32字节 (3个字段，8字节对齐，8字节填充)
+// 排列优化：按字段类型分组，指针字段在前，接口字段在后
 //
 //easyjson:json
 type Subject struct {
+	// 8字节指针字段组 (2个字段)
 	Header  *Header  // 8字节 - 指针字段
 	Payload *Payload // 8字节 - 指针字段
+
+	// 8字节接口字段 (1个字段)
+	cache cache.Cache `json:"-"` // 8字节 - cache接口
 }
 
 // Header 结构体 - 32字节 (2个string，8字节对齐，无填充)

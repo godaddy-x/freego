@@ -44,6 +44,17 @@ func TestECCLogin(t *testing.T) {
 	fmt.Println(responseData)
 }
 
+func TestGetUser(t *testing.T) {
+	httpSDK.AuthObject(&map[string]string{"username": "1234567890123456", "password": "1234567890123456"})
+	httpSDK.AuthToken(sdk.AuthToken{Token: access_token, Secret: token_secret, Expired: token_expire})
+	requestObj := sdk.AuthToken{Token: "AI工具人，鲨鱼宝宝！QWER123456@##！！", Secret: "安排测试下吧123456789@@@"}
+	responseData := sdk.AuthToken{}
+	if err := httpSDK.PostByAuth("/getUser", &requestObj, &responseData, true); err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println(responseData)
+}
+
 func TestOnlyServerECCLogin(t *testing.T) {
 	randomCode := `BARLw1KA4Erot6QrBsmlIFjR17yLtt9pNSfegWVMyaUcNJweGyJx6KGlVLUTnqo51fmmKbmMUJH+KKog5vsh6+GS+CEqlAhI1GnHe2pCmdnRzRfLdGgbf2M/p4dSqBB3Z0N49nFeQCLn+kbtin7ISq5ktdwdoc7zfc1kwwZdewtq+HfEzTIwUdjSkEAxl2GWo/DLrlNzUEtt5rhE92qHW+M=`
 	requestData := []byte(`{"d":"h7mfHikfR7DLRQoxhN6CxQi+Azz+dPErYRFebyicZfiskkh+Z00Okg7BA/W88hOFSJhQT0Ecfn9iac6gkThooX4gF9mqmKo0Vr9Byo5E5Ue2pFZeLKo/J3zD3ZCPRsHacP/v","n":"nscrHrGNGRaitGJxsegJ8w==","s":"qmEGqs5TarHpaiP0r2HE0oOeCpaiHdTjgPv5Vn3SNvY=","t":1762159303,"p":2}`)
@@ -61,15 +72,4 @@ func TestOnlyServerECCLogin(t *testing.T) {
 		panic(err)
 	}
 	fmt.Println(string(response.Body()))
-}
-
-func TestGetUser(t *testing.T) {
-	httpSDK.AuthObject(&map[string]string{"username": "1234567890123456", "password": "1234567890123456"})
-	httpSDK.AuthToken(sdk.AuthToken{Token: access_token, Secret: token_secret, Expired: token_expire})
-	requestObj := sdk.AuthToken{Token: "AI工具人，鲨鱼宝宝！QWER123456@##！！", Secret: "安排测试下吧123456789@@@"}
-	responseData := sdk.AuthToken{}
-	if err := httpSDK.PostByAuth("/getUser", &requestObj, &responseData, true); err != nil {
-		fmt.Println(err)
-	}
-	fmt.Println(responseData)
 }

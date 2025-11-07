@@ -24,8 +24,8 @@ import (
 )
 
 var (
-	emptyMap           = map[string]string{}
 	defaultCacheObject = cache.NewLocalCache(60, 10)
+	emptyMap           = map[string]string{}
 )
 
 type CacheAware func(ds ...string) (cache.Cache, error)
@@ -87,7 +87,10 @@ func (self *HttpNode) StartServer(addr string) {
 	}
 
 	if self.Context.CacheAware != nil {
-		zlog.Printf("cache service has been started successful")
+		zlog.Printf("redis cache service has been started successful")
+	}
+	if self.Context.LocalCacheAware != nil {
+		zlog.Printf("local cache service has been started successful")
 	}
 	if self.Context.RSA != nil {
 		if self.Context.System.enableECC {
@@ -184,6 +187,7 @@ func (self *HttpNode) StartServer(addr string) {
 func (self *HttpNode) checkContextReady(path string, routerConfig *RouterConfig) {
 	self.readyContext()
 	self.AddCache(nil)
+	self.AddLocalCache(nil)
 	//if err := self.AddCipher(nil); err != nil {
 	//	panic("add cipher failed: " + err.Error())
 	//}
@@ -265,15 +269,24 @@ func (self *HttpNode) readyContext() {
 	}
 }
 
+// AddCache 增加redis缓存实例
 func (self *HttpNode) AddCache(cacheAware CacheAware) {
 	self.readyContext()
-	if self.Context.CacheAware == nil {
+	if cacheAware != nil && self.Context.CacheAware == nil {
+		self.Context.CacheAware = cacheAware
+	}
+}
+
+// AddLocalCache 增加本地缓存实例
+func (self *HttpNode) AddLocalCache(cacheAware CacheAware) {
+	self.readyContext()
+	if self.Context.LocalCacheAware == nil {
 		if cacheAware == nil {
 			cacheAware = func(ds ...string) (cache.Cache, error) {
 				return defaultCacheObject, nil
 			}
 		}
-		self.Context.CacheAware = cacheAware
+		self.Context.LocalCacheAware = cacheAware
 	}
 }
 

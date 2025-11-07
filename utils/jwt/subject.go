@@ -15,10 +15,6 @@ import (
 	"golang.org/x/crypto/pbkdf2"
 )
 
-var (
-	localSubjectCache = cache.NewLocalCache(120, 10)
-)
-
 const (
 	JWT          = "JWT"
 	HS256        = "HS256"
@@ -143,12 +139,12 @@ func (self *Subject) Verify(auth []byte, key string) error {
 	cacheKey := utils.SHA256(password)
 
 	// 2. 尝试从缓存获取Payload指针
-	if value, b, err := localSubjectCache.Get(cacheKey, nil); err == nil && b && value != nil {
+	if value, b, err := self.cache.Get(cacheKey, nil); err == nil && b && value != nil {
 		simple := value.(*SimplePayload)
 		// 分布式系统时间同步缓冲区：提前300秒判断过期，避免时间同步误差
 		if simple.Exp <= utils.UnixSecond()-300 {
 			// 失效的token主动清退
-			_ = localSubjectCache.Del(cacheKey)
+			_ = self.cache.Del(cacheKey)
 			return utils.Error("token expired")
 		}
 		if self.Payload == nil {
@@ -188,7 +184,7 @@ func (self *Subject) Verify(auth []byte, key string) error {
 	}
 
 	// 9. 缓存结果，1小时有效期（平衡性能和内存占用）
-	if err := localSubjectCache.Put(cacheKey, &SimplePayload{Sub: self.Payload.Sub, Exp: self.Payload.Exp}, 3600); err != nil {
+	if err := self.cache.Put(cacheKey, &SimplePayload{Sub: self.Payload.Sub, Exp: self.Payload.Exp}, 3600); err != nil {
 		zlog.Error("put localSubjectCache token verify failed", 0, zlog.AddError(err))
 	}
 
@@ -200,6 +196,10 @@ func (self *Subject) CheckReady() bool {
 		return false
 	}
 	return true
+}
+
+func (self *Subject) SetCache(cache cache.Cache) {
+	self.cache = cache
 }
 
 func (self *Subject) GetSub(b []byte) string {
@@ -254,15 +254,6 @@ func (self *Subject) getInt64Value(k string, payload []byte) int64 {
 	return utils.GetJsonInt64(payload, k)
 }
 
-// 获取token的私钥
-func GetTokenSecret(token, secret string) string {
-	if len(token) == 0 {
-		return ""
-	}
-	subject := &Subject{}
-	return subject.GetTokenSecret(token, secret)
-}
-
 // GetTokenSecretEnhanced 获取token的私钥（增强版）
 // 使用标准PBKDF2密钥派生，确保安全性和性能
 func (self *Subject) GetTokenSecretEnhanced(token, secret string) string {
@@ -279,7 +270,7 @@ func (self *Subject) GetTokenSecretEnhanced(token, secret string) string {
 	cacheKey := utils.SHA256(password)
 
 	// 4. 尝试从缓存获取结果
-	if value, err := localSubjectCache.GetString(cacheKey); err == nil && len(value) > 0 {
+	if value, err := self.cache.GetString(cacheKey); err == nil && len(value) > 0 {
 		return value
 	}
 
@@ -300,7 +291,7 @@ func (self *Subject) GetTokenSecretEnhanced(token, secret string) string {
 	result := utils.Base64Encode(enhancedHashBytes)
 
 	// 9. 缓存结果，1小时有效期（平衡性能和内存占用）
-	if err := localSubjectCache.Put(cacheKey, result, 3600); err != nil {
+	if err := self.cache.Put(cacheKey, result, 3600); err != nil {
 		zlog.Error("put localSubjectCache token secret failed", 0, zlog.AddError(err))
 	}
 	return result

@@ -99,29 +99,34 @@ type System struct {
 	AcceptTimeout int64  // 超时主动断开客户端连接,秒 - 8字节
 }
 
-// Context 结构体 - 232字节 (19个字段，8字节对齐，0字节填充)
-// 排列优化：按字段大小和类型分组，string字段在前，指针和8字节类型居中，bool字段在后
+// Context 结构体 - 184字节 (19个字段，8字节对齐，0字节填充)
+// 排列优化：按字段大小和类型分组，16字节string字段在前，8字节指针/函数/map字段居中，bool字段在后
 type Context struct {
 	// 16字节string字段组 (2个字段，32字节)
-	Method string // 16字节 (8+8)
-	Path   string // 16字节 (8+8)
+	Method string // 16字节 (8+8) - string字段
+	Path   string // 16字节 (8+8) - string字段
 
-	// 8字节指针和函数字段组 (共17个字段，136字节)
-	configs      *Configs                                               // 8字节 - 指针
-	router       *fasthttprouter.Router                                 // 8字节 - 指针
-	System       *System                                                // 8字节 - 指针
-	RequestCtx   *fasthttp.RequestCtx                                   // 8字节 - 指针
-	Subject      *jwt.Subject                                           // 8字节 - 指针
-	JsonBody     *JsonBody                                              // 8字节 - 指针
-	Response     *Response                                              // 8字节 - 指针
-	filterChain  *filterChain                                           // 8字节 - 指针
-	RouterConfig *RouterConfig                                          // 8字节 - 指针
-	RSA          []crypto.Cipher                                        // 8字节 - 0.主用公钥 1.备用公钥
-	CacheAware   func(ds ...string) (cache.Cache, error)                // 8字节 - 函数指针
-	roleRealm    func(ctx *Context, onlyRole bool) (*Permission, error) // 8字节 - 函数指针
-	postHandle   PostHandle                                             // 8字节 - 函数指针
-	errorHandle  ErrorHandle                                            // 8字节 - 函数指针
-	Storage      map[string]interface{}                                 // 8字节 - map
+	// 8字节指针字段组 (9个字段，72字节)
+	configs      *Configs               // 8字节 - 指针
+	router       *fasthttprouter.Router // 8字节 - 指针
+	System       *System                // 8字节 - 指针
+	RequestCtx   *fasthttp.RequestCtx   // 8字节 - 指针
+	Subject      *jwt.Subject           // 8字节 - 指针
+	JsonBody     *JsonBody              // 8字节 - 指针
+	Response     *Response              // 8字节 - 指针
+	filterChain  *filterChain           // 8字节 - 指针
+	RouterConfig *RouterConfig          // 8字节 - 指针
+
+	// 8字节函数指针字段组 (5个字段，40字节)
+	CacheAware      func(ds ...string) (cache.Cache, error)                // 8字节 - 函数指针
+	LocalCacheAware func(ds ...string) (cache.Cache, error)                // 8字节 - 函数指针
+	roleRealm       func(ctx *Context, onlyRole bool) (*Permission, error) // 8字节 - 函数指针
+	postHandle      PostHandle                                             // 8字节 - 函数指针
+	errorHandle     ErrorHandle                                            // 8字节 - 函数指针
+
+	// 8字节其他字段组 (2个字段)
+	RSA     []crypto.Cipher        // 8字节 - slice
+	Storage map[string]interface{} // 8字节 - map
 
 	// bool字段 (1字节，会产生填充)
 	postCompleted bool // 1字节 - bool
@@ -163,7 +168,7 @@ func (self *JsonBody) RawData() []byte {
 }
 
 func (self *Context) GetTokenSecret() string {
-	return jwt.GetTokenSecret(utils.Bytes2Str(self.GetRawTokenBytes()), self.configs.jwtConfig.TokenKey)
+	return self.Subject.GetTokenSecret(utils.Bytes2Str(self.GetRawTokenBytes()), self.configs.jwtConfig.TokenKey)
 }
 
 func (self *Context) GetHmac256Sign(d, n string, t, p int64, key string) string {
@@ -227,11 +232,12 @@ func (self *Context) Parser(dst interface{}) error {
 		identify.ID = self.Subject.Payload.Sub
 	}
 	context := common.Context{
-		Identify:   identify,
-		Path:       self.Path,
-		System:     &common.System{Name: self.System.Name, Version: self.System.Version},
-		CacheAware: self.CacheAware,
-		RSA:        self.RSA,
+		Identify:        identify,
+		Path:            self.Path,
+		System:          &common.System{Name: self.System.Name, Version: self.System.Version},
+		CacheAware:      self.CacheAware,
+		LocalCacheAware: self.LocalCacheAware,
+		RSA:             self.RSA,
 	}
 	src := utils.GetPtr(dst, 0)
 	req := common.GetBasePtrReq(src)
@@ -480,6 +486,9 @@ func (self *Context) reset(ctx *Context, handle PostHandle, request *fasthttp.Re
 	if self.CacheAware == nil {
 		self.CacheAware = ctx.CacheAware
 	}
+	if self.LocalCacheAware == nil {
+		self.LocalCacheAware = ctx.LocalCacheAware
+	}
 	// RSA是全局配置，通常只在系统启动时设置一次
 	// 只在RSA未初始化时才从模板拷贝，避免不必要的内存分配
 	if len(self.RSA) == 0 && len(ctx.RSA) > 0 {
@@ -554,6 +563,19 @@ func (self *Context) resetResponse() {
 
 func (self *Context) resetSubject() {
 	// 对象池已预创建，无需nil检查
+
+	// 设置Subject的cache字段
+	if self.LocalCacheAware != nil {
+		if cache, err := self.LocalCacheAware(); err == nil {
+			self.Subject.SetCache(cache)
+		} else {
+			// 本地缓存获取失败时，设置为空
+			self.Subject.SetCache(nil)
+		}
+	} else {
+		// 没有配置本地缓存时，设置为空
+		self.Subject.SetCache(nil)
+	}
 
 	// 优化：批量重置Payload字段
 	payload := self.Subject.Payload

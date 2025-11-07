@@ -65,18 +65,15 @@ type System struct {
 }
 
 type Context struct {
-	// 指针字段（8字节）
-	Identify *Identify
-	System   *System
+	// 8字节字段组 (5个字段)
+	Identify        *Identify                               // 8字节 - 指针字段
+	System          *System                                 // 8字节 - 指针字段
+	CacheAware      func(ds ...string) (cache.Cache, error) // 8字节 - 函数指针
+	LocalCacheAware func(ds ...string) (cache.Cache, error) // 8字节 - 函数指针
+	RSA             []crypto.Cipher                         // 8字节 - slice
 
-	// 函数字段（8字节）
-	CacheAware func(ds ...string) (cache.Cache, error)
-
-	// 接口字段（16字节）
-	RSA []crypto.Cipher
-
-	// 字符串字段（16字节）
-	Path string
+	// 16字节字段组 (1个字段)
+	Path string // 16字节 - 字符串字段
 }
 
 type BaseReq struct {
