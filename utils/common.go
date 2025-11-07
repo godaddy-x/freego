@@ -15,6 +15,8 @@ import (
 	"encoding/gob"
 	"encoding/hex"
 	"errors"
+	"fmt"
+	"hash/fnv"
 	"io/ioutil"
 	"log"
 	"net"
@@ -518,6 +520,13 @@ func SHA256_BASE(s []byte) []byte {
 	h := sha256.New()
 	h.Write(s)
 	return h.Sum(nil)
+}
+
+// FNV1a64 快速哈希函数（非密码学安全，适合缓存键生成）
+func FNV1a64(s string) string {
+	h := fnv.New64a()
+	h.Write([]byte(s))
+	return fmt.Sprintf("%x", h.Sum64())
 }
 
 func SHA512(s string, useBase64 ...bool) string {

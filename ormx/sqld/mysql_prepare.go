@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"hash/fnv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -88,19 +87,12 @@ type stmtWrapper struct {
 // invalidMarker 标记无效SQL，防御缓存穿透
 type invalidMarker struct{}
 
-// fastHash 使用 FNV-1a 算法生成快速哈希（比 SHA256 快得多）
-func fastHash(data string) string {
-	h := fnv.New64a()
-	h.Write([]byte(data))
-	return fmt.Sprintf("%x", h.Sum64())
-}
-
 // getCacheStmt 获取或创建缓存的预编译语句
 func (self *prepareManager) getCacheStmt(manager *RDBManager, sqlstr string) (*sql.Stmt, func(), string, error) {
 	// 根据配置选择哈希算法：快速哈希 vs 强哈希
 	var sqlHash string
 	if useFastHash {
-		sqlHash = fastHash(manager.Option.DsName + manager.Option.Database + sqlstr)
+		sqlHash = utils.FNV1a64(utils.AddStr(manager.Option.DsName, manager.Option.Database, sqlstr))
 	} else {
 		sqlHash = utils.SHA256(utils.AddStr(manager.Option.DsName, manager.Option.Database, sqlstr))
 	}

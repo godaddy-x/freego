@@ -138,21 +138,23 @@ func (self *Subject) Verify(auth []byte, key string) error {
 	//    不同token（包含不同sub）产生不同的缓存键
 	cacheKey := utils.SHA256(password)
 
-	// 2. 尝试从缓存获取Payload指针
-	if value, b, err := self.cache.Get(cacheKey, nil); err == nil && b && value != nil {
-		simple := value.(*SimplePayload)
-		// 分布式系统时间同步缓冲区：提前300秒判断过期，避免时间同步误差
-		if simple.Exp <= utils.UnixSecond()-300 {
-			// 失效的token主动清退
-			_ = self.cache.Del(cacheKey)
-			return utils.Error("token expired")
+	// 2. 尝试从缓存获取Payload指针（只有在缓存可用时才使用）
+	if self.cache != nil {
+		if value, b, err := self.cache.Get(cacheKey, nil); err == nil && b && value != nil {
+			simple := value.(*SimplePayload)
+			// 分布式系统时间同步缓冲区：提前300秒判断过期，避免时间同步误差
+			if simple.Exp <= utils.UnixSecond()-300 {
+				// 失效的token主动清退
+				_ = self.cache.Del(cacheKey)
+				return utils.Error("token expired")
+			}
+			if self.Payload == nil {
+				self.Payload = &Payload{}
+			}
+			self.Payload.Sub = simple.Sub
+			self.Payload.Exp = simple.Exp
+			return nil
 		}
-		if self.Payload == nil {
-			self.Payload = &Payload{}
-		}
-		self.Payload.Sub = simple.Sub
-		self.Payload.Exp = simple.Exp
-		return nil
 	}
 
 	part := strings.Split(token, ".")
@@ -183,9 +185,11 @@ func (self *Subject) Verify(auth []byte, key string) error {
 		return utils.Error("token signature invalid")
 	}
 
-	// 9. 缓存结果，1小时有效期（平衡性能和内存占用）
-	if err := self.cache.Put(cacheKey, &SimplePayload{Sub: self.Payload.Sub, Exp: self.Payload.Exp}, 3600); err != nil {
-		zlog.Error("put localSubjectCache token verify failed", 0, zlog.AddError(err))
+	// 9. 缓存结果，1小时有效期（平衡性能和内存占用，只有在缓存可用时才写入）
+	if self.cache != nil {
+		if err := self.cache.Put(cacheKey, &SimplePayload{Sub: self.Payload.Sub, Exp: self.Payload.Exp}, 3600); err != nil {
+			zlog.Error("put localSubjectCache token verify failed", 0, zlog.AddError(err))
+		}
 	}
 
 	return nil
@@ -269,9 +273,11 @@ func (self *Subject) GetTokenSecretEnhanced(token, secret string) string {
 	//    不同token（包含不同sub）产生不同的缓存键
 	cacheKey := utils.SHA256(password)
 
-	// 4. 尝试从缓存获取结果
-	if value, err := self.cache.GetString(cacheKey); err == nil && len(value) > 0 {
-		return value
+	// 4. 尝试从缓存获取结果（只有在缓存可用时才使用）
+	if self.cache != nil {
+		if value, err := self.cache.GetString(cacheKey); err == nil && len(value) > 0 {
+			return value
+		}
 	}
 
 	// 5. 计算盐值：使用不同顺序的参数组合（顺序：token, secret, localKey）
@@ -290,9 +296,11 @@ func (self *Subject) GetTokenSecretEnhanced(token, secret string) string {
 	// 8. 转换为Base64字符串
 	result := utils.Base64Encode(enhancedHashBytes)
 
-	// 9. 缓存结果，1小时有效期（平衡性能和内存占用）
-	if err := self.cache.Put(cacheKey, result, 3600); err != nil {
-		zlog.Error("put localSubjectCache token secret failed", 0, zlog.AddError(err))
+	// 9. 缓存结果，1小时有效期（平衡性能和内存占用，只有在缓存可用时才写入）
+	if self.cache != nil {
+		if err := self.cache.Put(cacheKey, result, 3600); err != nil {
+			zlog.Error("put localSubjectCache token secret failed", 0, zlog.AddError(err))
+		}
 	}
 	return result
 }

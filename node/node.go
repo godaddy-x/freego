@@ -306,20 +306,39 @@ func (self *Context) readParams() error {
 }
 
 func (self *Context) validReplayAttack(sign string) error {
-	if self.CacheAware == nil {
-		return nil
+	// 重放攻击检测应优先使用全局缓存（Redis），确保跨实例有效性
+	// 本地缓存无法防止跨实例的重放攻击
+	var cacheAware cache.Cache
+	var err error
+
+	// 优先尝试Redis缓存（全局缓存）
+	if self.CacheAware != nil {
+		cacheAware, err = self.CacheAware()
+		if err != nil {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "redis cache instance invalid"}
+		}
+	} else if self.LocalCacheAware != nil {
+		// 如果没有Redis缓存，降级使用本地缓存（仅限单实例场景）
+		cacheAware, err = self.LocalCacheAware()
+		if err != nil {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "local cache instance invalid"}
+		}
+	} else {
+		// 没有配置任何缓存
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "no cache instance configured for replay attack detection"}
 	}
-	c, err := self.CacheAware()
+
+	hex := utils.FNV1a64(sign)
+	b, err := cacheAware.Exists(hex)
 	if err != nil {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "cache instance invalid"}
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "cache operation failed", Err: err}
 	}
-	hex := utils.SHA256(sign)
-	b, err := c.Exists(hex)
-	if err != nil || b {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "replay attack invalid"}
+	if b {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "replay attack detected"}
 	}
-	if err := c.Put(hex, 1, 600); err != nil {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "cache replay attack value error"}
+
+	if err := cacheAware.Put(hex, 1, 600); err != nil {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "cache replay attack record failed", Err: err}
 	}
 	return nil
 }
