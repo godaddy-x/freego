@@ -18,3 +18,4 @@ go.sum
 *.key
 *.csr
 test/
+.vscode/launch.json

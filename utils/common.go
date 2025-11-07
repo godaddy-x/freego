@@ -524,10 +524,24 @@ func SHA256_BASE(s []byte) []byte {
 
 // FNV1a64 快速哈希函数（非密码学安全，适合缓存键生成）
 func FNV1a64(s string) string {
-	h := fnv.New64a()
-	h.Write([]byte(s))
-	return fmt.Sprintf("%x", h.Sum64())
+	h := fnv.New64a() // 64位FNV-1a
+	h.Write(Str2Bytes(s))
+	return fmt.Sprintf("%x", h.Sum64()) // 输出哈希值
 }
+
+// FastHASH MurmurHash3 快速哈希函数（非密码学安全，适合缓存键生成）
+//func FastHASH(s string, size int) string {
+//	// 64位MurmurHash3（最常用）
+//	if size == 64 {
+//		hash64 := murmur3.Sum64(Str2Bytes(s))
+//		return fmt.Sprintf("%x", hash64) // 输出十六进制字符串
+//	} else if size == 128 {
+//		// 128位MurmurHash3（适合更大哈希空间）
+//		hash128_1, hash128_2 := murmur3.Sum128(Str2Bytes(s))
+//		return fmt.Sprintf("%x%x", hash128_1, hash128_2)
+//	}
+//	return ""
+//}
 
 func SHA512(s string, useBase64 ...bool) string {
 	h := sha512.New()
