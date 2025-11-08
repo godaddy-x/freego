@@ -513,6 +513,12 @@ func (self *RedisManager) Get(key string, input interface{}) (interface{}, bool,
 // - input为nil时返回原始字节数组
 // - 支持通过context.Context进行超时和取消控制
 func (self *RedisManager) GetWithContext(ctx context.Context, key string, input interface{}) (interface{}, bool, error) {
+	if len(key) == 0 {
+		zlog.Warn("attempted to get with empty key", 0,
+			zlog.String("ds_name", self.DsName))
+		return nil, false, utils.Error("key cannot be empty")
+	}
+
 	value, err := self.RedisClient.Get(ctx, key).Bytes()
 	if err != nil {
 		if err == redis.Nil {
@@ -586,6 +592,12 @@ func (self *RedisManager) GetString(key string) (string, error) {
 // key: 缓存键
 // 返回: 字符串值或错误
 func (self *RedisManager) GetStringWithContext(ctx context.Context, key string) (string, error) {
+	if len(key) == 0 {
+		zlog.Warn("attempted to get string with empty key", 0,
+			zlog.String("ds_name", self.DsName))
+		return "", utils.Error("key cannot be empty")
+	}
+
 	value, err := self.RedisClient.Get(ctx, key).Result()
 	if err != nil {
 		if err == redis.Nil {
@@ -667,8 +679,16 @@ func (self *RedisManager) Put(key string, input interface{}, expire ...int) erro
 // - 确保数据存储格式的一致性和可读性
 // - 支持通过context.Context进行超时和取消控制
 func (self *RedisManager) PutWithContext(ctx context.Context, key string, input interface{}, expire ...int) error {
-	if len(key) == 0 || input == nil {
-		return nil
+	if len(key) == 0 {
+		zlog.Warn("attempted to put with empty key", 0,
+			zlog.String("ds_name", self.DsName))
+		return utils.Error("key cannot be empty")
+	}
+	if input == nil {
+		zlog.Warn("attempted to put nil value", 0,
+			zlog.String("ds_name", self.DsName),
+			zlog.String("key", key))
+		return utils.Error("input value cannot be nil")
 	}
 
 	// 对值进行序列化处理
@@ -677,12 +697,14 @@ func (self *RedisManager) PutWithContext(ctx context.Context, key string, input 
 		return err
 	}
 
-	// 使用 go-redis 的 Set 方法
-	setCmd := self.RedisClient.Set(ctx, key, valueToStore, 0)
+	// 计算过期时间
+	var expiration time.Duration
 	if len(expire) > 0 && expire[0] > 0 {
-		setCmd = self.RedisClient.Set(ctx, key, valueToStore, time.Duration(expire[0])*time.Second)
+		expiration = time.Duration(expire[0]) * time.Second
 	}
-	return setCmd.Err()
+
+	// 使用 go-redis 的 Set 方法
+	return self.RedisClient.Set(ctx, key, valueToStore, expiration).Err()
 }
 
 // PutBatch 批量存储缓存数据，使用分片管道提高性能
@@ -1157,6 +1179,16 @@ func (self *RedisManager) BatchGetWithContext(ctx context.Context, keys []string
 		return make(map[string]interface{}, 0), nil
 	}
 
+	// 检查是否有空字符串的key
+	for i, key := range keys {
+		if len(key) == 0 {
+			zlog.Warn("attempted batch get with empty key", 0,
+				zlog.String("ds_name", self.DsName),
+				zlog.Int("key_index", i))
+			return nil, utils.Error("key at index ", i, " cannot be empty")
+		}
+	}
+
 	// 记录批量操作开始
 	totalKeys := len(keys)
 	zlog.Debug("starting batch get operation", 0,
@@ -1337,7 +1369,19 @@ func (self *RedisManager) Del(key ...string) error {
 // 返回: 操作错误
 func (self *RedisManager) DelWithContext(ctx context.Context, key ...string) error {
 	if len(key) == 0 {
-		return nil
+		zlog.Warn("attempted to delete with empty keys", 0,
+			zlog.String("ds_name", self.DsName))
+		return utils.Error("keys cannot be empty")
+	}
+
+	// 检查是否有空字符串的key
+	for i, k := range key {
+		if len(k) == 0 {
+			zlog.Warn("attempted to delete with empty key", 0,
+				zlog.String("ds_name", self.DsName),
+				zlog.Int("key_index", i))
+			return utils.Error("key at index ", i, " cannot be empty")
+		}
 	}
 
 	// 使用 go-redis 的 Del 方法
@@ -2187,6 +2231,14 @@ func (self *RedisManager) Shutdown() error {
 	return nil
 }
 
+// contextKey 用于context的自定义key类型，避免与其他包的字符串key冲突
+type contextKey string
+
+const (
+	redisCmdStartKey      contextKey = "redis_cmd_start"
+	redisPipelineStartKey contextKey = "redis_pipeline_start"
+)
+
 // commandMonitoringHook Redis命令性能监控Hook
 // 实现go-redis的Hook接口，用于监控命令执行耗时
 type commandMonitoringHook struct {
@@ -2320,13 +2372,13 @@ func (h *commandMonitoringHook) ProcessPipelineHook(next redis.ProcessPipelineHo
 // BeforeProcess 在命令执行前调用
 func (h *commandMonitoringHook) BeforeProcess(ctx context.Context, cmd redis.Cmder) (context.Context, error) {
 	// 在上下文中记录开始时间
-	return context.WithValue(ctx, "redis_cmd_start", time.Now()), nil
+	return context.WithValue(ctx, redisCmdStartKey, time.Now()), nil
 }
 
 // AfterProcess 在命令执行后调用
 func (h *commandMonitoringHook) AfterProcess(ctx context.Context, cmd redis.Cmder) error {
 	// 获取开始时间
-	startTimeVal := ctx.Value("redis_cmd_start")
+	startTimeVal := ctx.Value(redisCmdStartKey)
 	if startTimeVal == nil {
 		return nil
 	}
@@ -2396,13 +2448,13 @@ func (h *commandMonitoringHook) AfterProcess(ctx context.Context, cmd redis.Cmde
 // BeforeProcessPipeline 在管道命令执行前调用
 func (h *commandMonitoringHook) BeforeProcessPipeline(ctx context.Context, cmds []redis.Cmder) (context.Context, error) {
 	// 在上下文中记录开始时间
-	return context.WithValue(ctx, "redis_pipeline_start", time.Now()), nil
+	return context.WithValue(ctx, redisPipelineStartKey, time.Now()), nil
 }
 
 // AfterProcessPipeline 在管道命令执行后调用
 func (h *commandMonitoringHook) AfterProcessPipeline(ctx context.Context, cmds []redis.Cmder) error {
 	// 获取开始时间
-	startTimeVal := ctx.Value("redis_pipeline_start")
+	startTimeVal := ctx.Value(redisPipelineStartKey)
 	if startTimeVal == nil {
 		return nil
 	}
