@@ -1714,7 +1714,11 @@ func (self *RedisManager) SubscribeAsyncWithContext(ctx context.Context, key str
 // SubscribeWithContext 订阅指定频道，持续接收消息（支持上下文）
 // ctx: 上下文，用于超时和取消控制
 // key: 频道名称
-// expSecond: 单个消息接收超时时间（秒），0表示无超时，持续等待
+// expSecond: 单个消息接收超时时间（秒），明确语义如下：
+//   - expSecond > 0: 每次消息接收的超时时间，到期后继续等待下一条消息
+//   - expSecond = 0: 无超时限制，持续等待直到上下文取消或连接断开
+//   - 重要：这不是整个订阅的生命周期超时，而是单次消息接收的超时
+//
 // call: 消息处理回调函数，返回true停止订阅，false继续
 // 返回: 操作错误或订阅被停止
 //
@@ -1725,9 +1729,21 @@ func (self *RedisManager) SubscribeAsyncWithContext(ctx context.Context, key str
 //
 // 正确使用示例:
 //
+//	// 示例1: 有超时的订阅（30秒内没收到消息则超时，但继续等待）
 //	go func() {
 //	    err := cache.SubscribeWithContext(ctx, "channel", 30, func(msg string) (bool, error) {
-//	        // 处理消息
+//	        // 处理消息，每30秒必须收到至少一条消息，否则会记录超时但继续等待
+//	        return false, nil // 返回false继续订阅
+//	    })
+//	    if err != nil {
+//	        log.Printf("订阅错误: %v", err)
+//	    }
+//	}()
+//
+//	// 示例2: 无超时的订阅（持续等待直到手动停止）
+//	go func() {
+//	    err := cache.SubscribeWithContext(ctx, "channel", 0, func(msg string) (bool, error) {
+//	        // 处理消息，无超时限制
 //	        return false, nil // 返回false继续订阅
 //	    })
 //	    if err != nil {
@@ -1737,231 +1753,35 @@ func (self *RedisManager) SubscribeAsyncWithContext(ctx context.Context, key str
 //
 // 错误使用示例（会阻塞主线程）:
 //
-//	err := cache.SubscribeWithContext(ctx, "channel", 30, handler) // 阻塞！
+//	err := cache.SubscribeWithContext(ctx, "channel", 30, handler) // ❌ 阻塞主线程！
 //
-// 注意:
-// - 不同于原始设计，现在expSecond控制单次消息接收超时，而非整个订阅生命周期
-// - 如果expSecond > 0，每次等待消息都有超时限制，超时后继续等待下一条消息
-// - 如果expSecond = 0，无超时限制，持续等待消息直到明确停止
-// - 只有当消息处理函数返回true或出错时才会停止订阅
-// - 当Redis连接断开时，会自动检测通道关闭并退出，避免死锁
-// - 支持通过context.Context进行超时和取消控制
+// 超时语义说明:
+// - expSecond控制的是"单次消息接收"的超时，不是整个订阅的超时
+// - 当expSecond > 0时，每收到一条消息后，会重置超时计时器
+// - 如果长时间没有消息，超过expSecond秒后会记录超时日志，但订阅会继续
+// - 真正的订阅终止只能通过: 消息处理函数返回true、上下文取消、连接断开或发生错误
+//
+// 自动重连:
+// - 当Redis连接断开时，会自动尝试重连（最多3次）
+// - 重连成功后，订阅会无缝继续，无需手动干预
+// - 重连失败后，订阅会终止并返回错误
 func (self *RedisManager) SubscribeWithContext(ctx context.Context, key string, expSecond int, call func(msg string) (bool, error)) error {
 	if call == nil || len(key) == 0 {
 		return nil
 	}
 
-	// 创建订阅客户端
-	pubsub := self.RedisClient.Subscribe(ctx, key)
-	defer pubsub.Close()
-
-	zlog.Info("successfully subscribed to channel", 0,
-		zlog.String("ds_name", self.DsName),
-		zlog.String("channel", key),
-		zlog.Int("message_timeout_seconds", expSecond))
-
-	// 根据超时设置选择不同的订阅模式
-	if expSecond > 0 {
-		return self.subscribeWithTimeout(ctx, pubsub, key, expSecond, call)
+	// 创建订阅管理器
+	subManager := &subscriptionManager{
+		client: self.RedisClient,
+		dsName: self.DsName,
+		key:    key,
+		call:   call,
 	}
 
-	// 无超时模式：持续等待消息
-	return self.subscribeWithoutTimeout(ctx, pubsub, key, call)
+	return subManager.run(ctx, expSecond)
 }
 
-// subscribeWithTimeout 带超时的订阅模式（单次消息接收超时）
-func (self *RedisManager) subscribeWithTimeout(ctx context.Context, pubsub *redis.PubSub, key string, expSecond int, call func(msg string) (bool, error)) error {
-	timeout := time.Duration(expSecond) * time.Second
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-
-	reconnectAttempts := 0
-	maxReconnectAttempts := 3
-
-	for {
-		// 每次循环前重置定时器，避免每次循环创建新的定时器
-		if !timer.Stop() {
-			select {
-			case <-timer.C:
-			default:
-			}
-		}
-		timer.Reset(timeout)
-
-		// 检查上下文是否已被取消
-		select {
-		case <-ctx.Done():
-			zlog.Info("subscription cancelled by context", 0,
-				zlog.String("ds_name", self.DsName),
-				zlog.String("channel", key),
-				zlog.AddError(ctx.Err()))
-			return ctx.Err()
-		default:
-		}
-
-		select {
-		case msg, ok := <-pubsub.Channel():
-			// 检查通道是否已关闭（连接断开）
-			if !ok {
-				zlog.Warn("subscription channel closed, connection may be lost", 0,
-					zlog.String("ds_name", self.DsName),
-					zlog.String("channel", key),
-					zlog.Int("reconnect_attempts", reconnectAttempts))
-
-				// 尝试重连
-				if reconnectAttempts < maxReconnectAttempts {
-					reconnectAttempts++
-					zlog.Info("attempting to reconnect subscription", 0,
-						zlog.String("ds_name", self.DsName),
-						zlog.String("channel", key),
-						zlog.Int("attempt", reconnectAttempts))
-
-					// 关闭旧的 pubsub 连接，防止资源泄漏
-					if pubsub != nil {
-						zlog.Debug("closing old pubsub connection before reconnect", 0,
-							zlog.String("ds_name", self.DsName),
-							zlog.String("channel", key))
-						pubsub.Close()
-					}
-
-					// 重新创建订阅
-					newPubsub := self.RedisClient.Subscribe(context.Background(), key)
-
-					// 校验新订阅是否成功创建
-					if newPubsub == nil {
-						zlog.Error("failed to create new subscription, pubsub is nil", 0,
-							zlog.String("ds_name", self.DsName),
-							zlog.String("channel", key),
-							zlog.Int("attempt", reconnectAttempts))
-						time.Sleep(time.Duration(reconnectAttempts) * time.Second)
-						continue
-					}
-
-					// 短暂延迟确保订阅建立完成
-					time.Sleep(100 * time.Millisecond)
-
-					// 验证订阅通道是否可用
-					select {
-					case <-time.After(500 * time.Millisecond):
-						// 超时表示订阅可能有问题，但不直接失败，继续尝试
-						zlog.Warn("subscription channel validation timeout, proceeding anyway", 0,
-							zlog.String("ds_name", self.DsName),
-							zlog.String("channel", key),
-							zlog.Int("attempt", reconnectAttempts))
-					default:
-						// 通道立即可用，说明订阅正常
-					}
-
-					pubsub = newPubsub
-
-					zlog.Info("subscription reconnected successfully", 0,
-						zlog.String("ds_name", self.DsName),
-						zlog.String("channel", key),
-						zlog.Int("attempt", reconnectAttempts))
-
-					// 重置重连计数器，等待一段时间后继续
-					time.Sleep(time.Duration(reconnectAttempts) * time.Second)
-					continue
-				} else {
-					zlog.Error("max reconnect attempts reached, giving up subscription", 0,
-						zlog.String("ds_name", self.DsName),
-						zlog.String("channel", key),
-						zlog.Int("max_attempts", maxReconnectAttempts))
-					return utils.Error("subscription channel closed for channel ", key, " after ", maxReconnectAttempts, " reconnect attempts")
-				}
-			}
-
-			// 收到有效消息，重置重连计数器
-			reconnectAttempts = 0
-
-			if msg == nil {
-				continue
-			}
-			if msg.Channel == key {
-				zlog.Debug("received message from channel", 0,
-					zlog.String("ds_name", self.DsName),
-					zlog.String("channel", key),
-					zlog.Int("data_length", len(msg.Payload)))
-
-				r, err := call(msg.Payload)
-				if err != nil {
-					zlog.Error("message handler returned error", 0,
-						zlog.String("ds_name", self.DsName),
-						zlog.String("channel", key),
-						zlog.AddError(err))
-					return utils.Error("message handler error: ", err)
-				}
-				if r {
-					zlog.Info("message handler requested to stop subscription", 0,
-						zlog.String("ds_name", self.DsName),
-						zlog.String("channel", key))
-					return nil
-				}
-			}
-
-		case <-timer.C:
-			// 单次消息接收超时，继续等待下一条消息
-			zlog.Debug("message receive timeout, continuing to wait", 0,
-				zlog.String("ds_name", self.DsName),
-				zlog.String("channel", key),
-				zlog.Int("timeout_seconds", expSecond))
-			// 不退出，继续循环等待下一条消息
-		}
-	}
-}
-
-// subscribeWithoutTimeout 无超时的订阅模式（持续等待）
-func (self *RedisManager) subscribeWithoutTimeout(ctx context.Context, pubsub *redis.PubSub, key string, call func(msg string) (bool, error)) error {
-	for {
-		// 检查上下文是否已被取消
-		select {
-		case <-ctx.Done():
-			zlog.Info("subscription cancelled by context", 0,
-				zlog.String("ds_name", self.DsName),
-				zlog.String("channel", key),
-				zlog.AddError(ctx.Err()))
-			return ctx.Err()
-		default:
-		}
-
-		// 阻塞等待消息，检测通道是否关闭
-		msg, ok := <-pubsub.Channel()
-
-		// 检查通道是否已关闭（连接断开）
-		if !ok {
-			zlog.Warn("subscription channel closed, connection may be lost", 0,
-				zlog.String("ds_name", self.DsName),
-				zlog.String("channel", key))
-			return utils.Error("subscription channel closed for channel ", key)
-		}
-
-		if msg == nil {
-			continue
-		}
-
-		if msg.Channel == key {
-			zlog.Debug("received message from channel", 0,
-				zlog.String("ds_name", self.DsName),
-				zlog.String("channel", key),
-				zlog.Int("data_length", len(msg.Payload)))
-
-			r, err := call(msg.Payload)
-			if err != nil {
-				zlog.Error("message handler returned error", 0,
-					zlog.String("ds_name", self.DsName),
-					zlog.String("channel", key),
-					zlog.AddError(err))
-				return utils.Error("message handler error: ", err)
-			}
-			if r {
-				zlog.Info("message handler requested to stop subscription", 0,
-					zlog.String("ds_name", self.DsName),
-					zlog.String("channel", key))
-				return nil
-			}
-		}
-	}
-}
+// subscriptionManager 已移动到 redis_subscribe.go 文件中
 
 // LuaScript 执行Lua脚本，支持键和参数传递
 // cmd: Lua脚本内容

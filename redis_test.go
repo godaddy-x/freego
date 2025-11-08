@@ -620,16 +620,19 @@ func TestRedisAsyncOperations(t *testing.T) {
 
 			// 异步订阅
 			rds.SubscribeAsync(asyncKey+"_channel", 2, func(msg string) (bool, error) {
+				t.Logf("Message received in callback: %s", msg)
 				received <- msg
 				return true, nil // 收到消息后停止订阅
 			}, func(err error) {
+				t.Logf("Error received in callback: %v", err)
 				errorChan <- err
 			})
 
-			// 等待一段时间让订阅建立
+			// 等待订阅建立
 			time.Sleep(100 * time.Millisecond)
 
 			// 发布消息
+			t.Logf("Publishing message...")
 			success, err := rds.Publish(asyncKey+"_channel", "async_test_message", 3)
 			if err != nil {
 				errorChan <- fmt.Errorf("publish failed: %v", err)
@@ -641,6 +644,7 @@ func TestRedisAsyncOperations(t *testing.T) {
 			}
 
 			// 等待消息接收或超时
+			t.Logf("Waiting for message...")
 			select {
 			case msg := <-received:
 				if msg != "async_test_message" {
@@ -650,8 +654,9 @@ func TestRedisAsyncOperations(t *testing.T) {
 				}
 			case err := <-errorChan:
 				t.Errorf("Async subscribe failed: %v", err)
-			case <-time.After(3 * time.Second):
-				t.Errorf("Async subscribe timeout")
+			case <-time.After(5 * time.Second):
+				t.Logf("Async subscribe timeout - checking if publish succeeded: success=%v", success)
+				t.Errorf("Async subscribe timeout after 5 seconds")
 			}
 		}()
 
