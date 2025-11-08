@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bsm/redislock"
 	DIC "github.com/godaddy-x/freego/common"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/zlog"
@@ -181,24 +182,25 @@ type RedisConfig struct {
 // RedisManager Redis缓存管理器
 // 实现了Cache接口，基于 go-redis v9 库提供高性能Redis缓存操作
 type RedisManager struct {
-	CacheManager               // 嵌入基础缓存管理器
-	DsName       string        // 数据源名称标识
-	RedisClient  *redis.Client // go-redis v9 客户端
+	CacheManager // 嵌入基础缓存管理器
 
-	// 性能监控配置
-	enableCommandMonitoring bool          // 是否启用命令监控
-	enableDetailedLogs      bool          // 是否启用详细命令日志
-	slowCommandThreshold    time.Duration // 慢命令阈值
+	// 字符串字段（16字节对齐）
+	DsName string // 数据源名称标识
 
-	// SCAN操作配置
-	scanCount int // SCAN命令每次迭代返回的键数量
+	// 指针字段（8字节对齐）
+	RedisClient *redis.Client     // go-redis v9 客户端
+	lockClient  *redislock.Client // bsm/redislock客户端，用于分布式锁
 
-	// 批量操作配置
-	batchChunkSize          int  // PutBatch每次管道操作的最大键数量
+	// 时间和整数字段（8字节对齐）
+	slowCommandThreshold time.Duration // 慢命令阈值
+	scanCount            int           // SCAN命令每次迭代返回的键数量
+	batchChunkSize       int           // PutBatch每次管道操作的最大键数量
+
+	// 布尔字段（1字节对齐）
+	enableCommandMonitoring bool // 是否启用命令监控
+	enableDetailedLogs      bool // 是否启用详细命令日志
 	enableBatchDetailedLogs bool // 是否启用批量操作详细日志
-
-	// 危险操作配置
-	allowFlush bool // 是否允许Flush操作
+	allowFlush              bool // 是否允许Flush操作
 }
 
 // InitConfig 初始化Redis连接配置
@@ -425,6 +427,7 @@ func (self *RedisManager) InitConfig(input ...RedisConfig) (*RedisManager, error
 		manager := &RedisManager{
 			RedisClient:             client,
 			DsName:                  dsName,
+			lockClient:              redislock.New(client), // 初始化分布式锁客户端，确保启动时依赖完整
 			enableCommandMonitoring: enableMonitoring,
 			enableDetailedLogs:      enableDetailedLogs,
 			slowCommandThreshold:    slowThreshold,

@@ -1,9 +1,10 @@
 package ex
 
 import (
+	"strings"
+
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/zlog"
-	"strings"
 )
 
 /**
@@ -27,6 +28,7 @@ const (
 	REDIS_LOCK_ACQUIRE = 800001 // redis锁获取失败
 	REDIS_LOCK_PENDING = 800002 // redis锁正在处理
 	REDIS_LOCK_TIMEOUT = 800003 // redis锁自旋超时
+	REDIS_LOCK_RELEASE = 800004 // redis锁释放失败
 )
 
 const (
