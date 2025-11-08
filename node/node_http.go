@@ -141,9 +141,16 @@ func (self *HttpNode) StartServer(addr string) {
 	sqld.MysqlClose()
 	zlog.Info("database connections close completed", 0)
 
-	// 等待一段时间，确保所有可能的异步数据库操作都已完成
-	// 这是为了避免数据库连接在 HTTP 请求处理过程中被关闭
-	zlog.Info("waiting for any pending database operations to complete", 0)
+	// 关闭所有Redis管理器并清理资源
+	// 这应该在数据库关闭之后、HTTP服务器关闭之前执行
+	// 确保没有新的Redis操作产生，同时避免干扰HTTP关闭过程
+	zlog.Info("shutting down all Redis managers", 0)
+	cache.ShutdownAllRedisManagers()
+	zlog.Info("all Redis managers shut down", 0)
+
+	// 等待一段时间，确保所有可能的异步数据库和Redis操作都已完成
+	// 这是为了避免连接在 HTTP 请求处理过程中被关闭
+	zlog.Info("waiting for any pending database and Redis operations to complete", 0)
 	time.Sleep(500 * time.Millisecond)
 
 	// 给 Keep-Alive 连接充分的时间来自然关闭

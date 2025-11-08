@@ -2,12 +2,12 @@ package main
 
 import (
 	"fmt"
+	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/ormx/sqlc"
 	"github.com/godaddy-x/freego/ormx/sqld"
 	"net/http"
 	_ "net/http/pprof"
 
-	"github.com/godaddy-x/freego/cache"
 	rate "github.com/godaddy-x/freego/cache/limiter"
 	ballast "github.com/godaddy-x/freego/gc"
 	http_web "github.com/godaddy-x/freego/node/test"
@@ -134,7 +134,9 @@ func init() {
 }
 
 func main() {
+	defer cache.ShutdownAllRedisManagers()
 	initMysqlDB()
+	initRedis()
 	ballast.GC(512*ballast.MB, 30)
 	go func() {
 		_ = http.ListenAndServe(":8849", nil)
