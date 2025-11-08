@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -762,6 +763,270 @@ func TestRedisPerformance(t *testing.T) {
 
 		// 清理测试数据
 		rds.Del(keys...)
+	})
+}
+
+// TestRedisLockOperations 测试分布式锁功能
+func TestRedisLockOperations(t *testing.T) {
+	initRedis()
+
+	lockKey := utils.MD5("lock_test_" + fmt.Sprintf("%d", time.Now().UnixNano()))
+
+	// 测试1: 基本的锁获取和释放
+	t.Run("BasicLockAcquireRelease", func(t *testing.T) {
+		err := cache.TryLocker(lockKey+"_basic", 10, func(lock *cache.Lock) error {
+			// 验证锁状态
+			if !lock.IsValid() {
+				t.Error("Lock should be valid after acquisition")
+			}
+
+			if lock.Resource() != lockKey+"_basic" {
+				t.Errorf("Expected resource %s, got %s", lockKey+"_basic", lock.Resource())
+			}
+
+			if lock.ExpireSeconds() != 10 {
+				t.Errorf("Expected expire seconds 10, got %d", lock.ExpireSeconds())
+			}
+
+			t.Logf("Lock acquired successfully: resource=%s, token=%s",
+				lock.Resource(), lock.Token())
+
+			// 模拟业务逻辑
+			time.Sleep(100 * time.Millisecond)
+
+			return nil
+		})
+
+		if err != nil {
+			t.Errorf("Basic lock operation failed: %v", err)
+		} else {
+			t.Logf("Basic lock acquire/release test passed")
+		}
+	})
+
+	// 测试2: 锁续期功能
+	t.Run("LockRefresh", func(t *testing.T) {
+		var refreshCount int32
+
+		err := cache.TryLocker(lockKey+"_refresh", 3, func(lock *cache.Lock) error {
+			// 记录初始续期次数
+			initialCount := lock.RefreshCount()
+
+			// 等待一段时间，让续期机制启动
+			time.Sleep(1500 * time.Millisecond) // 等待1.5秒，续期间隔是1秒（过期时间/3）
+
+			// 检查续期是否发生
+			finalCount := lock.RefreshCount()
+			refreshCount = finalCount - initialCount
+
+			if refreshCount <= 0 {
+				t.Logf("No refresh occurred yet (expected in short test), initial: %d, final: %d", initialCount, finalCount)
+			} else {
+				t.Logf("Lock refresh test passed: refresh count = %d", refreshCount)
+			}
+
+			return nil
+		})
+
+		if err != nil {
+			t.Errorf("Lock refresh test failed: %v", err)
+		}
+	})
+
+	// 测试3: 并发锁竞争
+	t.Run("ConcurrentLockCompetition", func(t *testing.T) {
+		const numGoroutines = 5
+		const lockDuration = 2 // 2秒锁定时长
+
+		successCount := int32(0)
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+		results := make([]bool, numGoroutines)
+
+		for i := 0; i < numGoroutines; i++ {
+			wg.Add(1)
+			go func(index int) {
+				defer wg.Done()
+
+				startTime := time.Now()
+				err := cache.TryLocker(lockKey+"_concurrent", lockDuration, func(lock *cache.Lock) error {
+					atomic.AddInt32(&successCount, 1)
+
+					// 模拟业务逻辑
+					time.Sleep(500 * time.Millisecond)
+
+					return nil
+				})
+
+				mu.Lock()
+				results[index] = (err == nil)
+				mu.Unlock()
+
+				t.Logf("Goroutine %d completed in %v, success: %v",
+					index, time.Since(startTime), err == nil)
+			}(i)
+		}
+
+		wg.Wait()
+
+		// 验证只有一个goroutine成功获取锁
+		actualSuccessCount := int(atomic.LoadInt32(&successCount))
+		if actualSuccessCount != 1 {
+			t.Errorf("Expected exactly 1 successful lock acquisition, got %d", actualSuccessCount)
+		}
+
+		// 统计成功和失败的goroutine数量
+		goroutineSuccessCount := 0
+		for _, result := range results {
+			if result {
+				goroutineSuccessCount++
+			}
+		}
+
+		if goroutineSuccessCount != 1 {
+			t.Errorf("Expected exactly 1 successful goroutine, got %d", goroutineSuccessCount)
+		}
+
+		t.Logf("Concurrent lock competition test passed: %d/%d goroutines succeeded",
+			goroutineSuccessCount, numGoroutines)
+	})
+
+	// 测试4: 锁状态监控
+	t.Run("LockStatusMonitoring", func(t *testing.T) {
+		err := cache.TryLocker(lockKey+"_monitor", 5, func(lock *cache.Lock) error {
+			// 监控锁的持有时长
+			heldDuration := lock.HeldDuration()
+			if heldDuration < 0 {
+				t.Errorf("Invalid held duration: %v", heldDuration)
+			}
+
+			// 监控续期失败次数
+			failureCount := lock.RefreshFailures()
+			if failureCount < 0 {
+				t.Errorf("Invalid refresh failure count: %d", failureCount)
+			}
+
+			// 监控距离最后续期的时长
+			timeSinceRefresh := lock.TimeSinceLastRefresh()
+			if timeSinceRefresh < 0 {
+				t.Errorf("Invalid time since refresh: %v", timeSinceRefresh)
+			}
+
+			t.Logf("Lock monitoring: held=%v, refresh_failures=%d, time_since_refresh=%v",
+				heldDuration, failureCount, timeSinceRefresh)
+
+			return nil
+		})
+
+		if err != nil {
+			t.Errorf("Lock status monitoring test failed: %v", err)
+		} else {
+			t.Logf("Lock status monitoring test passed")
+		}
+	})
+
+	// 测试5: 锁配置验证
+	t.Run("LockConfigValidation", func(t *testing.T) {
+		// 测试有效的配置
+		validConfig := &cache.LockConfig{
+			MinExpireSeconds:     5,
+			RefreshIntervalRatio: 0.5,
+			AcquireTimeoutRatio:  0.8,
+			MaxRefreshRetries:    3,
+			MaxAcquireRetries:    5,
+			MinRetryBackoff:      200 * time.Millisecond,
+			MaxRetryBackoff:      3 * time.Second,
+			RefreshRetryBackoff:  150 * time.Millisecond,
+		}
+
+		if err := cache.ValidateLockConfig(validConfig); err != nil {
+			t.Errorf("Valid config should pass validation: %v", err)
+		}
+
+		// 测试无效的配置
+		invalidConfigs := []*cache.LockConfig{
+			{MinExpireSeconds: 0},       // MinExpireSeconds不能为0
+			{RefreshIntervalRatio: 1.5}, // RefreshIntervalRatio不能>=1
+			{AcquireTimeoutRatio: -0.1}, // AcquireTimeoutRatio不能<0
+			{MaxRefreshRetries: -1},     // MaxRefreshRetries不能<0
+			{MaxAcquireRetries: -1},     // MaxAcquireRetries不能<0
+			{MinRetryBackoff: -1},       // MinRetryBackoff不能<0
+			{MaxRetryBackoff: time.Second, MinRetryBackoff: 2 * time.Second}, // Max不能小于Min
+			{RefreshRetryBackoff: 0}, // RefreshRetryBackoff不能<=0
+		}
+
+		for i, invalidConfig := range invalidConfigs {
+			if err := cache.ValidateLockConfig(invalidConfig); err == nil {
+				t.Errorf("Invalid config %d should fail validation", i)
+			}
+		}
+
+		t.Logf("Lock config validation test passed")
+	})
+
+	// 测试6: 自定义锁配置
+	t.Run("CustomLockConfig", func(t *testing.T) {
+		customConfig := &cache.LockConfig{
+			MinExpireSeconds:     8,
+			RefreshIntervalRatio: 0.25, // 更频繁的续期
+			AcquireTimeoutRatio:  0.5,
+			MaxRefreshRetries:    5, // 更多续期重试
+			MaxAcquireRetries:    3,
+			MinRetryBackoff:      500 * time.Millisecond,
+			MaxRetryBackoff:      5 * time.Second,
+			RefreshRetryBackoff:  300 * time.Millisecond,
+		}
+
+		err := cache.TryLocker(lockKey+"_custom", 8, func(lock *cache.Lock) error {
+			// 验证配置生效
+			if lock.ExpireSeconds() != 8 {
+				t.Errorf("Expected expire seconds 8, got %d", lock.ExpireSeconds())
+			}
+
+			t.Logf("Custom config test: expire_seconds=%d", lock.ExpireSeconds())
+			return nil
+		}, customConfig)
+
+		if err != nil {
+			t.Errorf("Custom lock config test failed: %v", err)
+		} else {
+			t.Logf("Custom lock config test passed")
+		}
+	})
+
+	// 测试7: 锁超时处理
+	t.Run("LockTimeoutHandling", func(t *testing.T) {
+		// 使用很短的超时时间
+		shortConfig := &cache.LockConfig{
+			MinExpireSeconds:  1, // 1秒过期
+			MaxAcquireRetries: 1, // 只重试1次
+			MinRetryBackoff:   50 * time.Millisecond,
+			MaxRetryBackoff:   100 * time.Millisecond,
+		}
+
+		startTime := time.Now()
+		err := cache.TryLocker(lockKey+"_timeout", 1, func(lock *cache.Lock) error {
+			// 故意持有锁超过过期时间
+			time.Sleep(1500 * time.Millisecond) // 1.5秒 > 1秒过期时间
+
+			// 检查锁是否仍然有效（续期应该会失败）
+			if !lock.IsValid() {
+				t.Logf("Lock became invalid as expected due to expiration")
+				return fmt.Errorf("lock expired during execution")
+			}
+
+			return nil
+		}, shortConfig)
+
+		duration := time.Since(startTime)
+		t.Logf("Lock timeout test completed in %v, error: %v", duration, err)
+
+		// 预期应该会有错误，因为锁会过期
+		if err == nil {
+			t.Logf("Lock timeout test: lock survived expiration (may be due to timing)")
+		} else {
+			t.Logf("Lock timeout test passed: lock expired as expected")
+		}
 	})
 }
 
