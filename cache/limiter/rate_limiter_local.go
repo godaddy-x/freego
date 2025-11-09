@@ -1,9 +1,10 @@
 package rate
 
 import (
+	"sync"
+
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/zlog"
-	"sync"
 )
 
 type RateLimiter interface {
@@ -16,6 +17,13 @@ type LocalRateLimiter struct {
 	option Option
 }
 
+// Option 限流器配置选项
+// 字段含义：
+//
+//	Limit: 令牌生成速率（每秒生成的令牌数，支持小数，如0.5表示每2秒生成1个）
+//	Bucket: 令牌桶容量（最大可存放的令牌数，必须>0）
+//	Expire: Redis键过期时间（毫秒，<=0时使用默认5分钟）
+//	Distributed: 是否启用分布式模式（当前实现基于Redis，必须设为true，否则返回错误）
 type Option struct {
 	Limit       float64
 	Bucket      int
