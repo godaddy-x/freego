@@ -1,7 +1,7 @@
 package ex
 
 import (
-	"strings"
+	"errors"
 
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/zlog"
@@ -50,62 +50,36 @@ const (
 	MQ_REVD_ERR = "failed to receive mq data"
 )
 
-type Throw struct {
-	Code int
-	Msg  string
-	Url  string
-	Err  error
-	Arg  []string
-}
-
 func (self Throw) Error() string {
 	if self.Code == 0 {
 		self.Code = BIZ
 	}
-	errMsg := utils.AddStr(self.Code, sep, self.Msg)
-	if len(self.Url) > 0 {
-		errMsg = utils.AddStr(errMsg, sep, self.Url)
+	if self.Err != nil { // 如果存在传入error对象则转成errMsg信息传递
+		self.ErrMsg = self.Err.Error()
 	}
-	if len(self.Arg) > 0 {
-		if len(self.Url) == 0 {
-			errMsg = utils.AddStr(errMsg, sep, self.Url)
-		}
-		errMsg = utils.AddStr(errMsg, sep, self.Arg)
+	result, err := utils.JsonMarshal(&self)
+	if err != nil {
+		return err.Error()
 	}
-	return errMsg
+	return utils.Bytes2Str(result)
 }
 
 func Catch(err error) Throw {
+	if err == nil {
+		return Throw{Code: UNKNOWN, Msg: "catch error is nil", Err: nil}
+	}
 	if throw, ok := err.(Throw); ok {
 		return throw
 	}
-	spl := strings.Split(err.Error(), sep)
-	if len(spl) == 1 {
-		return Throw{Code: UNKNOWN, Msg: spl[0]}
-	} else if len(spl) == 2 {
-		if c, err := utils.StrToInt(spl[0]); err != nil {
-			return Throw{Code: SYSTEM, Msg: err.Error()}
-		} else {
-			return Throw{Code: c, Msg: spl[1]}
+	result := Throw{}
+	if err := utils.JsonUnmarshal(utils.Str2Bytes(err.Error()), &result); err != nil {
+		return Throw{Code: UNKNOWN, Msg: "failed to catch exception", Err: err}
+	} else {
+		if len(result.ErrMsg) > 0 { // 如果存在原始错误信息则转成error对象
+			result.Err = errors.New(result.ErrMsg)
 		}
-	} else if len(spl) == 3 {
-		if c, err := utils.StrToInt(spl[0]); err != nil {
-			return Throw{Code: SYSTEM, Msg: err.Error()}
-		} else {
-			return Throw{Code: c, Msg: spl[1], Url: spl[2]}
-		}
-	} else if len(spl) == 4 {
-		if c, err := utils.StrToInt(spl[0]); err != nil {
-			return Throw{Code: SYSTEM, Msg: err.Error()}
-		} else {
-			var args []string
-			if err := utils.JsonUnmarshal(utils.Str2Bytes(spl[3]), &args); err != nil {
-				zlog.Error("exception args unmarshal failed", 0, zlog.AddError(err))
-			}
-			return Throw{Code: c, Msg: spl[1], Url: spl[2], Arg: args}
-		}
+		return result
 	}
-	return Throw{Code: UNKNOWN, Msg: "failed to catch exception", Err: err}
 }
 
 func OutError(title string, err error) {
