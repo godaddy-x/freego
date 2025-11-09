@@ -12,15 +12,6 @@ import (
 	"github.com/godaddy-x/freego/utils"
 )
 
-// initRedis 初始化Redis连接
-func initRedis() {
-	conf := cache.RedisConfig{}
-	if err := utils.ReadLocalJsonConfig("resource/redis.json", &conf); err != nil {
-		panic(utils.AddStr("读取redis配置失败: ", err.Error()))
-	}
-	new(cache.RedisManager).InitConfig(conf)
-}
-
 // TestData 测试用结构体
 type TestData struct {
 	ID       int                    `json:"id"`
