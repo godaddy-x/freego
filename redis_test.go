@@ -827,7 +827,7 @@ func TestRedisLockOperations(t *testing.T) {
 	// 测试3: 并发锁竞争
 	t.Run("ConcurrentLockCompetition", func(t *testing.T) {
 		const numGoroutines = 5
-		const lockDuration = 2 // 2秒锁定时长
+		const lockDuration = 3 // 3秒锁定时长（满足最小过期时间要求）
 
 		successCount := int32(0)
 		var wg sync.WaitGroup
