@@ -12,16 +12,21 @@ import (
 	"github.com/godaddy-x/freego/zlog"
 )
 
+// 过滤器名称常量定义
+// 用于标识不同类型的过滤器，方便配置和管理
 const (
-	GatewayRateLimiterFilterName = "GatewayRateLimiterFilter"
-	ParameterFilterName          = "ParameterFilter"
-	SessionFilterName            = "SessionFilter"
-	UserRateLimiterFilterName    = "UserRateLimiterFilter"
-	RoleFilterName               = "RoleFilter"
-	PostHandleFilterName         = "PostHandleFilter"
-	RenderHandleFilterName       = "RenderHandleFilter"
+	GatewayRateLimiterFilterName = "GatewayRateLimiterFilter" // 网关限流过滤器
+	ParameterFilterName          = "ParameterFilter"          // 参数解析过滤器
+	SessionFilterName            = "SessionFilter"            // 会话验证过滤器
+	UserRateLimiterFilterName    = "UserRateLimiterFilter"    // 用户限流过滤器
+	RoleFilterName               = "RoleFilter"               // 角色权限过滤器
+	PostHandleFilterName         = "PostHandleFilter"         // 后置处理过滤器
+	RenderHandleFilterName       = "RenderHandleFilter"       // 响应渲染过滤器
 )
 
+// filterMap 内置过滤器映射表
+// 定义系统内置的过滤器及其执行顺序（Order值越小越先执行）
+// Order值范围：-1000到math.MaxInt，按升序执行
 var filterMap = map[string]*FilterObject{
 	GatewayRateLimiterFilterName: {Name: GatewayRateLimiterFilterName, Order: -1000, Filter: &GatewayRateLimiterFilter{}},
 	ParameterFilterName:          {Name: ParameterFilterName, Order: -900, Filter: &ParameterFilter{}},
@@ -41,6 +46,9 @@ type FilterObject struct {
 	Order        int      // 8字节 - int字段放在最后
 }
 
+// createFilterChain 创建过滤器链
+// 将内置过滤器和外部扩展过滤器按Order值升序合并
+// 返回排序后的过滤器数组，如果有重复名称则返回错误
 func createFilterChain(extFilters []*FilterObject) ([]*FilterObject, error) {
 	var filters []*FilterObject
 	var fs []interface{}
@@ -80,6 +88,11 @@ type filterChain struct {
 	filters []*FilterObject
 }
 
+// DoFilter 执行过滤器链中的下一个过滤器
+// 按照过滤器链的顺序依次执行每个过滤器，直到链结束或某个过滤器返回错误
+// chain: 当前过滤器链实例（用于递归调用）
+// ctx: HTTP请求上下文，包含请求和响应信息
+// args: 可变参数，通常包含fasthttp.RequestCtx
 func (self *filterChain) DoFilter(chain Filter, ctx *Context, args ...interface{}) error {
 	// 优化：直接使用self.filters，避免局部变量赋值
 	for self.pos < len(self.filters) {
@@ -100,39 +113,156 @@ func (self *filterChain) DoFilter(chain Filter, ctx *Context, args ...interface{
 	return nil
 }
 
-type GatewayRateLimiterFilter struct{}
-type ParameterFilter struct{}
-type SessionFilter struct{}
-type UserRateLimiterFilter struct{}
-type RoleFilter struct{}
-type PostHandleFilter struct{}
-type RenderHandleFilter struct{}
+// 过滤器结构体定义
+// 实现Filter接口的DoFilter方法，按照职责分离的原则处理不同的过滤逻辑
+type GatewayRateLimiterFilter struct{} // 网关级限流过滤器
+type ParameterFilter struct{}          // 参数解析过滤器
+type SessionFilter struct{}            // 会话验证过滤器
+type UserRateLimiterFilter struct{}    // 用户级限流过滤器
+type RoleFilter struct{}               // 角色权限过滤器
+type PostHandleFilter struct{}         // 后置处理过滤器
+type RenderHandleFilter struct{}       // 响应渲染过滤器
 
+// 全局限流器实例
+// 延迟初始化，在Redis准备就绪后再创建，支持分布式部署
 var (
-	gatewayRateLimiter = rate.NewRateLimiter(rate.Option{Limit: 200, Bucket: 2000, Expire: 30, Distributed: true})
-	methodRateLimiter  = rate.NewRateLimiter(rate.Option{Limit: 200, Bucket: 2000, Expire: 30, Distributed: true})
-	userRateLimiter    = rate.NewRateLimiter(rate.Option{Limit: 5, Bucket: 10, Expire: 30, Distributed: true})
+	gatewayRateLimiter   rate.RateLimiter                // 网关级限流器：每秒1000请求，桶容量5000，60秒过期
+	methodRateLimiter    = map[string]rate.RateLimiter{} // 方法级限流器：按API路径存储专用限流器
+	defaultMethodLimiter rate.RateLimiter                // 默认方法级限流器：每秒100请求，桶容量200，30秒过期
+	userRateLimiter      rate.RateLimiter                // 用户级限流器：每用户每秒10请求，桶容量20，30秒过期
 )
 
+// InitRateLimiters 初始化限流器
+// 在Redis准备就绪后调用此函数创建分布式限流器
+// 如果Redis不可用，会自动回退到本地限流器
+func initRateLimiters() {
+	zlog.Info("initializing rate limiters", 0)
+
+	// 初始化网关级限流器
+	gatewayRateLimiter = rate.NewRateLimiter(rate.Option{
+		Limit: 1000, Bucket: 5000, Expire: 60000, Distributed: true,
+	})
+	if gatewayRateLimiter == nil {
+		zlog.Error("failed to initialize gateway rate limiter", 0)
+	}
+
+	// 初始化默认方法级限流器
+	defaultMethodLimiter = rate.NewRateLimiter(rate.Option{
+		Limit: 100, Bucket: 200, Expire: 30000, Distributed: true,
+	})
+	if defaultMethodLimiter == nil {
+		zlog.Error("failed to initialize default method rate limiter", 0)
+	}
+
+	// 初始化用户级限流器
+	userRateLimiter = rate.NewRateLimiter(rate.Option{
+		Limit: 10, Bucket: 20, Expire: 30000, Distributed: true,
+	})
+	if userRateLimiter == nil {
+		zlog.Error("failed to initialize user rate limiter", 0)
+	}
+
+	zlog.Info("rate limiters initialized successfully", 0)
+}
+
+// SetGatewayRateLimiter 设置网关级限流器配置
+// 用于控制整个服务的全局请求频率，防止服务过载
+// option: 限流器配置，包含速率和桶容量等参数
 func SetGatewayRateLimiter(option rate.Option) {
 	gatewayRateLimiter = rate.NewRateLimiter(option)
 }
 
-func SetMethodRateLimiter(option rate.Option) {
-	methodRateLimiter = rate.NewRateLimiter(option)
+func SetDefaultMethodRateLimiter(option rate.Option) {
+	defaultMethodLimiter = rate.NewRateLimiter(option)
 }
 
+// SetMethodRateLimiterByPath 为特定路径设置方法级限流器
+func SetMethodRateLimiterByPath(path string, option rate.Option) {
+	methodRateLimiter[path] = rate.NewRateLimiter(option)
+}
+
+// SetUserRateLimiter 设置用户级限流器配置
+// 用于控制每个用户的请求频率，防止恶意用户刷接口
+// option: 限流器配置，通常设置较低的速率限制
 func SetUserRateLimiter(option rate.Option) {
 	userRateLimiter = rate.NewRateLimiter(option)
 }
 
+/*
+限流器使用示例：
+
+// 1. 在Redis准备就绪后初始化限流器
+// InitRateLimiters() // 自动使用推荐配置
+
+// 2. 或者手动设置全局网关限流（每秒1000个请求，桶容量5000，60秒过期）
+SetGatewayRateLimiter(rate.Option{
+    Limit: 1000, Bucket: 5000, Expire: 60000, Distributed: true,
+})
+
+// 3. 设置默认方法级限流（每秒100个请求，桶容量200，30秒过期）
+SetDefaultMethodRateLimiter(rate.Option{
+    Limit: 100, Bucket: 200, Expire: 30000, Distributed: true,
+})
+
+// 4. 为特定API路径设置专用限流
+SetMethodRateLimiterByPath("/api/user/login", rate.Option{
+    Limit: 5, Bucket: 10, Expire: 30000, Distributed: true, // 登录接口限制最严格，30秒过期
+})
+
+SetMethodRateLimiterByPath("/api/order/create", rate.Option{
+    Limit: 50, Bucket: 100, Expire: 30000, Distributed: true, // 下单接口适中限制，30秒过期
+})
+
+SetMethodRateLimiterByPath("/api/product/list", rate.Option{
+    Limit: 200, Bucket: 500, Expire: 30000, Distributed: true, // 商品列表接口相对宽松，30秒过期
+})
+
+// 5. 设置用户级限流（每个用户每秒10个请求，30秒过期）
+SetUserRateLimiter(rate.Option{
+    Limit: 10, Bucket: 20, Expire: 30000, Distributed: true,
+})
+
+// 注意：如果Redis未初始化，限流器会自动回退到本地模式
+// 建议在应用程序启动时，在Redis初始化完成后调用InitRateLimiters()
+
+// 限流检查顺序：
+// 1. GatewayRateLimiterFilter (-1000): 网关级 + 方法级限流
+// 2. UserRateLimiterFilter (-700): 用户级限流
+//
+// 对于方法级限流：
+// - 如果该路径有专用配置，使用专用配置
+// - 如果没有专用配置，使用默认方法级限流器
+*/
+
+// DoFilter 执行网关级和方法级限流检查
+// 1. 网关级限流：全局请求频率控制
+// 2. 方法级限流：按API路径进行精细化频率控制
+// 如果请求超出限制，返回429 Too Many Requests错误
 func (self *GatewayRateLimiterFilter) DoFilter(chain Filter, ctx *Context, args ...interface{}) error {
-	//if b := gatewayRateLimiter.Allow("HttpThreshold"); !b {
-	//	return ex.Throw{Code: 429, Msg: "the gateway request is full, please try again later"}
-	//}
+	// 1. 网关级限流（全局阈值）
+	if gatewayRateLimiter != nil && !gatewayRateLimiter.Allow("limiter:gateway:all") {
+		return ex.Throw{Code: 429, Msg: "gateway request rate limit exceeded"}
+	}
+
+	// 2. 方法级限流（按API路径）
+	// 首先尝试查找该路径特定的限流器，如果没有找到则使用默认限流器
+	var methodLimiter rate.RateLimiter
+	if limiter, exists := methodRateLimiter[ctx.Path]; exists {
+		methodLimiter = limiter
+	} else if defaultMethodLimiter != nil {
+		methodLimiter = defaultMethodLimiter
+	}
+
+	if methodLimiter != nil && !methodLimiter.Allow(utils.AddStr("limiter:gateway:method:", ctx.Path)) {
+		return ex.Throw{Code: 429, Msg: "method request rate limit exceeded"}
+	}
+
 	return chain.DoFilter(chain, ctx, args...)
 }
 
+// DoFilter 执行参数解析和验证
+// 从HTTP请求中解析参数并存储到上下文，供后续处理使用
+// 如果参数解析失败，返回相应的错误信息
 func (self *ParameterFilter) DoFilter(chain Filter, ctx *Context, args ...interface{}) error {
 	if err := ctx.readParams(); err != nil {
 		return err
@@ -140,6 +270,9 @@ func (self *ParameterFilter) DoFilter(chain Filter, ctx *Context, args ...interf
 	return chain.DoFilter(chain, ctx, args...)
 }
 
+// DoFilter 执行会话验证和身份认证
+// 检查用户是否已登录，解析JWT令牌并验证其有效性
+// 为已认证用户设置Subject信息，供后续过滤器使用
 func (self *SessionFilter) DoFilter(chain Filter, ctx *Context, args ...interface{}) error {
 	if ctx.RouterConfig == nil {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "router path invalid"}
@@ -159,18 +292,27 @@ func (self *SessionFilter) DoFilter(chain Filter, ctx *Context, args ...interfac
 	return chain.DoFilter(chain, ctx, args...)
 }
 
+// DoFilter 执行用户级限流检查
+// 针对已认证用户进行个性化频率限制，防止恶意刷接口行为
+// 每个用户的请求频率单独计算和限制
 func (self *UserRateLimiterFilter) DoFilter(chain Filter, ctx *Context, args ...interface{}) error {
-	//if b := methodRateLimiter.Allow(ctx.Path); !b {
-	//	return ex.Throw{Code: 429, Msg: "the method request is full, please try again later"}
-	//}
-	//if ctx.Authenticated() {
-	//	if b := userRateLimiter.Allow(ctx.Subject.Sub); !b {
-	//		return ex.Throw{Code: 429, Msg: "the access frequency is too fast, please try again later"}
-	//	}
-	//}
+	// 用户级限流（按用户ID）
+	var userID string
+	if ctx.Authenticated() && ctx.Subject != nil && ctx.Subject.Payload != nil && len(ctx.Subject.Payload.Sub) > 0 {
+		userID = ctx.Subject.Payload.Sub
+	}
+	if len(userID) == 0 {
+		return ex.Throw{Code: http.StatusUnauthorized, Msg: "user info invalid, please login again"}
+	}
+	if userRateLimiter != nil && !userRateLimiter.Allow(utils.AddStr("limiter:gateway:user:", userID)) {
+		return ex.Throw{Code: 429, Msg: "user request rate limit exceeded"}
+	}
 	return chain.DoFilter(chain, ctx, args...)
 }
 
+// DoFilter 执行基于角色的访问控制(RBAC)
+// 根据用户角色和API要求的权限进行访问控制验证
+// 支持"全部匹配"和"任意匹配"两种权限验证模式
 func (self *RoleFilter) DoFilter(chain Filter, ctx *Context, args ...interface{}) error {
 	// RoleFilter 职责：进行基于角色的访问控制(RBAC)
 	// 流程说明：
@@ -239,6 +381,9 @@ func (self *RoleFilter) DoFilter(chain Filter, ctx *Context, args ...interface{}
 	}
 }
 
+// DoFilter 执行后置处理逻辑
+// 在业务处理完成后执行清理、日志记录等操作
+// 确保响应的一致性和完整性
 func (self *PostHandleFilter) DoFilter(chain Filter, ctx *Context, args ...interface{}) error {
 	if err := ctx.Handle(); err != nil {
 		return err
@@ -246,6 +391,9 @@ func (self *PostHandleFilter) DoFilter(chain Filter, ctx *Context, args ...inter
 	return chain.DoFilter(chain, ctx, args...)
 }
 
+// DoFilter 执行最终的响应渲染和输出
+// 将处理结果序列化并输出到HTTP响应中
+// 这是过滤器链的最后一个环节，确保响应正确返回给客户端
 func (self *RenderHandleFilter) DoFilter(chain Filter, ctx *Context, args ...interface{}) error {
 	err := chain.DoFilter(chain, ctx, args...)
 	if err == nil {

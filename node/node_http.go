@@ -86,6 +86,9 @@ func (self *HttpNode) StartServer(addr string) {
 		panic("filter chain is nil")
 	}
 
+	// 初始化限流器（Redis准备就绪后）
+	initRateLimiters()
+
 	if self.Context.CacheAware != nil {
 		zlog.Printf("redis cache service has been started successful")
 	}
