@@ -1,6 +1,7 @@
 package rate
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/godaddy-x/freego/cache"
@@ -12,9 +13,10 @@ type RateLimiter interface {
 }
 
 type LocalRateLimiter struct {
-	mu     sync.Mutex
-	cache  cache.Cache
-	option Option
+	mu            sync.Mutex
+	cache         cache.Cache
+	option        Option
+	expireSeconds int // 缓存过期时间（秒）
 }
 
 // Option 限流器配置选项
@@ -33,33 +35,117 @@ type Option struct {
 
 func NewRateLimiter(option Option) RateLimiter {
 	if option.Distributed {
-		return &RedisRateLimiter{option: option}
+		// 分布式模式：使用Redis限流器
+		limiter, err := NewRedisRateLimiter(option)
+		if err != nil {
+			// Redis初始化失败，回退到本地模式
+			zlog.Warn("Redis limiter initialization failed, falling back to local limiter", 0,
+				zlog.AddError(err),
+				zlog.Float64("limit", option.Limit),
+				zlog.Int("bucket", option.Bucket),
+				zlog.Bool("distributed", option.Distributed),
+			)
+			// 继续执行本地模式初始化
+		} else {
+			return limiter
+		}
 	}
-	return &LocalRateLimiter{cache: new(cache.LocalMapManager).NewCache(30, 3), option: option}
+
+	// 本地模式：验证和修正配置参数
+	if option.Bucket <= 0 {
+		zlog.Warn("invalid bucket size for local limiter, using default", 0,
+			zlog.Int("provided", option.Bucket),
+			zlog.Int("default", 10),
+		)
+		option.Bucket = 10
+	}
+
+	if option.Limit <= 0 {
+		zlog.Warn("invalid limit rate for local limiter, using default", 0,
+			zlog.Float64("provided", option.Limit),
+			zlog.Float64("default", 10.0),
+		)
+		option.Limit = 10.0
+	}
+
+	// 修正Expire参数：将毫秒转换为秒用于缓存
+	expireSeconds := option.Expire / 1000 // Expire是毫秒，转换为秒
+	if expireSeconds <= 0 {
+		expireSeconds = 300 // 默认5分钟
+	}
+
+	return &LocalRateLimiter{
+		cache:         new(cache.LocalMapManager).NewCache(30, expireSeconds),
+		option:        option,
+		expireSeconds: expireSeconds,
+	}
 }
 
-// key=过滤关键词 limit=速率 bucket=容量 expire=过期时间/秒
+// getLimiter 获取或创建指定资源的限流器
+// 缓存操作失败时返回nil，让上层处理错误
 func (self *LocalRateLimiter) getLimiter(resource string) *Limiter {
 	if len(resource) == 0 {
 		return nil
 	}
-	var limiter *Limiter
-	if v, b, _ := self.cache.Get(resource, nil); b {
-		limiter = v.(*Limiter)
+
+	// 步骤1: 尝试从缓存获取（不加锁的快速路径）
+	v, found, err := self.cache.Get(resource, nil)
+	if err != nil {
+		zlog.Warn("cache get failed", 0,
+			zlog.String("resource", resource), zlog.AddError(err))
+		return nil // 缓存不可用，返回nil
 	}
-	if limiter == nil {
-		self.mu.Lock()
-		if v, b, _ := self.cache.Get(resource, nil); b {
-			limiter = v.(*Limiter)
+
+	if found {
+		if limiter, ok := v.(*Limiter); ok {
+			return limiter
 		}
-		if limiter == nil {
-			limiter = NewLimiter(Limit(self.option.Limit), self.option.Bucket)
-			if err := self.cache.Put(resource, limiter, self.option.Expire); err != nil {
-				zlog.Error("cache put failed", 0, zlog.AddError(err))
-			}
-		}
-		self.mu.Unlock()
+		// 类型断言失败，记录错误，当作未找到处理
+		zlog.Warn("cache returned unexpected type", 0,
+			zlog.String("resource", resource),
+			zlog.String("expected", "*Limiter"),
+			zlog.String("got", fmt.Sprintf("%T", v)))
 	}
+
+	// 步骤2: 双重检查锁定模式创建新的限流器
+	self.mu.Lock()
+	defer self.mu.Unlock()
+
+	// 再次检查缓存（在锁内，避免竞态条件）
+	v, found, err = self.cache.Get(resource, nil)
+	if err != nil {
+		zlog.Warn("cache get failed in locked section", 0,
+			zlog.String("resource", resource), zlog.AddError(err))
+		return nil // 缓存不可用，返回nil
+	}
+
+	if found {
+		if limiter, ok := v.(*Limiter); ok {
+			return limiter
+		}
+		// 类型断言失败，记录错误，当作未找到处理
+		zlog.Warn("cache returned unexpected type in locked section", 0,
+			zlog.String("resource", resource),
+			zlog.String("expected", "*Limiter"),
+			zlog.String("got", fmt.Sprintf("%T", v)))
+	}
+
+	// 步骤3: 创建新的限流器
+	limiter := NewLimiter(Limit(self.option.Limit), self.option.Bucket)
+
+	// 步骤4: 尝试保存到缓存，明确指定过期时间（失败不影响功能）
+	// 使用与缓存实例相同的过期时间，确保一致性
+	if err := self.cache.Put(resource, limiter, self.expireSeconds); err != nil {
+		zlog.Warn("cache put failed, limiter created but not persisted", 0,
+			zlog.String("resource", resource), zlog.AddError(err))
+		// 继续执行，因为limiter已经创建成功
+	}
+
+	zlog.Debug("created new limiter for resource", 0,
+		zlog.String("resource", resource),
+		zlog.Float64("limit", self.option.Limit),
+		zlog.Int("bucket", self.option.Bucket))
+
 	return limiter
 }
 
