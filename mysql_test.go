@@ -34,7 +34,7 @@ func TestMysqlSave(t *testing.T) {
 			Alias:        "test_wallet_" + utils.RandStr(4),
 			IsTrust:      1,
 			PasswordType: 1,
-			Password:     "encrypted_password_" + utils.RandStr(10),
+			Password:     []byte("encrypted_password_" + utils.RandStr(10)),
 			AuthKey:      "auth_key_" + utils.RandStr(12),
 			RootPath:     "/path/to/wallet/" + utils.RandStr(8),
 			AccountIndex: 0,
@@ -67,13 +67,13 @@ func TestMysqlUpdate(t *testing.T) {
 	var vs []sqlc.Object
 	for i := 0; i < 1; i++ {
 		wallet := OwWallet{
-			Id:           1983681980977381376,
+			Id:           1987689412850352128,
 			AppID:        "updated_app_" + utils.RandStr(6),
 			WalletID:     "updated_wallet_" + utils.RandStr(8),
 			Alias:        "updated_wallet_" + utils.RandStr(4),
 			IsTrust:      2,
 			PasswordType: 2,
-			Password:     "updated_password_" + utils.RandStr(10),
+			Password:     []byte("111updated_password_" + utils.RandStr(10)),
 			AuthKey:      "updated_auth_key_" + utils.RandStr(12),
 			RootPath:     "/updated/path/to/wallet/" + utils.RandStr(8),
 			AccountIndex: 1,
@@ -191,7 +191,7 @@ func TestMysqlFindOne(t *testing.T) {
 	}
 	defer db.Close()
 	wallet := OwWallet{}
-	if err := db.FindOne(sqlc.M().Eq("id", 1983821936127377408).Orderby("id", sqlc.DESC_), &wallet); err != nil {
+	if err := db.FindOne(sqlc.M().Eq("id", 1987689412850352128).Orderby("id", sqlc.DESC_), &wallet); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println(wallet)
@@ -306,7 +306,7 @@ func TestMysqlBatchOperations(t *testing.T) {
 				Alias:        fmt.Sprintf("batch_alias_%d", i),
 				IsTrust:      int64(i % 2),
 				PasswordType: 1,
-				Password:     fmt.Sprintf("batch_password_%d", i),
+				Password:     []byte(fmt.Sprintf("batch_password_%d", i)),
 				AuthKey:      fmt.Sprintf("batch_auth_%d_%s", i, utils.RandStr(8)),
 				RootPath:     fmt.Sprintf("/batch/path/%d", i),
 				AccountIndex: int64(i),
@@ -393,7 +393,7 @@ func TestMysqlTransactionOperations(t *testing.T) {
 			Alias:        "tx_alias_1",
 			IsTrust:      1,
 			PasswordType: 1,
-			Password:     "tx_password_1",
+			Password:     []byte("tx_password_1"),
 			AuthKey:      "tx_auth_1_" + utils.RandStr(8),
 			RootPath:     "/tx/path/1",
 			AccountIndex: 0,
@@ -412,7 +412,7 @@ func TestMysqlTransactionOperations(t *testing.T) {
 			Alias:        "tx_alias_2",
 			IsTrust:      1,
 			PasswordType: 1,
-			Password:     "tx_password_2",
+			Password:     []byte("tx_password_2"),
 			AuthKey:      "tx_auth_2_" + utils.RandStr(8),
 			RootPath:     "/tx/path/2",
 			AccountIndex: 1,
@@ -479,7 +479,7 @@ func TestMysqlTransactionOperations(t *testing.T) {
 			Alias:        "rollback_alias",
 			IsTrust:      1,
 			PasswordType: 1,
-			Password:     "rollback_password",
+			Password:     []byte("rollback_password"),
 			AuthKey:      "rollback_auth_" + utils.RandStr(8),
 			RootPath:     "/rollback/path",
 			AccountIndex: 0,
@@ -540,7 +540,7 @@ func TestMysqlTransactionOperations(t *testing.T) {
 			Alias:        "error_tx_alias",
 			IsTrust:      1,
 			PasswordType: 1,
-			Password:     "error_tx_password",
+			Password:     []byte("error_tx_password"),
 			AuthKey:      "error_tx_auth_" + utils.RandStr(8),
 			RootPath:     "/error/tx/path",
 			AccountIndex: 0,
@@ -625,7 +625,7 @@ func TestMysqlConcurrentOperations(t *testing.T) {
 						Alias:        fmt.Sprintf("concurrent_alias_%d_%d", goroutineID, j),
 						IsTrust:      1,
 						PasswordType: 1,
-						Password:     fmt.Sprintf("concurrent_password_%d_%d", goroutineID, j),
+						Password:     []byte(fmt.Sprintf("concurrent_password_%d_%d", goroutineID, j)),
 						AuthKey:      fmt.Sprintf("concurrent_auth_%d_%d_%s", goroutineID, j, utils.RandStr(5)),
 						RootPath:     fmt.Sprintf("/concurrent/path/%d/%d", goroutineID, j),
 						AccountIndex: int64(goroutineID*operationsPerGoroutine + j),
@@ -708,7 +708,7 @@ func TestMysqlConcurrentOperations(t *testing.T) {
 				Alias:        fmt.Sprintf("read_test_alias_%d", i),
 				IsTrust:      1,
 				PasswordType: 1,
-				Password:     fmt.Sprintf("read_test_password_%d", i),
+				Password:     []byte(fmt.Sprintf("read_test_password_%d", i)),
 				AuthKey:      fmt.Sprintf("read_test_auth_%d_%s", i, utils.RandStr(4)),
 				RootPath:     fmt.Sprintf("/read/test/path/%d", i),
 				AccountIndex: int64(i),
@@ -802,20 +802,20 @@ func TestMysqlEdgeCases(t *testing.T) {
 		wallet := &OwWallet{
 			AppID:        "", // 空字符串
 			WalletID:     "edge_wallet_" + utils.RandStr(6),
-			Alias:        "", // 空字符串
-			IsTrust:      0,  // 最小值
-			PasswordType: 0,  // 最小值
-			Password:     "", // 空字符串
-			AuthKey:      "", // 空字符串
-			RootPath:     "", // 空字符串
-			AccountIndex: 0,  // 最小值
-			Keystore:     "", // 空字符串
-			Applytime:    0,  // 最小值
-			Succtime:     0,  // 最小值
-			Dealstate:    0,  // 最小值
-			Ctime:        0,  // 最小值
-			Utime:        0,  // 最小值
-			State:        0,  // 最小值
+			Alias:        "",         // 空字符串
+			IsTrust:      0,          // 最小值
+			PasswordType: 0,          // 最小值
+			Password:     []byte(""), // 空字节数组
+			AuthKey:      "",         // 空字符串
+			RootPath:     "",         // 空字符串
+			AccountIndex: 0,          // 最小值
+			Keystore:     "",         // 空字符串
+			Applytime:    0,          // 最小值
+			Succtime:     0,          // 最小值
+			Dealstate:    0,          // 最小值
+			Ctime:        0,          // 最小值
+			Utime:        0,          // 最小值
+			State:        0,          // 最小值
 		}
 
 		if err := db.Save(wallet); err != nil {
@@ -842,7 +842,7 @@ func TestMysqlEdgeCases(t *testing.T) {
 			Alias:        largeString[:50], // 截取前50字符
 			IsTrust:      1,
 			PasswordType: 1,
-			Password:     largeString[:100],                  // 截取前100字符作为密码
+			Password:     []byte(largeString[:100]),          // 截取前100字符作为密码
 			AuthKey:      largeString[:200],                  // 截取前200字符
 			RootPath:     "/large/path/" + largeString[:100], // 截取前100字符
 			AccountIndex: 0,
@@ -879,7 +879,7 @@ func TestMysqlEdgeCases(t *testing.T) {
 			Alias:        "special_alias_" + specialChars,
 			IsTrust:      1,
 			PasswordType: 1,
-			Password:     "special_password_" + specialChars,
+			Password:     []byte("special_password_" + specialChars),
 			AuthKey:      "special_auth_" + specialChars,
 			RootPath:     "/special/path/" + specialChars,
 			AccountIndex: 0,
@@ -916,7 +916,7 @@ func TestMysqlEdgeCases(t *testing.T) {
 			Alias:        "diverse_alias_" + diverseString[:30], // 截取前30字符
 			IsTrust:      1,
 			PasswordType: 1,
-			Password:     "diverse_password_" + diverseString[:30],
+			Password:     []byte("diverse_password_" + diverseString[:30]),
 			AuthKey:      "diverse_auth_" + diverseString[:40],
 			RootPath:     "/diverse/path/" + diverseString[:30],
 			AccountIndex: 0,
@@ -974,7 +974,7 @@ func TestMysqlErrorHandling(t *testing.T) {
 			Alias:        "duplicate_alias_1",
 			IsTrust:      1,
 			PasswordType: 1,
-			Password:     "duplicate_password_1",
+			Password:     []byte("duplicate_password_1"),
 			AuthKey:      "duplicate_auth_1_" + utils.RandStr(6),
 			RootPath:     "/duplicate/path/1",
 			AccountIndex: 0,
@@ -998,7 +998,7 @@ func TestMysqlErrorHandling(t *testing.T) {
 			Alias:        "duplicate_alias_2",
 			IsTrust:      1,
 			PasswordType: 1,
-			Password:     "duplicate_password_2",
+			Password:     []byte("duplicate_password_2"),
 			AuthKey:      "duplicate_auth_2_" + utils.RandStr(6),
 			RootPath:     "/duplicate/path/2",
 			AccountIndex: 1,
@@ -1061,7 +1061,7 @@ func TestMysqlDataIntegrity(t *testing.T) {
 			Alias:        "integrity_alias",
 			IsTrust:      1,
 			PasswordType: 1,
-			Password:     "integrity_password",
+			Password:     []byte("integrity_password"),
 			AuthKey:      "integrity_auth_" + utils.RandStr(8),
 			RootPath:     "/integrity/path",
 			AccountIndex: 0,
@@ -1146,7 +1146,7 @@ func TestMysqlDataIntegrity(t *testing.T) {
 				Alias:        fmt.Sprintf("batch_integrity_alias_%d", i),
 				IsTrust:      int64(i % 2),
 				PasswordType: 1,
-				Password:     fmt.Sprintf("batch_integrity_password_%d", i),
+				Password:     []byte(fmt.Sprintf("batch_integrity_password_%d", i)),
 				AuthKey:      fmt.Sprintf("batch_integrity_auth_%d_%s", i, utils.RandStr(4)),
 				RootPath:     fmt.Sprintf("/batch/integrity/path/%d", i),
 				AccountIndex: int64(i),
@@ -1230,7 +1230,7 @@ func BenchmarkMysqlOperations(b *testing.B) {
 				Alias:        fmt.Sprintf("bench_alias_%d", i),
 				IsTrust:      1,
 				PasswordType: 1,
-				Password:     fmt.Sprintf("bench_password_%d", i),
+				Password:     []byte(fmt.Sprintf("bench_password_%d", i)),
 				AuthKey:      fmt.Sprintf("bench_auth_%d", i),
 				RootPath:     fmt.Sprintf("/bench/path/%d", i),
 				AccountIndex: int64(i),
@@ -1257,7 +1257,7 @@ func BenchmarkMysqlOperations(b *testing.B) {
 				Alias:        fmt.Sprintf("bench_find_alias_%d", i),
 				IsTrust:      1,
 				PasswordType: 1,
-				Password:     fmt.Sprintf("bench_find_password_%d", i),
+				Password:     []byte(fmt.Sprintf("bench_find_password_%d", i)),
 				AuthKey:      fmt.Sprintf("bench_find_auth_%d", i),
 				RootPath:     fmt.Sprintf("/bench/find/path/%d", i),
 				AccountIndex: int64(i),
@@ -1304,7 +1304,7 @@ func BenchmarkMysqlOperations(b *testing.B) {
 				Alias:        fmt.Sprintf("bench_update_alias_%d", i),
 				IsTrust:      1,
 				PasswordType: 1,
-				Password:     fmt.Sprintf("bench_update_password_%d", i),
+				Password:     []byte(fmt.Sprintf("bench_update_password_%d", i)),
 				AuthKey:      fmt.Sprintf("bench_update_auth_%d", i),
 				RootPath:     fmt.Sprintf("/bench/update/path/%d", i),
 				AccountIndex: int64(i),

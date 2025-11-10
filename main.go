@@ -2,11 +2,12 @@ package main
 
 import (
 	"fmt"
+	"net/http"
+	_ "net/http/pprof"
+
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/ormx/sqlc"
 	"github.com/godaddy-x/freego/ormx/sqld"
-	"net/http"
-	_ "net/http/pprof"
 
 	rate "github.com/godaddy-x/freego/cache/limiter"
 	ballast "github.com/godaddy-x/freego/gc"
@@ -30,7 +31,7 @@ type OwWallet struct {
 	Alias        string `json:"alias" bson:"alias"`
 	IsTrust      int64  `json:"isTrust" bson:"isTrust"`
 	PasswordType int64  `json:"passwordType" bson:"passwordType"`
-	Password     string `json:"password" bson:"password"`
+	Password     []byte `json:"password" bson:"password" blob:"true"`
 	AuthKey      string `json:"authKey" bson:"authKey"`
 	RootPath     string `json:"rootPath" bson:"rootPath"`
 	AccountIndex int64  `json:"accountIndex" bson:"accountIndex"`

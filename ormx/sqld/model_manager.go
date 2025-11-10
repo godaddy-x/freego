@@ -549,10 +549,10 @@ func GetValue(obj interface{}, elem *FieldElem) (interface{}, error) {
 		case "[]uint":
 			return getValueJsonStr(utils.GetUintArr(ptr))
 		case "[]uint8":
-			if elem.IsBlob {
-				return utils.GetUint8Arr(ptr), nil
-			}
-			return getValueJsonStr(utils.GetUint8Arr(ptr))
+			//if elem.IsBlob {
+			//	return utils.GetUint8Arr(ptr), nil
+			//}
+			return utils.GetUint8Arr(ptr), nil
 		case "[]uint16":
 			return getValueJsonStr(utils.GetUint16Arr(ptr))
 		case "[]uint32":
@@ -895,15 +895,15 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 			if b == nil || len(b) == 0 {
 				return nil
 			}
-			if elem.IsBlob {
-				utils.SetUint8Arr(ptr, b)
-				return nil
-			}
-			v := make([]uint8, 0)
-			if err := getValueJsonObj(b, &v); err != nil {
-				return err
-			}
-			utils.SetUint8Arr(ptr, v)
+			//if elem.IsBlob {
+			//	utils.SetUint8Arr(ptr, b)
+			//	return nil
+			//}
+			//v := make([]uint8, 0)
+			//if err := getValueJsonObj(b, &v); err != nil {
+			//	return err
+			//}
+			utils.SetUint8Arr(ptr, b)
 			return nil
 		case "[]uint16":
 			if b == nil || len(b) == 0 {

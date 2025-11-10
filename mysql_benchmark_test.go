@@ -39,11 +39,13 @@ func BenchmarkMysqlSave(b *testing.B) {
 		appID    = "bench_app_123456"
 		walletID = "bench_wallet_abcdefgh"
 		alias    = "bench_wallet_abcd"
-		password = "bench_password_abcdefghij"
 		authKey  = "bench_auth_key_abcdefghijkl"
 		rootPath = "/bench/path/to/wallet/abcdefgh"
-		keystore = `{"version":3,"id":"bench-1234-5678-9abc-def0","address":"benchabcd1234ef567890","crypto":{"ciphertext":"bench_cipher","cipherparams":{"iv":"bench_iv"},"cipher":"aes-128-ctr","kdf":"scrypt","kdfparams":{"dklen":32,"salt":"bench_salt","n":8192,"r":8,"p":1},"mac":"bench_mac"}}`
 	)
+
+	// 密码常量（字节数组）
+	password := []byte("bench_password_abcdefghij")
+	keystore := `{"version":3,"id":"bench-1234-5678-9abc-def0","address":"benchabcd1234ef567890","crypto":{"ciphertext":"bench_cipher","cipherparams":{"iv":"bench_iv"},"cipher":"aes-128-ctr","kdf":"scrypt","kdfparams":{"dklen":32,"salt":"bench_salt","n":8192,"r":8,"p":1},"mac":"bench_mac"}}`
 
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
@@ -94,7 +96,6 @@ func BenchmarkMysqlUpdate(b *testing.B) {
 		originalAppID    = "bench_app_123456"
 		originalWalletID = "bench_wallet_abcdefgh"
 		originalAlias    = "bench_wallet_abcd"
-		originalPassword = "bench_password_abcdefghij"
 		originalAuthKey  = "bench_auth_key_abcdefghijkl"
 		originalRootPath = "/bench/path/to/wallet/abcdefgh"
 		originalKeystore = `{"version":3,"id":"bench-1234-5678-9abc-def0","address":"benchabcd1234ef567890","crypto":{"ciphertext":"bench_cipher","cipherparams":{"iv":"bench_iv"},"cipher":"aes-128-ctr","kdf":"scrypt","kdfparams":{"dklen":32,"salt":"bench_salt","n":8192,"r":8,"p":1},"mac":"bench_mac"}}`
@@ -102,11 +103,14 @@ func BenchmarkMysqlUpdate(b *testing.B) {
 		updatedAppID    = "updated_bench_app_789012"
 		updatedWalletID = "updated_bench_wallet_hijklmn"
 		updatedAlias    = "updated_bench_wallet_efgh"
-		updatedPassword = "updated_bench_password_jklmnopqr"
 		updatedAuthKey  = "updated_bench_auth_key_mnopqrstuvwx"
 		updatedRootPath = "/updated/bench/path/to/wallet/hijklmn"
-		updatedKeystore = `{"version":3,"id":"updated-bench-5678-9abc-def0","address":"updatedbenchabcd1234ef567890","crypto":{"ciphertext":"updated_bench_cipher","cipherparams":{"iv":"updated_bench_iv"},"cipher":"aes-128-ctr","kdf":"scrypt","kdfparams":{"dklen":32,"salt":"updated_bench_salt","n":8192,"r":8,"p":1},"mac":"updated_bench_mac"}}`
 	)
+
+	// 密码常量（字节数组）
+	originalPassword := []byte("bench_password_abcdefghij")
+	updatedPassword := []byte("updated_bench_password_jklmnopqr")
+	updatedKeystore := `{"version":3,"id":"updated-bench-5678-9abc-def0","address":"updatedbenchabcd1234ef567890","crypto":{"ciphertext":"updated_bench_cipher","cipherparams":{"iv":"updated_bench_iv"},"cipher":"aes-128-ctr","kdf":"scrypt","kdfparams":{"dklen":32,"salt":"updated_bench_salt","n":8192,"r":8,"p":1},"mac":"updated_bench_mac"}}`
 
 	// 创建固定数量的测试数据 (100个)，避免预创建过多对象
 	const testDataCount = 100
@@ -282,7 +286,7 @@ func BenchmarkMysqlCount(b *testing.B) {
 			Alias:        "count_bench_wallet_" + utils.RandStr(4),
 			IsTrust:      1,
 			PasswordType: 1,
-			Password:     "count_bench_password_" + utils.RandStr(10),
+			Password:     []byte("count_bench_password_" + utils.RandStr(10)),
 			AuthKey:      "count_bench_auth_key_" + utils.RandStr(12),
 			RootPath:     "/count/bench/path/to/wallet/" + utils.RandStr(8),
 			AccountIndex: 0,
@@ -331,7 +335,7 @@ func BenchmarkMysqlExists(b *testing.B) {
 		Alias:        "exists_bench_wallet_" + utils.RandStr(4),
 		IsTrust:      1,
 		PasswordType: 1,
-		Password:     "exists_bench_password_" + utils.RandStr(10),
+		Password:     []byte("exists_bench_password_" + utils.RandStr(10)),
 		AuthKey:      "exists_bench_auth_key_" + utils.RandStr(12),
 		RootPath:     "/exists/bench/path/to/wallet/" + utils.RandStr(8),
 		AccountIndex: 0,
@@ -387,7 +391,7 @@ func BenchmarkMysqlDelete(b *testing.B) {
 				Alias:        "del_bench_wallet_" + utils.RandStr(4),
 				IsTrust:      1,
 				PasswordType: 1,
-				Password:     "del_bench_password_" + utils.RandStr(10),
+				Password:     []byte("del_bench_password_" + utils.RandStr(10)),
 				AuthKey:      "del_bench_auth_key_" + utils.RandStr(12),
 				RootPath:     "/del/bench/path/to/wallet/" + utils.RandStr(8),
 				AccountIndex: 0,
@@ -461,7 +465,7 @@ func BenchmarkMysqlBatchSave(b *testing.B) {
 					Alias:        alias,
 					IsTrust:      1,
 					PasswordType: 1,
-					Password:     password,
+					Password:     []byte(password),
 					AuthKey:      authKey,
 					RootPath:     rootPath,
 					AccountIndex: int64(i),
@@ -511,7 +515,7 @@ func BenchmarkMysqlBatchUpdate(b *testing.B) {
 			Alias:        fmt.Sprintf("batch_update_bench_alias_%d", i),
 			IsTrust:      1,
 			PasswordType: 1,
-			Password:     fmt.Sprintf("batch_update_bench_password_%d", i),
+			Password:     []byte(fmt.Sprintf("batch_update_bench_password_%d", i)),
 			AuthKey:      fmt.Sprintf("batch_update_bench_auth_%d", i),
 			RootPath:     fmt.Sprintf("/batch/update/bench/path/%d", i),
 			AccountIndex: int64(i),
@@ -585,7 +589,7 @@ func BenchmarkMysqlTransactionCommit(b *testing.B) {
 				Alias:        "tx_bench_alias_1",
 				IsTrust:      1,
 				PasswordType: 1,
-				Password:     "tx_bench_password_1",
+				Password:     []byte("tx_bench_password_1"),
 				AuthKey:      "tx_bench_auth_1_" + utils.RandStr(8),
 				RootPath:     "/tx/bench/path/1",
 				AccountIndex: 0,
@@ -605,7 +609,7 @@ func BenchmarkMysqlTransactionCommit(b *testing.B) {
 				Alias:        "tx_bench_alias_2",
 				IsTrust:      1,
 				PasswordType: 1,
-				Password:     "tx_bench_password_2",
+				Password:     []byte("tx_bench_password_2"),
 				AuthKey:      "tx_bench_auth_2_" + utils.RandStr(8),
 				RootPath:     "/tx/bench/path/2",
 				AccountIndex: 1,
@@ -664,7 +668,7 @@ func BenchmarkMysqlComplexQuery(b *testing.B) {
 			Alias:        fmt.Sprintf("complex_bench_alias_%d", i%5), // 重复的alias用于测试
 			IsTrust:      int64(i % 3),                               // 0, 1, 2循环
 			PasswordType: int64(i % 2),                               // 0, 1循环
-			Password:     fmt.Sprintf("complex_bench_password_%d", i),
+			Password:     []byte(fmt.Sprintf("complex_bench_password_%d", i)),
 			AuthKey:      fmt.Sprintf("complex_bench_auth_%d", i),
 			RootPath:     fmt.Sprintf("/complex/bench/path/%d", i),
 			AccountIndex: int64(i % 10),
@@ -735,7 +739,7 @@ func BenchmarkMysqlIndexPerformance(b *testing.B) {
 			Alias:        fmt.Sprintf("index_bench_alias_%d", i),  // alias无索引
 			IsTrust:      int64(i % 2),
 			PasswordType: 1,
-			Password:     fmt.Sprintf("index_bench_password_%d", i),
+			Password:     []byte(fmt.Sprintf("index_bench_password_%d", i)),
 			AuthKey:      fmt.Sprintf("index_bench_auth_%d", i),
 			RootPath:     fmt.Sprintf("/index/bench/path/%d", i),
 			AccountIndex: int64(i),
@@ -839,7 +843,7 @@ func BenchmarkMysqlConnectionPool(b *testing.B) {
 					Alias:        "pool_bench_alias",
 					IsTrust:      1,
 					PasswordType: 1,
-					Password:     "pool_bench_password",
+					Password:     []byte("pool_bench_password"),
 					AuthKey:      "pool_bench_auth_" + utils.RandStr(8),
 					RootPath:     "/pool/bench/path",
 					AccountIndex: 0,
@@ -898,7 +902,7 @@ func BenchmarkMysqlLargeDataset(b *testing.B) {
 			Alias:        fmt.Sprintf("large_bench_alias_%d", i),
 			IsTrust:      int64(i % 2),
 			PasswordType: 1,
-			Password:     fmt.Sprintf("large_bench_password_%d", i),
+			Password:     []byte(fmt.Sprintf("large_bench_password_%d", i)),
 			AuthKey:      fmt.Sprintf("large_bench_auth_%d", i),
 			RootPath:     fmt.Sprintf("/large/bench/path/%d", i),
 			AccountIndex: int64(i % 20),
