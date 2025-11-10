@@ -1224,10 +1224,7 @@ func (m *PublishManager) preprocessMsg(data *MsgData) error {
 		}
 	}
 
-	// 签名
-	data.Signature = utils.HMAC_SHA256(utils.AddStr(data.Content, data.Nonce), opt.SigKey, true)
-
-	// 加密
+	// 加密（如果需要）
 	if opt.SigTyp == 1 {
 		encryptedContent, err := utils.AesGCMEncrypt(utils.Str2Bytes(data.Content), opt.SigKey)
 		if err != nil {
@@ -1235,6 +1232,9 @@ func (m *PublishManager) preprocessMsg(data *MsgData) error {
 		}
 		data.Content = encryptedContent
 	}
+
+	// 签名（基于最终内容，可能是原文或密文）
+	data.Signature = utils.HMAC_SHA256(utils.AddStr(data.Content, data.Nonce), opt.SigKey, true)
 
 	// 清除密钥
 	opt.SigKey = ""

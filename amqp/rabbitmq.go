@@ -127,7 +127,7 @@ type Config struct {
 
 	// bool字段（1字节对齐）
 	Durable   bool `json:"durable"`   // 队列是否持久化存储
-	IsNack    bool `json:"is_nack"`   // 是否支持消息否定确认，用于重试机制
+	IsNack    bool `json:"is_nack"`   // 是否支持消息否定确认，用于重试机制, true是必须确认消息，false是每次消费掉数据
 	AutoAck   bool `json:"auto_ack"`  // 是否自动确认消息，false需要手动确认
 	Exclusive bool `json:"exclusive"` // 是否为独占队列，只允许一个消费者
 	NoWait    bool `json:"no_wait"`   // 是否不等待服务器确认，异步操作

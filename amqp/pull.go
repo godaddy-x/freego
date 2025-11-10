@@ -1,6 +1,7 @@
 package rabbitmq
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -12,303 +13,833 @@ import (
 )
 
 var (
-	pullMgrs = make(map[string]*PullManager)
+	pullMgrs  = make(map[string]*PullManager)
+	pullMgrMu sync.RWMutex
 )
 
+// PullManager 管理RabbitMQ消费连接和接收器
 type PullManager struct {
-	mu        sync.Mutex
-	conf      AmqpConfig
-	conn      *amqp.Connection
-	receivers []*PullReceiver
+	mu          sync.RWMutex
+	conf        AmqpConfig
+	conn        *amqp.Connection
+	receivers   []*PullReceiver
+	connErr     chan *amqp.Error
+	closeChan   chan struct{}
+	closed      bool
+	monitorWg   sync.WaitGroup
+	reconnectWg sync.WaitGroup
 }
 
-func (self *PullManager) InitConfig(input ...AmqpConfig) (*PullManager, error) {
-	for _, v := range input {
-		if _, b := pullMgrs[v.DsName]; b {
-			return nil, utils.Error("rabbitmq pull init failed: [", v.DsName, "] exist")
-		}
-		if len(v.DsName) == 0 {
-			v.DsName = DIC.MASTER
-		}
-		pullMgr := &PullManager{
-			conf:      v,
-			receivers: make([]*PullReceiver, 0),
-		}
-		if _, err := pullMgr.Connect(); err != nil {
-			return nil, err
-		}
-		pullMgrs[v.DsName] = pullMgr
-		zlog.Printf("rabbitmq pull service【%s】has been started successful", v.DsName)
+// InitConfig 初始化PullManager
+func (self *PullManager) InitConfig(conf AmqpConfig) (*PullManager, error) {
+	// 第一重检查
+	pullMgrMu.RLock()
+	if _, exists := pullMgrs[conf.DsName]; exists {
+		pullMgrMu.RUnlock()
+		return nil, fmt.Errorf("rabbitmq pull init failed: [%s] already exists", conf.DsName)
 	}
-	return self, nil
+	pullMgrMu.RUnlock()
+
+	if conf.DsName == "" {
+		conf.DsName = DIC.MASTER
+	}
+
+	pullMgr := &PullManager{
+		conf:      conf,
+		connErr:   make(chan *amqp.Error, 1),
+		closeChan: make(chan struct{}),
+		receivers: make([]*PullReceiver, 0),
+	}
+
+	if err := pullMgr.Connect(); err != nil {
+		return nil, fmt.Errorf("connect failed: %w", err)
+	}
+
+	// 第二重检查
+	pullMgrMu.Lock()
+	defer pullMgrMu.Unlock()
+
+	if existing, exists := pullMgrs[conf.DsName]; exists {
+		pullMgr.Close()
+		return existing, nil
+	}
+
+	pullMgrs[conf.DsName] = pullMgr
+	zlog.Info("rabbitmq pull service started successfully", 0,
+		zlog.String("ds_name", conf.DsName))
+	return pullMgr, nil
 }
 
+// Client 获取已初始化的PullManager
 func (self *PullManager) Client(ds ...string) (*PullManager, error) {
 	dsName := DIC.MASTER
-	if len(ds) > 0 && len(ds[0]) > 0 {
+	if len(ds) > 0 && ds[0] != "" {
 		dsName = ds[0]
 	}
-	return pullMgrs[dsName], nil
+
+	pullMgrMu.RLock()
+	mgr, ok := pullMgrs[dsName]
+	pullMgrMu.RUnlock()
+
+	if !ok {
+		return nil, fmt.Errorf("rabbitmq pull manager not found: [%s]", dsName)
+	}
+	return mgr, nil
 }
 
+// NewPull 快捷创建PullManager客户端
 func NewPull(ds ...string) (*PullManager, error) {
 	return new(PullManager).Client(ds...)
 }
 
-func (self *PullManager) AddPullReceiver(receivers ...*PullReceiver) {
-	for _, v := range receivers {
-		go self.start(v)
-	}
-}
-
-func (self *PullManager) start(receiver *PullReceiver) {
-	self.receivers = append(self.receivers, receiver)
-	self.listen(receiver)
-	time.Sleep(100 * time.Millisecond)
-}
-
-func (self *PullManager) Connect() (*PullManager, error) {
-	conn, err := ConnectRabbitMQ(self.conf)
-	if err != nil {
-		return nil, err
-	}
-	self.conn = conn
-	return self, nil
-}
-
-func (self *PullManager) openChannel() (*amqp.Channel, error) {
+// AddPullReceiver 添加接收器
+func (self *PullManager) AddPullReceiver(receivers ...*PullReceiver) error {
 	self.mu.Lock()
 	defer self.mu.Unlock()
-	channel, err := self.conn.Channel()
-	if err != nil {
-		e, b := err.(*amqp.Error)
-		if b && e.Code == 504 { // 重连connection
-			if _, err := self.Connect(); err != nil {
-				return nil, err
-			}
+
+	if self.closed {
+		return fmt.Errorf("pull manager is closed")
+	}
+
+	for _, receiver := range receivers {
+		if receiver == nil {
+			return fmt.Errorf("receiver cannot be nil")
 		}
-		return nil, err
-	}
-	return channel, nil
-}
 
-func (self *PullManager) getChannel() *amqp.Channel {
-	index := 0
-	for {
-		if index > 0 {
-			zlog.Warn("rabbitmq pull trying to connect again", 0, zlog.Int("tried", index))
-		}
-		channel, err := self.openChannel()
-		if err != nil {
-			zlog.Error("rabbitmq pull init Connection/Channel failed", 0, zlog.AddError(err))
-			time.Sleep(2500 * time.Millisecond)
-			index++
-			continue
-		}
-		return channel
-	}
-}
+		// 初始化接收器
+		receiver.initDefaults()
+		receiver.initControlChans()
 
-func (self *PullManager) listen(receiver *PullReceiver) {
-	channel := self.getChannel()
-	receiver.channel = channel
-	exchange := receiver.Config.Option.Exchange
-	queue := receiver.Config.Option.Queue
-	kind := receiver.Config.Option.Kind
-	router := receiver.Config.Option.Router
-	prefetchCount := receiver.Config.PrefetchCount
-	prefetchSize := receiver.Config.PrefetchSize
-	if !utils.CheckInt(receiver.Config.Option.SigTyp, 0, 1) {
-		receiver.Config.Option.SigTyp = 1
-	}
-	if len(receiver.Config.Option.SigKey) < 32 {
-		receiver.Config.Option.SigKey = utils.AddStr(utils.GetLocalSecretKey(), self.conf.SecretKey)
-	}
-	if len(kind) == 0 {
-		kind = ExchangeDirect
-	}
-	if len(router) == 0 {
-		router = queue
-	}
-	if prefetchCount == 0 {
-		prefetchCount = 1
-	}
-	zlog.Println(fmt.Sprintf("rabbitmq pull init queue [%s - %s - %s - %s] successful...", kind, exchange, router, queue))
-	if err := self.prepareExchange(channel, exchange, kind); err != nil {
-		receiver.OnError(fmt.Errorf("rabbitmq pull init exchange [%s] failed: %s", exchange, err.Error()))
-		return
-	}
-	if err := self.prepareQueue(channel, exchange, queue, router); err != nil {
-		receiver.OnError(fmt.Errorf("rabbitmq pull bind queue [%s] to exchange [%s] failed: %s", queue, exchange, err.Error()))
-		return
-	}
-	if err := channel.Qos(prefetchCount, prefetchSize, false); err != nil {
-		receiver.OnError(fmt.Errorf("rabbitmq pull queue %s qos failed failed: %s", queue, err.Error()))
-	}
-	// 开启消费数据
-	msgs, err := channel.Consume(queue, "", false, false, false, false, nil)
-	if err != nil {
-		receiver.OnError(fmt.Errorf("rabbitmq pull get queue %s failed: %s", queue, err.Error()))
-	}
-	closeChan := make(chan bool, 1)
-	go func(chan<- bool) {
-		mqErr := make(chan *amqp.Error)
-		closeErr := <-channel.NotifyClose(mqErr)
-		zlog.Error("rabbitmq pull connection/channel receive failed", 0, zlog.String("exchange", exchange), zlog.String("queue", queue), zlog.AddError(closeErr))
-		closeChan <- true
-	}(closeChan)
+		// 添加到接收器列表
+		self.receivers = append(self.receivers, receiver)
 
-	go func(<-chan bool) {
-		for {
-			select {
-			case d := <-msgs:
-				for !receiver.OnReceive(d.Body) {
-					delay := receiver.Delay
-					if delay == 0 {
-						delay = 5
-					}
-					time.Sleep(time.Duration(delay) * time.Second)
-				}
-				if err := d.Ack(false); err != nil {
-					zlog.Error("rabbitmq pull received ack failed", 0, zlog.AddError(err))
-				}
-			case <-closeChan:
-				self.listen(receiver)
-				zlog.Warn("rabbitmq pull received channel exception, successful reconnected", 0, zlog.String("exchange", exchange), zlog.String("queue", queue))
-				return
-			}
-		}
-	}(closeChan)
-}
-
-func (self *PullManager) prepareExchange(channel *amqp.Channel, exchange, kind string) error {
-	return channel.ExchangeDeclare(exchange, kind, true, false, false, false, nil)
-}
-
-func (self *PullManager) prepareQueue(channel *amqp.Channel, exchange, queue, router string) error {
-	if _, err := channel.QueueDeclare(queue, true, false, false, false, nil); err != nil {
-		return err
+		// 启动监听
+		self.monitorWg.Add(1)
+		go self.listen(receiver)
 	}
-	if err := channel.QueueBind(queue, router, exchange, false, nil); err != nil {
-		return err
-	}
+
 	return nil
 }
 
-func (self *PullReceiver) OnError(err error) {
-	zlog.Error("rabbitmq pull receiver data failed", 0, zlog.AddError(err))
+// Connect 建立连接
+func (self *PullManager) Connect() error {
+	self.mu.Lock()
+	defer self.mu.Unlock()
+
+	// 关闭现有连接
+	if self.conn != nil && !self.conn.IsClosed() {
+		if err := self.conn.Close(); err != nil {
+			zlog.Debug("close old connection warning", 0, zlog.AddError(err))
+		}
+		self.conn = nil
+	}
+
+	conn, err := ConnectRabbitMQ(self.conf)
+	if err != nil {
+		return fmt.Errorf("connect to rabbitmq failed: %w", err)
+	}
+	self.conn = conn
+
+	// 启动连接监控
+	self.monitorWg.Add(1)
+	go self.monitorConnection()
+
+	zlog.Info("rabbitmq connection established", 0,
+		zlog.String("ds_name", self.conf.DsName))
+	return nil
 }
 
-type PullReceiver struct {
-	channel      *amqp.Channel
-	Config       *Config
-	ContentInter func(typ int64) interface{}
-	Callback     func(msg *MsgData) error
-	Debug        bool // 是否打印具体pull数据实体
-	Delay        int  // pull失败重试间隔
-}
+// monitorConnection 监控连接状态
+func (self *PullManager) monitorConnection() {
+	defer self.monitorWg.Done()
 
-func (self *PullReceiver) OnReceive(b []byte) bool {
-	if b == nil || len(b) == 0 || string(b) == "{}" || string(b) == "[]" {
-		return true
+	self.mu.RLock()
+	if self.conn == nil || self.closed {
+		self.mu.RUnlock()
+		return
 	}
-	if self.Debug {
-		defer zlog.Debug("rabbitmq pull consumption data monitoring", utils.UnixMilli(), zlog.String("message", utils.Bytes2Str(b)))
-	}
-	msg := &MsgData{}
-	if err := utils.JsonUnmarshal(b, msg); err != nil {
-		zlog.Error("rabbitmq pull consumption data parsing failed", 0, zlog.Any("option", self.Config.Option), zlog.Any("message", msg), zlog.AddError(err))
-	}
-	if len(msg.Content) == 0 {
-		return true
-	}
-	sigTyp := self.Config.Option.SigTyp
-	sigKey := self.Config.Option.SigKey
 
-	if len(msg.Signature) == 0 {
-		zlog.Error("rabbitmq pull consumption data signature is nil", 0, zlog.Any("option", self.Config.Option), zlog.Any("message", msg))
-		return true
-	}
-	v := msg.Content
-	if len(v) == 0 {
-		zlog.Error("rabbitmq consumption data is nil", 0, zlog.Any("option", self.Config.Option), zlog.Any("message", msg))
-		return true
-	}
-	if msg.Signature != utils.HMAC_SHA256(utils.AddStr(v, msg.Nonce), sigKey, true) {
-		zlog.Error("rabbitmq consumption data signature invalid", 0, zlog.Any("option", self.Config.Option), zlog.Any("message", msg))
-		return true
-	}
-	if sigTyp == 1 {
-		// AES密钥长度校验
-		if err := validateAESKeyLengthForPull(sigKey); err != nil {
-			zlog.Error("rabbitmq consumption data aes key validation failed", 0, zlog.Any("option", self.Config.Option), zlog.Any("message", msg), zlog.AddError(err))
-			return true
+	conn := self.conn
+	closeChan := conn.NotifyClose(make(chan *amqp.Error, 1))
+	self.mu.RUnlock()
+
+	select {
+	case <-self.closeChan:
+		return
+	case err, ok := <-closeChan:
+		if !ok {
+			return
 		}
 
-		aesContent, err := utils.AesCBCDecrypt(v, sigKey)
+		// 验证连接是否仍然是同一个
+		self.mu.RLock()
+		isSameConnection := (self.conn == conn)
+		self.mu.RUnlock()
+
+		if !isSameConnection {
+			zlog.Debug("connection has been replaced, ignoring close event", 0)
+			return
+		}
+
 		if err != nil {
-			zlog.Error("rabbitmq consumption data aes decrypt failed", 0, zlog.Any("option", self.Config.Option), zlog.Any("message", msg))
-			return true
+			zlog.Error("rabbitmq connection closed unexpectedly", 0,
+				zlog.AddError(err),
+				zlog.String("ds_name", self.conf.DsName))
 		}
-		v = utils.Bytes2Str(aesContent)
-	}
-	btv := utils.Base64Decode(v)
-	if btv == nil || len(btv) == 0 {
-		zlog.Error("rabbitmq pull consumption data Base64 parsing failed", 0, zlog.Any("option", self.Config.Option), zlog.Any("message", msg))
-		return true
-	}
-	if self.ContentInter == nil {
-		content := ""
-		if err := utils.JsonUnmarshal(btv, &content); err != nil {
-			zlog.Error("rabbitmq pull consumption data conversion type(Map) failed", 0, zlog.Any("option", self.Config.Option), zlog.Any("message", msg), zlog.AddError(err))
-			return true
-		}
-		msg.Content = content
-	} else {
-		content := self.ContentInter(msg.Type)
-		if err := utils.JsonUnmarshal(btv, content); err != nil {
-			zlog.Error("rabbitmq pull consumption data conversion type(ContentInter) failed", 0, zlog.Any("option", self.Config.Option), zlog.Any("message", msg), zlog.AddError(err))
-			return true
-		}
-		msg.Content = ""
-	}
 
-	if err := self.Callback(msg); err != nil {
-		if self.Debug {
-			zlog.Error("rabbitmq pull consumption data processing failed", 0, zlog.Any("option", self.Config.Option), zlog.Any("message", msg), zlog.AddError(err))
-		} else {
-			zlog.Error("rabbitmq pull consumption data processing failed", 0, zlog.Any("option", self.Config.Option), zlog.AddError(err))
-		}
-		if self.Config.IsNack {
-			return false
-		}
+		// 触发重连所有接收器
+		self.reconnectAllReceivers()
 	}
-	return true
 }
 
-// validateAESKeyLengthForPull 校验AES密钥长度（用于消费端）
-func validateAESKeyLengthForPull(key string) error {
+// reconnectAllReceivers 重连所有接收器
+func (self *PullManager) reconnectAllReceivers() {
+	const maxRetries = 5
+	baseDelay := time.Second
+
+	for i := 0; i < maxRetries; i++ {
+		select {
+		case <-self.closeChan:
+			return
+		default:
+		}
+
+		if err := self.Connect(); err == nil {
+			zlog.Info("reconnection successful, restarting receivers", 0,
+				zlog.String("ds_name", self.conf.DsName))
+			self.restartAllReceivers()
+			return
+		}
+
+		delay := time.Duration(i+1) * baseDelay
+		if delay > 10*time.Second {
+			delay = 10 * time.Second
+		}
+
+		zlog.Warn("reconnect failed, retrying...", 0,
+			zlog.Int("attempt", i+1),
+			zlog.Duration("delay", delay))
+		time.Sleep(delay)
+	}
+
+	zlog.Error("max reconnect retries exceeded", 0,
+		zlog.String("ds_name", self.conf.DsName))
+}
+
+// restartAllReceivers 重启所有接收器
+func (self *PullManager) restartAllReceivers() {
+	self.mu.Lock()
+	defer self.mu.Unlock()
+
+	for _, receiver := range self.receivers {
+		// 停止当前监听
+		receiver.Stop()
+
+		// 等待一小段时间确保资源清理
+		time.Sleep(100 * time.Millisecond)
+
+		// 重新初始化并启动
+		receiver.initControlChans()
+		self.monitorWg.Add(1)
+		go self.listen(receiver)
+	}
+}
+
+// getChannel 获取通道（带重试）
+func (self *PullManager) getChannel() (*amqp.Channel, error) {
+	const maxRetries = 3
+
+	for i := 0; i < maxRetries; i++ {
+		select {
+		case <-self.closeChan:
+			return nil, fmt.Errorf("pull manager is closed")
+		default:
+		}
+
+		self.mu.Lock()
+		if self.conn == nil || self.conn.IsClosed() {
+			self.mu.Unlock()
+			return nil, fmt.Errorf("connection is not available")
+		}
+		conn := self.conn
+		self.mu.Unlock()
+
+		channel, err := conn.Channel()
+		if err == nil {
+			// 设置QoS
+			if err := channel.Qos(1, 0, false); err != nil {
+				zlog.Warn("set channel QoS warning", 0, zlog.AddError(err))
+			}
+			return channel, nil
+		}
+
+		zlog.Warn("failed to create channel, retrying...", 0,
+			zlog.AddError(err),
+			zlog.Int("retry", i+1))
+
+		if i < maxRetries-1 {
+			time.Sleep(time.Duration(i+1) * 500 * time.Millisecond)
+		}
+	}
+
+	return nil, fmt.Errorf("failed to create channel after %d retries", maxRetries)
+}
+
+// listen 监听消息（重构版本）
+func (self *PullManager) listen(receiver *PullReceiver) {
+	defer self.monitorWg.Done()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// 使用waitGroup管理goroutine
+	var wg sync.WaitGroup
+
+	// 获取通道
+	channel, err := self.getChannel()
+	if err != nil {
+		receiver.OnError(fmt.Errorf("get channel failed: %w", err))
+		receiver.scheduleReconnect(self)
+		return
+	}
+	receiver.setChannel(channel)
+
+	// 初始化交换机和队列
+	if err := self.setupChannel(receiver, channel); err != nil {
+		receiver.OnError(err)
+		receiver.scheduleReconnect(self)
+		return
+	}
+
+	// 启动消息消费
+	msgs, err := channel.Consume(
+		receiver.Config.Option.Queue,
+		"",    // consumer
+		false, // auto-ack
+		false, // exclusive
+		false, // no-local
+		false, // no-wait
+		nil,   // args
+	)
+	if err != nil {
+		receiver.OnError(fmt.Errorf("consume failed: %w", err))
+		receiver.scheduleReconnect(self)
+		return
+	}
+
+	// 启动通道监控
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		self.monitorChannel(ctx, receiver, channel)
+	}()
+
+	// 启动消息处理
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		self.processMessages(ctx, receiver, msgs)
+	}()
+
+	zlog.Info("receiver started successfully", 0,
+		zlog.String("exchange", receiver.Config.Option.Exchange),
+		zlog.String("queue", receiver.Config.Option.Queue))
+
+	// 等待停止或重连信号
+	select {
+	case <-receiver.stopChan:
+		zlog.Info("receiver stopped by request", 0,
+			zlog.String("queue", receiver.Config.Option.Queue))
+	case <-receiver.closeChan:
+		zlog.Info("receiver reconnecting", 0,
+			zlog.String("queue", receiver.Config.Option.Queue))
+		// 延迟重连，避免频繁重连
+		time.Sleep(2 * time.Second)
+		go func() {
+			self.monitorWg.Add(1)
+			self.listen(receiver)
+		}()
+	case <-self.closeChan:
+		zlog.Info("receiver stopped due to manager shutdown", 0,
+			zlog.String("queue", receiver.Config.Option.Queue))
+	}
+
+	// 清理资源
+	cancel()
+	if err := channel.Close(); err != nil {
+		zlog.Debug("channel close warning", 0, zlog.AddError(err))
+	}
+	receiver.setChannel(nil)
+	wg.Wait()
+}
+
+// monitorChannel 监控通道状态
+func (self *PullManager) monitorChannel(ctx context.Context, receiver *PullReceiver, channel *amqp.Channel) {
+	chErr := make(chan *amqp.Error, 1)
+	channel.NotifyClose(chErr)
+
+	select {
+	case <-ctx.Done():
+		return
+	case err, ok := <-chErr:
+		if !ok {
+			return
+		}
+		zlog.Error("channel closed", 0,
+			zlog.AddError(err),
+			zlog.String("exchange", receiver.Config.Option.Exchange),
+			zlog.String("queue", receiver.Config.Option.Queue))
+		receiver.triggerReconnect()
+	}
+}
+
+// processMessages 处理消息
+func (self *PullManager) processMessages(ctx context.Context, receiver *PullReceiver, msgs <-chan amqp.Delivery) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case d, ok := <-msgs:
+			if !ok {
+				zlog.Warn("message channel closed", 0,
+					zlog.String("queue", receiver.Config.Option.Queue))
+				receiver.triggerReconnect()
+				return
+			}
+			self.handleDelivery(receiver, d)
+		}
+	}
+}
+
+// handleDelivery 处理单个消息
+func (self *PullManager) handleDelivery(receiver *PullReceiver, d amqp.Delivery) {
+	const maxRetries = 3
+
+	for i := 0; i < maxRetries; i++ {
+		if ok := receiver.processMessage(d); ok {
+			return // 处理成功
+		}
+
+		if i < maxRetries-1 {
+			zlog.Warn("message processing failed, retrying...", 0,
+				zlog.String("queue", receiver.Config.Option.Queue),
+				zlog.Int("retry", i+1))
+			time.Sleep(time.Duration(receiver.Delay) * time.Second)
+		}
+	}
+
+	// 达到最大重试次数
+	zlog.Error("message processing failed after max retries", 0,
+		zlog.String("queue", receiver.Config.Option.Queue),
+		zlog.Int("max_retries", maxRetries))
+	if err := d.Nack(false, false); err != nil {
+		zlog.Error("failed to nack message", 0, zlog.AddError(err))
+	}
+}
+
+// setupChannel 设置通道（声明交换机和队列）
+func (self *PullManager) setupChannel(receiver *PullReceiver, channel *amqp.Channel) error {
+	opt := receiver.Config.Option
+
+	// 设置默认值
+	if opt.Kind == "" {
+		opt.Kind = ExchangeDirect
+	}
+	if opt.Router == "" {
+		opt.Router = opt.Queue
+	}
+
+	// 声明交换机
+	if err := channel.ExchangeDeclare(
+		opt.Exchange,
+		opt.Kind,
+		true,  // durable
+		false, // autoDelete
+		false, // internal
+		false, // noWait
+		nil,   // args
+	); err != nil {
+		return fmt.Errorf("declare exchange failed: %w", err)
+	}
+
+	// 声明队列
+	_, err := channel.QueueDeclare(
+		opt.Queue,
+		true,  // durable
+		false, // autoDelete
+		false, // exclusive
+		false, // noWait
+		nil,   // args
+	)
+	if err != nil {
+		return fmt.Errorf("declare queue failed: %w", err)
+	}
+
+	// 绑定队列
+	if err := channel.QueueBind(
+		opt.Queue,
+		opt.Router,
+		opt.Exchange,
+		false, // noWait
+		nil,   // args
+	); err != nil {
+		return fmt.Errorf("bind queue failed: %w", err)
+	}
+
+	// 设置QoS
+	if err := channel.Qos(receiver.Config.PrefetchCount, receiver.Config.PrefetchSize, false); err != nil {
+		return fmt.Errorf("set qos failed: %w", err)
+	}
+
+	return nil
+}
+
+// Close 关闭PullManager
+func (self *PullManager) Close() error {
+	self.mu.Lock()
+	defer self.mu.Unlock()
+
+	if self.closed {
+		return nil
+	}
+	self.closed = true
+
+	zlog.Info("closing pull manager", 0, zlog.String("ds_name", self.conf.DsName))
+
+	// 关闭所有接收器
+	for _, receiver := range self.receivers {
+		receiver.Stop()
+	}
+	self.receivers = nil
+
+	// 通知关闭
+	close(self.closeChan)
+
+	// 关闭连接
+	if self.conn != nil && !self.conn.IsClosed() {
+		if err := self.conn.Close(); err != nil {
+			zlog.Warn("close connection warning", 0, zlog.AddError(err))
+		}
+		self.conn = nil
+	}
+
+	// 等待所有goroutine退出
+	done := make(chan struct{})
+	go func() {
+		self.monitorWg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		zlog.Info("pull manager closed successfully", 0, zlog.String("ds_name", self.conf.DsName))
+	case <-time.After(5 * time.Second):
+		zlog.Warn("timeout waiting for goroutines to exit", 0, zlog.String("ds_name", self.conf.DsName))
+	}
+
+	// 从全局映射中移除
+	pullMgrMu.Lock()
+	delete(pullMgrs, self.conf.DsName)
+	pullMgrMu.Unlock()
+
+	return nil
+}
+
+// HealthCheck 健康检查
+func (self *PullManager) HealthCheck() error {
+	self.mu.Lock()
+	defer self.mu.Unlock()
+
+	if self.closed {
+		return fmt.Errorf("pull manager is closed")
+	}
+
+	if self.conn == nil || self.conn.IsClosed() {
+		return fmt.Errorf("connection is not available")
+	}
+
+	// 测试通道创建
+	channel, err := self.conn.Channel()
+	if err != nil {
+		return fmt.Errorf("health check failed: %w", err)
+	}
+	defer channel.Close()
+
+	healthyReceivers := 0
+	for _, receiver := range self.receivers {
+		if receiver.IsHealthy() {
+			healthyReceivers++
+		}
+	}
+
+	if healthyReceivers == 0 && len(self.receivers) > 0 {
+		return fmt.Errorf("no healthy receivers (%d total)", len(self.receivers))
+	}
+
+	return nil
+}
+
+// PullReceiver 消息接收器
+type PullReceiver struct {
+	mu        sync.RWMutex
+	channel   *amqp.Channel
+	Config    *Config
+	Callback  func(msg *MsgData) error
+	Debug     bool
+	Delay     int
+	closeChan chan struct{}
+	stopChan  chan struct{}
+	stopping  bool
+	healthy   bool
+}
+
+// initDefaults 初始化默认值
+func (self *PullReceiver) initDefaults() {
+	if self.Delay <= 0 {
+		self.Delay = 5
+	}
+	if self.Config == nil {
+		self.Config = &Config{}
+	}
+	if self.Config.Option.Exchange == "" {
+		self.Config.Option.Exchange = "default.exchange"
+	}
+	if self.Config.Option.Queue == "" {
+		self.Config.Option.Queue = "default.queue"
+	}
+	if self.Config.PrefetchCount == 0 {
+		self.Config.PrefetchCount = 1
+	}
+	if !utils.CheckInt(self.Config.Option.SigTyp, 0, 1) {
+		self.Config.Option.SigTyp = 1
+	}
+}
+
+// initControlChans 初始化控制通道
+func (self *PullReceiver) initControlChans() {
+	self.mu.Lock()
+	defer self.mu.Unlock()
+
+	if self.closeChan == nil {
+		self.closeChan = make(chan struct{}, 1)
+	}
+	if self.stopChan == nil {
+		self.stopChan = make(chan struct{}, 1)
+	}
+	self.stopping = false
+	self.healthy = true
+}
+
+// setChannel 设置通道（线程安全）
+func (self *PullReceiver) setChannel(channel *amqp.Channel) {
+	self.mu.Lock()
+	defer self.mu.Unlock()
+	self.channel = channel
+}
+
+// getChannel 获取通道（线程安全）
+func (self *PullReceiver) getChannel() *amqp.Channel {
+	self.mu.RLock()
+	defer self.mu.RUnlock()
+	return self.channel
+}
+
+// IsHealthy 检查接收器是否健康
+func (self *PullReceiver) IsHealthy() bool {
+	self.mu.RLock()
+	defer self.mu.RUnlock()
+	return self.healthy && self.channel != nil
+}
+
+// scheduleReconnect 调度重连
+func (self *PullReceiver) scheduleReconnect(mgr *PullManager) {
+	self.mu.Lock()
+	defer self.mu.Unlock()
+
+	if self.stopping {
+		return
+	}
+
+	self.healthy = false
+
+	select {
+	case self.closeChan <- struct{}{}:
+		// 重连已触发
+	default:
+		// 重连已在调度中
+	}
+}
+
+// triggerReconnect 触发重连
+func (self *PullReceiver) triggerReconnect() {
+	select {
+	case self.closeChan <- struct{}{}:
+	default:
+	}
+}
+
+// OnError 错误处理
+func (self *PullReceiver) OnError(err error) {
+	zlog.Error("rabbitmq receiver error", 0,
+		zlog.AddError(err),
+		zlog.String("queue", self.Config.Option.Queue))
+}
+
+// Stop 停止接收器
+func (self *PullReceiver) Stop() {
+	self.mu.Lock()
+	defer self.mu.Unlock()
+
+	if self.stopping {
+		return
+	}
+	self.stopping = true
+	self.healthy = false
+
+	select {
+	case self.stopChan <- struct{}{}:
+	default:
+	}
+
+	// 关闭通道
+	if self.channel != nil {
+		if err := self.channel.Close(); err != nil {
+			zlog.Debug("channel close warning", 0, zlog.AddError(err))
+		}
+		self.channel = nil
+	}
+
+	zlog.Info("receiver stopped", 0,
+		zlog.String("queue", self.Config.Option.Queue))
+}
+
+// processMessage 处理消息（重构版本）
+func (self *PullReceiver) processMessage(d amqp.Delivery) bool {
+	b := d.Body
+	if len(b) == 0 || string(b) == "{}" || string(b) == "[]" {
+		return self.ackMessage(d)
+	}
+
+	if self.Debug {
+		zlog.Debug("received message", 0,
+			zlog.String("body", utils.Bytes2Str(b)),
+			zlog.String("queue", self.Config.Option.Queue))
+	}
+
+	// 解析消息
+	msg, err := self.parseMessage(b)
+	if err != nil {
+		zlog.Error("parse message failed", 0,
+			zlog.AddError(err),
+			zlog.String("queue", self.Config.Option.Queue))
+		return self.ackMessage(d)
+	}
+
+	// 验证消息
+	if err := self.validateMessage(msg); err != nil {
+		zlog.Error("validate message failed", 0,
+			zlog.AddError(err),
+			zlog.String("queue", self.Config.Option.Queue))
+		return self.ackMessage(d)
+	}
+
+	// 处理消息
+	if err := self.Callback(msg); err != nil {
+		zlog.Error("message callback failed", 0,
+			zlog.AddError(err),
+			zlog.String("queue", self.Config.Option.Queue))
+		return false
+	}
+
+	return self.ackMessage(d)
+}
+
+// parseMessage 解析消息
+func (self *PullReceiver) parseMessage(body []byte) (*MsgData, error) {
+	msg := &MsgData{}
+	if err := utils.JsonUnmarshal(body, msg); err != nil {
+		return nil, fmt.Errorf("json unmarshal failed: %w", err)
+	}
+
+	if len(msg.Content) == 0 {
+		return nil, fmt.Errorf("message content is empty")
+	}
+
+	return msg, nil
+}
+
+// validateMessage 验证消息
+func (self *PullReceiver) validateMessage(msg *MsgData) error {
+	// 验证签名
+	if len(msg.Signature) == 0 {
+		return fmt.Errorf("message signature is empty")
+	}
+
+	sigKey := self.Config.Option.SigKey
+	if sigKey == "" {
+		return fmt.Errorf("signature key is empty")
+	}
+
+	expectedSig := utils.HMAC_SHA256(utils.AddStr(msg.Content, msg.Nonce), sigKey, true)
+	if msg.Signature != expectedSig {
+		return fmt.Errorf("signature mismatch")
+	}
+
+	// 解密内容（如果需要）
+	if self.Config.Option.SigTyp == 1 {
+		if err := validateAESKeyLength(sigKey); err != nil {
+			return fmt.Errorf("AES key invalid: %w", err)
+		}
+
+		decrypted, err := utils.AesGCMDecrypt(msg.Content, sigKey)
+		if err != nil {
+			return fmt.Errorf("AES decrypt failed: %w", err)
+		}
+		msg.Content = utils.Bytes2Str(decrypted)
+
+		if len(msg.Content) == 0 {
+			return fmt.Errorf("decrypted content is empty")
+		}
+	}
+
+	return nil
+}
+
+// ackMessage 确认消息（高可靠性实现）
+func (self *PullReceiver) ackMessage(d amqp.Delivery) bool {
+	const maxRetries = 3
+	const baseDelay = 100 * time.Millisecond
+
+	for i := 0; i < maxRetries; i++ {
+		if err := d.Ack(false); err == nil {
+			return true
+		}
+
+		if i < maxRetries-1 {
+			delay := time.Duration(i+1) * baseDelay
+			time.Sleep(delay)
+		}
+	}
+
+	zlog.Error("failed to ack message after retries", 0,
+		zlog.String("queue", self.Config.Option.Queue),
+		zlog.Int("max_retries", maxRetries))
+	return false
+}
+
+// validateAESKeyLength 验证AES密钥长度
+func validateAESKeyLength(key string) error {
 	if key == "" {
-		return utils.Error("AES key cannot be empty")
+		return fmt.Errorf("AES key cannot be empty")
 	}
 
 	keyLen := len(key)
-	// AES-CBC要求密钥长度为16/24/32字节（对应AES-128/192/256）
-	// 虽然utils.AesCBCDecrypt内部会通过GetAesKeySecure标准化为32字节，
-	// 但我们仍然需要确保用户提供的密钥有基本的长度要求
 	if keyLen < 8 {
-		return utils.Error("AES key is too short: minimum 8 characters recommended, got ", keyLen)
+		return fmt.Errorf("AES key too short: minimum 8 characters, got %d", keyLen)
 	}
 
 	if keyLen > 128 {
-		return utils.Error("AES key is too long: maximum 128 characters allowed, got ", keyLen)
-	}
-
-	// 建议使用符合AES标准的密钥长度
-	if keyLen != 16 && keyLen != 24 && keyLen != 32 {
-		zlog.Warn("AES key length is not standard AES size (16/24/32 bytes)", 0,
-			zlog.Int("key_length", keyLen),
-			zlog.String("recommendation", "use 32 characters for AES-256"))
+		return fmt.Errorf("AES key too long: maximum 128 characters, got %d", keyLen)
 	}
 
 	return nil
