@@ -453,12 +453,8 @@ func defaultRenderError(ctx *Context, err error) error {
 	}
 	out := ex.Catch(err)
 	if ctx.errorHandle != nil {
-		throw, ok := err.(ex.Throw)
-		if !ok {
-			throw = ex.Throw{Code: out.Code, Msg: out.Msg, Err: err, Arg: out.Arg}
-		}
-		if err = ctx.errorHandle(ctx, throw); err != nil {
-			zlog.Error("response error handle failed", 0, zlog.AddError(err))
+		if err = ctx.errorHandle(ctx, ex.Catch(err)); err != nil {
+			zlog.Error("response error handle failed", 0, zlog.String("path", ctx.Path), zlog.String("errMsg", err.Error()))
 		}
 	}
 	resp := &JsonResp{
