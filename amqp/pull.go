@@ -2,12 +2,13 @@ package rabbitmq
 
 import (
 	"fmt"
+	"sync"
+	"time"
+
 	DIC "github.com/godaddy-x/freego/common"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/zlog"
 	"github.com/streadway/amqp"
-	"sync"
-	"time"
 )
 
 var (
@@ -124,7 +125,7 @@ func (self *PullManager) listen(receiver *PullReceiver) {
 		receiver.Config.Option.SigKey = utils.AddStr(utils.GetLocalSecretKey(), self.conf.SecretKey)
 	}
 	if len(kind) == 0 {
-		kind = direct
+		kind = ExchangeDirect
 	}
 	if len(router) == 0 {
 		router = queue
@@ -218,7 +219,7 @@ func (self *PullReceiver) OnReceive(b []byte) bool {
 	if err := utils.JsonUnmarshal(b, msg); err != nil {
 		zlog.Error("rabbitmq pull consumption data parsing failed", 0, zlog.Any("option", self.Config.Option), zlog.Any("message", msg), zlog.AddError(err))
 	}
-	if msg.Content == nil {
+	if len(msg.Content) == 0 {
 		return true
 	}
 	sigTyp := self.Config.Option.SigTyp
@@ -228,11 +229,7 @@ func (self *PullReceiver) OnReceive(b []byte) bool {
 		zlog.Error("rabbitmq pull consumption data signature is nil", 0, zlog.Any("option", self.Config.Option), zlog.Any("message", msg))
 		return true
 	}
-	v, ok := msg.Content.(string)
-	if !ok {
-		zlog.Error("rabbitmq consumption data (non string type)", 0, zlog.Any("option", self.Config.Option), zlog.Any("message", msg))
-		return true
-	}
+	v := msg.Content
 	if len(v) == 0 {
 		zlog.Error("rabbitmq consumption data is nil", 0, zlog.Any("option", self.Config.Option), zlog.Any("message", msg))
 		return true
@@ -242,6 +239,12 @@ func (self *PullReceiver) OnReceive(b []byte) bool {
 		return true
 	}
 	if sigTyp == 1 {
+		// AES密钥长度校验
+		if err := validateAESKeyLengthForPull(sigKey); err != nil {
+			zlog.Error("rabbitmq consumption data aes key validation failed", 0, zlog.Any("option", self.Config.Option), zlog.Any("message", msg), zlog.AddError(err))
+			return true
+		}
+
 		aesContent, err := utils.AesCBCDecrypt(v, sigKey)
 		if err != nil {
 			zlog.Error("rabbitmq consumption data aes decrypt failed", 0, zlog.Any("option", self.Config.Option), zlog.Any("message", msg))
@@ -255,7 +258,7 @@ func (self *PullReceiver) OnReceive(b []byte) bool {
 		return true
 	}
 	if self.ContentInter == nil {
-		content := map[string]interface{}{}
+		content := ""
 		if err := utils.JsonUnmarshal(btv, &content); err != nil {
 			zlog.Error("rabbitmq pull consumption data conversion type(Map) failed", 0, zlog.Any("option", self.Config.Option), zlog.Any("message", msg), zlog.AddError(err))
 			return true
@@ -267,7 +270,7 @@ func (self *PullReceiver) OnReceive(b []byte) bool {
 			zlog.Error("rabbitmq pull consumption data conversion type(ContentInter) failed", 0, zlog.Any("option", self.Config.Option), zlog.Any("message", msg), zlog.AddError(err))
 			return true
 		}
-		msg.Content = content
+		msg.Content = ""
 	}
 
 	if err := self.Callback(msg); err != nil {
@@ -281,4 +284,32 @@ func (self *PullReceiver) OnReceive(b []byte) bool {
 		}
 	}
 	return true
+}
+
+// validateAESKeyLengthForPull 校验AES密钥长度（用于消费端）
+func validateAESKeyLengthForPull(key string) error {
+	if key == "" {
+		return utils.Error("AES key cannot be empty")
+	}
+
+	keyLen := len(key)
+	// AES-CBC要求密钥长度为16/24/32字节（对应AES-128/192/256）
+	// 虽然utils.AesCBCDecrypt内部会通过GetAesKeySecure标准化为32字节，
+	// 但我们仍然需要确保用户提供的密钥有基本的长度要求
+	if keyLen < 8 {
+		return utils.Error("AES key is too short: minimum 8 characters recommended, got ", keyLen)
+	}
+
+	if keyLen > 128 {
+		return utils.Error("AES key is too long: maximum 128 characters allowed, got ", keyLen)
+	}
+
+	// 建议使用符合AES标准的密钥长度
+	if keyLen != 16 && keyLen != 24 && keyLen != 32 {
+		zlog.Warn("AES key length is not standard AES size (16/24/32 bytes)", 0,
+			zlog.Int("key_length", keyLen),
+			zlog.String("recommendation", "use 32 characters for AES-256"))
+	}
+
+	return nil
 }

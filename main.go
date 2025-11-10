@@ -5,6 +5,7 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 
+	rabbitmq "github.com/godaddy-x/freego/amqp"
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/ormx/sqlc"
 	"github.com/godaddy-x/freego/ormx/sqld"
@@ -95,6 +96,18 @@ func initDriver() {
 	)
 }
 
+func initRabbitMQ() {
+	conf := rabbitmq.AmqpConfig{}
+	if err := utils.ReadLocalJsonConfig("resource/rabbitmq.json", &conf); err != nil {
+		panic(utils.AddStr("读取rabbitmq配置失败: ", err.Error()))
+	}
+	// 创建全局RabbitMQ管理器实例
+	if _, err := rabbitmq.NewPublishManager(conf); err != nil {
+		panic(utils.AddStr("初始化rabbitmq管理器失败: ", err.Error()))
+	}
+	fmt.Println("init rabbitmq success")
+}
+
 var appConfig = rpcx.AppConfig{}
 
 func initGRPC() {
@@ -138,6 +151,7 @@ func main() {
 	defer cache.ShutdownAllRedisManagers()
 	initMysqlDB()
 	initRedis()
+	initRabbitMQ()
 	ballast.GC(512*ballast.MB, 30)
 	go func() {
 		_ = http.ListenAndServe(":8849", nil)

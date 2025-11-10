@@ -1,0 +1,9 @@
+{
+  "DsName":"master",
+  "Host":"127.0.0.1",
+  "Username": "guest",
+  "Password": "guest",
+  "Port": 5672,
+  "Vhost": "/",
+  "SecretKey": "rabbitmq_secret_key_32_bytes_1234567890"
+}
