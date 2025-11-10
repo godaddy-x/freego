@@ -142,7 +142,7 @@ type Response struct {
 	ContentEntityByte bytes.Buffer // 24字节 - bytes.Buffer (包含内部字段)
 }
 
-func SetLengthCheck(bodyLen, tokenLen, codeLen int) {
+func (self *HttpNode) SetLengthCheck(bodyLen, tokenLen, codeLen int) {
 	if bodyLen > 0 {
 		MAX_BODY_LEN = bodyLen // 最大参数值长度
 	}
@@ -155,7 +155,7 @@ func SetLengthCheck(bodyLen, tokenLen, codeLen int) {
 }
 
 // SetLocalSecret 增加本地secret定义，最少24个字符长度
-func SetLocalSecret(key string) {
+func (self *HttpNode) SetLocalSecret(key string) {
 	utils.SetLocalSecretKey(key)
 }
 

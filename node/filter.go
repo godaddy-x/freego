@@ -168,23 +168,23 @@ func initRateLimiters() {
 // SetGatewayRateLimiter 设置网关级限流器配置
 // 用于控制整个服务的全局请求频率，防止服务过载
 // option: 限流器配置，包含速率和桶容量等参数
-func SetGatewayRateLimiter(option rate.Option) {
+func (self *HttpNode) SetGatewayRateLimiter(option rate.Option) {
 	gatewayRateLimiter = rate.NewRateLimiter(option)
 }
 
-func SetDefaultMethodRateLimiter(option rate.Option) {
+func (self *HttpNode) SetDefaultMethodRateLimiter(option rate.Option) {
 	defaultMethodLimiter = rate.NewRateLimiter(option)
 }
 
 // SetMethodRateLimiterByPath 为特定路径设置方法级限流器
-func SetMethodRateLimiterByPath(path string, option rate.Option) {
+func (self *HttpNode) SetMethodRateLimiterByPath(path string, option rate.Option) {
 	methodRateLimiter[path] = rate.NewRateLimiter(option)
 }
 
 // SetUserRateLimiter 设置用户级限流器配置
 // 用于控制每个用户的请求频率，防止恶意用户刷接口
 // option: 限流器配置，通常设置较低的速率限制
-func SetUserRateLimiter(option rate.Option) {
+func (self *HttpNode) SetUserRateLimiter(option rate.Option) {
 	userRateLimiter = rate.NewRateLimiter(option)
 }
 

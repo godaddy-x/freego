@@ -2,6 +2,8 @@ package http_web
 
 import (
 	"fmt"
+
+	rate "github.com/godaddy-x/freego/cache/limiter"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/geetest"
 	"github.com/godaddy-x/freego/node"
@@ -196,9 +198,9 @@ func NewHTTP() *MyWebNode {
 }
 
 func StartHttpNode() {
-	node.SetLengthCheck(node.MAX_BODY_LEN*5, 0, 0)
 	// go geetest.CheckServerStatus(geetest.Config{})
 	my := NewHTTP()
+	my.SetLengthCheck(node.MAX_BODY_LEN*5, 0, 0)
 	my.POST("/test1", my.test, nil)
 	my.POST("/getUser", my.getUser, &node.RouterConfig{AesRequest: true, AesResponse: true})
 	my.POST("/testGuestPost", my.testGuestPost, &node.RouterConfig{Guest: true})
@@ -207,6 +209,9 @@ func StartHttpNode() {
 
 	my.POST("/geetest/register", my.FirstRegister, &node.RouterConfig{UseRSA: true})
 	my.POST("/geetest/validate", my.SecondValidate, &node.RouterConfig{UseRSA: true})
+
+	// 配置Rate Limiter示例
+	configureRateLimiters(my)
 
 	my.AddLanguageByJson("en", []byte(`{"test":"测试$1次 我是$4岁"}`))
 	my.StartServer(":8090")
@@ -224,4 +229,85 @@ func StartHttpNode2() {
 	my := NewHTTP()
 	my.POST("/test1", my.test, nil)
 	my.StartServer(":8092")
+}
+
+// configureRateLimiters 配置Rate Limiter示例
+// 演示如何在HTTP服务器启动时配置各种级别的限流器
+func configureRateLimiters(my *MyWebNode) {
+	// 1. 初始化限流器（Redis准备就绪后自动创建分布式限流器）
+	// 如果Redis不可用，会自动回退到本地限流器
+	// 注意：这里会自动在HttpNode.StartServer()中调用
+
+	// 2. 覆盖默认网关级限流器配置（全局保护）
+	// 适用于高流量生产环境，可根据实际QPS调整
+	my.SetGatewayRateLimiter(rate.Option{
+		Limit:       500,   // 每秒500个请求（生产环境可设置为1000+）
+		Bucket:      2500,  // 桶容量2500（支持突发流量）
+		Expire:      60000, // 60秒过期时间
+		Distributed: true,
+	})
+	fmt.Println("✅ Gateway rate limiter configured: 500 QPS, 2500 bucket")
+
+	// 3. 覆盖默认方法级限流器配置（API接口保护）
+	my.SetDefaultMethodRateLimiter(rate.Option{
+		Limit:       50,    // 每秒50个请求（适合一般API接口）
+		Bucket:      100,   // 桶容量100
+		Expire:      30000, // 30秒过期时间
+		Distributed: true,
+	})
+	fmt.Println("✅ Default method rate limiter configured: 50 QPS, 100 bucket")
+
+	// 4. 为敏感接口设置专用限流器配置
+	// 登录接口：限制更严格，防止暴力破解
+	my.SetMethodRateLimiterByPath("/login", rate.Option{
+		Limit:       10,    // 每秒10个请求（登录接口限制严格）
+		Bucket:      20,    // 桶容量20
+		Expire:      30000, // 30秒过期时间
+		Distributed: true,
+	})
+	fmt.Println("✅ Login endpoint rate limiter configured: 10 QPS, 20 bucket")
+
+	// 用户信息接口：中等限制
+	my.SetMethodRateLimiterByPath("/getUser", rate.Option{
+		Limit:       30,    // 每秒30个请求
+		Bucket:      60,    // 桶容量60
+		Expire:      30000, // 30秒过期时间
+		Distributed: true,
+	})
+	fmt.Println("✅ User info endpoint rate limiter configured: 30 QPS, 60 bucket")
+
+	// 公开接口：相对宽松
+	my.SetMethodRateLimiterByPath("/key", rate.Option{
+		Limit:       100,   // 每秒100个请求（公开接口相对宽松）
+		Bucket:      200,   // 桶容量200
+		Expire:      30000, // 30秒过期时间
+		Distributed: true,
+	})
+	fmt.Println("✅ Public key endpoint rate limiter configured: 100 QPS, 200 bucket")
+
+	// 5. 设置用户级限流器配置（防止单个用户刷接口）
+	my.SetUserRateLimiter(rate.Option{
+		Limit:       5,     // 每个用户每秒5个请求
+		Bucket:      10,    // 桶容量10（允许少量突发）
+		Expire:      30000, // 30秒过期时间
+		Distributed: true,
+	})
+	fmt.Println("✅ User-level rate limiter configured: 5 QPS per user, 10 bucket")
+
+	// 6. 动态调整示例（可在运行时调用）
+	// 业务高峰期：提高网关限流阈值
+	// my.SetGatewayRateLimiter(rate.Option{Limit: 800, Bucket: 4000, Expire: 60000, Distributed: true})
+
+	// 活动期间：降低用户级限制
+	// my.SetUserRateLimiter(rate.Option{Limit: 10, Bucket: 20, Expire: 30000, Distributed: true})
+
+	// 维护期间：严格限制所有接口
+	// my.SetGatewayRateLimiter(rate.Option{Limit: 10, Bucket: 50, Expire: 60000, Distributed: true})
+
+	fmt.Println("🎉 All rate limiters configured successfully!")
+	fmt.Println("📊 Rate limiting hierarchy:")
+	fmt.Println("   🌐 Gateway: 500 QPS (global protection)")
+	fmt.Println("   📍 Methods: 50 QPS default, custom limits per endpoint")
+	fmt.Println("   👤 Users: 5 QPS per user (anti-abuse)")
+	fmt.Println("   🔄 Distributed: Redis-backed (auto-fallback to local)")
 }
