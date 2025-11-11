@@ -236,7 +236,7 @@ func BenchmarkMysqlFindList(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			result := make([]*OwWallet, 0, 3000)
-			if err := db.FindList(sqlc.M(&OwWallet{}).Between("id", 218418572484169728, 1986277638838157312).Limit(1, 3000).Orderby("id", sqlc.DESC_), &result); err != nil {
+			if err := db.FindList(sqlc.M(&OwWallet{}).Between("id", 1987689412850352128, 1988229401988300802).Limit(1, 3000).Orderby("id", sqlc.DESC_), &result); err != nil {
 				fmt.Println(err)
 			}
 		}

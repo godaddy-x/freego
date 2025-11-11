@@ -660,21 +660,33 @@ func GetValue(obj interface{}, elem *FieldElem) (interface{}, error) {
 	return nil, nil
 }
 
+// safeBytesToString 安全地将 []byte 转换为字符串，避免对象池释放时的内存共享问题
+func safeBytesToString(b []byte) string {
+	if len(b) == 0 {
+		// 空数据直接转换，无需创建副本
+		ret, _ := utils.NewString(b)
+		return ret
+	} else {
+		// 非空数据创建副本，避免对象池释放问题
+		v := make([]byte, len(b))
+		copy(v, b)
+		ret, _ := utils.NewString(v)
+		return ret
+	}
+}
+
 func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 	ptr := utils.GetPtr(obj, elem.FieldOffset)
 	switch elem.FieldKind {
 	case reflect.String:
-		if ret, err := utils.NewString(b); err != nil {
-			return err
-		} else {
-			utils.SetString(ptr, ret)
-		}
+		// 使用安全的方法转换字符串，避免对象池释放问题
+		ret := safeBytesToString(b)
+		utils.SetString(ptr, ret)
 		return nil
 	case reflect.Int:
 		if elem.IsDate {
-			if ret, err := utils.NewString(b); err != nil {
-				return err
-			} else if len(ret) > 0 {
+			ret := safeBytesToString(b)
+			if len(ret) > 0 {
 				if rdate, err := utils.Str2FormatTime(ret, modelTime.fmt, modelTime.local); err != nil {
 					return err
 				} else {
@@ -683,9 +695,8 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 			}
 			return nil
 		} else if elem.IsDate2 {
-			if ret, err := utils.NewString(b); err != nil {
-				return err
-			} else if len(ret) > 0 {
+			ret := safeBytesToString(b)
+			if len(ret) > 0 {
 				if rdate, err := utils.Str2FormatTime(ret, modelTime.fmt2, modelTime.local); err != nil {
 					return err
 				} else {
@@ -716,9 +727,8 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 		return nil
 	case reflect.Int32:
 		if elem.IsDate {
-			if ret, err := utils.NewString(b); err != nil {
-				return err
-			} else if len(ret) > 0 {
+			ret := safeBytesToString(b)
+			if len(ret) > 0 {
 				if rdate, err := utils.Str2FormatTime(ret, modelTime.fmt, modelTime.local); err != nil {
 					return err
 				} else {
@@ -727,9 +737,8 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 			}
 			return nil
 		} else if elem.IsDate2 {
-			if ret, err := utils.NewString(b); err != nil {
-				return err
-			} else if len(ret) > 0 {
+			ret := safeBytesToString(b)
+			if len(ret) > 0 {
 				if rdate, err := utils.Str2FormatTime(ret, modelTime.fmt2, modelTime.local); err != nil {
 					return err
 				} else {
@@ -746,9 +755,8 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 		return nil
 	case reflect.Int64:
 		if elem.IsDate {
-			if ret, err := utils.NewString(b); err != nil {
-				return err
-			} else if len(ret) > 0 {
+			ret := safeBytesToString(b)
+			if len(ret) > 0 {
 				if rdate, err := utils.Str2FormatTime(ret, modelTime.fmt, modelTime.local); err != nil {
 					return err
 				} else {
@@ -757,9 +765,8 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 			}
 			return nil
 		} else if elem.IsDate2 {
-			if ret, err := utils.NewString(b); err != nil {
-				return err
-			} else if len(ret) > 0 {
+			ret := safeBytesToString(b)
+			if len(ret) > 0 {
 				if rdate, err := utils.Str2FormatTime(ret, modelTime.fmt2, modelTime.local); err != nil {
 					return err
 				} else {
@@ -789,7 +796,7 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 		}
 		return nil
 	case reflect.Bool:
-		str, _ := utils.NewString(b)
+		str := safeBytesToString(b)
 		if str == "true" {
 			utils.SetBool(ptr, true)
 		} else {
@@ -833,10 +840,11 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 		return nil
 	case reflect.Struct:
 		if elem.FieldType == "decimal.Decimal" {
-			if len(b) == 0 {
-				b = utils.Str2Bytes("0")
+			str := safeBytesToString(b)
+			if len(str) == 0 {
+				str = "0"
 			}
-			v, err := decimal.NewFromString(utils.Bytes2Str(b))
+			v, err := decimal.NewFromString(str)
 			if err != nil {
 				return err
 			}
@@ -1178,11 +1186,8 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 		}
 		switch elem.FieldType {
 		case "*string":
-			if ret, err := utils.NewString(b); err != nil {
-				return err
-			} else {
-				utils.SetStringP(ptr, &ret)
-			}
+			ret := safeBytesToString(b)
+			utils.SetStringP(ptr, &ret)
 			return nil
 		case "*int":
 			if ret, err := utils.NewInt(b); err != nil {
@@ -1234,15 +1239,12 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 			}
 			return nil
 		case "*decimal.Decimal":
-			if ret, err := utils.NewString(b); err != nil {
+			ret := safeBytesToString(b)
+			decValue, err := decimal.NewFromString(ret)
+			if err != nil {
 				return err
-			} else {
-				decValue, err := decimal.NewFromString(ret)
-				if err != nil {
-					return err
-				}
-				reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(&decValue))
 			}
+			reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(&decValue))
 			return nil
 		}
 		structValue := reflect.ValueOf(obj).Elem()

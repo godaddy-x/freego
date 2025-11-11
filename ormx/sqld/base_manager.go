@@ -2167,6 +2167,17 @@ func ReleaseOutDest(out [][][]byte) {
 		return
 	}
 	for _, rets := range out {
+		// 安全起见，重置所有字节数组，防止敏感数据残留
+		for i := range rets {
+			if len(rets[i]) > 0 {
+				// 清空底层数组数据
+				for j := range rets[i] {
+					rets[i][j] = 0
+				}
+				// 重置切片长度
+				rets[i] = rets[i][:0]
+			}
+		}
 		rowByteSlicePool.Put(rets)
 	}
 }
