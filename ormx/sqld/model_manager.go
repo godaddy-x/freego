@@ -48,6 +48,7 @@ type FieldElem struct {
 	IsDate  bool // 1字节 - 是否日期类型
 	IsDate2 bool // 1字节 - 是否日期2类型
 	IsBlob  bool // 1字节 - 是否二进制类型
+	IsSafe  bool // 1字节 - 是否安全字段
 }
 
 type MdlTime struct {
@@ -447,6 +448,13 @@ func ModelDriver(objects ...sqlc.Object) error {
 			if len(isBlob) > 0 && isBlob == sqlc.True {
 				f.IsBlob = true
 			}
+			if field.Type.String() == "[]uint8" { // []byte 是 uint8 的别名
+				// 是 []byte 类型
+				isSafe := field.Tag.Get(sqlc.Safe)
+				if len(isSafe) > 0 && isSafe == sqlc.True {
+					f.IsSafe = true
+				}
+			}
 			md.FieldElem = append(md.FieldElem, f)
 		}
 		if _, b := modelDrivers[md.TableName]; !b {
@@ -457,6 +465,51 @@ func ModelDriver(objects ...sqlc.Object) error {
 		}
 	}
 	return nil
+}
+
+// SecureEraseBytes 安全擦除对象中标记为敏感的字节数组字段
+//
+// 功能说明:
+// - 遍历对象的所有字段
+// - 仅处理标记为安全擦除的字段 (IsSafe = true)
+// - 将 []byte 类型的字段内容全部填充为 0x00
+// - 确保敏感数据在内存中不再可读
+//
+// 返回值:
+// - erased: 是否实际执行了擦除操作
+// - error: 执行过程中的错误
+//
+// 安全注意:
+// - 此操作会直接修改原始对象的内存
+// - 调用前请确保已备份重要数据
+func SecureEraseBytes(target sqlc.Object) (erased bool, err error) {
+	obv, ok := modelDrivers[target.GetTable()]
+	if !ok || obv == nil {
+		return false, nil // 没有找到模型定义
+	}
+
+	for _, elem := range obv.FieldElem {
+		if !elem.IsSafe {
+			continue // 只处理标记为安全擦除的字段
+		}
+
+		// 获取字段值
+		value, err := GetValue(target, elem)
+		if err != nil {
+			return false, fmt.Errorf("failed to get value for field %s: %w", elem.FieldName, err)
+		}
+
+		// 只擦除 []byte 类型的字段
+		if byteSlice, ok := value.([]byte); ok && len(byteSlice) > 0 {
+			// 清零字节数组
+			for i := range byteSlice {
+				byteSlice[i] = 0x00
+			}
+			erased = true // 标记已执行擦除
+		}
+	}
+
+	return erased, nil
 }
 
 func GetValue(obj interface{}, elem *FieldElem) (interface{}, error) {

@@ -55,6 +55,7 @@ const (
 	Date    = "date"
 	Date2   = "date2"
 	Blob    = "blob"
+	Safe    = "safe"
 	DB      = "db"
 	Comment = "comment"
 	Charset = "charset"
