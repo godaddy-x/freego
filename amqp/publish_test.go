@@ -74,9 +74,9 @@ func TestPublishBasic(t *testing.T) {
 			Exchange: "test.exchange",
 			Queue:    "test.queue",
 			Router:   "test.key",
+			Durable:  true,
 		},
-		Type:    1,
-		Durable: true,
+		Type: 1,
 	}
 
 	err = mgr.PublishMsgData(ctx, msg)
@@ -110,9 +110,9 @@ func TestBatchPublish(t *testing.T) {
 				Exchange: "test.exchange",
 				Queue:    "test.queue",
 				Router:   "test.key",
+				Durable:  true,
 			},
-			Type:    1,
-			Durable: true,
+			Type: 1,
 		}
 	}
 
@@ -153,9 +153,9 @@ func TestPublishWithEncryption(t *testing.T) {
 			Router:   "test.key",
 			SigTyp:   1,                                  // 启用AES加密
 			SigKey:   "12345678901234567890123456789012", // 32字节AES-256密钥
+			Durable:  true,
 		},
-		Type:    1,
-		Durable: true,
+		Type: 1,
 	}
 
 	err := mgr.PublishMsgData(ctx, msg)
@@ -340,9 +340,9 @@ func TestPublishTimeout(t *testing.T) {
 			Exchange: "test.exchange",
 			Queue:    "test.queue",
 			Router:   "test.key",
+			Durable:  true,
 		},
-		Type:    1,
-		Durable: true,
+		Type: 1,
 	}
 
 	err := mgr.PublishMsgData(ctx, msg)
@@ -428,9 +428,9 @@ func TestPublishWithOptions(t *testing.T) {
 				Exchange: "test.exchange",
 				Queue:    "test.queue",
 				Router:   "test.key",
+				Durable:  true,
 			},
-			Type:    1,
-			Durable: true,
+			Type: 1,
 		},
 	}
 
@@ -544,9 +544,9 @@ func TestRealEnvironmentPublish(t *testing.T) {
 				Exchange: "test.exchange",
 				Queue:    "test.queue",
 				Router:   "test.routing.key",
+				Durable:  true,
 			},
-			Type:    1,
-			Durable: true,
+			Type: 1,
 		}
 
 		err := mgr.PublishMsgData(ctx, msg)
@@ -576,9 +576,9 @@ func TestRealEnvironmentPublish(t *testing.T) {
 					Exchange: "test.exchange",
 					Queue:    "test.queue",
 					Router:   "test.batch.routing.key",
+					Durable:  true,
 				},
-				Type:    1,
-				Durable: true,
+				Type: 1,
 			}
 		}
 
@@ -607,9 +607,9 @@ func TestRealEnvironmentPublish(t *testing.T) {
 				Router:   "test.encrypted.routing.key",
 				SigTyp:   1,                                  // 启用AES加密
 				SigKey:   "12345678901234567890123456789012", // 32字节AES-256密钥
+				Durable:  true,
 			},
-			Type:    1,
-			Durable: true,
+			Type: 1,
 		}
 
 		err := mgr.PublishMsgData(ctx, encryptedMsg)
@@ -775,9 +775,9 @@ func TestReconnectionMechanism(t *testing.T) {
 					Exchange: "test.exchange",
 					Queue:    "test.queue",
 					Router:   "test.batch.reconnect",
+					Durable:  true,
 				},
-				Type:    1,
-				Durable: true,
+				Type: 1,
 			}
 		}
 
@@ -963,9 +963,9 @@ func TestConfirmModeEdgeCases(t *testing.T) {
 					Exchange: "test.exchange",
 					Queue:    "nonexistent.queue", // 不存在的队列
 					Router:   "test.reject",
+					Durable:  true,
 				},
-				Type:    1,
-				Durable: true,
+				Type: 1,
 			},
 		}
 
@@ -1002,9 +1002,9 @@ func TestConfirmModeEdgeCases(t *testing.T) {
 					Exchange: "test.exchange",
 					Queue:    "test.queue",
 					Router:   "test.confirm",
+					Durable:  true,
 				},
-				Type:    1,
-				Durable: true,
+				Type: 1,
 			},
 		}
 
@@ -1044,9 +1044,9 @@ func TestConfirmModeEdgeCases(t *testing.T) {
 					Exchange: "test.exchange",
 					Queue:    "test.queue",
 					Router:   "test.confirm",
+					Durable:  true,
 				},
-				Type:    1,
-				Durable: true,
+				Type: 1,
 			},
 		}
 
@@ -1109,9 +1109,9 @@ func TestTransactionRollback(t *testing.T) {
 					Queue:          "test.queue",
 					Router:         "test.tx.rollback",
 					UseTransaction: true, // 启用事务模式
+					Durable:        true,
 				},
-				Type:    1,
-				Durable: true,
+				Type: 1,
 			},
 			{
 				Content: string(contentBytes2),
@@ -1120,9 +1120,9 @@ func TestTransactionRollback(t *testing.T) {
 					Queue:          "test.queue",
 					Router:         "test.tx.rollback",
 					UseTransaction: true,
+					Durable:        true,
 				},
-				Type:    1,
-				Durable: true,
+				Type: 1,
 			},
 			{
 				Content: string(contentBytes3),
@@ -1131,9 +1131,9 @@ func TestTransactionRollback(t *testing.T) {
 					Queue:          "test.queue", // 使用相同的队列避免INCONSISTENT_BATCH
 					Router:         "test.tx.rollback.3",
 					UseTransaction: true,
+					Durable:        true,
 				},
-				Type:    1,
-				Durable: true,
+				Type: 1,
 			},
 		}
 
@@ -1171,9 +1171,9 @@ func TestTransactionRollback(t *testing.T) {
 					Queue:          "test.queue",
 					Router:         "test.tx.commit.fail",
 					UseTransaction: true,
+					Durable:        true,
 				},
-				Type:    1,
-				Durable: true,
+				Type: 1,
 			},
 		}
 
@@ -1242,14 +1242,14 @@ func TestDeadLetterQueue(t *testing.T) {
 				Exchange: "test.exchange",
 				Queue:    "test.queue.dlx",
 				Router:   "test.dlx",
+				Durable:  true,
 				DLXConfig: &DLXConfig{
 					DlxExchange: "test.dlx.exchange",
 					DlxQueue:    "test.dlx.queue",
 					DlxRouter:   "test.dlx.routing.key",
 				},
 			},
-			Type:    1,
-			Durable: true,
+			Type: 1,
 		}
 
 		err := mgr.PublishMsgData(ctx, msg)
@@ -1277,9 +1277,9 @@ func TestDeadLetterQueue(t *testing.T) {
 				Queue:     "test.queue",
 				Router:    "test.dlx.empty",
 				DLXConfig: &DLXConfig{}, // 空的DLX配置
+				Durable:   true,
 			},
-			Type:    1,
-			Durable: true,
+			Type: 1,
 		}
 
 		err1 := mgr.PublishMsgData(ctx, msg1)
@@ -1303,9 +1303,9 @@ func TestDeadLetterQueue(t *testing.T) {
 				Queue:    "test.queue",
 				Router:   "test.no.dlx",
 				// DLXConfig 为 nil
+				Durable: true,
 			},
-			Type:    1,
-			Durable: true,
+			Type: 1,
 		}
 
 		err2 := mgr.PublishMsgData(ctx, msg2)
@@ -1450,9 +1450,9 @@ func TestRetryMechanism(t *testing.T) {
 				Exchange: "test.exchange",
 				Queue:    "test.queue",
 				Router:   "test.retry",
+				Durable:  true,
 			},
-			Type:    1,
-			Durable: true,
+			Type: 1,
 		}
 
 		// 首先正常发布一次，确保机制工作
@@ -1510,9 +1510,9 @@ func TestRetryMechanism(t *testing.T) {
 				Exchange: "test.exchange",
 				Queue:    "test.queue",
 				Router:   "test.retry.count",
+				Durable:  true,
 			},
-			Type:    1,
-			Durable: true,
+			Type: 1,
 		}
 
 		// 正常发布，应该成功

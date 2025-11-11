@@ -3,6 +3,7 @@ package rabbitmq
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"sync"
 	"time"
 
@@ -30,7 +31,8 @@ type PullManager struct {
 	reconnectWg sync.WaitGroup
 }
 
-// InitConfig 初始化PullManager
+// InitConfig 初始化配置（双重检查锁模式）
+// 通过双重检查锁定机制确保线程安全，避免重复初始化
 func (self *PullManager) InitConfig(conf AmqpConfig) (*PullManager, error) {
 	// 第一重检查
 	pullMgrMu.RLock()
@@ -140,7 +142,7 @@ func (self *PullManager) Connect() error {
 	}
 	self.conn = conn
 
-	// 启动连接监控
+	// 启动连接监控（每次重连都启动新的监控goroutine）
 	self.monitorWg.Add(1)
 	go self.monitorConnection()
 
@@ -150,6 +152,7 @@ func (self *PullManager) Connect() error {
 }
 
 // monitorConnection 监控连接状态
+// 持续监控RabbitMQ连接状态，自动处理连接断开和重连逻辑
 func (self *PullManager) monitorConnection() {
 	defer self.monitorWg.Done()
 
@@ -193,6 +196,7 @@ func (self *PullManager) monitorConnection() {
 }
 
 // reconnectAllReceivers 重连所有接收器
+// 尝试重连RabbitMQ，失败时进行指数退避重试
 func (self *PullManager) reconnectAllReceivers() {
 	const maxRetries = 5
 	baseDelay := time.Second
@@ -226,26 +230,41 @@ func (self *PullManager) reconnectAllReceivers() {
 		zlog.String("ds_name", self.conf.DsName))
 }
 
-// restartAllReceivers 重启所有接收器
+// restartAllReceivers 重启所有接收器（带重连风暴防护）
 func (self *PullManager) restartAllReceivers() {
 	self.mu.Lock()
-	defer self.mu.Unlock()
+	receivers := make([]*PullReceiver, len(self.receivers))
+	copy(receivers, self.receivers) // 复制接收器列表
+	self.mu.Unlock()
 
-	for _, receiver := range self.receivers {
+	// 为每个接收器添加随机延迟，避免重连风暴
+	for i, receiver := range receivers {
 		// 停止当前监听
 		receiver.Stop()
 
 		// 等待一小段时间确保资源清理
 		time.Sleep(100 * time.Millisecond)
 
-		// 重新初始化并启动
+		// 重新初始化
 		receiver.initControlChans()
+
+		// 添加随机延迟分散重连时间（0-2秒）
+		jitter := time.Duration(rand.Intn(2000)) * time.Millisecond
+		time.Sleep(jitter)
+
+		zlog.Info("restarting receiver with jitter", 0,
+			zlog.String("queue", receiver.Config.Option.Queue),
+			zlog.Int("receiver_index", i),
+			zlog.Duration("jitter", jitter))
+
+		// 启动监听
 		self.monitorWg.Add(1)
 		go self.listen(receiver)
 	}
 }
 
-// getChannel 获取通道（带重试）
+// getChannel 获取通道（带重试机制）
+// 从连接池获取AMQP通道，失败时进行重试
 func (self *PullManager) getChannel() (*amqp.Channel, error) {
 	const maxRetries = 3
 
@@ -285,7 +304,8 @@ func (self *PullManager) getChannel() (*amqp.Channel, error) {
 	return nil, fmt.Errorf("failed to create channel after %d retries", maxRetries)
 }
 
-// listen 监听消息（重构版本）
+// listen 监听消息队列
+// 为指定的接收器启动消息监听循环，包含连接管理和错误恢复
 func (self *PullManager) listen(receiver *PullReceiver) {
 	defer self.monitorWg.Done()
 
@@ -374,6 +394,7 @@ func (self *PullManager) listen(receiver *PullReceiver) {
 }
 
 // monitorChannel 监控通道状态
+// 监控AMQP通道的连接状态，处理通道断开事件
 func (self *PullManager) monitorChannel(ctx context.Context, receiver *PullReceiver, channel *amqp.Channel) {
 	chErr := make(chan *amqp.Error, 1)
 	channel.NotifyClose(chErr)
@@ -393,7 +414,8 @@ func (self *PullManager) monitorChannel(ctx context.Context, receiver *PullRecei
 	}
 }
 
-// processMessages 处理消息
+// processMessages 处理消息流
+// 从通道接收并处理消息，支持上下文取消和错误处理
 func (self *PullManager) processMessages(ctx context.Context, receiver *PullReceiver, msgs <-chan amqp.Delivery) {
 	for {
 		select {
@@ -411,33 +433,35 @@ func (self *PullManager) processMessages(ctx context.Context, receiver *PullRece
 	}
 }
 
-// handleDelivery 处理单个消息
+// handleDelivery 处理单个消息投递
+// 根据配置处理消息，有限重试模式
 func (self *PullManager) handleDelivery(receiver *PullReceiver, d amqp.Delivery) {
 	const maxRetries = 3
-
 	for i := 0; i < maxRetries; i++ {
 		if ok := receiver.processMessage(d); ok {
 			return // 处理成功
 		}
-
-		if i < maxRetries-1 {
-			zlog.Warn("message processing failed, retrying...", 0,
-				zlog.String("queue", receiver.Config.Option.Queue),
-				zlog.Int("retry", i+1))
-			time.Sleep(time.Duration(receiver.Delay) * time.Second)
-		}
+		zlog.Warn("message processing failed, retrying...", 0,
+			zlog.String("message_id", d.MessageId),
+			zlog.String("queue", receiver.Config.Option.Queue),
+			zlog.Int("retry", i+1))
+		time.Sleep(time.Duration(i+3) * time.Second)
 	}
 
-	// 达到最大重试次数
-	zlog.Error("message processing failed after max retries", 0,
+	// 达到最大重试次数，重新放回队列
+	zlog.Error("message processing failed after max retries, requeueing", 0,
+		zlog.String("message_id", d.MessageId),
 		zlog.String("queue", receiver.Config.Option.Queue),
 		zlog.Int("max_retries", maxRetries))
-	if err := d.Nack(false, false); err != nil {
-		zlog.Error("failed to nack message", 0, zlog.AddError(err))
+	if err := d.Nack(false, true); err != nil { // requeue=true
+		zlog.Error("failed to requeue message", 0,
+			zlog.String("message_id", d.MessageId),
+			zlog.AddError(err))
 	}
 }
 
-// setupChannel 设置通道（声明交换机和队列）
+// setupChannel 设置通道和队列
+// 声明交换机、队列并建立绑定关系，为消息消费做准备
 func (self *PullManager) setupChannel(receiver *PullReceiver, channel *amqp.Channel) error {
 	opt := receiver.Config.Option
 
@@ -453,11 +477,11 @@ func (self *PullManager) setupChannel(receiver *PullReceiver, channel *amqp.Chan
 	if err := channel.ExchangeDeclare(
 		opt.Exchange,
 		opt.Kind,
-		true,  // durable
-		false, // autoDelete
-		false, // internal
-		false, // noWait
-		nil,   // args
+		opt.Durable,    // 使用配置的持久化设置
+		opt.AutoDelete, // 使用配置的自动删除设置
+		false,          // internal
+		false,          // noWait
+		nil,            // args
 	); err != nil {
 		return fmt.Errorf("declare exchange failed: %w", err)
 	}
@@ -465,11 +489,11 @@ func (self *PullManager) setupChannel(receiver *PullReceiver, channel *amqp.Chan
 	// 声明队列
 	_, err := channel.QueueDeclare(
 		opt.Queue,
-		true,  // durable
-		false, // autoDelete
-		false, // exclusive
-		false, // noWait
-		nil,   // args
+		opt.Durable,    // 使用配置的持久化设置
+		opt.AutoDelete, // 使用配置的自动删除设置
+		opt.Exclusive,  // 使用配置的独占设置
+		false,          // noWait
+		nil,            // args
 	)
 	if err != nil {
 		return fmt.Errorf("declare queue failed: %w", err)
@@ -513,7 +537,12 @@ func (self *PullManager) Close() error {
 	self.receivers = nil
 
 	// 通知关闭
-	close(self.closeChan)
+	select {
+	case <-self.closeChan:
+		// channel 已经关闭
+	default:
+		close(self.closeChan)
+	}
 
 	// 关闭连接
 	if self.conn != nil && !self.conn.IsClosed() {
@@ -546,6 +575,7 @@ func (self *PullManager) Close() error {
 }
 
 // HealthCheck 健康检查
+// 检查RabbitMQ连接和通道的健康状态
 func (self *PullManager) HealthCheck() error {
 	self.mu.Lock()
 	defer self.mu.Unlock()
@@ -586,18 +616,15 @@ type PullReceiver struct {
 	Config    *Config
 	Callback  func(msg *MsgData) error
 	Debug     bool
-	Delay     int
 	closeChan chan struct{}
 	stopChan  chan struct{}
 	stopping  bool
 	healthy   bool
 }
 
-// initDefaults 初始化默认值
+// initDefaults 初始化默认配置
+// 为PullReceiver设置默认值，确保配置的完整性
 func (self *PullReceiver) initDefaults() {
-	if self.Delay <= 0 {
-		self.Delay = 5
-	}
 	if self.Config == nil {
 		self.Config = &Config{}
 	}
@@ -608,7 +635,7 @@ func (self *PullReceiver) initDefaults() {
 		self.Config.Option.Queue = "default.queue"
 	}
 	if self.Config.PrefetchCount == 0 {
-		self.Config.PrefetchCount = 1
+		self.Config.PrefetchCount = 50
 	}
 	if !utils.CheckInt(self.Config.Option.SigTyp, 0, 1) {
 		self.Config.Option.SigTyp = 1
@@ -616,6 +643,7 @@ func (self *PullReceiver) initDefaults() {
 }
 
 // initControlChans 初始化控制通道
+// 创建用于goroutine间通信的控制通道
 func (self *PullReceiver) initControlChans() {
 	self.mu.Lock()
 	defer self.mu.Unlock()
@@ -630,21 +658,24 @@ func (self *PullReceiver) initControlChans() {
 	self.healthy = true
 }
 
-// setChannel 设置通道（线程安全）
+// setChannel 设置通道
+// 线程安全地设置或清除AMQP通道引用
 func (self *PullReceiver) setChannel(channel *amqp.Channel) {
 	self.mu.Lock()
 	defer self.mu.Unlock()
 	self.channel = channel
 }
 
-// getChannel 获取通道（线程安全）
+// getChannel 获取通道
+// 线程安全地获取AMQP通道引用
 func (self *PullReceiver) getChannel() *amqp.Channel {
 	self.mu.RLock()
 	defer self.mu.RUnlock()
 	return self.channel
 }
 
-// IsHealthy 检查接收器是否健康
+// IsHealthy 检查健康状态
+// 返回接收器的当前健康状态
 func (self *PullReceiver) IsHealthy() bool {
 	self.mu.RLock()
 	defer self.mu.RUnlock()
@@ -652,6 +683,7 @@ func (self *PullReceiver) IsHealthy() bool {
 }
 
 // scheduleReconnect 调度重连
+// 延迟后触发接收器重连逻辑
 func (self *PullReceiver) scheduleReconnect(mgr *PullManager) {
 	self.mu.Lock()
 	defer self.mu.Unlock()
@@ -671,6 +703,7 @@ func (self *PullReceiver) scheduleReconnect(mgr *PullManager) {
 }
 
 // triggerReconnect 触发重连
+// 立即触发接收器重连，不等待延迟
 func (self *PullReceiver) triggerReconnect() {
 	select {
 	case self.closeChan <- struct{}{}:
@@ -678,7 +711,8 @@ func (self *PullReceiver) triggerReconnect() {
 	}
 }
 
-// OnError 错误处理
+// OnError 错误处理回调
+// 处理接收器运行过程中的错误，记录日志并触发重连
 func (self *PullReceiver) OnError(err error) {
 	zlog.Error("rabbitmq receiver error", 0,
 		zlog.AddError(err),
@@ -686,6 +720,7 @@ func (self *PullReceiver) OnError(err error) {
 }
 
 // Stop 停止接收器
+// 优雅地停止接收器的运行，清理资源并等待goroutine退出
 func (self *PullReceiver) Stop() {
 	self.mu.Lock()
 	defer self.mu.Unlock()
@@ -713,7 +748,8 @@ func (self *PullReceiver) Stop() {
 		zlog.String("queue", self.Config.Option.Queue))
 }
 
-// processMessage 处理消息（重构版本）
+// processMessage 处理消息
+// 执行完整的消息处理流程：解析、验证、回调、确认
 func (self *PullReceiver) processMessage(d amqp.Delivery) bool {
 	b := d.Body
 	if len(b) == 0 || string(b) == "{}" || string(b) == "[]" {
@@ -722,6 +758,7 @@ func (self *PullReceiver) processMessage(d amqp.Delivery) bool {
 
 	if self.Debug {
 		zlog.Debug("received message", 0,
+			zlog.String("message_id", d.MessageId),
 			zlog.String("body", utils.Bytes2Str(b)),
 			zlog.String("queue", self.Config.Option.Queue))
 	}
@@ -730,6 +767,7 @@ func (self *PullReceiver) processMessage(d amqp.Delivery) bool {
 	msg, err := self.parseMessage(b)
 	if err != nil {
 		zlog.Error("parse message failed", 0,
+			zlog.String("message_id", d.MessageId),
 			zlog.AddError(err),
 			zlog.String("queue", self.Config.Option.Queue))
 		return self.ackMessage(d)
@@ -738,6 +776,7 @@ func (self *PullReceiver) processMessage(d amqp.Delivery) bool {
 	// 验证消息
 	if err := self.validateMessage(msg); err != nil {
 		zlog.Error("validate message failed", 0,
+			zlog.String("message_id", d.MessageId),
 			zlog.AddError(err),
 			zlog.String("queue", self.Config.Option.Queue))
 		return self.ackMessage(d)
@@ -746,15 +785,19 @@ func (self *PullReceiver) processMessage(d amqp.Delivery) bool {
 	// 处理消息
 	if err := self.Callback(msg); err != nil {
 		zlog.Error("message callback failed", 0,
+			zlog.String("message_id", d.MessageId),
 			zlog.AddError(err),
 			zlog.String("queue", self.Config.Option.Queue))
-		return false
+		if self.Config.IsNack {
+			return false
+		}
 	}
 
 	return self.ackMessage(d)
 }
 
 // parseMessage 解析消息
+// 将JSON格式的消息体解析为MsgData结构体
 func (self *PullReceiver) parseMessage(body []byte) (*MsgData, error) {
 	msg := &MsgData{}
 	if err := utils.JsonUnmarshal(body, msg); err != nil {
@@ -769,6 +812,7 @@ func (self *PullReceiver) parseMessage(body []byte) (*MsgData, error) {
 }
 
 // validateMessage 验证消息
+// 验证消息的签名和完整性，包括HMAC校验和AES解密
 func (self *PullReceiver) validateMessage(msg *MsgData) error {
 	// 验证签名
 	if len(msg.Signature) == 0 {
@@ -805,7 +849,8 @@ func (self *PullReceiver) validateMessage(msg *MsgData) error {
 	return nil
 }
 
-// ackMessage 确认消息（高可靠性实现）
+// ackMessage 确认消息
+// 向RabbitMQ确认消息已成功处理，支持重试机制
 func (self *PullReceiver) ackMessage(d amqp.Delivery) bool {
 	const maxRetries = 3
 	const baseDelay = 100 * time.Millisecond
@@ -822,12 +867,14 @@ func (self *PullReceiver) ackMessage(d amqp.Delivery) bool {
 	}
 
 	zlog.Error("failed to ack message after retries", 0,
+		zlog.String("message_id", d.MessageId),
 		zlog.String("queue", self.Config.Option.Queue),
 		zlog.Int("max_retries", maxRetries))
 	return false
 }
 
 // validateAESKeyLength 验证AES密钥长度
+// 确保AES密钥长度符合标准要求（16、24、32字节）
 func validateAESKeyLength(key string) error {
 	if key == "" {
 		return fmt.Errorf("AES key cannot be empty")

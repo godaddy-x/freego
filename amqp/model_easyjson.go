@@ -269,12 +269,6 @@ func easyjsonC80ae7adDecodeGithubComGodaddyXFreegoAmqp1(in *jlexer.Lexer, out *M
 			} else {
 				out.Priority = uint8(in.Uint8())
 			}
-		case "du":
-			if in.IsNull() {
-				in.Skip()
-			} else {
-				out.Durable = bool(in.Bool())
-			}
 		default:
 			in.SkipRecursive()
 		}
@@ -333,11 +327,6 @@ func easyjsonC80ae7adEncodeGithubComGodaddyXFreegoAmqp1(out *jwriter.Writer, in 
 		const prefix string = ",\"pr\":"
 		out.RawString(prefix)
 		out.Uint8(uint8(in.Priority))
-	}
-	{
-		const prefix string = ",\"du\":"
-		out.RawString(prefix)
-		out.Bool(bool(in.Durable))
 	}
 	out.RawByte('}')
 }

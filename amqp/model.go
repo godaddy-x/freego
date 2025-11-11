@@ -24,7 +24,6 @@ type MsgData struct {
 
 	// 小字段分组（1字节对齐）- 放在最后减少填充
 	Priority uint8 `json:"pr"` // 消息优先级(0-255)
-	Durable  bool  `json:"du"` // 是否持久化消息
 }
 
 // Option 消息队列选项配置

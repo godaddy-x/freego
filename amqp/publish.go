@@ -965,10 +965,10 @@ func (m *PublishManager) Publish(ctx context.Context, exchange, queue string, da
 		Option: Option{
 			Exchange: exchange,
 			Queue:    queue,
+			Durable:  true,
 		},
 		Type:    dataType,
 		Content: content,
-		Durable: true,
 	}
 	for _, opt := range opts {
 		opt(msg)
@@ -1018,6 +1018,13 @@ func WithUseTransaction(useTx bool) PublishOption {
 func WithConfirmTimeout(timeout time.Duration) PublishOption {
 	return func(msg *MsgData) {
 		msg.Option.ConfirmTimeout = timeout
+	}
+}
+
+// WithDurable 设置持久化选项
+func WithDurable(durable bool) PublishOption {
+	return func(msg *MsgData) {
+		msg.Option.Durable = durable
 	}
 }
 

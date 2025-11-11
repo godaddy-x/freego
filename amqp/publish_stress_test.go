@@ -177,9 +177,9 @@ func TestLargeBatchStress(t *testing.T) {
 						Queue:          "test.queue",
 						Router:         fmt.Sprintf("stress.batch.%d", batchSize),
 						UseTransaction: true, // 明确使用事务模式而不是确认模式
+						Durable:        true,
 					},
-					Type:    1,
-					Durable: true,
+					Type: 1,
 				}
 			}
 
