@@ -538,9 +538,6 @@ func GetValue(obj interface{}, elem *FieldElem) (interface{}, error) {
 			}
 			return utils.Time2FormatStr(int64(ret), modelTime.fmt, modelTime.local), nil
 		} else if elem.IsDate2 {
-			//if ret == 0 {
-			//	return nil, nil
-			//}
 			return utils.Time2FormatStr(int64(ret), modelTime.fmt2, modelTime.local), nil
 		}
 		return ret, nil
@@ -556,9 +553,6 @@ func GetValue(obj interface{}, elem *FieldElem) (interface{}, error) {
 			}
 			return utils.Time2FormatStr(int64(ret), modelTime.fmt, modelTime.local), nil
 		} else if elem.IsDate2 {
-			//if ret == 0 {
-			//	return nil, nil
-			//}
 			return utils.Time2FormatStr(int64(ret), modelTime.fmt2, modelTime.local), nil
 		}
 		return ret, nil
@@ -570,9 +564,6 @@ func GetValue(obj interface{}, elem *FieldElem) (interface{}, error) {
 			}
 			return utils.Time2FormatStr(ret, modelTime.fmt, modelTime.local), nil
 		} else if elem.IsDate2 {
-			//if ret == 0 {
-			//	return nil, nil
-			//}
 			return utils.Time2FormatStr(ret, modelTime.fmt2, modelTime.local), nil
 		}
 		return ret, nil
@@ -615,9 +606,6 @@ func GetValue(obj interface{}, elem *FieldElem) (interface{}, error) {
 		case "[]uint":
 			return getValueJsonStr(utils.GetUintArr(ptr))
 		case "[]uint8":
-			//if elem.IsBlob {
-			//	return utils.GetUint8Arr(ptr), nil
-			//}
 			return utils.GetUint8Arr(ptr), nil
 		case "[]uint16":
 			return getValueJsonStr(utils.GetUint16Arr(ptr))
