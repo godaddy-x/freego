@@ -16,9 +16,12 @@ import (
 	"github.com/godaddy-x/freego/utils/decimal"
 )
 
+// 全局变量定义
 var (
+	// modelDrivers 存储所有已注册的模型驱动，按表名索引
 	modelDrivers = make(map[string]*MdlDriver, 100)
-	modelTime    = &MdlTime{local: time.UTC, fmt: utils.TimeFmt2, fmt2: utils.DateFmt}
+	// modelTime 全局时间格式配置，用于时间字段的解析和格式化
+	modelTime = &MdlTime{local: time.UTC, fmt: utils.TimeFmt2, fmt2: utils.DateFmt}
 )
 
 // FieldElem 字段元素定义（已优化字段顺序以减少内存填充）
@@ -51,10 +54,12 @@ type FieldElem struct {
 	IsSafe  bool // 1字节 - 是否安全字段
 }
 
+// MdlTime 时间格式配置结构体
+// 用于配置时间字段的时区和格式化模板
 type MdlTime struct {
-	local *time.Location
-	fmt   string
-	fmt2  string
+	local *time.Location // 时区设置
+	fmt   string         // 主时间格式（如时间戳格式）
+	fmt2  string         // 辅助时间格式（如日期格式）
 }
 
 type MdlDriver struct {
@@ -83,6 +88,8 @@ type MdlDriver struct {
 	AutoId  bool
 }
 
+// isPk 检查给定的键是否为主键标识
+// 返回 true 如果 key 等于 sqlc.True，否则返回 false
 func isPk(key string) bool {
 	if len(key) > 0 && key == sqlc.True {
 		return true
@@ -98,6 +105,9 @@ type SQLColumn struct {
 	IsPrimaryKey bool   // 是否为主键
 }
 
+// getTypeCapacityPresets 从数据库的information_schema.columns表中查询指定表的字段信息，
+// 并为每个字段计算预设的缓冲区容量
+// 返回一个映射，键为"表名+字段名"，值为预设容量；如果查询失败则返回错误
 func getTypeCapacityPresets(tableName string) (map[string]int, error) {
 	if tableName == "" {
 		return nil, errors.New("表名不能为空")
@@ -512,6 +522,9 @@ func SecureEraseBytes(target sqlc.Object) (erased bool, err error) {
 	return erased, nil
 }
 
+// GetValue 根据字段元素信息从对象中获取字段值的字符串表示
+// 支持各种Go基础类型、指针类型、切片类型和映射类型
+// 对于时间类型，会根据字段标记返回格式化的字符串
 func GetValue(obj interface{}, elem *FieldElem) (interface{}, error) {
 	ptr := utils.GetPtr(obj, elem.FieldOffset)
 	switch elem.FieldKind {
@@ -695,6 +708,7 @@ func GetValue(obj interface{}, elem *FieldElem) (interface{}, error) {
 }
 
 // safeBytesToString 安全地将 []byte 转换为字符串，避免对象池释放时的内存共享问题
+// 对于非空字节数组，会创建副本后转换；空数组直接转换，无需创建副本
 func safeBytesToString(b []byte) string {
 	if len(b) == 0 {
 		// 空数据直接转换，无需创建副本
@@ -709,6 +723,9 @@ func safeBytesToString(b []byte) string {
 	}
 }
 
+// SetValue 根据字段元素信息将字节数组数据设置到对象的对应字段中
+// 支持各种Go基础类型、指针类型、切片类型和映射类型
+// 对于时间类型，会根据字段标记进行解析；对于字符串和字节数组，会进行安全复制避免内存共享
 func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 	ptr := utils.GetPtr(obj, elem.FieldOffset)
 	switch elem.FieldKind {
@@ -1357,6 +1374,10 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 	return nil
 }
 
+// BytesToInt64Ptr 将字节数组转换为int64指针，支持大端序和小端序
+// data: 输入的字节数组，至少需要8个字节
+// isBigEndian: true表示大端序，false表示小端序
+// 返回指向解析后int64值的指针，如果字节数组长度不足返回错误
 func BytesToInt64Ptr(data []byte, isBigEndian bool) (*int64, error) {
 	// 检查字节切片长度是否足够
 	if len(data) < 8 {
@@ -1377,6 +1398,8 @@ func BytesToInt64Ptr(data []byte, isBigEndian bool) (*int64, error) {
 	return ptr, nil
 }
 
+// getValueJsonStr 将任意类型的数据序列化为JSON字符串
+// 用于将数组、切片等复合类型转换为JSON格式的字符串表示
 func getValueJsonStr(arr interface{}) (string, error) {
 	if ret, err := utils.JsonMarshal(&arr); err != nil {
 		return "", err
@@ -1385,6 +1408,8 @@ func getValueJsonStr(arr interface{}) (string, error) {
 	}
 }
 
+// getValueJsonObj 将JSON字节数组反序列化为指定的Go对象
+// 用于将JSON格式的数据解析为切片、映射等复合类型
 func getValueJsonObj(b []byte, v interface{}) error {
 	if len(b) == 0 || v == nil {
 		return nil
@@ -1392,6 +1417,8 @@ func getValueJsonObj(b []byte, v interface{}) error {
 	return utils.JsonUnmarshal(b, v)
 }
 
+// getValueOfMapStr 获取对象中映射类型字段的字符串表示
+// 特殊处理decimal.Decimal类型，返回其字符串表示；其他类型序列化为JSON字符串
 func getValueOfMapStr(obj interface{}, elem *FieldElem) (string, error) {
 	var fv reflect.Value
 	vof := reflect.ValueOf(obj)
@@ -1425,6 +1452,8 @@ func getValueOfMapStr(obj interface{}, elem *FieldElem) (string, error) {
 	}
 }
 
+// getValueOfStruct 获取对象中结构体类型字段的字符串表示
+// 特殊处理decimal.Decimal类型，返回其String()方法结果；其他类型序列化为JSON字符串
 func getValueOfStruct(obj interface{}, elem *FieldElem) (string, error) {
 	if fv := reflect.ValueOf(obj).FieldByName(elem.FieldName); fv.IsNil() {
 		return "", nil
