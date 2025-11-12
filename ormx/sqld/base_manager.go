@@ -97,6 +97,7 @@ type Option struct {
 	Database    string // 数据库名称
 	Charset     string // 连接字符集,默认utf8mb4
 	SlowLogPath string // 慢查询写入地址
+	Location    string // 数据库时区，默认UTC
 
 	// 数值字段
 	Timeout   int64 // 请求超时设置/毫秒,默认10000

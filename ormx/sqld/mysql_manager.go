@@ -3,6 +3,7 @@ package sqld
 import (
 	"database/sql"
 	"fmt"
+	"net/url"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -98,8 +99,12 @@ func (self *MysqlManager) buildByConfig(manager cache.Cache, input ...MysqlConfi
 				timeout = 10 // 确保至少10秒
 			}
 		}
-		link := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=%s&parseTime=true&loc=Local&timeout=%ds&readTimeout=%ds&writeTimeout=%ds",
-			v.Username, v.Password, v.Host, v.Port, v.Database, v.Charset, timeout, timeout, timeout)
+		loc := "UTC"
+		if len(v.Location) > 0 {
+			loc = url.QueryEscape(v.Location)
+		}
+		link := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=%s&parseTime=true&loc=%s&timeout=%ds&readTimeout=%ds&writeTimeout=%ds",
+			url.QueryEscape(v.Username), url.QueryEscape(v.Password), v.Host, v.Port, v.Database, v.Charset, loc, timeout, timeout, timeout)
 
 		// 7. 打开数据库连接
 		db, err := sql.Open("mysql", link)

@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"time"
 	"unsafe"
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -436,6 +437,26 @@ func SetUint64Arr(ptr uintptr, v []uint64) {
 // set ObjectID value
 func SetObjectID(ptr uintptr, v primitive.ObjectID) {
 	*((*primitive.ObjectID)(unsafe.Pointer(ptr))) = v
+}
+
+// get time.Time value
+func GetTime(ptr uintptr) time.Time {
+	return *((*time.Time)(unsafe.Pointer(ptr)))
+}
+
+// get *time.Time value
+func GetTimeP(ptr uintptr) *time.Time {
+	return *((**time.Time)(unsafe.Pointer(ptr)))
+}
+
+// set time.Time value
+func SetTime(ptr uintptr, v time.Time) {
+	*((*time.Time)(unsafe.Pointer(ptr))) = v
+}
+
+// set *time.Time value
+func SetTimeP(ptr uintptr, v *time.Time) {
+	*((**time.Time)(unsafe.Pointer(ptr))) = v
 }
 
 // get ObjectID value
