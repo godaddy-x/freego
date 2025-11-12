@@ -183,9 +183,9 @@ func GetBool(ptr uintptr) bool {
 	return *((*bool)(unsafe.Pointer(ptr)))
 }
 
-// set bool value
-func SetBool(ptr uintptr, v bool) {
-	*((*bool)(unsafe.Pointer(ptr))) = v
+// get *bool value
+func GetBoolP(ptr uintptr) *bool {
+	return *((**bool)(unsafe.Pointer(ptr)))
 }
 
 // get uint value
@@ -193,9 +193,9 @@ func GetUint(ptr uintptr) uint {
 	return *((*uint)(unsafe.Pointer(ptr)))
 }
 
-// set uint value
-func SetUint(ptr uintptr, v uint) {
-	*((*uint)(unsafe.Pointer(ptr))) = v
+// get *uint value
+func GetUintP(ptr uintptr) *uint {
+	return *((**uint)(unsafe.Pointer(ptr)))
 }
 
 // get uint8 value
@@ -203,9 +203,9 @@ func GetUint8(ptr uintptr) uint8 {
 	return *((*uint8)(unsafe.Pointer(ptr)))
 }
 
-// set uint value
-func SetUint8(ptr uintptr, v uint8) {
-	*((*uint8)(unsafe.Pointer(ptr))) = v
+// get *uint8 value
+func GetUint8P(ptr uintptr) *uint8 {
+	return *((**uint8)(unsafe.Pointer(ptr)))
 }
 
 // get uint16 value
@@ -213,9 +213,9 @@ func GetUint16(ptr uintptr) uint16 {
 	return *((*uint16)(unsafe.Pointer(ptr)))
 }
 
-// set uint16 value
-func SetUint16(ptr uintptr, v uint16) {
-	*((*uint16)(unsafe.Pointer(ptr))) = v
+// get *uint16 value
+func GetUint16P(ptr uintptr) *uint16 {
+	return *((**uint16)(unsafe.Pointer(ptr)))
 }
 
 // get uint32 value
@@ -223,9 +223,9 @@ func GetUint32(ptr uintptr) uint32 {
 	return *((*uint32)(unsafe.Pointer(ptr)))
 }
 
-// set uint32 value
-func SetUint32(ptr uintptr, v uint32) {
-	*((*uint32)(unsafe.Pointer(ptr))) = v
+// get *uint32 value
+func GetUint32P(ptr uintptr) *uint32 {
+	return *((**uint32)(unsafe.Pointer(ptr)))
 }
 
 // get uint64 value
@@ -233,9 +233,69 @@ func GetUint64(ptr uintptr) uint64 {
 	return *((*uint64)(unsafe.Pointer(ptr)))
 }
 
+// get *uint64 value
+func GetUint64P(ptr uintptr) *uint64 {
+	return *((**uint64)(unsafe.Pointer(ptr)))
+}
+
+// set bool value
+func SetBool(ptr uintptr, v bool) {
+	*((*bool)(unsafe.Pointer(ptr))) = v
+}
+
+// set uint value
+func SetUint(ptr uintptr, v uint) {
+	*((*uint)(unsafe.Pointer(ptr))) = v
+}
+
+// set uint8 value
+func SetUint8(ptr uintptr, v uint8) {
+	*((*uint8)(unsafe.Pointer(ptr))) = v
+}
+
+// set uint16 value
+func SetUint16(ptr uintptr, v uint16) {
+	*((*uint16)(unsafe.Pointer(ptr))) = v
+}
+
+// set uint32 value
+func SetUint32(ptr uintptr, v uint32) {
+	*((*uint32)(unsafe.Pointer(ptr))) = v
+}
+
 // set uint64 value
 func SetUint64(ptr uintptr, v uint64) {
 	*((*uint64)(unsafe.Pointer(ptr))) = v
+}
+
+// set *bool value
+func SetBoolP(ptr uintptr, v *bool) {
+	*((**bool)(unsafe.Pointer(ptr))) = v
+}
+
+// set *uint value
+func SetUintP(ptr uintptr, v *uint) {
+	*((**uint)(unsafe.Pointer(ptr))) = v
+}
+
+// set *uint8 value
+func SetUint8P(ptr uintptr, v *uint8) {
+	*((**uint8)(unsafe.Pointer(ptr))) = v
+}
+
+// set *uint16 value
+func SetUint16P(ptr uintptr, v *uint16) {
+	*((**uint16)(unsafe.Pointer(ptr))) = v
+}
+
+// set *uint32 value
+func SetUint32P(ptr uintptr, v *uint32) {
+	*((**uint32)(unsafe.Pointer(ptr))) = v
+}
+
+// set *uint64 value
+func SetUint64P(ptr uintptr, v *uint64) {
+	*((**uint64)(unsafe.Pointer(ptr))) = v
 }
 
 // get []string value

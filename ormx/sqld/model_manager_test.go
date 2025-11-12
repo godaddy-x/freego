@@ -203,3 +203,117 @@ func TestSecureEraseBytes_EmptySlice(t *testing.T) {
 
 	t.Logf("✅ 空切片测试通过")
 }
+
+// TestByteModel 测试模型
+type TestByteModel struct {
+	Id   int64  `json:"id"`
+	Name string `json:"name"`
+	Data []byte `json:"data"`
+}
+
+func (o *TestByteModel) GetTable() string {
+	return "test_byte_model"
+}
+
+func (o *TestByteModel) NewObject() sqlc.Object {
+	return &TestByteModel{}
+}
+
+func (o *TestByteModel) AppendObject(data interface{}, target sqlc.Object) {
+	*data.(*[]*TestByteModel) = append(*data.(*[]*TestByteModel), target.(*TestByteModel))
+}
+
+func (o *TestByteModel) NewIndex() []sqlc.Index {
+	return []sqlc.Index{}
+}
+
+// TestByteArrayFieldSafety 测试 []byte 字段的内存安全性
+func TestByteArrayFieldSafety(t *testing.T) {
+
+	// 注册模型
+	model := &TestByteModel{}
+	if err := ModelDriver(model); err != nil {
+		t.Fatalf("注册模型失败: %v", err)
+	}
+
+	// 查找字段信息
+	var dataElem *FieldElem
+	if driver, ok := modelDrivers[model.GetTable()]; ok {
+		for _, elem := range driver.FieldElem {
+			if elem.FieldName == "Data" {
+				dataElem = elem
+				break
+			}
+		}
+	}
+
+	if dataElem == nil {
+		t.Fatal("未找到 Data 字段信息")
+	}
+
+	// 测试数据
+	originalData := []byte("This is test binary data for safety check!")
+	testObj := &TestByteModel{
+		Id:   1,
+		Name: "test_byte",
+	}
+
+	t.Logf("原始数据: %s (长度: %d)", string(originalData), len(originalData))
+
+	// 模拟连接池缓冲区：创建原始数据，然后"回收"它
+	buffer := make([]byte, len(originalData))
+	copy(buffer, originalData)
+
+	// 设置字段值
+	err := SetValue(testObj, dataElem, buffer)
+	if err != nil {
+		t.Fatalf("SetValue 设置 []byte 字段失败: %v", err)
+	}
+
+	// 验证字段值正确设置
+	if len(testObj.Data) != len(originalData) {
+		t.Errorf("字段长度不正确，期望: %d, 实际: %d", len(originalData), len(testObj.Data))
+	}
+
+	if !bytes.Equal(testObj.Data, originalData) {
+		t.Errorf("字段数据不正确，期望: %s, 实际: %s", string(originalData), string(testObj.Data))
+	}
+
+	t.Logf("设置后字段数据: %s (长度: %d)", string(testObj.Data), len(testObj.Data))
+
+	// 模拟连接池回收：修改原始缓冲区
+	for i := range buffer {
+		buffer[i] = 0xFF // 填充为其他值
+	}
+
+	t.Logf("模拟连接池回收后缓冲区: %s", string(buffer))
+
+	// 验证对象字段不受影响
+	if !bytes.Equal(testObj.Data, originalData) {
+		t.Errorf("字段数据被连接池覆盖! 期望: %s, 实际: %s", string(originalData), string(testObj.Data))
+	}
+
+	// 再次验证长度
+	if len(testObj.Data) != len(originalData) {
+		t.Errorf("字段长度被改变，期望: %d, 实际: %d", len(originalData), len(testObj.Data))
+	}
+
+	t.Logf("回收后字段数据仍然正确: %s (长度: %d)", string(testObj.Data), len(testObj.Data))
+
+	// 测试 GetValue
+	retrieved, err := GetValue(testObj, dataElem)
+	if err != nil {
+		t.Fatalf("GetValue 获取 []byte 字段失败: %v", err)
+	}
+
+	if retrievedBytes, ok := retrieved.([]byte); !ok {
+		t.Errorf("GetValue 返回类型错误，期望 []byte, 实际: %T", retrieved)
+	} else if !bytes.Equal(retrievedBytes, originalData) {
+		t.Errorf("GetValue 返回数据不正确，期望: %s, 实际: %s", string(originalData), string(retrievedBytes))
+	}
+
+	t.Logf("✅ []byte 字段内存安全性测试全部通过!")
+	t.Logf("   原始数据完整性: ✅")
+	t.Logf("   连接池回收隔离: ✅")
+	t.Logf("   GetValue 正确性: ✅")
+}

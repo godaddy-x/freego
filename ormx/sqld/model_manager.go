@@ -639,6 +639,24 @@ func GetValue(obj interface{}, elem *FieldElem) (interface{}, error) {
 			return utils.GetFloat32P(ptr), nil
 		case "*float64":
 			return utils.GetFloat64P(ptr), nil
+		case "*bool":
+			if boolPtr := utils.GetBoolP(ptr); boolPtr != nil {
+				if *boolPtr {
+					return "true", nil
+				}
+				return "false", nil
+			}
+			return nil, nil
+		case "*uint":
+			return utils.GetUintP(ptr), nil
+		case "*uint8":
+			return utils.GetUint8P(ptr), nil
+		case "*uint16":
+			return utils.GetUint16P(ptr), nil
+		case "*uint32":
+			return utils.GetUint32P(ptr), nil
+		case "*uint64":
+			return utils.GetUint64P(ptr), nil
 		case "*time.Time":
 			// 处理 *time.Time 类型的字段
 			if timePtr := utils.GetTimeP(ptr); timePtr != nil {
@@ -982,15 +1000,10 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 			if b == nil || len(b) == 0 {
 				return nil
 			}
-			//if elem.IsBlob {
-			//	utils.SetUint8Arr(ptr, b)
-			//	return nil
-			//}
-			//v := make([]uint8, 0)
-			//if err := getValueJsonObj(b, &v); err != nil {
-			//	return err
-			//}
-			utils.SetUint8Arr(ptr, b)
+			// 创建副本避免连接池缓冲区被覆盖
+			v := make([]uint8, len(b))
+			copy(v, b)
+			utils.SetUint8Arr(ptr, v)
 			return nil
 		case "[]uint16":
 			if b == nil || len(b) == 0 {
@@ -1262,6 +1275,53 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 				return err
 			} else {
 				utils.SetFloat64P(ptr, &ret)
+			}
+			return nil
+		case "*bool":
+			str := safeBytesToString(b)
+			if str == "true" {
+				boolValue := true
+				utils.SetBoolP(ptr, &boolValue)
+			} else {
+				boolValue := false
+				utils.SetBoolP(ptr, &boolValue)
+			}
+			return nil
+		case "*uint":
+			if ret, err := utils.NewUint64(b); err != nil {
+				return err
+			} else {
+				uintValue := uint(ret)
+				utils.SetUintP(ptr, &uintValue)
+			}
+			return nil
+		case "*uint8":
+			if ret, err := utils.NewUint16(b); err != nil {
+				return err
+			} else {
+				uint8Value := uint8(ret)
+				utils.SetUint8P(ptr, &uint8Value)
+			}
+			return nil
+		case "*uint16":
+			if ret, err := utils.NewUint16(b); err != nil {
+				return err
+			} else {
+				utils.SetUint16P(ptr, &ret)
+			}
+			return nil
+		case "*uint32":
+			if ret, err := utils.NewUint32(b); err != nil {
+				return err
+			} else {
+				utils.SetUint32P(ptr, &ret)
+			}
+			return nil
+		case "*uint64":
+			if ret, err := utils.NewUint64(b); err != nil {
+				return err
+			} else {
+				utils.SetUint64P(ptr, &ret)
 			}
 			return nil
 		case "*decimal.Decimal":
