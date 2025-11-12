@@ -17,8 +17,8 @@ import (
 )
 
 var (
-	modelDrivers = make(map[string]*MdlDriver, 0)
-	modelTime    = &MdlTime{local: utils.CstSH, fmt: utils.TimeFmt, fmt2: utils.DateFmt}
+	modelDrivers = make(map[string]*MdlDriver, 100)
+	modelTime    = &MdlTime{local: time.UTC, fmt: utils.TimeFmt2, fmt2: utils.DateFmt}
 )
 
 // FieldElem 字段元素定义（已优化字段顺序以减少内存填充）
@@ -639,6 +639,15 @@ func GetValue(obj interface{}, elem *FieldElem) (interface{}, error) {
 			return utils.GetFloat32P(ptr), nil
 		case "*float64":
 			return utils.GetFloat64P(ptr), nil
+		case "*time.Time":
+			// 处理 *time.Time 类型的字段
+			if timePtr := utils.GetTimeP(ptr); timePtr != nil {
+				if timePtr.IsZero() {
+					return nil, nil
+				}
+				return timePtr.Format(modelTime.fmt), nil
+			}
+			return nil, nil
 		}
 		if v, err := getValueOfMapStr(obj, elem); err != nil {
 			return nil, err
@@ -654,6 +663,13 @@ func GetValue(obj interface{}, elem *FieldElem) (interface{}, error) {
 				return nil, err
 			}
 			return v, nil
+		} else if elem.FieldType == "time.Time" {
+			// 处理 time.Time 类型的字段
+			t := utils.GetTime(ptr)
+			if !t.IsZero() {
+				return t.Format(modelTime.fmt), nil
+			}
+			return nil, nil
 		}
 		return nil, utils.Error("please use pointer type: ", elem.FieldName)
 	}
@@ -849,6 +865,16 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 				return err
 			}
 			reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(v))
+		} else if elem.FieldType == "time.Time" {
+			// 处理 time.Time 类型的字段
+			str := safeBytesToString(b)
+			if len(str) > 0 {
+				if t, err := time.ParseInLocation(modelTime.fmt, str, modelTime.local); err != nil {
+					return err
+				} else {
+					utils.SetTime(ptr, t)
+				}
+			}
 		}
 	case reflect.Slice:
 		switch elem.FieldType {
@@ -1245,6 +1271,17 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 				return err
 			}
 			reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(&decValue))
+			return nil
+		case "*time.Time":
+			// 处理 *time.Time 类型的字段
+			ret := safeBytesToString(b)
+			if len(ret) > 0 {
+				if t, err := time.ParseInLocation(modelTime.fmt, ret, modelTime.local); err != nil {
+					return err
+				} else {
+					utils.SetTimeP(ptr, &t)
+				}
+			}
 			return nil
 		}
 		structValue := reflect.ValueOf(obj).Elem()

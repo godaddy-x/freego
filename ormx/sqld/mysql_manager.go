@@ -103,7 +103,7 @@ func (self *MysqlManager) buildByConfig(manager cache.Cache, input ...MysqlConfi
 		if len(v.Location) > 0 {
 			loc = url.QueryEscape(v.Location)
 		}
-		link := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=%s&parseTime=true&loc=%s&timeout=%ds&readTimeout=%ds&writeTimeout=%ds",
+		link := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=%s&loc=%s&timeout=%ds&readTimeout=%ds&writeTimeout=%ds",
 			url.QueryEscape(v.Username), url.QueryEscape(v.Password), v.Host, v.Port, v.Database, v.Charset, loc, timeout, timeout, timeout)
 
 		// 7. 打开数据库连接
