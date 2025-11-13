@@ -68,7 +68,7 @@ type Context struct {
 	// 8字节字段组 (5个字段)
 	Identify        *Identify                               // 8字节 - 指针字段
 	System          *System                                 // 8字节 - 指针字段
-	CacheAware      func(ds ...string) (cache.Cache, error) // 8字节 - 函数指针
+	RedisCacheAware func(ds ...string) (cache.Cache, error) // 8字节 - 函数指针
 	LocalCacheAware func(ds ...string) (cache.Cache, error) // 8字节 - 函数指针
 	RSA             []crypto.Cipher                         // 8字节 - slice
 

@@ -529,6 +529,13 @@ func FNV1a64(s string) string {
 	return fmt.Sprintf("%x", h.Sum64()) // 输出哈希值
 }
 
+// FNV1a64Base 快速哈希函数（非密码学安全，适合缓存键生成）
+func FNV1a64Base(b []byte) string {
+	h := fnv.New64a() // 64位FNV-1a
+	h.Write(b)
+	return fmt.Sprintf("%x", h.Sum64()) // 输出哈希值
+}
+
 // FastHASH MurmurHash3 快速哈希函数（非密码学安全，适合缓存键生成）
 //func FastHASH(s string, size int) string {
 //	// 64位MurmurHash3（最常用）

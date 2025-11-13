@@ -435,7 +435,7 @@ func callLogin(appId string) (string, int64, error) {
 	if err := rsaObj.LoadRsaPemFileBase64(pub.PublicKey); err != nil {
 		return "", 0, err
 	}
-	content, err := rsaObj.Encrypt(utils.Str2Bytes(b64))
+	content, err := rsaObj.Encrypt(utils.Str2Bytes(b64), nil)
 	if err != nil {
 		return "", 0, err
 	}

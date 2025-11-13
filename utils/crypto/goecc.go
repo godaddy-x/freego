@@ -1,7 +1,7 @@
 package crypto
 
 import (
-	"crypto/ecdsa"
+	"crypto/ecdh"
 	"errors"
 
 	ecc "github.com/godaddy-x/eccrypto"
@@ -14,31 +14,30 @@ type EccObj struct {
 	PublicKeyBase64  string
 
 	// 8字节指针字段组
-	privateKey *ecdsa.PrivateKey
-	publicKey  *ecdsa.PublicKey
+	privateKey *ecdh.PrivateKey
+	publicKey  *ecdh.PublicKey
 }
 
 func (self *EccObj) CreateS256ECC() error {
-	prk, err := ecc.CreateECDSA()
+	prk, err := ecc.CreateECDH()
 	if err != nil {
 		return err
 	}
-	_, pubBs, err := ecc.GetObjectBytes(nil, &prk.PublicKey)
+
 	self.privateKey = prk
-	self.publicKey = &prk.PublicKey
-	self.PublicKeyBase64 = utils.Base64Encode(pubBs)
+	self.publicKey = prk.PublicKey()
+	self.PublicKeyBase64 = utils.Base64Encode(self.publicKey.Bytes())
 	return nil
 }
 
 func (self *EccObj) LoadS256ECC(b64 string) error {
-	prk, err := ecc.LoadBase64PrivateKey(b64)
+	prk, err := ecc.LoadECDHPrivateKeyFromBase64(b64)
 	if err != nil {
 		return err
 	}
-	_, pubBs, err := ecc.GetObjectBytes(nil, &prk.PublicKey)
 	self.privateKey = prk
-	self.publicKey = &prk.PublicKey
-	self.PublicKeyBase64 = utils.Base64Encode(pubBs)
+	self.publicKey = prk.PublicKey()
+	self.PublicKeyBase64 = utils.Base64Encode(self.publicKey.Bytes())
 	return nil
 }
 
@@ -52,16 +51,16 @@ func (self *EccObj) GetPublicKey() (interface{}, string) {
 	return self.publicKey, self.PublicKeyBase64
 }
 
-func (self *EccObj) Encrypt(msg []byte) (string, error) {
+func (self *EccObj) Encrypt(msg, aad []byte) (string, error) {
 	return "", nil
 }
 
-func (self *EccObj) Decrypt(msg string) ([]byte, error) {
+func (self *EccObj) Decrypt(msg string, aad []byte) ([]byte, error) {
 	bs := utils.Base64Decode(msg)
 	if len(bs) == 0 {
 		return nil, errors.New("base64 parse failed")
 	}
-	r, err := ecc.Decrypt(self.privateKey, bs)
+	r, err := ecc.Decrypt(self.privateKey, bs, aad)
 	if err != nil {
 		return nil, err
 	}
@@ -69,13 +68,9 @@ func (self *EccObj) Decrypt(msg string) ([]byte, error) {
 }
 
 func (self *EccObj) Sign(msg []byte) ([]byte, error) {
-	return ecc.Sign(self.privateKey, msg)
+	return nil, nil
 }
 
 func (self *EccObj) Verify(msg, sign []byte) error {
-	b := ecc.Verify(self.publicKey, msg, sign)
-	if !b {
-		return errors.New("verify failed")
-	}
 	return nil
 }

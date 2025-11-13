@@ -3,6 +3,7 @@ package node
 import (
 	"context"
 	"fmt"
+	DIC "github.com/godaddy-x/freego/common"
 	"net"
 	"net/http"
 	"os"
@@ -89,7 +90,7 @@ func (self *HttpNode) StartServer(addr string) {
 	// 初始化限流器（Redis准备就绪后）
 	initRateLimiters()
 
-	if self.Context.CacheAware != nil {
+	if self.Context.RedisCacheAware != nil {
 		zlog.Printf("redis cache service has been started successful")
 	}
 	if self.Context.LocalCacheAware != nil {
@@ -196,7 +197,7 @@ func (self *HttpNode) StartServer(addr string) {
 
 func (self *HttpNode) checkContextReady(path string, routerConfig *RouterConfig) {
 	self.readyContext()
-	self.AddCache(nil)
+	self.AddRedisCache(nil)
 	self.AddLocalCache(nil)
 	//if err := self.AddCipher(nil); err != nil {
 	//	panic("add cipher failed: " + err.Error())
@@ -279,11 +280,11 @@ func (self *HttpNode) readyContext() {
 	}
 }
 
-// AddCache 增加redis缓存实例
-func (self *HttpNode) AddCache(cacheAware CacheAware) {
+// AddRedisCache 增加redis缓存实例
+func (self *HttpNode) AddRedisCache(cacheAware CacheAware) {
 	self.readyContext()
-	if cacheAware != nil && self.Context.CacheAware == nil {
-		self.Context.CacheAware = cacheAware
+	if cacheAware != nil && self.Context.RedisCacheAware == nil {
+		self.Context.RedisCacheAware = cacheAware
 	}
 }
 
@@ -550,33 +551,39 @@ func defaultRenderPre(ctx *Context) error {
 			Time:  utils.UnixSecond(),
 			Nonce: utils.RandNonce(),
 		}
-		var key string
 		if routerConfig.UseRSA { // 非登录状态响应
 			if ctx.JsonBody.Plan == 2 {
-				v := ctx.GetStorage(RandomCode)
+				v := ctx.GetStorage(SharedKey)
 				if v == nil {
 					return ex.Throw{Msg: "encryption random code is nil"}
 				}
 				resp.Plan = 2
-				key, _ = v.(string)
-				resp.Data, err = utils.AesGCMEncryptWithAAD(data, key, utils.AddStr(resp.Time, resp.Nonce, resp.Plan, ctx.Path))
+				key, _ := v.([]byte)
+				defer DIC.ClearData(key) // 使用完毕清空敏感密钥
+				resp.Data, err = utils.AesGCMEncryptBase(data, key[0:32], utils.Str2Bytes(utils.AddStr(resp.Time, resp.Nonce, resp.Plan, ctx.Path)))
 				if err != nil {
 					return ex.Throw{Code: http.StatusInternalServerError, Msg: "AES encryption response data failed", Err: err}
 				}
-				ctx.DelStorage(RandomCode)
+				ctx.DelStorage(SharedKey)
+				resp.Sign = utils.Base64Encode(ctx.GetHmac256Sign(resp.Data, resp.Nonce, resp.Time, resp.Plan, key))
 			} else {
 				return ex.Throw{Msg: "anonymous response plan invalid"}
 			}
 		} else if routerConfig.AesResponse {
+			key := ctx.GetTokenSecret()
+			defer DIC.ClearData(key) // 使用完毕清空敏感密钥
 			resp.Plan = 1
-			resp.Data, err = utils.AesGCMEncryptWithAAD(data, ctx.GetTokenSecret(), utils.AddStr(resp.Time, resp.Nonce, resp.Plan, ctx.Path))
+			resp.Data, err = utils.AesGCMEncryptBase(data, key[0:32], utils.Str2Bytes(utils.AddStr(resp.Time, resp.Nonce, resp.Plan, ctx.Path)))
 			if err != nil {
 				return ex.Throw{Code: http.StatusInternalServerError, Msg: "AES encryption response data failed", Err: err}
 			}
-		} else {
+			resp.Sign = utils.Base64Encode(ctx.GetHmac256Sign(resp.Data, resp.Nonce, resp.Time, resp.Plan, key))
+		} else { // 单纯Base64编码格式响应
+			key := ctx.GetTokenSecret()
+			defer DIC.ClearData(key) // 使用完毕清空敏感密钥
 			resp.Data = utils.Base64Encode(data)
+			resp.Sign = utils.Base64Encode(ctx.GetHmac256Sign(resp.Data, resp.Nonce, resp.Time, resp.Plan, key))
 		}
-		resp.Sign = ctx.GetHmac256Sign(resp.Data, resp.Nonce, resp.Time, resp.Plan, key)
 		if result, err := utils.JsonMarshal(resp); err != nil {
 			return ex.Throw{Code: http.StatusInternalServerError, Msg: "response JSON data failed", Err: err}
 		} else {

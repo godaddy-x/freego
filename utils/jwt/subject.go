@@ -116,7 +116,7 @@ func (self *Subject) Signature(text, key string) string {
 	return utils.HMAC_SHA256(text, utils.AddStr(utils.GetLocalSecretKey(), key), true)
 }
 
-func (self *Subject) GetTokenSecret(token, secret string) string {
+func (self *Subject) GetTokenSecret(token, secret string) []byte {
 	return self.GetTokenSecretEnhanced(token, secret)
 }
 
@@ -260,7 +260,7 @@ func (self *Subject) getInt64Value(k string, payload []byte) int64 {
 
 // GetTokenSecretEnhanced 获取token的私钥（增强版）
 // 使用标准PBKDF2密钥派生，确保安全性和性能
-func (self *Subject) GetTokenSecretEnhanced(token, secret string) string {
+func (self *Subject) GetTokenSecretEnhanced(token, secret string) []byte {
 
 	// 1. 获取本地密钥
 	localKey := utils.GetLocalTokenSecretKey()
@@ -276,31 +276,37 @@ func (self *Subject) GetTokenSecretEnhanced(token, secret string) string {
 	// 4. 尝试从缓存获取结果（只有在缓存可用时才使用）
 	if self.cache != nil {
 		if value, err := self.cache.GetString(cacheKey); err == nil && len(value) > 0 {
-			return value
+			result, err := utils.AesGCMDecryptBase(value, utils.GetAesKeySecure(secret), utils.GetAesKeySecure(token))
+			if err != nil {
+				zlog.Error("put localSubjectCache token secret decrypt failed", 0, zlog.AddError(err))
+			}
+			return result
 		}
 	}
 
 	// 5. 计算盐值：使用不同顺序的参数组合（顺序：token, secret, localKey）
 	//    与password顺序不同，确保缓存键和盐值不同，提升安全性
 	//    即使缓存键泄露，攻击者也无法直接获得盐值
-	salt := utils.SHA256(utils.AddStr(token, secret, localKey))
+	salt := utils.SHA256_BASE(utils.Str2Bytes(utils.AddStr(token, secret, localKey)))
 
 	// 6. 使用标准PBKDF2密钥派生（HMAC-SHA512，10,000次迭代）
 	//    输出64字节密钥（SHA-512）
-	derivedKey := pbkdf2.Key(utils.Str2Bytes(password), utils.Str2Bytes(salt), 10000, 64, sha512.New)
+	derivedKey := pbkdf2.Key(utils.Str2Bytes(password), salt, 10000, 64, sha512.New)
 
 	// 7. HMAC-SHA512增强
 	localKeyBytes := utils.Str2Bytes(localKey)
 	enhancedHashBytes := utils.HMAC_SHA512_BASE(derivedKey, localKeyBytes)
 
-	// 8. 转换为Base64字符串
-	result := utils.Base64Encode(enhancedHashBytes)
-
-	// 9. 缓存结果，1小时有效期（平衡性能和内存占用，只有在缓存可用时才写入）
+	// 8. 缓存结果，1小时有效期（平衡性能和内存占用，只有在缓存可用时才写入）
 	if self.cache != nil {
+		// 加密缓存数据
+		result, err := utils.AesGCMEncryptBase(enhancedHashBytes, utils.GetAesKeySecure(secret), utils.GetAesKeySecure(token))
+		if err != nil {
+			zlog.Error("put localSubjectCache token secret encrypt failed", 0, zlog.AddError(err))
+		}
 		if err := self.cache.Put(cacheKey, result, 3600); err != nil {
 			zlog.Error("put localSubjectCache token secret failed", 0, zlog.AddError(err))
 		}
 	}
-	return result
+	return enhancedHashBytes
 }

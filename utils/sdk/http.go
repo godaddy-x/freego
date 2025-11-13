@@ -1,9 +1,13 @@
 package sdk
 
 import (
-	"crypto/ecdsa"
+	"crypto/ecdh"
+	"crypto/sha512"
+	"encoding/hex"
 	"fmt"
 	"time"
+
+	"golang.org/x/crypto/pbkdf2"
 
 	ecc "github.com/godaddy-x/eccrypto"
 	"github.com/godaddy-x/freego/ex"
@@ -26,7 +30,7 @@ type HttpSDK struct {
 	KeyPath    string
 	LoginPath  string
 	publicKey  string
-	privateKey *ecdsa.PrivateKey
+	privateKey *ecdh.PrivateKey
 	language   string
 	timeout    int64
 	authObject interface{}
@@ -54,7 +58,7 @@ func (s *HttpSDK) SetPublicKey(publicKey string) {
 	s.publicKey = publicKey
 }
 
-func (s *HttpSDK) SetPrivateKey(privateKey *ecdsa.PrivateKey) {
+func (s *HttpSDK) SetPrivateKey(privateKey *ecdh.PrivateKey) {
 	s.privateKey = privateKey
 }
 
@@ -74,10 +78,7 @@ func (s *HttpSDK) getURI(path string) string {
 	return s.Domain + path
 }
 
-func (s *HttpSDK) GetPublicKey() (string, error) {
-	if len(s.publicKey) > 0 {
-		return s.publicKey, nil
-	}
+func (s *HttpSDK) GetPublicKey() (*node.PublicKey, error) {
 	request := fasthttp.AcquireRequest()
 	request.Header.SetMethod("GET")
 	defer fasthttp.ReleaseRequest(request)
@@ -85,12 +86,16 @@ func (s *HttpSDK) GetPublicKey() (string, error) {
 	defer fasthttp.ReleaseResponse(response)
 	_, b, err := fasthttp.Get(nil, s.getURI(s.KeyPath))
 	if err != nil {
-		return "", ex.Throw{Msg: "request public key failed"}
+		return nil, ex.Throw{Msg: "request public key failed"}
 	}
 	if len(b) == 0 {
-		return "", ex.Throw{Msg: "request public key invalid"}
+		return nil, ex.Throw{Msg: "request public key invalid"}
 	}
-	return utils.Bytes2Str(b), nil
+	result := &node.PublicKey{}
+	if err := utils.JsonUnmarshal(b, result); err != nil {
+		return nil, ex.Throw{Msg: "request public key parse error: " + err.Error()}
+	}
+	return result, nil
 }
 
 // PostByECC 对象请使用指针
@@ -116,31 +121,34 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 		}
 		jsonBody.Data = utils.Bytes2Str(jsonData)
 	}
-	publicKey, err := s.GetPublicKey()
+	serverKey, err := s.GetPublicKey()
 	if err != nil {
 		return err
 	}
-	clientSecretKey := utils.GetRandomSecure(32)
-	_, pubBs, err := ecc.LoadBase64PublicKey(publicKey)
+	prk, err := ecc.CreateECDH()
+	if err != nil {
+		return ex.Throw{Msg: "create ECC prk key failed"}
+	}
+	pub, err := ecc.LoadECDHPublicKeyFromBase64(serverKey.Key)
 	if err != nil {
 		return ex.Throw{Msg: "load ECC public key failed"}
 	}
-	clientSecretKeyBase64 := utils.Base64Encode(clientSecretKey)
-	r, err := ecc.Encrypt(s.privateKey, pubBs, clientSecretKey)
+	sharedKey, err := ecc.GenSharedKeyECDH(prk, pub)
 	if err != nil {
-		return ex.Throw{Msg: "ECC encrypt failed"}
+		return ex.Throw{Msg: "ECC shared key failed"}
 	}
-	randomCode := utils.Base64Encode(r)
-	s.debugOut("server key: ", publicKey)
-	s.debugOut("client key: ", clientSecretKey)
-	s.debugOut("client key encrypted: ", randomCode)
+	// 6. 使用标准PBKDF2密钥派生（HMAC-SHA512，1024次迭代） 输出32字节密钥（SHA-512）
+	sharedKey = pbkdf2.Key(sharedKey, utils.Base64Decode(serverKey.Noc), 1024, 32, sha512.New)
+	s.debugOut("server key: ", serverKey.Key)
+	s.debugOut("client key: ", utils.Base64Encode(prk.PublicKey().Bytes()))
+	s.debugOut("shared key: ", utils.Base64Encode(sharedKey))
 	// 使用 AES-GCM 加密，Nonce 作为 AAD
-	d, err := utils.AesGCMEncryptWithAAD(utils.Str2Bytes(jsonBody.Data), clientSecretKeyBase64, utils.AddStr(jsonBody.Time, jsonBody.Nonce, jsonBody.Plan, path))
+	d, err := utils.AesGCMEncryptBase(utils.Str2Bytes(jsonBody.Data), sharedKey, utils.Str2Bytes(utils.AddStr(jsonBody.Time, jsonBody.Nonce, jsonBody.Plan, path)))
 	if err != nil {
 		return ex.Throw{Msg: "request data AES encrypt failed"}
 	}
 	jsonBody.Data = d
-	jsonBody.Sign = utils.HMAC_SHA256(utils.AddStr(path, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan), clientSecretKeyBase64, true)
+	jsonBody.Sign = utils.Base64Encode(utils.HMAC_SHA256_BASE(utils.Str2Bytes(utils.AddStr(path, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan)), sharedKey))
 	bytesData, err := utils.JsonMarshal(jsonBody)
 	if err != nil {
 		return ex.Throw{Msg: "jsonBody data JsonMarshal invalid"}
@@ -150,7 +158,8 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	request := fasthttp.AcquireRequest()
 	request.Header.SetContentType("application/json;charset=UTF-8")
 	request.Header.Set("Authorization", "")
-	request.Header.Set("RandomCode", randomCode)
+	request.Header.Set("ServerKey", serverKey.Key)
+	request.Header.Set("ClientKey", utils.Base64Encode(prk.PublicKey().Bytes()))
 	request.Header.Set("Language", s.language)
 	request.Header.SetMethod("POST")
 	request.SetRequestURI(s.getURI(path))
@@ -181,12 +190,12 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 		}
 		return ex.Throw{Msg: respData.Message}
 	}
-	validSign := utils.HMAC_SHA256(utils.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan), clientSecretKeyBase64, true)
-	if validSign != respData.Sign {
+	validSign := utils.HMAC_SHA256_BASE(utils.Str2Bytes(utils.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan)), sharedKey)
+	if utils.Base64Encode(validSign) != respData.Sign {
 		return ex.Throw{Msg: "post response sign verify invalid"}
 	}
-	s.debugOut("response sign verify: ", validSign == respData.Sign)
-	dec, err := utils.AesGCMDecryptWithAAD(respData.Data, clientSecretKeyBase64, utils.AddStr(respData.Time, respData.Nonce, respData.Plan, path))
+	s.debugOut("response sign verify: ", utils.Base64Encode(validSign) == respData.Sign)
+	dec, err := utils.AesGCMDecryptBase(respData.Data, sharedKey, utils.Str2Bytes(utils.AddStr(respData.Time, respData.Nonce, respData.Plan, path)))
 	if err != nil {
 		return ex.Throw{Msg: "post response data AES decrypt failed"}
 	}
@@ -274,7 +283,7 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 	}
 	if encrypted {
 		jsonBody.Plan = 1
-		d, err := utils.AesGCMEncryptWithAAD(utils.Str2Bytes(jsonBody.Data), s.authToken.Secret, utils.AddStr(jsonBody.Time, jsonBody.Nonce, jsonBody.Plan, path))
+		d, err := utils.AesGCMEncryptBase(utils.Str2Bytes(jsonBody.Data), utils.Base64Decode(s.authToken.Secret)[:32], utils.Str2Bytes(utils.AddStr(jsonBody.Time, jsonBody.Nonce, jsonBody.Plan, path)))
 		if err != nil {
 			return ex.Throw{Msg: "request data AES encrypt failed"}
 		}
@@ -284,7 +293,7 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 		jsonBody.Data = utils.Base64Encode(jsonBody.Data)
 		s.debugOut("request data base64: ", jsonBody.Data)
 	}
-	jsonBody.Sign = utils.HMAC_SHA256(utils.AddStr(path, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan), s.authToken.Secret, true)
+	jsonBody.Sign = utils.Base64Encode(utils.HMAC_SHA256_BASE(utils.Str2Bytes(utils.AddStr(path, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan)), utils.Base64Decode(s.authToken.Secret)))
 	bytesData, err := utils.JsonMarshal(jsonBody)
 	if err != nil {
 		return ex.Throw{Msg: "jsonBody data JsonMarshal invalid"}
@@ -327,17 +336,18 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 		return ex.Throw{Msg: "response plan invalid, must be 0 or 1, got: " + utils.AnyToStr(respData.Plan)}
 	}
 
-	validSign := utils.HMAC_SHA256(utils.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan), s.authToken.Secret, true)
-	if validSign != respData.Sign {
+	fmt.Println(hex.EncodeToString(utils.Base64Decode(s.authToken.Secret)))
+	validSign := utils.HMAC_SHA256_BASE(utils.Str2Bytes(utils.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan)), utils.Base64Decode(s.authToken.Secret))
+	if utils.Base64Encode(validSign) != respData.Sign {
 		return ex.Throw{Msg: "post response sign verify invalid"}
 	}
-	s.debugOut("response sign verify: ", validSign == respData.Sign)
+	s.debugOut("response sign verify: ", utils.Base64Encode(validSign) == respData.Sign)
 	var dec []byte
 	if respData.Plan == 0 {
 		dec = utils.Base64Decode(respData.Data)
 		s.debugOut("response data base64: ", string(dec))
 	} else if respData.Plan == 1 {
-		dec, err = utils.AesGCMDecryptWithAAD(respData.Data, s.authToken.Secret, utils.AddStr(respData.Time, respData.Nonce, respData.Plan, path))
+		dec, err = utils.AesGCMDecryptBase(respData.Data, utils.Base64Decode(s.authToken.Secret)[:32], utils.Str2Bytes(utils.AddStr(respData.Time, respData.Nonce, respData.Plan, path)))
 		if err != nil {
 			return ex.Throw{Msg: "post response data AES decrypt failed"}
 		}

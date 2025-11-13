@@ -1,22 +1,25 @@
 package main
 
 import (
+	"crypto/sha512"
 	"fmt"
 	"testing"
 	"time"
 
 	ecc "github.com/godaddy-x/eccrypto"
+	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/sdk"
 	"github.com/valyala/fasthttp"
+	"golang.org/x/crypto/pbkdf2"
 )
 
 //go test -v http_test.go -bench=BenchmarkPubkey -benchmem -count=10
 
 const domain = "http://localhost:8090"
 
-const access_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxOTg0NTQyMTQyMzY5ODkwMzA1IiwiYXVkIjoiIiwiaXNzIjoiIiwiaWF0IjowLCJleHAiOjE3NjMxOTYyOTIsImRldiI6IkFQUCIsImp0aSI6IlMrQjh0ZDh4ZGErRFVGeFliemxWNWc9PSIsImV4dCI6IiJ9.IDMBqkgRgl5cA0EOurLr/9ZdTFv7T6ACGLMN0cwZUT8="
-const token_secret = "WZlK3jp1GNdXXi2lWM/DnfFkRbMSbO7JP/I+MhdblfLJZf6cZCzKsBi5i7pMfrFZuLnNj1Qf2cZIym1V/ti/LA=="
-const token_expire = 1763196292
+const access_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxOTg4OTc1NjE1OTM1NTEyNTc3IiwiYXVkIjoiIiwiaXNzIjoiIiwiZGV2IjoiQVBQIiwianRpIjoiODZBTkxaa3NMOXRjcXNhbksva3lLQT09IiwiZXh0IjoiIiwiaWF0IjowLCJleHAiOjE3NjQyNTMzMTR9.rx5TK/f/5/nbekAjF8j3sx/vdTBXXVkWJarASgosCO4="
+const token_secret = "zwtdwxeNAMJKL40Aqixb6JpbViAuabFYxKX8G/O+ADoMQhVjuS1VDg6Hdeq83OYlvg4of/U4khLo0X3U1hYCpw=="
+const token_expire = 1764252337
 
 var httpSDK = &sdk.HttpSDK{
 	Debug:     true,
@@ -34,9 +37,9 @@ func TestGetPublicKey(t *testing.T) {
 }
 
 func TestECCLogin(t *testing.T) {
-	prk, _ := ecc.CreateECDSA()
+	prk, _ := ecc.CreateECDH()
 	httpSDK.SetPrivateKey(prk)
-	httpSDK.SetPublicKey("BKNoaVapAlKywv5sXfag/LHa8mp6sdGFX6QHzfXIjBojkoCfCgZg6RPBXwLUUpPDzOC3uhDC60ECz2i1EbITsGY=")
+	httpSDK.SetPublicKey("BJXMbaEwwpPm8DEbe1Ayzbyy/wQ7ZYG+Vu1y25Zq7t0cZ8+ylu3hS2p3wEJz/XHgfBZ6aJFCpaXXlBsoam1TU1U=")
 	requestData := sdk.AuthToken{Token: "AI工具人，鲨鱼宝宝！！！"}
 	responseData := sdk.AuthToken{}
 	if err := httpSDK.PostByECC("/login", &requestData, &responseData); err != nil {
@@ -50,7 +53,7 @@ func TestGetUser(t *testing.T) {
 	httpSDK.AuthToken(sdk.AuthToken{Token: access_token, Secret: token_secret, Expired: token_expire})
 	requestObj := sdk.AuthToken{Token: "AI工具人，鲨鱼宝宝！QWER123456@##！！", Secret: "安排测试下吧123456789@@@"}
 	responseData := sdk.AuthToken{}
-	if err := httpSDK.PostByAuth("/getUser", &requestObj, &responseData, true); err != nil {
+	if err := httpSDK.PostByAuth("/getUser", &requestObj, &responseData, false); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println(responseData)
@@ -200,7 +203,7 @@ func TestPostByAuthWithInvalidData(t *testing.T) {
 // TestPostByECCWithInvalidData 测试ECC请求的无效数据处理
 // 验证在使用nil或无效参数调用PostByECC时的错误处理
 func TestPostByECCWithInvalidData(t *testing.T) {
-	prk, _ := ecc.CreateECDSA()
+	prk, _ := ecc.CreateECDH()
 	httpSDK := &sdk.HttpSDK{
 		Debug:     true,
 		Domain:    domain,
@@ -305,7 +308,7 @@ func TestNetworkTimeout(t *testing.T) {
 // TestRequestDataSerialization 测试请求数据序列化能力
 // 验证SDK对不同类型请求数据的JSON序列化处理
 func TestRequestDataSerialization(t *testing.T) {
-	prk, _ := ecc.CreateECDSA()
+	prk, _ := ecc.CreateECDH()
 	httpSDK := &sdk.HttpSDK{
 		Debug:     true,
 		Domain:    domain,
@@ -525,6 +528,17 @@ func min(a, b int) int {
 
 // BenchmarkHttpSDK_GetPublicKey 公钥获取性能基准测试
 // 测量GetPublicKey方法在并发场景下的性能表现和响应时间
+func BenchmarkPBKDF2(b *testing.B) {
+	password := "test_password"
+	salt := utils.GetAesIVSecure()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		derivedKey := pbkdf2.Key(utils.Str2Bytes(password), salt, 50000, 64, sha512.New)
+		_ = derivedKey
+	}
+}
+
 func BenchmarkHttpSDK_GetPublicKey(b *testing.B) {
 	httpSDK := &sdk.HttpSDK{
 		Debug:  false, // 基准测试时关闭调试
@@ -572,7 +586,7 @@ func BenchmarkHttpSDK_PostByAuth(b *testing.B) {
 // BenchmarkHttpSDK_PostByECC ECC请求性能基准测试
 // 测量PostByECC方法在并发场景下的性能表现，包含ECC加密开销
 func BenchmarkHttpSDK_PostByECC(b *testing.B) {
-	prk, _ := ecc.CreateECDSA()
+	prk, _ := ecc.CreateECDH()
 	httpSDK := &sdk.HttpSDK{
 		Debug:     false, // 基准测试时关闭调试
 		Domain:    domain,

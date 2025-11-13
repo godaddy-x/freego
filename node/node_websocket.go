@@ -172,8 +172,8 @@ func createCtx(self *WsServer, path string) *Context {
 	ctxNew.Subject = &jwt.Subject{Header: &jwt.Header{}, Payload: &jwt.Payload{}}
 	ctxNew.Response = &Response{Encoding: UTF8, ContentType: APPLICATION_JSON, ContentEntity: nil}
 	ctxNew.Storage = map[string]interface{}{}
-	if ctxNew.CacheAware == nil {
-		ctxNew.CacheAware = ctx.CacheAware
+	if ctxNew.RedisCacheAware == nil {
+		ctxNew.RedisCacheAware = ctx.RedisCacheAware
 	}
 	if ctxNew.RSA == nil {
 		ctxNew.RSA = ctx.RSA
@@ -200,7 +200,7 @@ func wsRenderTo(ws *websocket.Conn, ctx *Context, data interface{}) error {
 		return nil
 	}
 	routerConfig, _ := ctx.configs.routerConfigs[ctx.Path]
-	data, err := authReq(ctx.Path, data, ctx.GetTokenSecret(), routerConfig.AesResponse)
+	data, err := authReq(ctx.Path, data, "", routerConfig.AesResponse)
 	if err != nil {
 		return err
 	}

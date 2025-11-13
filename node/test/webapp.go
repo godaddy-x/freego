@@ -2,6 +2,8 @@ package http_web
 
 import (
 	"fmt"
+	ecc "github.com/godaddy-x/eccrypto"
+	"net/http"
 
 	rate "github.com/godaddy-x/freego/cache/limiter"
 	"github.com/godaddy-x/freego/ex"
@@ -63,7 +65,7 @@ func (self *MyWebNode) login(ctx *node.Context) error {
 	secret := ctx.Subject.GetTokenSecret(token, config.TokenKey)
 	bs, err := utils.JsonMarshal(&sdk.AuthToken{
 		Token:   token,
-		Secret:  secret,
+		Secret:  utils.Base64Encode(secret),
 		Expired: ctx.Subject.Payload.Exp,
 	})
 	if err != nil {
@@ -74,9 +76,21 @@ func (self *MyWebNode) login(ctx *node.Context) error {
 }
 
 func (self *MyWebNode) publicKey(ctx *node.Context) error {
-	//testCallRPC()
-	_, publicKey := ctx.RSA[0].GetPublicKey()
-	return self.Text(ctx, publicKey)
+	c, err := ctx.GetCacheObject()
+	if err != nil {
+		return err
+	}
+	prk, err := ecc.CreateECDH()
+	if err != nil {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "ecdh invalid", Err: err}
+	}
+	pub := utils.Base64Encode(prk.PublicKey().Bytes())
+	noc := utils.Base64Encode(utils.AddStr(utils.GetAesIVSecure(), utils.UnixSecond()))
+	exp := 120
+	if err := c.Put(utils.FNV1a64(pub), &node.PrivateKey{Key: utils.Base64Encode(prk.Bytes()), Noc: noc}, exp); err != nil {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "ecdh set invalid", Err: err}
+	}
+	return self.Json(ctx, &node.PublicKey{Key: pub, Noc: noc, Exp: exp})
 }
 
 func (self *MyWebNode) testGuestPost(ctx *node.Context) error {
@@ -149,7 +163,7 @@ func (self *TestFilter) DoFilter(chain node.Filter, ctx *node.Context, args ...i
 }
 
 const (
-	privateKey = "MHcCAQEEIEpXwxicdbb4DM+EW/cJVvoTSubRHIKB6kai/1qgaWnNoAoGCCqGSM49AwEHoUQDQgAEo2hpVqkCUrLC/mxd9qD8sdryanqx0YVfpAfN9ciMGiOSgJ8KBmDpE8FfAtRSk8PM4Le6EMLrQQLPaLURshOwZg=="
+	privateKey = "JCW4TMilCz1+gaVuUoJJLnvSq95r1Evec3/UKdAVND4="
 )
 
 func roleRealm(ctx *node.Context, onlyRole bool) (*node.Permission, error) {
@@ -202,7 +216,7 @@ func StartHttpNode() {
 	my := NewHTTP()
 	my.SetLengthCheck(node.MAX_BODY_LEN*5, 0, 0)
 	my.POST("/test1", my.test, nil)
-	my.POST("/getUser", my.getUser, &node.RouterConfig{AesRequest: true, AesResponse: true})
+	my.POST("/getUser", my.getUser, &node.RouterConfig{AesRequest: false, AesResponse: false})
 	my.POST("/testGuestPost", my.testGuestPost, &node.RouterConfig{Guest: true})
 	my.GET("/key", my.publicKey, &node.RouterConfig{Guest: true})
 	my.POST("/login", my.login, &node.RouterConfig{UseRSA: true})

@@ -1,5 +1,18 @@
 package node
 
+//easyjson:json
+type PublicKey struct {
+	Key string `json:"key"` // 公钥Base64编码格式
+	Noc string `json:"noc"` // 随机数
+	Exp int    `json:"exp"` // 有效时间，单位秒
+}
+
+//easyjson:json
+type PrivateKey struct {
+	Key string `json:"key"` // 私钥Base64编码格式
+	Noc string `json:"noc"` // 随机数
+}
+
 // JsonBody 结构体 - 64字节 (5个字段，8字节对齐，无填充)
 // 排列优化：string字段组在前(48字节)，int64字段组在后(16字节)
 //

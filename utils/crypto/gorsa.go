@@ -20,8 +20,8 @@ const bits = 2048
 type Cipher interface {
 	GetPrivateKey() (interface{}, string)
 	GetPublicKey() (interface{}, string)
-	Encrypt(msg []byte) (string, error)
-	Decrypt(msg string) ([]byte, error)
+	Encrypt(msg, aad []byte) (string, error)
+	Decrypt(msg string, aad []byte) ([]byte, error)
 	Sign(msg []byte) ([]byte, error)
 	Verify(msg, sign []byte) error
 }
@@ -276,7 +276,7 @@ func (self *RsaObj) GetPublicKey() (interface{}, string) {
 	return self.publicKey, self.PublicKeyBase64
 }
 
-func (self *RsaObj) Encrypt(msg []byte) (string, error) {
+func (self *RsaObj) Encrypt(msg, aad []byte) (string, error) {
 	partLen := self.publicKey.N.BitLen()/8 - 11
 	chunks := split(msg, partLen)
 	buffer := bytes.NewBufferString("")
@@ -290,7 +290,7 @@ func (self *RsaObj) Encrypt(msg []byte) (string, error) {
 	return utils.Base64Encode(buffer.Bytes()), nil
 }
 
-func (self *RsaObj) Decrypt(msg string) ([]byte, error) {
+func (self *RsaObj) Decrypt(msg string, aad []byte) ([]byte, error) {
 	partLen := self.publicKey.N.BitLen() / 8
 	raw := utils.Base64Decode(msg)
 	if len(raw) == 0 {

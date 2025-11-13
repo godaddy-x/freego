@@ -2,6 +2,10 @@ package node
 
 import (
 	"bytes"
+	"crypto/sha512"
+	ecc "github.com/godaddy-x/eccrypto"
+	DIC "github.com/godaddy-x/freego/common"
+	"golang.org/x/crypto/pbkdf2"
 	"net/http"
 	"strings"
 	"unsafe"
@@ -37,7 +41,9 @@ const (
 	OPTIONS = "OPTIONS"
 
 	Authorization = "Authorization"
-	RandomCode    = "RandomCode"
+	SharedKey     = "SharedKey"
+	ServerKey     = "ServerKey"
+	ClientKey     = "ClientKey"
 )
 
 var (
@@ -118,7 +124,7 @@ type Context struct {
 	RouterConfig *RouterConfig          // 8字节 - 指针
 
 	// 8字节函数指针字段组 (5个字段，40字节)
-	CacheAware      func(ds ...string) (cache.Cache, error)                // 8字节 - 函数指针
+	RedisCacheAware func(ds ...string) (cache.Cache, error)                // 8字节 - 函数指针
 	LocalCacheAware func(ds ...string) (cache.Cache, error)                // 8字节 - 函数指针
 	roleRealm       func(ctx *Context, onlyRole bool) (*Permission, error) // 8字节 - 函数指针
 	postHandle      PostHandle                                             // 8字节 - 函数指针
@@ -167,15 +173,14 @@ func (self *JsonBody) RawData() []byte {
 	return utils.Str2Bytes(self.Data)
 }
 
-func (self *Context) GetTokenSecret() string {
+func (self *Context) GetTokenSecret() []byte {
 	return self.Subject.GetTokenSecret(utils.Bytes2Str(self.GetRawTokenBytes()), self.configs.jwtConfig.TokenKey)
 }
 
-func (self *Context) GetHmac256Sign(d, n string, t, p int64, key string) string {
-	if len(key) > 0 {
-		return utils.HMAC_SHA256(utils.AddStr(self.Path, d, n, t, p), key, true)
-	}
-	return utils.HMAC_SHA256(utils.AddStr(self.Path, d, n, t, p), self.GetTokenSecret(), true)
+func (self *Context) GetHmac256Sign(d, n string, t, p int64, key []byte) []byte {
+	part := utils.Str2Bytes(utils.AddStr(self.Path, d, n, t, p))
+	return utils.HMAC_SHA256_BASE(part, key)
+	//return utils.HMAC_SHA256_BASE(part, self.GetTokenSecret())
 }
 
 func (self *Context) AddStorage(k string, v interface{}) {
@@ -235,7 +240,7 @@ func (self *Context) Parser(dst interface{}) error {
 		Identify:        identify,
 		Path:            self.Path,
 		System:          &common.System{Name: self.System.Name, Version: self.System.Version},
-		CacheAware:      self.CacheAware,
+		RedisCacheAware: self.RedisCacheAware,
 		LocalCacheAware: self.LocalCacheAware,
 		RSA:             self.RSA,
 	}
@@ -307,29 +312,13 @@ func (self *Context) readParams() error {
 
 func (self *Context) validReplayAttack(sign string) error {
 	// 重放攻击检测应优先使用全局缓存（Redis），确保跨实例有效性
-	// 本地缓存无法防止跨实例的重放攻击
-	var cacheAware cache.Cache
-	var err error
-
-	// 优先尝试Redis缓存（全局缓存）
-	if self.CacheAware != nil {
-		cacheAware, err = self.CacheAware()
-		if err != nil {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "redis cache instance invalid"}
-		}
-	} else if self.LocalCacheAware != nil {
-		// 如果没有Redis缓存，降级使用本地缓存（仅限单实例场景）
-		cacheAware, err = self.LocalCacheAware()
-		if err != nil {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "local cache instance invalid"}
-		}
-	} else {
-		// 没有配置任何缓存
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "no cache instance configured for replay attack detection"}
+	c, err := self.GetCacheObject()
+	if err != nil {
+		return err
 	}
 
 	hex := utils.FNV1a64(sign)
-	b, err := cacheAware.Exists(hex)
+	b, err := c.Exists(hex)
 	if err != nil {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "cache operation failed", Err: err}
 	}
@@ -337,7 +326,7 @@ func (self *Context) validReplayAttack(sign string) error {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "replay attack detected"}
 	}
 
-	if err := cacheAware.Put(hex, 1, 600); err != nil {
+	if err := c.Put(hex, 1, 600); err != nil {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "cache replay attack record failed", Err: err}
 	}
 	return nil
@@ -345,6 +334,25 @@ func (self *Context) validReplayAttack(sign string) error {
 
 func (self *Context) GetRawTokenBytes() []byte {
 	return self.RequestCtx.Request.Header.Peek(Authorization)
+}
+
+func (self *Context) GetCacheObject() (cache.Cache, error) {
+	var err error
+	var c cache.Cache
+	if self.RedisCacheAware != nil {
+		c, err = self.RedisCacheAware()
+		if err != nil {
+			return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "redis cache get error", Err: err}
+		}
+	} else if self.LocalCacheAware != nil {
+		c, err = self.LocalCacheAware()
+		if err != nil {
+			return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "local cache get error", Err: err}
+		}
+	} else {
+		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "cache object not setting"}
+	}
+	return c, nil
 }
 
 func (self *Context) validJsonBody() error {
@@ -369,7 +377,7 @@ func (self *Context) validJsonBody() error {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request time invalid"}
 	}
 	if self.RouterConfig.AesRequest && body.Plan != 1 {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters must use AES encryption"}
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters must use encryption"}
 	}
 	if !utils.CheckStrLen(body.Sign, 32, 64) {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature length invalid"}
@@ -381,8 +389,8 @@ func (self *Context) validJsonBody() error {
 		}
 	}
 
-	var key string
-	var anonymous bool // true.匿名状态
+	var sharedKey []byte // 协商密钥
+	var anonymous bool   // true.匿名状态
 
 	// Plan 2是匿名状态（使用ECC加密，需要特殊处理）
 	if body.Plan == 2 {
@@ -390,73 +398,83 @@ func (self *Context) validJsonBody() error {
 		if !self.RouterConfig.UseRSA {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters must use RSA encryption"}
 		}
-
 		// Plan 2需要解密RandomCode获取clientSecretKey进行签名验证
-		codeBs := self.RequestCtx.Request.Header.Peek(RandomCode)
-		if len(codeBs) > MAX_CODE_LEN {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "client random code invalid"}
+		serverKeyBs := self.RequestCtx.Request.Header.Peek(ServerKey)
+		if len(serverKeyBs) > 100 {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "server key invalid"}
 		}
-		randomCode := utils.Bytes2Str(codeBs)
-		if len(randomCode) == 0 {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "client random code invalid"}
+		clientKeyBs := self.RequestCtx.Request.Header.Peek(ClientKey)
+		if len(clientKeyBs) > 100 {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "client key invalid"}
 		}
-		if len(self.RSA) == 0 {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "no RSA private keys configured for decryption"}
+		serverKeyB64 := utils.Bytes2Str(serverKeyBs)
+		if len(serverKeyB64) == 0 {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "server key is nil"}
 		}
-
-		var code []byte
-		var lastErr error
-		for _, v := range self.RSA { // 尝试遍历存在的私钥进行解密
-			decrypted, err := v.Decrypt(randomCode)
-			if err != nil {
-				lastErr = err
-				// 记录解密失败，但继续尝试下一个私钥
-				_, pub := v.GetPublicKey()
-				zlog.Warn("server private-key decrypt error", 0, zlog.String("publicKey", pub))
-				continue
-			}
-			if len(decrypted) > 0 { // 解密成功
-				code = decrypted
-				break
-			}
-			// 解密成功但结果为空，记录错误但继续尝试
-			lastErr = ex.Throw{Code: http.StatusBadRequest, Msg: "server private-key decrypt returned empty data"}
+		clientKeyB64 := utils.Bytes2Str(clientKeyBs)
+		if len(serverKeyB64) == 0 {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "client key is nil"}
 		}
-
-		if len(code) == 0 { // 所有私钥都无法解密成功
-			if lastErr != nil {
-				return ex.Throw{Code: http.StatusBadRequest, Msg: "all RSA private keys failed to decrypt client random code", Err: lastErr}
-			}
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "all RSA private keys failed to decrypt client random code"}
+		c, err := self.GetCacheObject()
+		if err != nil {
+			return err
 		}
-		key = utils.Base64Encode(code) // 使用clientSecretKey验证签名
+		prkObject := &PrivateKey{}
+		if _, b, err := c.Get(utils.FNV1a64(serverKeyB64), prkObject); err != nil || !b {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "prk read error", Err: err}
+		}
+		if len(prkObject.Key) == 0 {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "prk read is nil"}
+		}
+		prk, err := ecc.LoadECDHPrivateKey(utils.Base64Decode(prkObject.Key))
+		if err != nil {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "prk load error", Err: err}
+		}
+		pub, err := ecc.LoadECDHPublicKeyFromBase64(clientKeyB64)
+		if err != nil {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "pub load error", Err: err}
+		}
+		shared, err := ecc.GenSharedKeyECDH(prk, pub)
+		if err != nil || len(shared) == 0 {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "shared key error", Err: err}
+		}
+		sharedKey = pbkdf2.Key(shared, utils.Base64Decode(prkObject.Noc), 1024, 32, sha512.New)
+		defer DIC.ClearData(sharedKey)
 	}
 
-	// 签名验证：Plan 0/1使用token secret（key为空时会自动获取），Plan 2使用clientSecretKey
-	if self.GetHmac256Sign(d, body.Nonce, body.Time, body.Plan, key) != body.Sign {
+	// 签名验证：Plan 0/1使用token secret，Plan 2使用sharedKey
+	if len(sharedKey) == 0 {
+		sharedKey = self.GetTokenSecret()
+		defer DIC.ClearData(sharedKey)
+	}
+	if utils.Base64Encode(self.GetHmac256Sign(d, body.Nonce, body.Time, body.Plan, sharedKey)) != body.Sign {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature invalid"}
 	}
 	if err := self.validReplayAttack(body.Sign); err != nil {
 		return err
 	}
-	var rawData []byte
 	var err error
+	var rawData []byte
 	if body.Plan == 0 && !anonymous { // 登录状态 P0 Base64
-		rawData = utils.Base64DecodeWithPool(d)
+		rawData = utils.Base64Decode(d)
 		if len(rawData) == 0 {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter Base64 parsing failed"}
 		}
 	} else if body.Plan == 1 && !anonymous { // 登录状态 P1 AES
-		rawData, err = utils.AesGCMDecryptWithAAD(d, self.GetTokenSecret(), utils.AddStr(self.JsonBody.Time, self.JsonBody.Nonce, self.JsonBody.Plan, self.Path))
+		secret := self.GetTokenSecret()
+		defer DIC.ClearData(secret)
+		rawData, err = utils.AesGCMDecryptBase(d, secret[:32], utils.Str2Bytes(utils.AddStr(self.JsonBody.Time, self.JsonBody.Nonce, self.JsonBody.Plan, self.Path)))
 		if err != nil {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "AES failed to parse data", Err: err}
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "failed to parse data", Err: err}
 		}
 	} else if body.Plan == 2 && self.RouterConfig.UseRSA && anonymous { // 非登录状态 P2 ECC+AES
-		rawData, err = utils.AesGCMDecryptWithAAD(d, key, utils.AddStr(self.JsonBody.Time, self.JsonBody.Nonce, self.JsonBody.Plan, self.Path))
+		rawData, err = utils.AesGCMDecryptBase(d, sharedKey[0:32], utils.Str2Bytes(utils.AddStr(self.JsonBody.Time, self.JsonBody.Nonce, self.JsonBody.Plan, self.Path)))
 		if err != nil {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "AES failed to parse data", Err: err}
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "failed to parse data", Err: err}
 		}
-		self.AddStorage(RandomCode, key)
+		// 复制一份秘钥，执行defer会清空当前秘钥
+		copySharedKey := DIC.CopyData(sharedKey)
+		self.AddStorage(SharedKey, copySharedKey)
 	} else {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters plan invalid"}
 	}
@@ -502,8 +520,8 @@ func (self *Context) RemoteIP() string {
 
 func (self *Context) reset(ctx *Context, handle PostHandle, request *fasthttp.RequestCtx, fs []*FilterObject) {
 	// 全局函数配置（只在首次设置）
-	if self.CacheAware == nil {
-		self.CacheAware = ctx.CacheAware
+	if self.RedisCacheAware == nil {
+		self.RedisCacheAware = ctx.RedisCacheAware
 	}
 	if self.LocalCacheAware == nil {
 		self.LocalCacheAware = ctx.LocalCacheAware
