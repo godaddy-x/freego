@@ -3,12 +3,13 @@ package node
 import (
 	"bytes"
 	"crypto/sha512"
-	ecc "github.com/godaddy-x/eccrypto"
-	DIC "github.com/godaddy-x/freego/common"
-	"golang.org/x/crypto/pbkdf2"
 	"net/http"
 	"strings"
 	"unsafe"
+
+	ecc "github.com/godaddy-x/eccrypto"
+	DIC "github.com/godaddy-x/freego/common"
+	"golang.org/x/crypto/pbkdf2"
 
 	"github.com/buaazp/fasthttprouter"
 	"github.com/godaddy-x/freego/cache"
@@ -419,8 +420,13 @@ func (self *Context) validJsonBody() error {
 		if err != nil {
 			return err
 		}
+		cacheKey := utils.FNV1a64(serverKeyB64)
+
+		// 无论如何，只要进入ECC解密流程，就确保删除缓存项
+		defer c.Del(cacheKey)
+
 		prkObject := &PrivateKey{}
-		if _, b, err := c.Get(utils.FNV1a64(serverKeyB64), prkObject); err != nil || !b {
+		if _, b, err := c.Get(cacheKey, prkObject); err != nil || !b {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "prk read error", Err: err}
 		}
 		if len(prkObject.Key) == 0 {
