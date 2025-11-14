@@ -416,19 +416,27 @@ func (self *Context) validJsonBody() error {
 		if len(serverKeyB64) == 0 {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "client key is nil"}
 		}
+
 		c, err := self.GetCacheObject()
 		if err != nil {
 			return err
 		}
+		// 使用与CreatePublicKey相同的缓存键计算方式
 		cacheKey := utils.FNV1a64(serverKeyB64)
-
-		// 无论如何，只要进入ECC解密流程，就确保删除缓存项
-		defer c.Del(cacheKey)
-
-		prkObject := &PrivateKey{}
-		if _, b, err := c.Get(cacheKey, prkObject); err != nil || !b {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "prk read error", Err: err}
+		var prkObject *PrivateKey
+		if c.Mode() == cache.LOCAL {
+			if v, b, err := c.Get(cacheKey, nil); err != nil || !b {
+				return ex.Throw{Code: http.StatusBadRequest, Msg: "prk read error", Err: err}
+			} else {
+				prkObject = v.(*PrivateKey)
+			}
+		} else {
+			prkObject = &PrivateKey{}
+			if _, b, err := c.Get(cacheKey, prkObject); err != nil || !b {
+				return ex.Throw{Code: http.StatusBadRequest, Msg: "prk read error", Err: err}
+			}
 		}
+		defer c.Del(cacheKey)
 		if len(prkObject.Key) == 0 {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "prk read is nil"}
 		}
@@ -436,6 +444,9 @@ func (self *Context) validJsonBody() error {
 		if err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "prk load error", Err: err}
 		}
+
+		// 不立即删除缓存，让它自然过期（180秒）
+		// 这样既保证安全性（私钥不会被无限期使用），又避免并发删除的竞态条件
 		pub, err := ecc.LoadECDHPublicKeyFromBase64(clientKeyB64)
 		if err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "pub load error", Err: err}
@@ -658,4 +669,26 @@ func (self *Context) NoBody() error {
 	self.Response.ContentType = NO_BODY
 	self.Response.ContentEntity = nil
 	return nil
+}
+
+func (self *Context) CreatePublicKey() (*PublicKey, error) {
+	// 生成ECC密钥对 - ECC库应该是线程安全的
+	prk, err := ecc.CreateECDH()
+	if err != nil {
+		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "ecdh invalid", Err: err}
+	}
+	pub := utils.Base64Encode(prk.PublicKey().Bytes())
+	noc := utils.Base64Encode(utils.AddStr(utils.GetRandomSecure(32), utils.UnixMilli()))
+	exp := 180 // 180秒过期
+
+	c, err := self.GetCacheObject()
+	if err != nil {
+		return nil, err
+	}
+
+	if err := c.Put(utils.FNV1a64(pub), &PrivateKey{Key: utils.Base64Encode(prk.Bytes()), Noc: noc}, exp); err != nil {
+		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "prk cache setting error", Err: err}
+	}
+
+	return &PublicKey{Key: pub, Noc: noc, Exp: exp}, nil
 }

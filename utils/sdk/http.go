@@ -1,9 +1,8 @@
 package sdk
 
 import (
-	"crypto/ecdh"
+	"crypto/ecdsa"
 	"crypto/sha512"
-	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -30,7 +29,8 @@ type HttpSDK struct {
 	KeyPath    string
 	LoginPath  string
 	publicKey  string
-	privateKey *ecdh.PrivateKey
+	ecdsaPrk   *ecdsa.PrivateKey
+	ecdsaPub   *ecdsa.PublicKey
 	language   string
 	timeout    int64
 	authObject interface{}
@@ -40,6 +40,11 @@ type HttpSDK struct {
 // 请使用指针对象
 func (s *HttpSDK) AuthObject(object interface{}) {
 	s.authObject = object
+}
+
+// SetPublicKey 设置预获取的公钥，避免重复调用/key接口
+func (s *HttpSDK) SetPublicKey(key string) {
+	s.publicKey = key
 }
 
 func (s *HttpSDK) AuthToken(object AuthToken) {
@@ -54,12 +59,12 @@ func (s *HttpSDK) SetLanguage(language string) {
 	s.language = language
 }
 
-func (s *HttpSDK) SetPublicKey(publicKey string) {
-	s.publicKey = publicKey
+func (s *HttpSDK) SetEcdsaPrk(prk *ecdsa.PrivateKey) {
+	s.ecdsaPrk = prk
 }
 
-func (s *HttpSDK) SetPrivateKey(privateKey *ecdh.PrivateKey) {
-	s.privateKey = privateKey
+func (s *HttpSDK) SetEcdsaPub(pub *ecdsa.PublicKey) {
+	s.ecdsaPub = pub
 }
 
 func (s *HttpSDK) debugOut(a ...interface{}) {
@@ -160,6 +165,7 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	request.Header.Set("Authorization", "")
 	request.Header.Set("ServerKey", serverKey.Key)
 	request.Header.Set("ClientKey", utils.Base64Encode(prk.PublicKey().Bytes()))
+	request.Header.Set("Nonce", serverKey.Noc)
 	request.Header.Set("Language", s.language)
 	request.Header.SetMethod("POST")
 	request.SetRequestURI(s.getURI(path))
@@ -336,7 +342,6 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 		return ex.Throw{Msg: "response plan invalid, must be 0 or 1, got: " + utils.AnyToStr(respData.Plan)}
 	}
 
-	fmt.Println(hex.EncodeToString(utils.Base64Decode(s.authToken.Secret)))
 	validSign := utils.HMAC_SHA256_BASE(utils.Str2Bytes(utils.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan)), utils.Base64Decode(s.authToken.Secret))
 	if utils.Base64Encode(validSign) != respData.Sign {
 		return ex.Throw{Msg: "post response sign verify invalid"}

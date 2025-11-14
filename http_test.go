@@ -3,10 +3,10 @@ package main
 import (
 	"crypto/sha512"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
-	ecc "github.com/godaddy-x/eccrypto"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/sdk"
 	"github.com/valyala/fasthttp"
@@ -17,15 +17,19 @@ import (
 
 const domain = "http://localhost:8090"
 
-const access_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxOTg4OTc1NjE1OTM1NTEyNTc3IiwiYXVkIjoiIiwiaXNzIjoiIiwiZGV2IjoiQVBQIiwianRpIjoiODZBTkxaa3NMOXRjcXNhbksva3lLQT09IiwiZXh0IjoiIiwiaWF0IjowLCJleHAiOjE3NjQyNTMzMTR9.rx5TK/f/5/nbekAjF8j3sx/vdTBXXVkWJarASgosCO4="
-const token_secret = "zwtdwxeNAMJKL40Aqixb6JpbViAuabFYxKX8G/O+ADoMQhVjuS1VDg6Hdeq83OYlvg4of/U4khLo0X3U1hYCpw=="
-const token_expire = 1764252337
+const access_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxOTg5MjY4MTY2MTk0MjMzMzQ1IiwiYXVkIjoiIiwiaXNzIjoiIiwiZGV2IjoiQVBQIiwianRpIjoiODFsZnBHdGdXczFrUkhmVzZtV0VvQT09IiwiZXh0IjoiIiwiaWF0IjowLCJleHAiOjE3NjQzMjMwNjR9.lZPYmHOoJo2HGM+N7okYLDNmdJhFSL/OEBElJpMR498="
+const token_secret = "Gp9QuuDmyCOTI5ogOzMomPDSPsZkLAwvpnwFbCGIEf8LiHBnsWibwc03NWtMH7FyfC4n0JV4CZ/4OK6x0kGXvA=="
+const token_expire = 1764323064
 
-var httpSDK = &sdk.HttpSDK{
-	Debug:     true,
-	Domain:    domain,
-	KeyPath:   "/key",
-	LoginPath: "/login",
+var httpSDK = NewSDK()
+
+func NewSDK() *sdk.HttpSDK {
+	return &sdk.HttpSDK{
+		Debug:     false,
+		Domain:    domain,
+		KeyPath:   "/key",
+		LoginPath: "/login",
+	}
 }
 
 func TestGetPublicKey(t *testing.T) {
@@ -37,9 +41,6 @@ func TestGetPublicKey(t *testing.T) {
 }
 
 func TestECCLogin(t *testing.T) {
-	prk, _ := ecc.CreateECDH()
-	httpSDK.SetPrivateKey(prk)
-	httpSDK.SetPublicKey("BJXMbaEwwpPm8DEbe1Ayzbyy/wQ7ZYG+Vu1y25Zq7t0cZ8+ylu3hS2p3wEJz/XHgfBZ6aJFCpaXXlBsoam1TU1U=")
 	requestData := sdk.AuthToken{Token: "AI工具人，鲨鱼宝宝！！！"}
 	responseData := sdk.AuthToken{}
 	if err := httpSDK.PostByECC("/login", &requestData, &responseData); err != nil {
@@ -121,17 +122,6 @@ func TestGetPublicKeyErrorHandling(t *testing.T) {
 // 验证在使用无效ECC密钥时SDK的健壮性和错误处理
 func TestECCLoginWithInvalidKey(t *testing.T) {
 	// 使用无效的私钥
-	httpSDK := &sdk.HttpSDK{
-		Debug:     true,
-		Domain:    domain,
-		KeyPath:   "/key",
-		LoginPath: "/login",
-	}
-
-	// 设置无效的私钥（nil）
-	httpSDK.SetPrivateKey(nil)
-	httpSDK.SetPublicKey("BKNoaVapAlKywv5sXfag/LHa8mp6sdGFX6QHzfXIjBojkoCfCgZg6RPBXwLUUpPDzOC3uhDC60ECz2i1EbITsGY=")
-
 	requestData := sdk.AuthToken{Token: "测试无效密钥"}
 	responseData := sdk.AuthToken{}
 
@@ -203,16 +193,6 @@ func TestPostByAuthWithInvalidData(t *testing.T) {
 // TestPostByECCWithInvalidData 测试ECC请求的无效数据处理
 // 验证在使用nil或无效参数调用PostByECC时的错误处理
 func TestPostByECCWithInvalidData(t *testing.T) {
-	prk, _ := ecc.CreateECDH()
-	httpSDK := &sdk.HttpSDK{
-		Debug:     true,
-		Domain:    domain,
-		KeyPath:   "/key",
-		LoginPath: "/login",
-	}
-	httpSDK.SetPrivateKey(prk)
-	httpSDK.SetPublicKey("BKNoaVapAlKywv5sXfag/LHa8mp6sdGFX6QHzfXIjBojkoCfCgZg6RPBXwLUUpPDzOC3uhDC60ECz2i1EbITsGY=")
-
 	// 测试nil请求数据
 	responseData := sdk.AuthToken{}
 	err := httpSDK.PostByECC("/login", nil, &responseData)
@@ -308,16 +288,6 @@ func TestNetworkTimeout(t *testing.T) {
 // TestRequestDataSerialization 测试请求数据序列化能力
 // 验证SDK对不同类型请求数据的JSON序列化处理
 func TestRequestDataSerialization(t *testing.T) {
-	prk, _ := ecc.CreateECDH()
-	httpSDK := &sdk.HttpSDK{
-		Debug:     true,
-		Domain:    domain,
-		KeyPath:   "/key",
-		LoginPath: "/login",
-	}
-	httpSDK.SetPrivateKey(prk)
-	httpSDK.SetPublicKey("BKNoaVapAlKywv5sXfag/LHa8mp6sdGFX6QHzfXIjBojkoCfCgZg6RPBXwLUUpPDzOC3uhDC60ECz2i1EbITsGY=")
-
 	testCases := []struct {
 		name     string
 		request  interface{}
@@ -583,28 +553,68 @@ func BenchmarkHttpSDK_PostByAuth(b *testing.B) {
 	})
 }
 
-// BenchmarkHttpSDK_PostByECC ECC请求性能基准测试
-// 测量PostByECC方法在并发场景下的性能表现，包含ECC加密开销
-func BenchmarkHttpSDK_PostByECC(b *testing.B) {
-	prk, _ := ecc.CreateECDH()
-	httpSDK := &sdk.HttpSDK{
-		Debug:     false, // 基准测试时关闭调试
-		Domain:    domain,
-		KeyPath:   "/key",
-		LoginPath: "/login",
-	}
-	httpSDK.SetPrivateKey(prk)
-	httpSDK.SetPublicKey("BKNoaVapAlKywv5sXfag/LHa8mp6sdGFX6QHzfXIjBojkoCfCgZg6RPBXwLUUpPDzOC3uhDC60ECz2i1EbITsGY=")
-
+// BenchmarkKeyEndpoint 单独测试/key接口的并发性能
+func BenchmarkKeyEndpoint(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
+		localSDK := NewSDK()
+
 		for pb.Next() {
-			requestData := sdk.AuthToken{Token: "ECC基准测试"}
+			_, err := localSDK.GetPublicKey()
+			if err != nil {
+				b.Logf("GetPublicKey失败: %v", err)
+			}
+		}
+	})
+}
+
+// BenchmarkHttpSDK_PostByECC ECC请求性能基准测试
+// 测试动态ECDH在并发执行下的性能表现和稳定性
+func BenchmarkHttpSDK_PostByECC(b *testing.B) {
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		// 每个goroutine创建独立的SDK实例，避免并发冲突
+		goroutineSDK := NewSDK()
+
+		localCounter := 0
+		for pb.Next() {
+			localCounter++
+
+			// 使用goroutine ID + 计数器生成唯一token，避免重放攻击检测
+			token := fmt.Sprintf("ECC并发测试_g%d_%d_%d", b.N, localCounter, time.Now().UnixNano())
+			requestData := sdk.AuthToken{Token: token}
 			responseData := sdk.AuthToken{}
 
-			err := httpSDK.PostByECC("/login", &requestData, &responseData)
+			// 处理时间戳过期重试逻辑
+			maxRetries := 2
+			var err error
+
+			for retry := 0; retry <= maxRetries; retry++ {
+				err = goroutineSDK.PostByECC("/login", &requestData, &responseData)
+				if err == nil {
+					break // 成功则跳出重试循环
+				}
+
+				// 检查是否是时间戳过期错误
+				errStr := err.Error()
+				if strings.Contains(errStr, "request time invalid") && retry < maxRetries {
+					// 时间戳过期，稍作延迟后重试
+					time.Sleep(time.Millisecond * 10) // 10ms延迟让时间戳刷新
+					continue
+				}
+
+				// 其他错误或重试次数用完，直接跳出
+				break
+			}
+
 			if err != nil {
-				b.Logf("ECC请求失败: %v", err)
+				b.Logf("ECC并发请求失败 (goroutine counter: %d, retries: %d): %v", localCounter, maxRetries, err)
+				// 记录错误但不终止测试，继续观察稳定性
+			} else {
+				// 可选：验证响应数据有效性
+				if responseData.Token == "" {
+					b.Logf("警告: 响应token为空 (goroutine counter: %d)", localCounter)
+				}
 			}
 		}
 	})

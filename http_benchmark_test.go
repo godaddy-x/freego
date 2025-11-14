@@ -7,8 +7,6 @@ import (
 
 	"github.com/valyala/fasthttp"
 
-	ecc "github.com/godaddy-x/eccrypto"
-
 	"github.com/godaddy-x/freego/utils/sdk"
 )
 
@@ -29,8 +27,6 @@ func init() {
 }
 
 func initClient() {
-	var prk, _ = ecc.CreateECDH()
-	client.SetPrivateKey(prk)
 	client.SetPublicKey("BKNoaVapAlKywv5sXfag/LHa8mp6sdGFX6QHzfXIjBojkoCfCgZg6RPBXwLUUpPDzOC3uhDC60ECz2i1EbITsGY=")
 	client.AuthToken(sdk.AuthToken{Token: benchmarkAccessToken, Secret: benchmarkTokenSecret, Expired: int64(benchmarkTokenExpire)})
 }
@@ -390,8 +386,6 @@ func BenchmarkConnectionPooling(b *testing.B) {
 					LoginPath: "/login",
 				}
 				// 重新初始化认证
-				var prk, _ = ecc.CreateECDH()
-				testClient.SetPrivateKey(prk)
 				testClient.SetPublicKey("BKNoaVapAlKywv5sXfag/LHa8mp6sdGFX6QHzfXIjBojkoCfCgZg6RPBXwLUUpPDzOC3uhDC60ECz2i1EbITsGY=")
 				testClient.AuthToken(sdk.AuthToken{Token: benchmarkAccessToken, Secret: benchmarkTokenSecret, Expired: int64(benchmarkTokenExpire)})
 			case "KeepAlive":

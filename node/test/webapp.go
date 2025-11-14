@@ -2,9 +2,6 @@ package http_web
 
 import (
 	"fmt"
-	ecc "github.com/godaddy-x/eccrypto"
-	"net/http"
-
 	rate "github.com/godaddy-x/freego/cache/limiter"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/geetest"
@@ -76,21 +73,11 @@ func (self *MyWebNode) login(ctx *node.Context) error {
 }
 
 func (self *MyWebNode) publicKey(ctx *node.Context) error {
-	c, err := ctx.GetCacheObject()
+	pub, err := ctx.CreatePublicKey()
 	if err != nil {
 		return err
 	}
-	prk, err := ecc.CreateECDH()
-	if err != nil {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "ecdh invalid", Err: err}
-	}
-	pub := utils.Base64Encode(prk.PublicKey().Bytes())
-	noc := utils.Base64Encode(utils.AddStr(utils.GetAesIVSecure(), utils.UnixSecond()))
-	exp := 120
-	if err := c.Put(utils.FNV1a64(pub), &node.PrivateKey{Key: utils.Base64Encode(prk.Bytes()), Noc: noc}, exp); err != nil {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "ecdh set invalid", Err: err}
-	}
-	return self.Json(ctx, &node.PublicKey{Key: pub, Noc: noc, Exp: exp})
+	return self.Json(ctx, pub)
 }
 
 func (self *MyWebNode) testGuestPost(ctx *node.Context) error {
@@ -195,7 +182,7 @@ func NewHTTP() *MyWebNode {
 	backupECC := &crypto.EccObj{}
 	backupECC.CreateS256ECC()
 	my.AddCipher(backupECC)
-	//my.AddCache(func(ds ...string) (cache.Cache, error) {
+	//my.AddRedisCache(func(ds ...string) (cache.Cache, error) {
 	//	rds, err := cache.NewRedis(ds...)
 	//	return rds, err
 	//})

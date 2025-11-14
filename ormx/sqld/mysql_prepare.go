@@ -8,7 +8,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/dgraph-io/ristretto"
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/zlog"
@@ -31,12 +30,10 @@ var (
 	defaultPrepareManager = func() *prepareManager {
 		pm := &prepareManager{
 			creating: make(map[string]*sync.Mutex),
-			cacheStmt: cache.NewLocalCacheWithEvict(defaultCacheCapacity, defaultCacheExpire, func(item *ristretto.Item) {
-				// ristretto的淘汰回调无法访问原始字符串键，但可以记录淘汰事件
-				if wrapper, ok := item.Value.(*stmtWrapper); ok && !wrapper.closed.Load() {
-					zlog.Warn("stmt cache evicted, may cause recreate", 0,
-						zlog.Uint64("key_hash", item.Key),
-						zlog.Int64("cost", item.Cost))
+			cacheStmt: cache.NewLocalCacheWithEvict(defaultCacheCapacity, defaultCacheExpire, func(item interface{}) {
+				// go-cache的淘汰回调，item是interface{}类型
+				if wrapper, ok := item.(*stmtWrapper); ok && !wrapper.closed.Load() {
+					zlog.Warn("stmt cache evicted, may cause recreate", 0)
 				}
 			}),
 			shutdownChan: make(chan struct{}),
