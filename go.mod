@@ -10,7 +10,7 @@ require (
 	github.com/buaazp/fasthttprouter v0.1.1
 	github.com/dgraph-io/ristretto v0.2.0
 	github.com/go-sql-driver/mysql v1.6.0
-	github.com/godaddy-x/eccrypto v1.1.10
+	github.com/godaddy-x/eccrypto v1.1.11
 	github.com/google/uuid v1.3.0
 	github.com/hashicorp/consul/api v1.13.1
 	github.com/mailru/easyjson v0.9.1
