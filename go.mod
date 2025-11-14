@@ -8,12 +8,12 @@ require (
 	github.com/andybalholm/cascadia v1.3.1
 	github.com/bsm/redislock v0.9.4
 	github.com/buaazp/fasthttprouter v0.1.1
-	github.com/dgraph-io/ristretto v0.2.0
 	github.com/go-sql-driver/mysql v1.6.0
 	github.com/godaddy-x/eccrypto v1.1.11
 	github.com/google/uuid v1.3.0
 	github.com/hashicorp/consul/api v1.13.1
 	github.com/mailru/easyjson v0.9.1
+	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/pquerna/otp v1.4.0
 	github.com/redis/go-redis/v9 v9.16.0
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
@@ -38,7 +38,6 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
-	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/fatih/color v1.9.0 // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
