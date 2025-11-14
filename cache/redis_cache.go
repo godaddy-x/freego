@@ -491,6 +491,10 @@ func NewRedis(ds ...string) (*RedisManager, error) {
 
 // ================================ Redis缓存接口实现 ================================
 
+func (self *RedisManager) Mode() string {
+	return REDIS
+}
+
 // Get 获取缓存数据并可选择反序列化
 // key: 缓存键
 // input: 反序列化目标对象，为nil时返回原始字节数组

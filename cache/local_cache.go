@@ -1,73 +1,64 @@
 package cache
 
 import (
-	"sync"
+	"strings"
 	"time"
 
-	"github.com/dgraph-io/ristretto"
 	"github.com/godaddy-x/freego/utils"
+	gocache "github.com/patrickmn/go-cache"
 )
 
-// LocalMapManager 使用ristretto的本地缓存管理器
+// LocalMapManager 使用go-cache的本地缓存管理器
 type LocalMapManager struct {
 	CacheManager
-	cache  *ristretto.Cache
-	keys   map[string]bool // keys集合，用于优雅关闭时遍历
-	keysMu sync.RWMutex    // 保护keys map的并发访问
+	cache *gocache.Cache // go-cache实例，线程安全
 }
 
 // 默认配置常量
 const (
-	defaultNumCounters = 1e7     // 计数器数量：跟踪键频次(10M)
-	defaultMaxCost     = 1 << 30 // 最大成本：1GB
-	defaultBufferItems = 64      // Get缓冲区大小
+	defaultExpiration = 5 * time.Minute  // 默认过期时间5分钟
+	cleanupInterval   = 10 * time.Minute // 清理间隔10分钟
 )
 
-// NewLocalCache 创建新的ristretto缓存实例
+// NewLocalCache 创建新的go-cache缓存实例
 func NewLocalCache(a, b int) Cache {
 	return new(LocalMapManager).NewCache(a, b)
 }
 
-// NewLocalCacheWithEvict 创建带淘汰回调的ristretto缓存实例
-func NewLocalCacheWithEvict(a, b int, f func(item *ristretto.Item)) Cache {
-	return new(LocalMapManager).NewCacheWithEvict(a, b, f)
+// NewLocalCacheWithEvict 创建带淘汰回调的go-cache缓存实例
+// 注意：go-cache不支持淘汰回调，此方法保留API兼容性
+func NewLocalCacheWithEvict(a, b int, f func(item interface{})) Cache {
+	return new(LocalMapManager).NewCache(a, b)
 }
 
-// NewCache 创建ristretto缓存配置
+// NewCache 创建go-cache缓存配置
 func (self *LocalMapManager) NewCache(a, b int) Cache {
-	cache, err := ristretto.NewCache(&ristretto.Config{
-		NumCounters: defaultNumCounters,
-		MaxCost:     defaultMaxCost,
-		BufferItems: defaultBufferItems,
-	})
-	if err != nil {
-		return nil
+	// a: 默认过期时间（分钟），b: 清理间隔（分钟）
+	defaultExp := defaultExpiration
+	cleanupInt := cleanupInterval
+
+	if a > 0 {
+		defaultExp = time.Duration(a) * time.Minute
+	}
+	if b > 0 {
+		cleanupInt = time.Duration(b) * time.Minute
 	}
 
+	c := gocache.New(defaultExp, cleanupInt)
+
 	return &LocalMapManager{
-		cache: cache,
-		keys:  make(map[string]bool), // 初始化高性能keys集合
+		cache: c,
 	}
 }
 
-// NewCacheWithEvict 创建带淘汰回调的ristretto缓存
-// 注意：ristretto的OnEvict回调只能访问哈希后的键，无法恢复原始字符串键
-// 此方法保留API兼容性，但淘汰回调功能受限
-func (self *LocalMapManager) NewCacheWithEvict(a, b int, f func(item *ristretto.Item)) Cache {
-	cache, err := ristretto.NewCache(&ristretto.Config{
-		NumCounters: defaultNumCounters,
-		MaxCost:     defaultMaxCost,
-		BufferItems: defaultBufferItems,
-		OnEvict:     f,
-	})
-	if err != nil {
-		return nil
-	}
+// NewCacheWithEvict 创建带淘汰回调的go-cache缓存
+// 注意：go-cache不支持淘汰回调，此方法保留API兼容性
+func (self *LocalMapManager) NewCacheWithEvict(a, b int, f func(interface{})) Cache {
+	return self.NewCache(a, b)
+}
 
-	return &LocalMapManager{
-		cache: cache,
-		keys:  make(map[string]bool), // 初始化高性能keys集合
-	}
+func (self *LocalMapManager) Mode() string {
+	return LOCAL
 }
 
 func (self *LocalMapManager) Get(key string, input interface{}) (interface{}, bool, error) {
@@ -99,10 +90,8 @@ func (self *LocalMapManager) GetFloat64(key string) (float64, error) {
 		return 0, nil
 	}
 	if ret, check := v.(float64); check {
-		// 快速路径：如果ristretto直接返回float64
 		return ret, nil
 	}
-	// 正常路径：ristretto返回序列化的字符串，需要解析
 	if ret, err := utils.StrToFloat(utils.AnyToStr(v)); err != nil {
 		return 0, err
 	} else {
@@ -116,7 +105,6 @@ func (self *LocalMapManager) GetString(key string) (string, error) {
 		return "", nil
 	}
 	if ret, check := v.(string); check {
-		// 快速路径：如果ristretto直接返回string
 		return ret, nil
 	}
 	return utils.AnyToStr(v), nil
@@ -128,7 +116,6 @@ func (self *LocalMapManager) GetBytes(key string) ([]byte, error) {
 		return nil, nil
 	}
 	if ret, check := v.([]byte); check {
-		// 快速路径：如果ristretto直接返回[]byte
 		return ret, nil
 	}
 	return utils.Str2Bytes(utils.AnyToStr(v)), nil
@@ -140,76 +127,49 @@ func (self *LocalMapManager) GetBool(key string) (bool, error) {
 		return false, nil
 	}
 	if ret, check := v.(bool); check {
-		// 快速路径：如果ristretto直接返回bool
 		return ret, nil
 	}
-	// 正常路径：ristretto返回序列化的字符串，需要解析
 	return utils.StrToBool(utils.AnyToStr(v))
 }
 
-// calculateCost 计算缓存项的成本
-func calculateCost(value interface{}) int64 {
-	switch v := value.(type) {
-	case string:
-		return int64(len(v))
-	case []byte:
-		return int64(len(v))
-	case int, int8, int16, int32, int64:
-		return 8 // 整数类型固定8字节
-	case float32, float64:
-		return 8 // 浮点类型固定8字节
-	case bool:
-		return 1 // 布尔类型1字节
-	default:
-		// 对于复杂类型，使用估算值
-		return 64 // 默认64字节
-	}
-}
-
 func (self *LocalMapManager) Put(key string, input interface{}, expire ...int) error {
-	cost := calculateCost(input)
-
-	// 存储到缓存
-	var success bool
-	if len(expire) > 0 {
-		success = self.cache.SetWithTTL(key, input, cost, time.Duration(expire[0])*time.Second)
-	} else {
-		success = self.cache.Set(key, input, cost)
+	var d time.Duration
+	if len(expire) > 0 && expire[0] > 0 {
+		d = time.Duration(expire[0]) * time.Second
 	}
-
-	// 如果存储成功，添加到外部keys集合
-	if success {
-		self.keysMu.Lock()
-		self.keys[key] = true
-		self.keysMu.Unlock()
-	}
-
+	// go-cache的Set方法：如果d为0，使用默认过期时间；如果d为-1，永不过期
+	self.cache.Set(key, input, d)
 	return nil
 }
 
 func (self *LocalMapManager) Keys(pattern ...string) ([]string, error) {
-	// 通过外部维护的keys集合返回所有缓存的键
-	// 注意：这个集合可能包含已被淘汰但还未清理的键
-	// 使用读锁保护并发访问
-	self.keysMu.RLock()
-	keys := make([]string, 0, len(self.keys))
-	for key := range self.keys {
-		// 可以在这里添加模式匹配逻辑
-		// 目前简单返回所有键
-		keys = append(keys, key)
+	items := self.cache.Items()
+
+	// 如果没有指定模式，返回所有键
+	if len(pattern) == 0 || (len(pattern) == 1 && pattern[0] == "") {
+		keys := make([]string, 0, len(items))
+		for k := range items {
+			keys = append(keys, k)
+		}
+		return keys, nil
 	}
-	self.keysMu.RUnlock()
+
+	// 支持简单的模式匹配（*通配符）
+	matchPattern := pattern[0]
+	keys := make([]string, 0, len(items))
+
+	for k := range items {
+		if matchesPattern(k, matchPattern) {
+			keys = append(keys, k)
+		}
+	}
 
 	return keys, nil
 }
 
 func (self *LocalMapManager) Del(key ...string) error {
 	for _, k := range key {
-		self.cache.Del(k)
-		// 从外部keys集合中移除，使用写锁保护
-		self.keysMu.Lock()
-		delete(self.keys, k)
-		self.keysMu.Unlock()
+		self.cache.Delete(k)
 	}
 	return nil
 }
@@ -219,20 +179,42 @@ func (self *LocalMapManager) Exists(key string) (bool, error) {
 	return exists, nil
 }
 
-// 数据量大时请慎用
 func (self *LocalMapManager) Size(pattern ...string) (int, error) {
-	// ristretto没有直接的方法获取当前项目数量
-	// 这里返回一个估算值，实际使用中可能需要外部计数
-	return len(self.keys), nil
+	// go-cache没有直接获取大小的方法，返回估算值
+	items := self.cache.Items()
+	return len(items), nil
 }
 
 func (self *LocalMapManager) Values(pattern ...string) ([]interface{}, error) {
-	// ristretto不支持直接获取所有values
+	// go-cache不支持直接获取所有values
 	return []interface{}{}, nil
 }
 
 func (self *LocalMapManager) Flush() error {
-	// ristretto没有Flush方法，这里通过设置较短TTL来模拟
-	// 注意：这不是真正的清空，只是让现有项目快速过期
+	// go-cache没有Flush方法，这里调用DeleteExpired来清理过期项目
+	self.cache.DeleteExpired()
 	return nil
+}
+
+// matchesPattern 检查字符串是否匹配给定的模式（支持*通配符）
+// pattern: 匹配模式，如 "user:*", "cache_*"
+// str: 要匹配的字符串
+// 返回: 是否匹配
+func matchesPattern(str, pattern string) bool {
+	// 如果模式为空或只有*，匹配所有
+	if pattern == "" || pattern == "*" {
+		return true
+	}
+
+	// 如果没有通配符，直接字符串比较
+	if !strings.Contains(pattern, "*") {
+		return str == pattern
+	}
+
+	// 简单的通配符匹配实现
+	// 将*替换为.*进行正则匹配
+	regexPattern := strings.ReplaceAll(pattern, "*", ".*")
+	return strings.Contains(str, strings.TrimSuffix(strings.TrimPrefix(regexPattern, ".*"), ".*")) ||
+		strings.HasPrefix(str, strings.TrimSuffix(regexPattern, ".*")) ||
+		strings.HasSuffix(str, strings.TrimPrefix(regexPattern, ".*"))
 }

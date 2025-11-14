@@ -17,9 +17,18 @@ type PutObj struct {
 	Expire int
 }
 
+const (
+	LOCAL = "local"
+	REDIS = "redis"
+)
+
 // 缓存定义接口
 type Cache interface {
 	// ================================ 数据查询接口 ================================
+
+	// Mode 获取缓存实例的模式
+	// 返回：redis或local值
+	Mode() string
 
 	// Get 根据键获取缓存数据，支持自动反序列化
 	// key: 缓存键
@@ -373,6 +382,10 @@ type Cache interface {
 	// ctx: 上下文，用于超时和取消控制
 	// 返回: 操作错误
 	FlushWithContext(ctx context.Context) error
+}
+
+func (self *CacheManager) Mode() string {
+	return ""
 }
 
 func (self *CacheManager) Get(key string, input interface{}) (interface{}, bool, error) {
