@@ -223,7 +223,7 @@ func (self *LocalMapManager) Exists(key string) (bool, error) {
 func (self *LocalMapManager) Size(pattern ...string) (int, error) {
 	// ristretto没有直接的方法获取当前项目数量
 	// 这里返回一个估算值，实际使用中可能需要外部计数
-	return 0, nil
+	return len(self.keys), nil
 }
 
 func (self *LocalMapManager) Values(pattern ...string) ([]interface{}, error) {
