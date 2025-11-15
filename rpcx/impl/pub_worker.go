@@ -33,7 +33,7 @@ func (self *PubWorker) Authorize(ctx context.Context, req *pb.AuthorizeReq) (*pb
 	if err != nil {
 		return nil, err
 	}
-	dec, err := rsaObj.Decrypt(req.Message)
+	dec, err := rsaObj.Decrypt("", nil)
 	if err != nil {
 		return nil, err
 	}

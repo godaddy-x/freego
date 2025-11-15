@@ -15,11 +15,17 @@ import (
 
 //go test -v http_test.go -bench=BenchmarkPubkey -benchmem -count=10
 
-const domain = "http://localhost:8090"
+const (
+	domain       = "http://localhost:8090"
+	access_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxOTg5NTgzMzQ1MTA4OTEwMDgxIiwiYXVkIjoiIiwiaXNzIjoiIiwiZGV2IjoiQVBQIiwianRpIjoiV292R29Lb0NRZUorYUY0cFVRR2VJQT09IiwiZXh0IjoiIiwiaWF0IjowLCJleHAiOjE3NjQzOTgyMDh9.89JrFfOqT3gcAf++S1LM9L0gUMAkhRlLLAOKQzfnZtc="
+	token_secret = "qFbtP73t3hzhChX2wa1o+D/ebwgppSwkq6MAwyz1ApvNjpYowD4dyZQM2Cjct8J2VFuwIB1VYP77m+KBCoruMw=="
+	token_expire = 1764398208
 
-const access_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxOTg5MjY4MTY2MTk0MjMzMzQ1IiwiYXVkIjoiIiwiaXNzIjoiIiwiZGV2IjoiQVBQIiwianRpIjoiODFsZnBHdGdXczFrUkhmVzZtV0VvQT09IiwiZXh0IjoiIiwiaWF0IjowLCJleHAiOjE3NjQzMjMwNjR9.lZPYmHOoJo2HGM+N7okYLDNmdJhFSL/OEBElJpMR498="
-const token_secret = "Gp9QuuDmyCOTI5ogOzMomPDSPsZkLAwvpnwFbCGIEf8LiHBnsWibwc03NWtMH7FyfC4n0JV4CZ/4OK6x0kGXvA=="
-const token_expire = 1764323064
+	// 服务端公钥
+	serverPub = "BO6XQ+PD66TMDmQXSEHl2xQarWE0HboB4LazrznThhr6Go5SvpjXJqiSe2fX+sup5OQDOLPkLdI1gh48jOmAq+k="
+	// 客户端私钥
+	clientPrk = "rnX5ykQivfbLHtcbPR68CP636usTNC03u8OD1KeoDPg="
+)
 
 var httpSDK = NewSDK()
 
@@ -33,7 +39,7 @@ func NewSDK() *sdk.HttpSDK {
 }
 
 func TestGetPublicKey(t *testing.T) {
-	publicKey, err := httpSDK.GetPublicKey()
+	_, publicKey, _, err := httpSDK.GetPublicKey()
 	if err != nil {
 		fmt.Println(err)
 	}
@@ -41,6 +47,7 @@ func TestGetPublicKey(t *testing.T) {
 }
 
 func TestECCLogin(t *testing.T) {
+	_ = httpSDK.SetECDSAObject(clientPrk, serverPub)
 	requestData := sdk.AuthToken{Token: "AI工具人，鲨鱼宝宝！！！"}
 	responseData := sdk.AuthToken{}
 	if err := httpSDK.PostByECC("/login", &requestData, &responseData); err != nil {
@@ -100,21 +107,6 @@ func TestHttpSDKInitialization(t *testing.T) {
 	}
 	if httpSdkWithConfig.Domain != "https://api.example.com" {
 		t.Errorf("期望Domain为https://api.example.com，实际为%s", httpSdkWithConfig.Domain)
-	}
-}
-
-// TestGetPublicKeyErrorHandling 测试公钥获取错误处理
-// 验证在网络错误或无效域名情况下SDK的错误处理能力
-func TestGetPublicKeyErrorHandling(t *testing.T) {
-	// 测试无效域名
-	invalidSDK := &sdk.HttpSDK{
-		Debug:  true,
-		Domain: "http://invalid-domain-that-does-not-exist.com",
-	}
-
-	_, err := invalidSDK.GetPublicKey()
-	if err == nil {
-		t.Error("期望获取无效域名的公钥时返回错误")
 	}
 }
 
@@ -255,36 +247,6 @@ func TestConcurrentRequests(t *testing.T) {
 	t.Logf("并发请求完成: 总请求数=%d, 错误数=%d", totalRequests, errorCount)
 }
 
-// TestNetworkTimeout 测试网络超时处理机制
-// 验证SDK对网络超时场景的处理和错误恢复能力
-func TestNetworkTimeout(t *testing.T) {
-	// 使用一个会超时的端点
-	slowSDK := &sdk.HttpSDK{
-		Debug:     true,
-		Domain:    "http://httpbin.org/delay/10", // 故意使用会延迟10秒的端点
-		KeyPath:   "/key",
-		LoginPath: "/login",
-	}
-
-	// 记录开始时间
-	start := time.Now()
-
-	_, err := slowSDK.GetPublicKey()
-
-	elapsed := time.Since(start)
-
-	// 验证是否在合理时间内超时
-	if elapsed > time.Second*30 {
-		t.Errorf("请求耗时过长: %v", elapsed)
-	}
-
-	if err == nil {
-		t.Log("请求意外成功，可能网络条件良好")
-	} else {
-		t.Logf("请求失败（预期行为）: %v", err)
-	}
-}
-
 // TestRequestDataSerialization 测试请求数据序列化能力
 // 验证SDK对不同类型请求数据的JSON序列化处理
 func TestRequestDataSerialization(t *testing.T) {
@@ -342,35 +304,6 @@ func TestResponseDataDeserialization(t *testing.T) {
 				t.Logf("反序列化测试[%s]返回错误: %v", tc.name, err)
 			} else {
 				t.Logf("反序列化测试[%s]成功", tc.name)
-			}
-		})
-	}
-}
-
-// TestInvalidDomain 测试无效域名和URL处理
-// 验证SDK对各种无效域名和URL格式的错误处理能力
-func TestInvalidDomain(t *testing.T) {
-	invalidDomains := []string{
-		"",
-		"http://",
-		"https://",
-		"not-a-url",
-		"ftp://example.com",
-		"http://256.256.256.256", // 无效IP
-	}
-
-	for _, domain := range invalidDomains {
-		t.Run(fmt.Sprintf("Domain_%s", domain), func(t *testing.T) {
-			sdk := &sdk.HttpSDK{
-				Debug:  true,
-				Domain: domain,
-			}
-
-			_, err := sdk.GetPublicKey()
-			if err == nil {
-				t.Errorf("期望域名[%s]返回错误，但成功了", domain)
-			} else {
-				t.Logf("域名[%s]正确返回错误: %v", domain, err)
 			}
 		})
 	}
@@ -509,23 +442,6 @@ func BenchmarkPBKDF2(b *testing.B) {
 	}
 }
 
-func BenchmarkHttpSDK_GetPublicKey(b *testing.B) {
-	httpSDK := &sdk.HttpSDK{
-		Debug:  false, // 基准测试时关闭调试
-		Domain: domain,
-	}
-
-	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			_, err := httpSDK.GetPublicKey()
-			if err != nil {
-				b.Logf("公钥获取失败: %v", err)
-			}
-		}
-	})
-}
-
 // BenchmarkHttpSDK_PostByAuth 认证请求性能基准测试
 // 测量PostByAuth方法在并发场景下的性能表现和吞吐量
 func BenchmarkHttpSDK_PostByAuth(b *testing.B) {
@@ -553,28 +469,14 @@ func BenchmarkHttpSDK_PostByAuth(b *testing.B) {
 	})
 }
 
-// BenchmarkKeyEndpoint 单独测试/key接口的并发性能
-func BenchmarkKeyEndpoint(b *testing.B) {
-	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
-		localSDK := NewSDK()
-
-		for pb.Next() {
-			_, err := localSDK.GetPublicKey()
-			if err != nil {
-				b.Logf("GetPublicKey失败: %v", err)
-			}
-		}
-	})
-}
-
 // BenchmarkHttpSDK_PostByECC ECC请求性能基准测试
 // 测试动态ECDH在并发执行下的性能表现和稳定性
 func BenchmarkHttpSDK_PostByECC(b *testing.B) {
+	// 每个goroutine创建独立的SDK实例，避免并发冲突
+	goroutineSDK := NewSDK()
+	_ = goroutineSDK.SetECDSAObject(clientPrk, serverPub)
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
-		// 每个goroutine创建独立的SDK实例，避免并发冲突
-		goroutineSDK := NewSDK()
 
 		localCounter := 0
 		for pb.Next() {

@@ -150,7 +150,14 @@ func (self *TestFilter) DoFilter(chain node.Filter, ctx *node.Context, args ...i
 }
 
 const (
-	privateKey = "JCW4TMilCz1+gaVuUoJJLnvSq95r1Evec3/UKdAVND4="
+	//服务端私钥
+	serverPrk = "Z4WmI28ILmpqTWM4OISPwzF10BcGF7hsPHoaiH3J1vw="
+	//服务端公钥
+	serverPub = "BO6XQ+PD66TMDmQXSEHl2xQarWE0HboB4LazrznThhr6Go5SvpjXJqiSe2fX+sup5OQDOLPkLdI1gh48jOmAq+k="
+	//客户端私钥
+	clientPrk = "rnX5ykQivfbLHtcbPR68CP636usTNC03u8OD1KeoDPg="
+	//客户端公钥
+	clientPub = "BEZkPpdLSQiUvkaObyDz0ya0figOLphr6L8hPEHbPzpc7sEMtq1lBTfG6IwZdd7WuJmMkP1FRt+GzZgnqt+DRjs="
 )
 
 func roleRealm(ctx *node.Context, onlyRole bool) (*node.Permission, error) {
@@ -174,14 +181,11 @@ func NewHTTP() *MyWebNode {
 		TokenKey: "123456" + utils.CreateLocalSecretKey(12, 45, 23, 60, 58, 30),
 		TokenExp: jwt.TWO_WEEK,
 	})
-	cipher := &crypto.EccObj{}
-	if err := cipher.LoadS256ECC(privateKey); err != nil {
-		panic("ECC certificate generation failed")
-	}
+
+	// 增加双向验签的ECDSA
+	cipher, _ := crypto.CreateS256ECDSAWithBase64(serverPrk, clientPub)
 	my.AddCipher(cipher)
-	backupECC := &crypto.EccObj{}
-	backupECC.CreateS256ECC()
-	my.AddCipher(backupECC)
+
 	//my.AddRedisCache(func(ds ...string) (cache.Cache, error) {
 	//	rds, err := cache.NewRedis(ds...)
 	//	return rds, err
@@ -205,7 +209,7 @@ func StartHttpNode() {
 	my.POST("/test1", my.test, nil)
 	my.POST("/getUser", my.getUser, &node.RouterConfig{AesRequest: false, AesResponse: false})
 	my.POST("/testGuestPost", my.testGuestPost, &node.RouterConfig{Guest: true})
-	my.GET("/key", my.publicKey, &node.RouterConfig{Guest: true})
+	my.POST("/key", my.publicKey, &node.RouterConfig{Guest: true})
 	my.POST("/login", my.login, &node.RouterConfig{UseRSA: true})
 
 	my.POST("/geetest/register", my.FirstRegister, &node.RouterConfig{UseRSA: true})

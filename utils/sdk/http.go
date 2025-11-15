@@ -1,9 +1,10 @@
 package sdk
 
 import (
-	"crypto/ecdsa"
+	ecdh2 "crypto/ecdh"
 	"crypto/sha512"
 	"fmt"
+	"github.com/godaddy-x/freego/utils/crypto"
 	"time"
 
 	"golang.org/x/crypto/pbkdf2"
@@ -23,18 +24,18 @@ type AuthToken struct {
 }
 
 type HttpSDK struct {
-	Debug      bool
-	Domain     string
-	AuthDomain string
-	KeyPath    string
-	LoginPath  string
-	publicKey  string
-	ecdsaPrk   *ecdsa.PrivateKey
-	ecdsaPub   *ecdsa.PublicKey
-	language   string
-	timeout    int64
-	authObject interface{}
-	authToken  AuthToken
+	Debug       bool
+	Domain      string
+	AuthDomain  string
+	KeyPath     string
+	LoginPath   string
+	publicKey   string
+	language    string
+	timeout     int64
+	authObject  interface{}
+	authToken   AuthToken
+	ecdsaObject []crypto.Cipher
+	ecdhObject  crypto.Cipher
 }
 
 // 请使用指针对象
@@ -59,12 +60,19 @@ func (s *HttpSDK) SetLanguage(language string) {
 	s.language = language
 }
 
-func (s *HttpSDK) SetEcdsaPrk(prk *ecdsa.PrivateKey) {
-	s.ecdsaPrk = prk
+// SetECDSAObject 可增加多个备用的，请勿重复添加
+func (s *HttpSDK) SetECDSAObject(prkB64, pubB64 string) error {
+	cipher, err := crypto.CreateS256ECDSAWithBase64(prkB64, pubB64)
+	if err != nil {
+		return err
+	}
+	s.ecdsaObject = append(s.ecdsaObject, cipher)
+	return nil
 }
 
-func (s *HttpSDK) SetEcdsaPub(pub *ecdsa.PublicKey) {
-	s.ecdsaPub = pub
+func (s *HttpSDK) SetECDHObject(object *crypto.EcdhObject) error {
+	s.ecdhObject = object
+	return nil
 }
 
 func (s *HttpSDK) debugOut(a ...interface{}) {
@@ -83,24 +91,58 @@ func (s *HttpSDK) getURI(path string) string {
 	return s.Domain + path
 }
 
-func (s *HttpSDK) GetPublicKey() (*node.PublicKey, error) {
+// GetPublicKey 返回 本地临时公私钥，服务端临时公钥
+func (s *HttpSDK) GetPublicKey() (*crypto.EcdhObject, *node.PublicKey, crypto.Cipher, error) {
+	// 生成临时客户端公私钥
+	ecdh := &crypto.EcdhObject{}
+	if err := ecdh.CreateECDH(); err != nil {
+		return nil, nil, nil, ex.Throw{Msg: "create ecdh object error: " + err.Error()}
+	}
+	var cip crypto.Cipher
+	if len(s.ecdsaObject) > 0 {
+		cip = s.ecdsaObject[0]
+	}
+	public, err := node.CreatePublicKey(utils.Base64Encode(utils.GetRandomSecure(32)), "", cip)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	publicBody, err := utils.JsonMarshal(public)
+	if err != nil {
+		return nil, nil, nil, ex.Throw{Msg: "request object json marshal error: " + err.Error()}
+	}
+	// 发送请求
 	request := fasthttp.AcquireRequest()
-	request.Header.SetMethod("GET")
+	request.Header.SetMethod("POST")
+	request.SetRequestURI(s.getURI(s.KeyPath))
+	request.SetBody(publicBody)
 	defer fasthttp.ReleaseRequest(request)
 	response := fasthttp.AcquireResponse()
 	defer fasthttp.ReleaseResponse(response)
-	_, b, err := fasthttp.Get(nil, s.getURI(s.KeyPath))
+
+	timeout := 120 * time.Second
+	if s.timeout > 0 {
+		timeout = time.Duration(s.timeout) * time.Second
+	}
+	if err := fasthttp.DoTimeout(request, response, timeout); err != nil {
+		return nil, nil, nil, ex.Throw{Msg: "post request failed: " + err.Error()}
+	}
+	respBytes := response.Body()
+	if len(respBytes) == 0 {
+		return nil, nil, nil, ex.Throw{Msg: "response public key invalid"}
+	}
+	if !utils.JsonValid(respBytes) {
+		return nil, nil, nil, ex.Throw{Msg: "request public error: " + utils.Bytes2Str(respBytes)}
+	}
+	s.debugOut("response message: " + utils.Bytes2Str(respBytes))
+	responseObject := &node.PublicKey{}
+	if err := utils.JsonUnmarshal(respBytes, responseObject); err != nil {
+		return nil, nil, nil, ex.Throw{Msg: "request public key parse error: " + err.Error()}
+	}
+	cip, err = node.CheckPublicKey(responseObject, s.ecdsaObject...)
 	if err != nil {
-		return nil, ex.Throw{Msg: "request public key failed"}
+		return nil, nil, nil, err
 	}
-	if len(b) == 0 {
-		return nil, ex.Throw{Msg: "request public key invalid"}
-	}
-	result := &node.PublicKey{}
-	if err := utils.JsonUnmarshal(b, result); err != nil {
-		return nil, ex.Throw{Msg: "request public key parse error: " + err.Error()}
-	}
-	return result, nil
+	return ecdh, responseObject, cip, nil
 }
 
 // PostByECC 对象请使用指针
@@ -108,6 +150,21 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	if len(path) == 0 || requestObj == nil || responseObj == nil {
 		return ex.Throw{Msg: "params invalid"}
 	}
+	ecdh, public, cip, err := s.GetPublicKey()
+	if err != nil {
+		return err
+	}
+	pub, err := ecc.LoadECDHPublicKeyFromBase64(public.Key)
+	if err != nil {
+		return ex.Throw{Msg: "load ECC public key failed"}
+	}
+	prk, _ := ecdh.GetPrivateKey()
+	sharedKey, err := ecc.GenSharedKeyECDH(prk.(*ecdh2.PrivateKey), pub)
+	if err != nil {
+		return ex.Throw{Msg: "ECC shared key failed"}
+	}
+	// 使用标准PBKDF2密钥派生（HMAC-SHA512，1024次迭代） 输出32字节密钥（SHA-512）
+	sharedKey = pbkdf2.Key(sharedKey, utils.Base64Decode(public.Noc), 1024, 32, sha512.New)
 	jsonBody := &node.JsonBody{
 		Time:  utils.UnixSecond(),
 		Nonce: utils.RandNonce(),
@@ -126,26 +183,8 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 		}
 		jsonBody.Data = utils.Bytes2Str(jsonData)
 	}
-	serverKey, err := s.GetPublicKey()
-	if err != nil {
-		return err
-	}
-	prk, err := ecc.CreateECDH()
-	if err != nil {
-		return ex.Throw{Msg: "create ECC prk key failed"}
-	}
-	pub, err := ecc.LoadECDHPublicKeyFromBase64(serverKey.Key)
-	if err != nil {
-		return ex.Throw{Msg: "load ECC public key failed"}
-	}
-	sharedKey, err := ecc.GenSharedKeyECDH(prk, pub)
-	if err != nil {
-		return ex.Throw{Msg: "ECC shared key failed"}
-	}
-	// 6. 使用标准PBKDF2密钥派生（HMAC-SHA512，1024次迭代） 输出32字节密钥（SHA-512）
-	sharedKey = pbkdf2.Key(sharedKey, utils.Base64Decode(serverKey.Noc), 1024, 32, sha512.New)
-	s.debugOut("server key: ", serverKey.Key)
-	s.debugOut("client key: ", utils.Base64Encode(prk.PublicKey().Bytes()))
+	s.debugOut("server key: ", public.Key)
+	s.debugOut("client key: ", ecdh.PublicKeyBase64)
 	s.debugOut("shared key: ", utils.Base64Encode(sharedKey))
 	// 使用 AES-GCM 加密，Nonce 作为 AAD
 	d, err := utils.AesGCMEncryptBase(utils.Str2Bytes(jsonBody.Data), sharedKey, utils.Str2Bytes(utils.AddStr(jsonBody.Time, jsonBody.Nonce, jsonBody.Plan, path)))
@@ -160,12 +199,19 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	}
 	s.debugOut("request data: ")
 	s.debugOut(utils.Bytes2Str(bytesData))
+
+	key, err := node.CreatePublicKey(public.Key, utils.Base64Encode(prk.(*ecdh2.PrivateKey).PublicKey().Bytes()), cip)
+	if err != nil {
+		return err
+	}
+	auth, err := utils.JsonMarshal(key)
+	if err != nil {
+		return ex.Throw{Msg: "public key json parse invalid"}
+	}
+
 	request := fasthttp.AcquireRequest()
 	request.Header.SetContentType("application/json;charset=UTF-8")
-	request.Header.Set("Authorization", "")
-	request.Header.Set("ServerKey", serverKey.Key)
-	request.Header.Set("ClientKey", utils.Base64Encode(prk.PublicKey().Bytes()))
-	request.Header.Set("Nonce", serverKey.Noc)
+	request.Header.Set("Authorization", utils.Base64Encode(auth))
 	request.Header.Set("Language", s.language)
 	request.Header.SetMethod("POST")
 	request.SetRequestURI(s.getURI(path))

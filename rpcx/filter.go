@@ -23,11 +23,7 @@ var (
 	unauthorizedUrl = []string{"/pub_worker.PubWorker/Authorize", "/pub_worker.PubWorker/PublicKey"}
 )
 
-var defaultLimiter = rate.NewRateLimiter(rate.Option{
-	Limit:       10,
-	Bucket:      100,
-	Distributed: true,
-})
+var defaultLimiter = &rate.LocalRateLimiter{}
 
 func (self *GRPCManager) getRateOption(method string) (rate.Option, error) {
 	if rateLimiterCall == nil {

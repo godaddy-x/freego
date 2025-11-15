@@ -37,17 +37,29 @@ func easyjson19e19bc5DecodeGithubComGodaddyXFreegoNode(in *jlexer.Lexer, out *Pu
 			} else {
 				out.Key = string(in.String())
 			}
+		case "tag":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Tag = string(in.String())
+			}
 		case "noc":
 			if in.IsNull() {
 				in.Skip()
 			} else {
 				out.Noc = string(in.String())
 			}
+		case "sig":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Sig = string(in.String())
+			}
 		case "exp":
 			if in.IsNull() {
 				in.Skip()
 			} else {
-				out.Exp = int(in.Int())
+				out.Exp = int64(in.Int64())
 			}
 		default:
 			in.SkipRecursive()
@@ -69,14 +81,24 @@ func easyjson19e19bc5EncodeGithubComGodaddyXFreegoNode(out *jwriter.Writer, in P
 		out.String(string(in.Key))
 	}
 	{
+		const prefix string = ",\"tag\":"
+		out.RawString(prefix)
+		out.String(string(in.Tag))
+	}
+	{
 		const prefix string = ",\"noc\":"
 		out.RawString(prefix)
 		out.String(string(in.Noc))
 	}
 	{
+		const prefix string = ",\"sig\":"
+		out.RawString(prefix)
+		out.String(string(in.Sig))
+	}
+	{
 		const prefix string = ",\"exp\":"
 		out.RawString(prefix)
-		out.Int(int(in.Exp))
+		out.Int64(int64(in.Exp))
 	}
 	out.RawByte('}')
 }

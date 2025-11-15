@@ -2,9 +2,11 @@ package node
 
 //easyjson:json
 type PublicKey struct {
-	Key string `json:"key"` // 公钥Base64编码格式
+	Key string `json:"key"` // 服务端临时公钥
+	Tag string `json:"tag"` // 客户端临时公钥
 	Noc string `json:"noc"` // 随机数
-	Exp int    `json:"exp"` // 有效时间，单位秒
+	Sig string `json:"sig"` // 数据签名
+	Exp int64  `json:"exp"` // 有效时间，单位秒
 }
 
 //easyjson:json

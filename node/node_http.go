@@ -97,13 +97,7 @@ func (self *HttpNode) StartServer(addr string) {
 		zlog.Printf("local cache service has been started successful")
 	}
 	if self.Context.RSA != nil {
-		if self.Context.System.enableECC {
-			zlog.Printf("ECC certificate service has been started successful")
-		} else {
-			zlog.Printf("RSA certificate service has been started successful")
-		}
-	} else {
-		panic("certificate setting exception, please execute the <AddCipher>")
+		zlog.Printf("ECC certificate service has been started successful")
 	}
 
 	// 创建上下文用于优雅关闭

@@ -33,6 +33,10 @@ type Option struct {
 	Distributed bool
 }
 
+var (
+	localLimiterCache = new(cache.LocalMapManager).NewCache(30, 5)
+)
+
 func NewRateLimiter(option Option) RateLimiter {
 	if option.Distributed {
 		// 分布式模式：使用Redis限流器
@@ -75,7 +79,7 @@ func NewRateLimiter(option Option) RateLimiter {
 	}
 
 	return &LocalRateLimiter{
-		cache:         new(cache.LocalMapManager).NewCache(30, expireSeconds),
+		cache:         localLimiterCache,
 		option:        option,
 		expireSeconds: expireSeconds,
 	}

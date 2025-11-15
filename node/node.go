@@ -43,8 +43,6 @@ const (
 
 	Authorization = "Authorization"
 	SharedKey     = "SharedKey"
-	ServerKey     = "ServerKey"
-	ClientKey     = "ClientKey"
 )
 
 var (
@@ -399,22 +397,17 @@ func (self *Context) validJsonBody() error {
 		if !self.RouterConfig.UseRSA {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters must use RSA encryption"}
 		}
-		// Plan 2需要解密RandomCode获取clientSecretKey进行签名验证
-		serverKeyBs := self.RequestCtx.Request.Header.Peek(ServerKey)
-		if len(serverKeyBs) > 100 {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "server key invalid"}
+		authBs := self.RequestCtx.Request.Header.Peek(Authorization)
+		if len(authBs) <= 0 || len(authBs) > 500 {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "client public key invalid"}
 		}
-		clientKeyBs := self.RequestCtx.Request.Header.Peek(ClientKey)
-		if len(clientKeyBs) > 100 {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "client key invalid"}
+		public := &PublicKey{}
+		if err := utils.JsonUnmarshal(utils.Base64Decode(authBs), public); err != nil {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "client public key parse error", Err: err}
 		}
-		serverKeyB64 := utils.Bytes2Str(serverKeyBs)
-		if len(serverKeyB64) == 0 {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "server key is nil"}
-		}
-		clientKeyB64 := utils.Bytes2Str(clientKeyBs)
-		if len(serverKeyB64) == 0 {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "client key is nil"}
+
+		if _, err := CheckPublicKey(public, self.RSA...); err != nil {
+			return err
 		}
 
 		c, err := self.GetCacheObject()
@@ -422,7 +415,7 @@ func (self *Context) validJsonBody() error {
 			return err
 		}
 		// 使用与CreatePublicKey相同的缓存键计算方式
-		cacheKey := utils.FNV1a64(serverKeyB64)
+		cacheKey := utils.FNV1a64(public.Key)
 		var prkObject *PrivateKey
 		if c.Mode() == cache.LOCAL {
 			if v, b, err := c.Get(cacheKey, nil); err != nil || !b {
@@ -445,9 +438,7 @@ func (self *Context) validJsonBody() error {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "prk load error", Err: err}
 		}
 
-		// 不立即删除缓存，让它自然过期（180秒）
-		// 这样既保证安全性（私钥不会被无限期使用），又避免并发删除的竞态条件
-		pub, err := ecc.LoadECDHPublicKeyFromBase64(clientKeyB64)
+		pub, err := ecc.LoadECDHPublicKeyFromBase64(public.Tag)
 		if err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "pub load error", Err: err}
 		}
@@ -671,24 +662,97 @@ func (self *Context) NoBody() error {
 	return nil
 }
 
+func CreatePublicKey(key, tag string, cip crypto.Cipher) (*PublicKey, error) {
+	requestObject := &PublicKey{}
+	requestObject.Key = key
+	requestObject.Tag = tag
+	if cip != nil {
+		requestObject.Noc = utils.Base64Encode(utils.GetRandomSecure(32))
+		requestObject.Exp = utils.UnixSecond()
+		sig, err := cip.Sign(utils.Str2Bytes(utils.AddStr(requestObject.Key, requestObject.Noc, requestObject.Exp)))
+		if err != nil {
+			return nil, ex.Throw{Msg: "ecdsa sign message error: " + err.Error()}
+		}
+		requestObject.Sig = utils.Base64Encode(sig)
+	}
+	return requestObject, nil
+}
+
+func CheckPublicKey(requestObject *PublicKey, cipher ...crypto.Cipher) (crypto.Cipher, error) {
+	if len(requestObject.Key) == 0 {
+		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request key is nil"}
+	}
+	if len(cipher) == 0 { // 没有配置ECDSA对象验证要求则跳过
+		return nil, nil
+	} else {
+		for _, v := range cipher {
+			if v == nil {
+				return nil, nil
+			}
+		}
+	}
+	if len(requestObject.Sig) == 0 {
+		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request sig is nil"}
+	}
+	if len(requestObject.Noc) == 0 {
+		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request noc is nil"}
+	}
+	if utils.MathAbs(utils.UnixSecond()-requestObject.Exp) > jwt.FIVE_MINUTES { // 判断绝对时间差超过5分钟
+		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request exp invalid"}
+	}
+	// ECDSA验证签名
+	var cip crypto.Cipher
+	var ecdsaValid bool
+	for _, v := range cipher {
+		if err := v.Verify(utils.Str2Bytes(utils.AddStr(requestObject.Key, requestObject.Noc, requestObject.Exp)), utils.Base64Decode(requestObject.Sig)); err == nil {
+			ecdsaValid = true
+			cip = v
+			break
+		} else {
+			zlog.Error("ecdsa verify public key error", 0, zlog.String("clientPub", requestObject.Key))
+		}
+	}
+	if !ecdsaValid {
+		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request sig invalid"}
+	}
+	return cip, nil
+}
+
 func (self *Context) CreatePublicKey() (*PublicKey, error) {
+	// 检查请求的对象是否有效
+	if self.JsonBody == nil || len(self.JsonBody.Data) == 0 {
+		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request data is nil"}
+	}
+
+	checkObject := &PublicKey{}
+	if err := utils.JsonUnmarshal(utils.Str2Bytes(self.JsonBody.Data), checkObject); err != nil {
+		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request data parse error", Err: err}
+	}
+
+	cip, err := CheckPublicKey(checkObject, self.RSA...)
+	if err != nil {
+		return nil, err
+	}
+
 	// 生成ECC密钥对 - ECC库应该是线程安全的
 	prk, err := ecc.CreateECDH()
 	if err != nil {
 		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "ecdh invalid", Err: err}
 	}
-	pub := utils.Base64Encode(prk.PublicKey().Bytes())
-	noc := utils.Base64Encode(utils.AddStr(utils.GetRandomSecure(32), utils.UnixMilli()))
-	exp := 180 // 180秒过期
+
+	requestObject, err := CreatePublicKey(utils.Base64Encode(prk.PublicKey().Bytes()), "", cip)
+	if err != nil {
+		return nil, err
+	}
 
 	c, err := self.GetCacheObject()
 	if err != nil {
 		return nil, err
 	}
 
-	if err := c.Put(utils.FNV1a64(pub), &PrivateKey{Key: utils.Base64Encode(prk.Bytes()), Noc: noc}, exp); err != nil {
+	if err := c.Put(utils.FNV1a64(requestObject.Key), &PrivateKey{Key: utils.Base64Encode(prk.Bytes()), Noc: requestObject.Noc}, 180); err != nil {
 		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "prk cache setting error", Err: err}
 	}
 
-	return &PublicKey{Key: pub, Noc: noc, Exp: exp}, nil
+	return requestObject, nil
 }
