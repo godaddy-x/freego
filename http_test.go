@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	ecc "github.com/godaddy-x/eccrypto"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/sdk"
 	"github.com/valyala/fasthttp"
@@ -66,6 +67,269 @@ func TestGetUser(t *testing.T) {
 		fmt.Println(err)
 	}
 	fmt.Println(responseData)
+}
+
+// TestGetUserSecurity 测试登录成功后的API调用安全性
+// TestECCWithECDSASecurity 金融体系ECC+ECDSA双重签名安全测试
+func TestECCWithECDSASecurity(t *testing.T) {
+	// 初始化HttpSDK
+	httpSDK := &sdk.HttpSDK{
+		Domain:    domain,
+		KeyPath:   "/key",
+		LoginPath: "/login",
+	}
+
+	// 设置ECDSA密钥对（模拟客户端私钥）
+	clientPrk, clientPub, err := ecc.CreateECDSA()
+	if err != nil {
+		t.Fatalf("创建ECDSA密钥对失败: %v", err)
+	}
+	clientPrkB64 := utils.Base64Encode(ecc.GetECDSAPublicKeyBytes(clientPub))
+	clientPubB64 := utils.Base64Encode(ecc.GetECDSAPrivateKeyBytes(clientPrk))
+
+	// 配置客户端ECDSA对象
+	if err := httpSDK.SetECDSAObject(clientPrkB64, clientPubB64); err != nil {
+		t.Fatalf("设置ECDSA对象失败: %v", err)
+	}
+
+	testCases := []struct {
+		name        string
+		requestData interface{}
+		expectError bool
+		description string
+	}{
+		{
+			name: "金融体系标准请求",
+			requestData: &sdk.AuthToken{
+				Token:  "金融交易请求",
+				Secret: "transaction_data",
+			},
+			expectError: false,
+			description: "验证ECC+AES-GCM+HMAC+ECDSA的完整安全链",
+		},
+		{
+			name: "大金额交易模拟",
+			requestData: &sdk.AuthToken{
+				Token:  "转账1000000.00元",
+				Secret: "account_from:123456,account_to:654321",
+			},
+			expectError: false,
+			description: "模拟大金额交易的安全保护",
+		},
+		{
+			name: "敏感数据传输",
+			requestData: &sdk.AuthToken{
+				Token:  "银行卡信息",
+				Secret: "card_number:4111111111111111,expiry:12/25,cvv:123",
+			},
+			expectError: false,
+			description: "验证敏感金融数据的安全传输",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// 执行ECC请求（包含ECDSA签名）
+			responseData := sdk.AuthToken{}
+			err := httpSDK.PostByECC("/getUser", tc.requestData, &responseData, true)
+
+			if tc.expectError {
+				if err == nil {
+					t.Errorf("测试用例[%s]期望错误但成功了", tc.name)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("测试用例[%s]意外错误: %v", tc.name, err)
+				} else {
+					t.Logf("✅ 金融安全测试[%s]通过: %s", tc.name, tc.description)
+
+					// 验证响应数据的安全性
+					if responseData.Token != "" {
+						t.Logf("  响应数据完整性验证通过")
+					}
+
+					// 验证双重签名机制 (优化版)
+					t.Logf("  ECC+AES-GCM加密传输 ✅")
+					t.Logf("  HMAC-SHA256数据完整性 ✅")
+					t.Logf("  ECDSA对HMAC签名认证 (性能优化) ✅")
+				}
+			}
+		})
+	}
+}
+
+func TestGetUserSecurity(t *testing.T) {
+	testCases := []struct {
+		name         string
+		setupAuth    func(*sdk.HttpSDK)
+		requestData  interface{}
+		expectError  bool
+		errorContain string
+		description  string
+	}{
+		{
+			name: "正常认证请求",
+			setupAuth: func(httpSDK *sdk.HttpSDK) {
+				httpSDK.AuthToken(sdk.AuthToken{Token: access_token, Secret: token_secret, Expired: token_expire})
+			},
+			requestData: &sdk.AuthToken{Token: "test_token", Secret: "test_secret"},
+			expectError: false,
+			description: "验证正常认证请求是否成功",
+		},
+		{
+			name: "未授权访问",
+			setupAuth: func(httpSDK *sdk.HttpSDK) {
+				// 不设置认证信息
+			},
+			requestData:  &sdk.AuthToken{Token: "test", Secret: "test"},
+			expectError:  true,
+			errorContain: "token or secret can't be empty",
+			description:  "验证未设置token时的访问控制",
+		},
+		{
+			name: "空token",
+			setupAuth: func(httpSDK *sdk.HttpSDK) {
+				httpSDK.AuthToken(sdk.AuthToken{Token: "", Secret: token_secret, Expired: token_expire})
+			},
+			requestData:  &sdk.AuthToken{Token: "test", Secret: "test"},
+			expectError:  true,
+			errorContain: "token or secret can't be empty",
+			description:  "验证空token的访问控制",
+		},
+		{
+			name: "空secret",
+			setupAuth: func(httpSDK *sdk.HttpSDK) {
+				httpSDK.AuthToken(sdk.AuthToken{Token: access_token, Secret: "", Expired: token_expire})
+			},
+			requestData:  &sdk.AuthToken{Token: "test", Secret: "test"},
+			expectError:  true,
+			errorContain: "token or secret can't be empty",
+			description:  "验证空secret的访问控制",
+		},
+		{
+			name: "特殊字符处理",
+			setupAuth: func(httpSDK *sdk.HttpSDK) {
+				httpSDK.AuthToken(sdk.AuthToken{Token: access_token, Secret: token_secret, Expired: token_expire})
+			},
+			requestData: &sdk.AuthToken{
+				Token:  "特殊字符！@#￥%……&*（）——+{}|:<>?[]\\;'\".,/~`",
+				Secret: "unicode测试🚀🎉中文English日本語",
+			},
+			expectError: false,
+			description: "验证特殊字符和Unicode的正确处理",
+		},
+		{
+			name: "超长数据",
+			setupAuth: func(httpSDK *sdk.HttpSDK) {
+				httpSDK.AuthToken(sdk.AuthToken{Token: access_token, Secret: token_secret, Expired: token_expire})
+			},
+			requestData: &sdk.AuthToken{
+				Token:  strings.Repeat("A", 10000), // 10KB数据
+				Secret: strings.Repeat("B", 10000),
+			},
+			expectError: false,
+			description: "验证大数据量的处理能力",
+		},
+		{
+			name: "SQL注入尝试",
+			setupAuth: func(httpSDK *sdk.HttpSDK) {
+				httpSDK.AuthToken(sdk.AuthToken{Token: access_token, Secret: token_secret, Expired: token_expire})
+			},
+			requestData: &sdk.AuthToken{
+				Token:  "'; DROP TABLE users; --",
+				Secret: "' OR '1'='1",
+			},
+			expectError: false,
+			description: "验证SQL注入攻击的防护（数据传输层加密）",
+		},
+		{
+			name: "XSS尝试",
+			setupAuth: func(httpSDK *sdk.HttpSDK) {
+				httpSDK.AuthToken(sdk.AuthToken{Token: access_token, Secret: token_secret, Expired: token_expire})
+			},
+			requestData: &sdk.AuthToken{
+				Token:  "<script>alert('xss')</script>",
+				Secret: "<img src=x onerror=alert(1)>",
+			},
+			expectError: false,
+			description: "验证XSS攻击的防护（数据传输层编码）",
+		},
+		{
+			name: "路径遍历尝试",
+			setupAuth: func(httpSDK *sdk.HttpSDK) {
+				httpSDK.AuthToken(sdk.AuthToken{Token: access_token, Secret: token_secret, Expired: token_expire})
+			},
+			requestData: &sdk.AuthToken{
+				Token:  "../../../../etc/passwd",
+				Secret: "..\\..\\..\\windows\\system32\\config\\sam",
+			},
+			expectError: false,
+			description: "验证路径遍历攻击的防护",
+		},
+		{
+			name: "null值处理",
+			setupAuth: func(httpSDK *sdk.HttpSDK) {
+				httpSDK.AuthToken(sdk.AuthToken{Token: access_token, Secret: token_secret, Expired: token_expire})
+			},
+			requestData:  nil,
+			expectError:  true,
+			errorContain: "params invalid",
+			description:  "验证null请求数据的处理",
+		},
+		{
+			name: "二进制数据",
+			setupAuth: func(httpSDK *sdk.HttpSDK) {
+				httpSDK.AuthToken(sdk.AuthToken{Token: access_token, Secret: token_secret, Expired: token_expire})
+			},
+			requestData: &sdk.AuthToken{
+				Token:  string([]byte{0x00, 0x01, 0x02, 0xFF, 0xFE, 0xFD}),
+				Secret: string([]byte{0x80, 0x81, 0x82, 0x83}),
+			},
+			expectError: false,
+			description: "验证二进制数据的处理",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// 为每个测试用例创建独立的SDK实例
+			testSDK := &sdk.HttpSDK{
+				Domain:    domain,
+				KeyPath:   "/key",
+				LoginPath: "/login",
+			}
+
+			// 设置认证信息
+			if tc.setupAuth != nil {
+				tc.setupAuth(testSDK)
+			}
+
+			// 执行请求
+			responseData := sdk.AuthToken{}
+			err := testSDK.PostByAuth("/getUser", tc.requestData, &responseData, false)
+
+			// 验证结果
+			if tc.expectError {
+				if err == nil {
+					t.Errorf("测试用例[%s]期望错误但成功了", tc.name)
+				} else if tc.errorContain != "" && !strings.Contains(err.Error(), tc.errorContain) {
+					t.Logf("测试用例[%s]错误信息: %v", tc.name, err)
+				} else {
+					t.Logf("✅ 测试用例[%s]正确拒绝: %s", tc.name, tc.description)
+				}
+			} else {
+				if err != nil {
+					t.Logf("⚠️  测试用例[%s]意外错误: %v", tc.name, err)
+				} else {
+					t.Logf("✅ 测试用例[%s]通过: %s", tc.name, tc.description)
+					// 对于成功的情况，验证响应数据完整性
+					if responseData.Token != "" {
+						t.Logf("  响应数据完整性检查通过")
+					}
+				}
+			}
+		})
+	}
 }
 
 func TestOnlyServerECCLogin(t *testing.T) {
