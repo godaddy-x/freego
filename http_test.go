@@ -31,7 +31,6 @@ var httpSDK = NewSDK(true)
 
 func NewSDK(debug bool) *sdk.HttpSDK {
 	newObject := &sdk.HttpSDK{
-		Debug:     debug,
 		Domain:    domain,
 		KeyPath:   "/key",
 		LoginPath: "/login",
@@ -91,21 +90,11 @@ func TestOnlyServerECCLogin(t *testing.T) {
 // TestHttpSDKInitialization 测试HttpSDK初始化配置
 // 验证SDK的默认值设置和自定义配置功能
 func TestHttpSDKInitialization(t *testing.T) {
-	// 测试默认初始化
-	httpSdk := &sdk.HttpSDK{}
-	if httpSdk.Debug != false {
-		t.Errorf("期望Debug默认值为false，实际为%v", httpSdk.Debug)
-	}
-
 	// 测试带参数初始化
 	httpSdkWithConfig := &sdk.HttpSDK{
-		Debug:     true,
 		Domain:    "https://api.example.com",
 		KeyPath:   "/api/keys",
 		LoginPath: "/api/auth",
-	}
-	if !httpSdkWithConfig.Debug {
-		t.Error("期望Debug为true")
 	}
 	if httpSdkWithConfig.Domain != "https://api.example.com" {
 		t.Errorf("期望Domain为https://api.example.com，实际为%s", httpSdkWithConfig.Domain)
@@ -130,7 +119,6 @@ func TestECCLoginWithInvalidKey(t *testing.T) {
 // 验证不同类型的令牌（空令牌、过期令牌、无效令牌）的处理能力
 func TestAuthTokenValidation(t *testing.T) {
 	httpSDK := &sdk.HttpSDK{
-		Debug:     true,
 		Domain:    domain,
 		KeyPath:   "/key",
 		LoginPath: "/login",
@@ -160,7 +148,6 @@ func TestAuthTokenValidation(t *testing.T) {
 // 验证在使用nil或无效参数调用PostByAuth时的错误处理
 func TestPostByAuthWithInvalidData(t *testing.T) {
 	httpSDK := &sdk.HttpSDK{
-		Debug:     true,
 		Domain:    domain,
 		KeyPath:   "/key",
 		LoginPath: "/login",
@@ -206,7 +193,6 @@ func TestPostByECCWithInvalidData(t *testing.T) {
 // 验证SDK在高并发场景下的稳定性和资源竞争处理
 func TestConcurrentRequests(t *testing.T) {
 	httpSDK := &sdk.HttpSDK{
-		Debug:     false, // 关闭调试以减少日志输出
 		Domain:    domain,
 		KeyPath:   "/key",
 		LoginPath: "/login",
@@ -279,7 +265,6 @@ func TestRequestDataSerialization(t *testing.T) {
 // 验证SDK对不同类型响应数据的JSON反序列化处理
 func TestResponseDataDeserialization(t *testing.T) {
 	httpSDK := &sdk.HttpSDK{
-		Debug:     true,
 		Domain:    domain,
 		KeyPath:   "/key",
 		LoginPath: "/login",
@@ -315,7 +300,6 @@ func TestResponseDataDeserialization(t *testing.T) {
 // 验证SDK对不同格式API路径的处理和URL构造能力
 func TestPathHandling(t *testing.T) {
 	httpSDK := &sdk.HttpSDK{
-		Debug:     true,
 		Domain:    domain,
 		KeyPath:   "/key",
 		LoginPath: "/login",
@@ -353,7 +337,6 @@ func TestPathHandling(t *testing.T) {
 // 验证SDK对大数据量请求的处理能力和内存使用情况
 func TestLargeRequestData(t *testing.T) {
 	httpSDK := &sdk.HttpSDK{
-		Debug:     false, // 关闭调试以减少输出
 		Domain:    domain,
 		KeyPath:   "/key",
 		LoginPath: "/login",
@@ -386,7 +369,6 @@ func TestLargeRequestData(t *testing.T) {
 // 验证SDK对Unicode、Emoji、特殊符号等字符的处理能力
 func TestSpecialCharacters(t *testing.T) {
 	httpSDK := &sdk.HttpSDK{
-		Debug:     true,
 		Domain:    domain,
 		KeyPath:   "/key",
 		LoginPath: "/login",

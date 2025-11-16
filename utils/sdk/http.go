@@ -15,54 +15,130 @@ import (
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/node"
 	"github.com/godaddy-x/freego/utils"
+	"github.com/godaddy-x/freego/zlog"
 	"github.com/valyala/fasthttp"
 )
 
-// easyjson:json
+// AuthToken 认证令牌结构体
+// 包含JWT token、动态secret和过期时间
+//
+//easyjson:json
 type AuthToken struct {
-	Token   string `json:"token"`
-	Secret  string `json:"secret"`
-	Expired int64  `json:"expired"`
+	Token   string `json:"token"`   // JWT认证令牌
+	Secret  string `json:"secret"`  // 动态生成的AES密钥(Base64编码)
+	Expired int64  `json:"expired"` // 令牌过期时间戳(Unix秒)
 }
 
+// HttpSDK FreeGo HTTP客户端SDK
+// 支持ECC+AES-GCM加密传输、双向ECDSA签名验证、JWT认证等
+//
+// 安全特性:
+// - AES-256-GCM 认证加密
+// - HMAC-SHA256 完整性验证
+// - ECDSA 双向签名验证
+// - 动态密钥协商 (ECDH)
+// - 防重放攻击 (时间戳+Nonce)
+//
+// 使用模式:
+// - PostByECC: 匿名访问，使用ECC密钥协商
+// - PostByAuth: 登录后访问，使用JWT令牌
 type HttpSDK struct {
-	Debug       bool
-	Domain      string
-	AuthDomain  string
-	KeyPath     string
-	LoginPath   string
-	publicKey   string
-	language    string
-	timeout     int64
-	authObject  interface{}
-	authToken   AuthToken
-	ecdsaObject []crypto.Cipher
-	ecdhObject  crypto.Cipher
+	Domain      string          // API域名 (如: https://api.example.com)
+	AuthDomain  string          // 认证域名 (可选，用于/key和/login接口)
+	KeyPath     string          // 公钥获取路径 (默认: /key)
+	LoginPath   string          // 登录路径 (默认: /login)
+	publicKey   string          // 预设公钥 (避免重复请求/key)
+	language    string          // 语言设置 (HTTP头)
+	timeout     int64           // 请求超时时间(秒)
+	authObject  interface{}     // 登录认证对象 (用户名+密码等)
+	authToken   AuthToken       // JWT认证令牌
+	ecdsaObject []crypto.Cipher // ECDSA签名验证对象列表
+	ecdhObject  crypto.Cipher   // ECDH密钥协商对象
 }
 
-// 请使用指针对象
+// AuthObject 设置登录认证对象
+// 用于存储用户名、密码等登录凭据
+// 自动登录时会使用此对象调用登录接口
+//
+// 参数:
+//   - object: 认证对象，包含用户名密码等信息
+//
+// 注意: 请使用指针对象以避免数据拷贝
 func (s *HttpSDK) AuthObject(object interface{}) {
 	s.authObject = object
 }
 
 // SetPublicKey 设置预获取的公钥，避免重复调用/key接口
+// 在高频请求场景下，可以预先获取服务端公钥并设置此处
+// 避免每次ECC请求都重新获取公钥，提高性能
+//
+// 参数:
+//   - key: 服务端ECC公钥(Base64编码)
+//
+// 性能影响: 设置后可减少一次HTTP请求
 func (s *HttpSDK) SetPublicKey(key string) {
 	s.publicKey = key
 }
 
+// AuthToken 设置JWT认证令牌
+// 设置登录成功后获得的令牌，用于后续API调用的身份认证
+//
+// 参数:
+//   - object: AuthToken结构体，包含token、secret、expired字段
+//
+// 安全特性:
+// - Token: JWT令牌，用于身份验证
+// - Secret: 动态生成的AES密钥，用于数据加密
+// - Expired: 令牌过期时间
+//
+// 注意: 此方法会覆盖之前设置的令牌
 func (s *HttpSDK) AuthToken(object AuthToken) {
 	s.authToken = object
 }
 
+// SetTimeout 设置HTTP请求超时时间
+// 控制单个API请求的最大等待时间
+//
+// 参数:
+//   - timeout: 超时时间(秒)，0表示使用默认120秒
+//
+// 默认值: 120秒
+// 建议值: 根据网络状况设置，如30-300秒
 func (s *HttpSDK) SetTimeout(timeout int64) {
 	s.timeout = timeout
 }
 
+// SetLanguage 设置HTTP请求语言头
+// 用于服务端国际化支持
+//
+// 参数:
+//   - language: 语言代码，如"zh-CN"、"en-US"等
+//
+// HTTP头: 设置为"Language: {language}"
 func (s *HttpSDK) SetLanguage(language string) {
 	s.language = language
 }
 
-// SetECDSAObject 可增加多个备用的，请勿重复添加
+// SetECDSAObject 设置ECDSA签名验证对象
+// 用于双向ECDSA签名验证，提供金融级身份认证
+//
+// 安全特性:
+// - 支持多个备用ECDSA密钥对
+// - 客户端签名，服务端验证
+// - 服务端签名，客户端验证
+// - 防止中间人攻击和身份伪造
+//
+// 参数:
+//   - prkB64: ECDSA私钥(Base64编码)，用于客户端签名
+//   - pubB64: ECDSA公钥(Base64编码)，用于服务端验证
+//
+// 返回值:
+//   - error: 创建失败时的错误信息
+//
+// 注意:
+// - 可以多次调用添加多个备用密钥对
+// - 验证时会尝试所有配置的密钥对
+// - 私钥仅用于签名，公钥用于验证
 func (s *HttpSDK) SetECDSAObject(prkB64, pubB64 string) error {
 	cipher, err := crypto.CreateS256ECDSAWithBase64(prkB64, pubB64)
 	if err != nil {
@@ -72,7 +148,26 @@ func (s *HttpSDK) SetECDSAObject(prkB64, pubB64 string) error {
 	return nil
 }
 
-// addECDSASign 为请求JSON体添加ECDSA签名（对HMAC签名进行二次签名）
+// addECDSASign 为请求JSON体添加ECDSA签名
+// 对HMAC-SHA256签名进行二次ECDSA签名，实现双重签名验证
+//
+// 签名流程:
+// 1. 首先生成HMAC-SHA256签名 (jsonBody.Sign)
+// 2. 使用ECDSA私钥对HMAC签名进行签名
+// 3. 将ECDSA签名结果存储到jsonBody.Valid字段
+//
+// 安全优势:
+// - HMAC保证数据完整性
+// - ECDSA保证身份真实性和不可否认性
+// - 双重验证，安全性大幅提升
+//
+// 参数:
+//   - jsonBody: 请求JSON体结构体指针
+//
+// 返回值:
+//   - error: 签名失败时的错误信息
+//
+// 注意: 只有在配置了ECDSA对象时才会执行签名
 func (s *HttpSDK) addECDSASign(jsonBody *node.JsonBody) error {
 	if len(s.ecdsaObject) > 0 && s.ecdsaObject[0] != nil {
 		ecdsaSign, err := s.ecdsaObject[0].Sign(utils.Base64Decode(jsonBody.Sign))
@@ -80,12 +175,39 @@ func (s *HttpSDK) addECDSASign(jsonBody *node.JsonBody) error {
 			return ex.Throw{Msg: "ECDSA sign failed: " + err.Error()}
 		}
 		jsonBody.Valid = utils.Base64Encode(ecdsaSign)
-		s.debugOut("ECDSA sign added for HMAC signature: ", jsonBody.Valid)
+		if zlog.IsDebug() {
+			zlog.Debug(fmt.Sprintf("ECDSA sign added for HMAC signature: %s", jsonBody.Valid), 0)
+		}
 	}
 	return nil
 }
 
 // verifyECDSASign 验证响应数据的ECDSA签名
+// 对服务端返回的ECDSA签名进行验证，确保响应数据的真实性和完整性
+//
+// 验证流程:
+// 1. 检查是否配置了ECDSA对象
+// 2. 检查响应数据是否包含ECDSA签名 (respData.Valid)
+// 3. 遍历所有配置的ECDSA对象进行验证
+// 4. 只要有一个ECDSA对象验证成功即认为有效
+//
+// 安全特性:
+// - 支持多个备用ECDSA密钥对
+// - 验证服务端的身份真实性
+// - 防止响应数据被篡改
+// - 提供不可否认性保证
+//
+// 参数:
+//   - validSign: 已验证的HMAC签名字节数组
+//   - respData: 响应数据结构体指针
+//
+// 返回值:
+//   - error: 验证失败时的错误信息
+//
+// 注意:
+// - 如果未配置ECDSA对象，会跳过验证（向后兼容）
+// - 如果响应不包含ECDSA签名，会跳过验证
+// - 验证失败时会尝试所有配置的密钥对
 func (s *HttpSDK) verifyECDSASign(validSign []byte, respData *node.JsonResp) error {
 	if len(s.ecdsaObject) > 0 && len(respData.Valid) > 0 {
 		ecdsaValid := false
@@ -95,7 +217,9 @@ func (s *HttpSDK) verifyECDSASign(validSign []byte, respData *node.JsonResp) err
 			}
 			if err := ecdsaObj.Verify(validSign, utils.Base64Decode(respData.Valid)); err == nil {
 				ecdsaValid = true
-				s.debugOut("response ECDSA sign verify: success")
+				if zlog.IsDebug() {
+					zlog.Debug("response ECDSA sign verify: success", 0)
+				}
 				break
 			}
 		}
@@ -106,18 +230,43 @@ func (s *HttpSDK) verifyECDSASign(validSign []byte, respData *node.JsonResp) err
 	return nil
 }
 
+// SetECDHObject 设置预生成的ECDH密钥协商对象
+// 用于复用ECDH密钥对，避免重复生成
+//
+// 参数:
+//   - object: ECDH密钥协商对象指针
+//
+// 返回值:
+//   - error: 设置失败时的错误信息
+//
+// 高级用法: 在连接池或长连接场景下可以复用ECDH对象
 func (s *HttpSDK) SetECDHObject(object *crypto.EcdhObject) error {
 	s.ecdhObject = object
 	return nil
 }
 
-func (s *HttpSDK) debugOut(a ...interface{}) {
-	if !s.Debug {
-		return
-	}
-	fmt.Println(a...)
-}
-
+// debugOut 调试输出函数
+// 仅在Debug模式开启时使用zlog输出调试信息
+//
+// 参数:
+//   - a: 可变参数，任意类型的值
+//
+// 输出格式: 使用zlog.Debug输出到日志系统
+// 性能影响: 在非调试模式下开销为零
+// getURI 构建完整的请求URI
+// 根据路径类型选择不同的域名
+//
+// 域名选择逻辑:
+// - 如果是KeyPath(/key)或LoginPath(/login)，使用AuthDomain
+// - 其他API路径使用主Domain
+//
+// 参数:
+//   - path: API路径，如"/user/info"
+//
+// 返回值:
+//   - string: 完整的URI，如"https://api.example.com/user/info"
+//
+// 用途: 支持将认证接口和业务接口部署在不同域名下
 func (s *HttpSDK) getURI(path string) string {
 	if s.KeyPath == path || s.LoginPath == path {
 		if len(s.AuthDomain) > 0 {
@@ -127,7 +276,30 @@ func (s *HttpSDK) getURI(path string) string {
 	return s.Domain + path
 }
 
-// GetPublicKey 返回 本地临时公私钥，服务端临时公钥
+// GetPublicKey 获取服务端ECC公钥并建立安全通信信道
+// 这是ECC模式的核心初始化函数，实现密钥协商和身份验证
+//
+// 执行流程:
+// 1. 生成客户端临时ECDH密钥对 (一次性使用)
+// 2. 构造公钥交换请求 (包含客户端公钥)
+// 3. 请求服务端/key接口获取服务端公钥
+// 4. 验证服务端ECDSA签名 (如果配置)
+// 5. 返回协商结果用于后续加密通信
+//
+// 安全特性:
+// - ECDH密钥协商: 前向保密性 (PFS)
+// - 临时密钥: 每次请求使用新的密钥对
+// - ECDSA验证: 验证服务端身份真实性
+//
+// 返回值:
+//   - *crypto.EcdhObject: 客户端ECDH对象 (包含私钥)
+//   - *node.PublicKey: 服务端公钥信息
+//   - crypto.Cipher: ECDSA验证对象 (如果配置)
+//   - error: 执行失败时的错误信息
+//
+// 注意:
+// - ECDH对象包含敏感的私钥信息，使用后应立即清除
+// - 此方法会在每次PostByECC调用时执行
 func (s *HttpSDK) GetPublicKey() (*crypto.EcdhObject, *node.PublicKey, crypto.Cipher, error) {
 	// 生成临时客户端公私钥
 	ecdh := &crypto.EcdhObject{}
@@ -169,7 +341,9 @@ func (s *HttpSDK) GetPublicKey() (*crypto.EcdhObject, *node.PublicKey, crypto.Ci
 	if !utils.JsonValid(respBytes) {
 		return nil, nil, nil, ex.Throw{Msg: "request public error: " + utils.Bytes2Str(respBytes)}
 	}
-	s.debugOut("response message: " + utils.Bytes2Str(respBytes))
+	if zlog.IsDebug() {
+		zlog.Debug(fmt.Sprintf("response message: %s", utils.Bytes2Str(respBytes)), 0)
+	}
 	responseObject := &node.PublicKey{}
 	if err := utils.JsonUnmarshal(respBytes, responseObject); err != nil {
 		return nil, nil, nil, ex.Throw{Msg: "request public key parse error: " + err.Error()}
@@ -181,7 +355,50 @@ func (s *HttpSDK) GetPublicKey() (*crypto.EcdhObject, *node.PublicKey, crypto.Ci
 	return ecdh, responseObject, cip, nil
 }
 
-// PostByECC 对象请使用指针
+// PostByECC 通过ECC+AES-GCM+ECDSA模式发送POST请求
+// 实现最高安全级别的API调用，支持匿名访问
+//
+// 安全协议栈 (从下到上):
+// 1. TLS 1.2+ (网络层加密)
+// 2. ECDH + AES-256-GCM (密钥协商 + 对称加密)
+// 3. HMAC-SHA256 (数据完整性)
+// 4. ECDSA (双向身份认证)
+//
+// 执行流程:
+// 1. 获取服务端ECC公钥 (GetPublicKey)
+// 2. 生成客户端ECDH密钥对
+// 3. 计算共享密钥 (ECDH协商)
+// 4. PBKDF2密钥派生
+// 5. AES-GCM加密请求数据
+// 6. 生成HMAC-SHA256签名
+// 7. 添加ECDSA签名 (如果配置)
+// 8. 发送HTTP请求
+// 9. 验证响应HMAC签名
+// 10. 验证响应ECDSA签名 (如果配置)
+// 11. AES-GCM解密响应数据
+//
+// 参数:
+//   - path: API路径，如"/user/info"
+//   - requestObj: 请求数据对象 (会自动JSON序列化)
+//   - responseObj: 响应数据对象指针 (会自动JSON反序列化)
+//
+// 返回值:
+//   - error: 请求失败时的错误信息
+//
+// 安全特性:
+// - 前向保密性 (PFS): 每次请求使用新密钥
+// - 完美前向保密: ECDH协商的密钥不依赖长期密钥
+// - 双向认证: 客户端和服务端相互验证身份
+// - 防重放攻击: 时间戳 + Nonce机制
+//
+// 使用场景:
+// - 金融交易API
+// - 敏感数据传输
+// - 匿名访问但需要高安全性的接口
+//
+// 注意:
+// - 每次调用都会执行完整的密钥协商流程
+// - 适合低频但高安全要求的API调用
 func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) error {
 	if len(path) == 0 || requestObj == nil || responseObj == nil {
 		return ex.Throw{Msg: "params invalid"}
@@ -221,9 +438,11 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 		}
 		jsonBody.Data = utils.Bytes2Str(jsonData)
 	}
-	s.debugOut("server key: ", public.Key)
-	s.debugOut("client key: ", ecdh.PublicKeyBase64)
-	s.debugOut("shared key: ", utils.Base64Encode(sharedKey))
+	if zlog.IsDebug() {
+		zlog.Debug(fmt.Sprintf("server key: %s", public.Key), 0)
+		zlog.Debug(fmt.Sprintf("client key: %s", ecdh.PublicKeyBase64), 0)
+		zlog.Debug(fmt.Sprintf("shared key: %s", utils.Base64Encode(sharedKey)), 0)
+	}
 	// 使用 AES-GCM 加密，Nonce 作为 AAD
 	d, err := utils.AesGCMEncryptBase(utils.Str2Bytes(jsonBody.Data), sharedKey, utils.Str2Bytes(utils.AddStr(jsonBody.Time, jsonBody.Nonce, jsonBody.Plan, path)))
 	if err != nil {
@@ -241,8 +460,10 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	if err != nil {
 		return ex.Throw{Msg: "jsonBody data JsonMarshal invalid"}
 	}
-	s.debugOut("request data: ")
-	s.debugOut(utils.Bytes2Str(bytesData))
+	if zlog.IsDebug() {
+		zlog.Debug("request data: ", 0)
+		zlog.Debug(utils.Bytes2Str(bytesData), 0)
+	}
 
 	key, err := node.CreatePublicKey(public.Key, utils.Base64Encode(prk.(*ecdh2.PrivateKey).PublicKey().Bytes()), cip)
 	if err != nil {
@@ -271,8 +492,10 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 		return ex.Throw{Msg: "post request failed: " + err.Error()}
 	}
 	respBytes := response.Body()
-	s.debugOut("response data: ")
-	s.debugOut(utils.Bytes2Str(respBytes))
+	if zlog.IsDebug() {
+		zlog.Debug("response data: ", 0)
+		zlog.Debug(utils.Bytes2Str(respBytes), 0)
+	}
 	respData := &node.JsonResp{}
 	if err := utils.JsonUnmarshal(respBytes, respData); err != nil {
 		return ex.Throw{Msg: "response data parse failed: " + err.Error()}
@@ -290,7 +513,9 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	if utils.Base64Encode(validSign) != respData.Sign {
 		return ex.Throw{Msg: "post response sign verify invalid"}
 	}
-	s.debugOut("response sign verify: ", utils.Base64Encode(validSign) == respData.Sign)
+	if zlog.IsDebug() {
+		zlog.Debug(fmt.Sprintf("response sign verify: %t", utils.Base64Encode(validSign) == respData.Sign), 0)
+	}
 
 	// 验证ECDSA签名
 	if err := s.verifyECDSASign(validSign, respData); err != nil {
@@ -300,7 +525,9 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	if err != nil {
 		return ex.Throw{Msg: "post response data AES decrypt failed"}
 	}
-	s.debugOut("response data decrypted: ", utils.Bytes2Str(dec))
+	if zlog.IsDebug() {
+		zlog.Debug(fmt.Sprintf("response data decrypted: %s", utils.Bytes2Str(dec)), 0)
+	}
 	if v, b := responseObj.(*AuthToken); b {
 		if err := utils.JsonUnmarshal(dec, v); err != nil {
 			return ex.Throw{Msg: "response data JsonUnmarshal invalid"}
@@ -313,6 +540,19 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	return nil
 }
 
+// valid 验证当前认证令牌是否有效
+// 检查令牌是否存在、Secret是否存在以及是否即将过期
+//
+// 过期判断逻辑:
+// - 当前时间 > 过期时间 - 3600秒 (提前1小时判断过期)
+// - 避免在请求过程中令牌突然过期
+//
+// 返回值:
+//   - bool: true表示令牌有效，false表示无效
+//
+// 安全考虑:
+// - 即使令牌在技术上仍有效，也会提前预警
+// - 防止在请求执行过程中令牌过期导致认证失败
 func (s *HttpSDK) valid() bool {
 	if len(s.authToken.Token) == 0 {
 		return false
@@ -326,6 +566,25 @@ func (s *HttpSDK) valid() bool {
 	return true
 }
 
+// checkAuth 检查认证状态并自动登录
+// 如果当前没有有效的认证令牌，会自动调用登录流程
+//
+// 自动登录流程:
+// 1. 检查当前令牌是否有效
+// 2. 如果无效，使用authObject调用PostByECC登录
+// 3. 保存新的认证令牌到authToken字段
+//
+// 返回值:
+//   - error: 认证失败时的错误信息
+//
+// 设计优势:
+// - 透明的认证管理，上层调用无需关心认证状态
+// - 自动处理令牌过期和续期
+// - 支持各种登录方式 (用户名密码、证书等)
+//
+// 注意:
+// - 需要预先设置AuthObject和相关配置
+// - 登录接口路径通过LoginPath指定
 func (s *HttpSDK) checkAuth() error {
 	if s.valid() {
 		return nil
@@ -353,7 +612,55 @@ func (s *HttpSDK) checkAuth() error {
 	return nil
 }
 
-// PostByAuth 对象请使用指针
+// PostByAuth 通过JWT认证模式发送POST请求
+// 适用于登录后的业务API调用，使用令牌进行身份认证
+//
+// 安全协议栈:
+// 1. TLS 1.2+ (网络层加密)
+// 2. JWT令牌认证 (身份验证)
+// 3. AES-GCM或Base64 (数据加密，可选)
+// 4. HMAC-SHA256 (数据完整性)
+// 5. ECDSA双向签名 (可选，金融级安全)
+//
+// 执行流程:
+// 1. 检查认证状态，自动登录 (如果需要)
+// 2. 获取认证令牌 (Token + Secret)
+// 3. 根据encrypted参数选择加密方式
+// 4. 生成HMAC-SHA256签名
+// 5. 添加ECDSA签名 (如果配置)
+// 6. 发送HTTP请求 (Authorization头)
+// 7. 验证响应HMAC签名
+// 8. 验证响应ECDSA签名 (如果配置)
+// 9. 解密响应数据
+//
+// 参数:
+//   - path: API路径，如"/user/info"
+//   - requestObj: 请求数据对象
+//   - responseObj: 响应数据对象指针
+//   - encrypted: 是否使用AES-GCM加密 (true=Plan1, false=Plan0)
+//
+// 返回值:
+//   - error: 请求失败时的错误信息
+//
+// 安全特性:
+// - JWT令牌认证: 身份验证和授权
+// - 动态Secret: 每次登录生成新的AES密钥
+// - 可选加密: 支持明文(Base64)和加密传输
+// - 双向签名: 可配置ECDSA提供金融级安全
+//
+// 使用场景:
+// - 用户登录后的业务API调用
+// - 需要身份认证的接口
+// - 中等安全要求的场景
+//
+// 性能特点:
+// - 比ECC模式更快 (复用令牌，无需密钥协商)
+// - 支持高并发 (令牌复用)
+// - 适合高频API调用
+//
+// 注意:
+// - 需要预先登录或设置有效的authToken
+// - 会自动处理令牌过期和续期
 func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, encrypted bool) error {
 	if len(path) == 0 || requestObj == nil || responseObj == nil {
 		return ex.Throw{Msg: "params invalid"}
@@ -393,10 +700,14 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 			return ex.Throw{Msg: "request data AES encrypt failed"}
 		}
 		jsonBody.Data = d
-		s.debugOut("request data encrypted: ", jsonBody.Data)
+		if zlog.IsDebug() {
+			zlog.Debug(fmt.Sprintf("request data encrypted: %s", jsonBody.Data), 0)
+		}
 	} else {
 		jsonBody.Data = utils.Base64Encode(jsonBody.Data)
-		s.debugOut("request data base64: ", jsonBody.Data)
+		if zlog.IsDebug() {
+			zlog.Debug(fmt.Sprintf("request data base64: %s", jsonBody.Data), 0)
+		}
 	}
 	jsonBody.Sign = utils.Base64Encode(utils.HMAC_SHA256_BASE(utils.Str2Bytes(utils.AddStr(path, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan)), tokenSecret))
 
@@ -409,8 +720,10 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 	if err != nil {
 		return ex.Throw{Msg: "jsonBody data JsonMarshal invalid"}
 	}
-	s.debugOut("request data: ")
-	s.debugOut(utils.Bytes2Str(bytesData))
+	if zlog.IsDebug() {
+		zlog.Debug("request data: ", 0)
+		zlog.Debug(utils.Bytes2Str(bytesData), 0)
+	}
 	request := fasthttp.AcquireRequest()
 	request.Header.SetContentType("application/json;charset=UTF-8")
 	request.Header.Set("Authorization", s.authToken.Token)
@@ -429,8 +742,10 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 		return ex.Throw{Msg: "post request failed: " + err.Error()}
 	}
 	respBytes := response.Body()
-	s.debugOut("response data: ")
-	s.debugOut(utils.Bytes2Str(respBytes))
+	if zlog.IsDebug() {
+		zlog.Debug("response data: ", 0)
+		zlog.Debug(utils.Bytes2Str(respBytes), 0)
+	}
 	respData := &node.JsonResp{}
 	if err := utils.JsonUnmarshal(respBytes, respData); err != nil {
 		return ex.Throw{Msg: "response data parse failed: " + err.Error()}
@@ -455,7 +770,9 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 	if utils.Base64Encode(validSign) != respData.Sign {
 		return ex.Throw{Msg: "post response sign verify invalid"}
 	}
-	s.debugOut("response sign verify: ", utils.Base64Encode(validSign) == respData.Sign)
+	if zlog.IsDebug() {
+		zlog.Debug(fmt.Sprintf("response sign verify: %t", utils.Base64Encode(validSign) == respData.Sign), 0)
+	}
 
 	// 验证ECDSA签名
 	if err := s.verifyECDSASign(validSign, respData); err != nil {
@@ -464,13 +781,17 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 	var dec []byte
 	if respData.Plan == 0 {
 		dec = utils.Base64Decode(respData.Data)
-		s.debugOut("response data base64: ", string(dec))
+		if zlog.IsDebug() {
+			zlog.Debug(fmt.Sprintf("response data base64: %s", string(dec)), 0)
+		}
 	} else if respData.Plan == 1 {
 		dec, err = utils.AesGCMDecryptBase(respData.Data, respTokenSecret[:32], utils.Str2Bytes(utils.AddStr(respData.Time, respData.Nonce, respData.Plan, path)))
 		if err != nil {
 			return ex.Throw{Msg: "post response data AES decrypt failed"}
 		}
-		s.debugOut("response data decrypted: ", utils.Bytes2Str(dec))
+		if zlog.IsDebug() {
+			zlog.Debug(fmt.Sprintf("response data decrypted: %s", utils.Bytes2Str(dec)), 0)
+		}
 	}
 
 	// 验证解密后的数据是否为空
@@ -489,6 +810,45 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 	return nil
 }
 
+// BuildRequestObject 构建标准的API请求数据
+// 用于生成符合FreeGo协议的请求JSON数据
+//
+// 协议格式:
+//
+//	{
+//	  "d": "数据(Base64或AES加密)",
+//	  "t": 时间戳,
+//	  "n": Nonce随机数,
+//	  "p": Plan模式(0=Base64, 1=AES),
+//	  "s": HMAC-SHA256签名
+//	}
+//
+// 构建流程:
+// 1. JSON序列化请求对象
+// 2. 根据encrypted参数选择编码方式
+// 3. 生成时间戳和Nonce
+// 4. 计算HMAC-SHA256签名
+// 5. 构建完整的请求JSON
+//
+// 参数:
+//   - path: API路径，用于签名计算
+//   - requestObj: 请求数据对象，会被JSON序列化
+//   - secret: HMAC签名密钥
+//   - encrypted: 可选参数，是否使用AES加密 (默认false)
+//
+// 返回值:
+//   - []byte: 构建好的请求JSON字节数组
+//   - error: 构建失败时的错误信息
+//
+// 兼容性:
+// - 这是早期版本的构建函数
+// - 新代码推荐使用PostByAuth或PostByECC方法
+// - 主要用于向后兼容和简单场景
+//
+// 注意:
+// - 不支持ECDSA签名
+// - 使用固定的AES-CBC加密 (非GCM模式)
+// - HMAC签名算法略有不同
 func BuildRequestObject(path string, requestObj interface{}, secret string, encrypted ...bool) ([]byte, error) {
 	if len(path) == 0 || requestObj == nil {
 		return nil, ex.Throw{Msg: "params invalid"}
