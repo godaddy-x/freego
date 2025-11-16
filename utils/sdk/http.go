@@ -175,6 +175,8 @@ func (s *HttpSDK) addECDSASign(jsonBody *node.JsonBody) error {
 			return ex.Throw{Msg: "ECDSA sign failed: " + err.Error()}
 		}
 		jsonBody.Valid = utils.Base64Encode(ecdsaSign)
+		// 清理ECDSA签名数据（在设置完jsonBody.Valid之后）
+		DIC.ClearData(ecdsaSign)
 		if zlog.IsDebug() {
 			zlog.Debug(fmt.Sprintf("ECDSA sign added for HMAC signature: %s", jsonBody.Valid), 0)
 		}
@@ -210,12 +212,17 @@ func (s *HttpSDK) addECDSASign(jsonBody *node.JsonBody) error {
 // - 验证失败时会尝试所有配置的密钥对
 func (s *HttpSDK) verifyECDSASign(validSign []byte, respData *node.JsonResp) error {
 	if len(s.ecdsaObject) > 0 && len(respData.Valid) > 0 {
+		// 预先解码ECDSA签名数据，避免在循环中重复解码
+		ecdsaSignData := utils.Base64Decode(respData.Valid)
+		// 清理ECDSA签名解码数据
+		defer DIC.ClearData(ecdsaSignData)
+
 		ecdsaValid := false
 		for _, ecdsaObj := range s.ecdsaObject {
 			if ecdsaObj == nil {
 				continue
 			}
-			if err := ecdsaObj.Verify(validSign, utils.Base64Decode(respData.Valid)); err == nil {
+			if err := ecdsaObj.Verify(validSign, ecdsaSignData); err == nil {
 				ecdsaValid = true
 				if zlog.IsDebug() {
 					zlog.Debug("response ECDSA sign verify: success", 0)
@@ -318,6 +325,8 @@ func (s *HttpSDK) GetPublicKey() (*crypto.EcdhObject, *node.PublicKey, crypto.Ci
 	if err != nil {
 		return nil, nil, nil, ex.Throw{Msg: "request object json marshal error: " + err.Error()}
 	}
+	// 清理临时公钥数据
+	defer DIC.ClearData(publicBody)
 	// 发送请求
 	request := fasthttp.AcquireRequest()
 	request.Header.SetMethod("POST")
@@ -407,6 +416,18 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	if err != nil {
 		return err
 	}
+	// 标记ECDH对象需要在函数结束时清理
+	defer func() {
+		if ecdh != nil {
+			// 清理ECDH对象的敏感数据
+			if prk, getErr := ecdh.GetPrivateKey(); getErr == "" && prk != nil {
+				if ecdhPrk, ok := prk.(*ecdh2.PrivateKey); ok {
+					DIC.ClearData(ecdhPrk.Bytes())
+				}
+			}
+		}
+	}()
+
 	pub, err := ecc.LoadECDHPublicKeyFromBase64(public.Key)
 	if err != nil {
 		return ex.Throw{Msg: "load ECC public key failed"}
@@ -425,19 +446,22 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 		Nonce: utils.RandNonce(),
 		Plan:  int64(2),
 	}
+	var jsonData []byte
 	if v, b := requestObj.(*AuthToken); b {
-		jsonData, err := utils.JsonMarshal(v)
+		jsonData, err = utils.JsonMarshal(v)
 		if err != nil {
 			return ex.Throw{Msg: "request data JsonMarshal invalid"}
 		}
 		jsonBody.Data = utils.Bytes2Str(jsonData)
 	} else {
-		jsonData, err := utils.JsonMarshal(v)
+		jsonData, err = utils.JsonMarshal(requestObj)
 		if err != nil {
 			return ex.Throw{Msg: "request data JsonMarshal invalid"}
 		}
 		jsonBody.Data = utils.Bytes2Str(jsonData)
 	}
+	// 清理JSON序列化数据
+	defer DIC.ClearData(jsonData)
 	if zlog.IsDebug() {
 		zlog.Debug(fmt.Sprintf("server key: %s", public.Key), 0)
 		zlog.Debug(fmt.Sprintf("client key: %s", ecdh.PublicKeyBase64), 0)
@@ -457,9 +481,13 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	}
 
 	bytesData, err := utils.JsonMarshal(jsonBody)
+	// 注意：不能清理d，因为jsonBody.Data仍然引用着它
+	// d的数据会在jsonBody的生命周期结束后被清理
 	if err != nil {
 		return ex.Throw{Msg: "jsonBody data JsonMarshal invalid"}
 	}
+	// 清理序列化后的请求数据
+	defer DIC.ClearData(bytesData)
 	if zlog.IsDebug() {
 		zlog.Debug("request data: ", 0)
 		zlog.Debug(utils.Bytes2Str(bytesData), 0)
@@ -473,6 +501,8 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	if err != nil {
 		return ex.Throw{Msg: "public key json parse invalid"}
 	}
+	// 清理授权数据
+	defer DIC.ClearData(auth)
 
 	request := fasthttp.AcquireRequest()
 	request.Header.SetContentType("application/json;charset=UTF-8")
@@ -492,6 +522,8 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 		return ex.Throw{Msg: "post request failed: " + err.Error()}
 	}
 	respBytes := response.Body()
+	// 清理原始响应数据
+	defer DIC.ClearData(respBytes)
 	if zlog.IsDebug() {
 		zlog.Debug("response data: ", 0)
 		zlog.Debug(utils.Bytes2Str(respBytes), 0)
@@ -510,6 +542,8 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 		return ex.Throw{Msg: respData.Message}
 	}
 	validSign := utils.HMAC_SHA256_BASE(utils.Str2Bytes(utils.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan)), sharedKey)
+	// 清理签名验证数据
+	defer DIC.ClearData(validSign)
 	if utils.Base64Encode(validSign) != respData.Sign {
 		return ex.Throw{Msg: "post response sign verify invalid"}
 	}
@@ -525,6 +559,8 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	if err != nil {
 		return ex.Throw{Msg: "post response data AES decrypt failed"}
 	}
+	// 清理解密后的响应数据
+	defer DIC.ClearData(dec)
 	if zlog.IsDebug() {
 		zlog.Debug(fmt.Sprintf("response data decrypted: %s", utils.Bytes2Str(dec)), 0)
 	}
@@ -676,19 +712,23 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 		Nonce: utils.RandNonce(),
 		Plan:  0,
 	}
+	var jsonData []byte
+	var err error
 	if v, b := requestObj.(*AuthToken); b {
-		jsonData, err := utils.JsonMarshal(v)
+		jsonData, err = utils.JsonMarshal(v)
 		if err != nil {
 			return ex.Throw{Msg: "request data JsonMarshal invalid"}
 		}
 		jsonBody.Data = utils.Bytes2Str(jsonData)
 	} else {
-		jsonData, err := utils.JsonMarshal(v)
+		jsonData, err = utils.JsonMarshal(requestObj)
 		if err != nil {
 			return ex.Throw{Msg: "request data JsonMarshal invalid"}
 		}
 		jsonBody.Data = utils.Bytes2Str(jsonData)
 	}
+	// 清理JSON序列化数据
+	defer DIC.ClearData(jsonData)
 	// 解码token secret用于加密和签名
 	tokenSecret := utils.Base64Decode(s.authToken.Secret)
 	defer DIC.ClearData(tokenSecret) // 清除临时解码的token secret
@@ -703,6 +743,7 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 		if zlog.IsDebug() {
 			zlog.Debug(fmt.Sprintf("request data encrypted: %s", jsonBody.Data), 0)
 		}
+		// 注意：不能在这里清理d，因为jsonBody.Data仍然引用着它
 	} else {
 		jsonBody.Data = utils.Base64Encode(jsonBody.Data)
 		if zlog.IsDebug() {
@@ -720,6 +761,8 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 	if err != nil {
 		return ex.Throw{Msg: "jsonBody data JsonMarshal invalid"}
 	}
+	// 清理序列化后的请求数据
+	defer DIC.ClearData(bytesData)
 	if zlog.IsDebug() {
 		zlog.Debug("request data: ", 0)
 		zlog.Debug(utils.Bytes2Str(bytesData), 0)
@@ -742,6 +785,8 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 		return ex.Throw{Msg: "post request failed: " + err.Error()}
 	}
 	respBytes := response.Body()
+	// 清理原始响应数据
+	defer DIC.ClearData(respBytes)
 	if zlog.IsDebug() {
 		zlog.Debug("response data: ", 0)
 		zlog.Debug(utils.Bytes2Str(respBytes), 0)
@@ -767,6 +812,8 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 	defer DIC.ClearData(respTokenSecret) // 清除响应验证时解码的token secret
 
 	validSign := utils.HMAC_SHA256_BASE(utils.Str2Bytes(utils.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan)), respTokenSecret)
+	// 清理签名验证数据
+	defer DIC.ClearData(validSign)
 	if utils.Base64Encode(validSign) != respData.Sign {
 		return ex.Throw{Msg: "post response sign verify invalid"}
 	}
@@ -793,6 +840,9 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 			zlog.Debug(fmt.Sprintf("response data decrypted: %s", utils.Bytes2Str(dec)), 0)
 		}
 	}
+
+	// 清理解密后的响应数据
+	defer DIC.ClearData(dec)
 
 	// 验证解密后的数据是否为空
 	if len(dec) == 0 {
@@ -857,6 +907,9 @@ func BuildRequestObject(path string, requestObj interface{}, secret string, encr
 	if err != nil {
 		return nil, ex.Throw{Msg: "request data JsonMarshal invalid"}
 	}
+	// 清理JSON序列化数据
+	defer DIC.ClearData(jsonData)
+
 	jsonBody := &node.JsonBody{
 		Data:  utils.Bytes2Str(jsonData),
 		Time:  utils.UnixSecond(),
@@ -878,5 +931,7 @@ func BuildRequestObject(path string, requestObj interface{}, secret string, encr
 	if err != nil {
 		return nil, ex.Throw{Msg: "jsonBody data JsonMarshal invalid"}
 	}
+	// 注意：不能清理jsonBody.Data，因为bytesData包含了对这些数据的序列化引用
+	// 注意：bytesData是返回值，不能清理
 	return bytesData, nil
 }
