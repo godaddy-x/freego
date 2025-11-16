@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	DIC "github.com/godaddy-x/freego/common"
 	"github.com/godaddy-x/freego/utils/crypto"
 
 	"golang.org/x/crypto/pbkdf2"
@@ -194,12 +195,14 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 		return ex.Throw{Msg: "load ECC public key failed"}
 	}
 	prk, _ := ecdh.GetPrivateKey()
+	prkBytes := prk.(*ecdh2.PrivateKey).Bytes()
 	sharedKey, err := ecc.GenSharedKeyECDH(prk.(*ecdh2.PrivateKey), pub)
 	if err != nil {
 		return ex.Throw{Msg: "ECC shared key failed"}
 	}
 	// 使用标准PBKDF2密钥派生（HMAC-SHA512，1024次迭代） 输出32字节密钥（SHA-512）
 	sharedKey = pbkdf2.Key(sharedKey, utils.Base64Decode(public.Noc), 1024, 32, sha512.New)
+	defer DIC.ClearData(prkBytes, sharedKey) // 同时清除ECDH私钥和派生密钥
 	jsonBody := &node.JsonBody{
 		Time:  utils.UnixSecond(),
 		Nonce: utils.RandNonce(),
@@ -379,9 +382,13 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 		}
 		jsonBody.Data = utils.Bytes2Str(jsonData)
 	}
+	// 解码token secret用于加密和签名
+	tokenSecret := utils.Base64Decode(s.authToken.Secret)
+	defer DIC.ClearData(tokenSecret) // 清除临时解码的token secret
+
 	if encrypted {
 		jsonBody.Plan = 1
-		d, err := utils.AesGCMEncryptBase(utils.Str2Bytes(jsonBody.Data), utils.Base64Decode(s.authToken.Secret)[:32], utils.Str2Bytes(utils.AddStr(jsonBody.Time, jsonBody.Nonce, jsonBody.Plan, path)))
+		d, err := utils.AesGCMEncryptBase(utils.Str2Bytes(jsonBody.Data), tokenSecret[:32], utils.Str2Bytes(utils.AddStr(jsonBody.Time, jsonBody.Nonce, jsonBody.Plan, path)))
 		if err != nil {
 			return ex.Throw{Msg: "request data AES encrypt failed"}
 		}
@@ -391,7 +398,7 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 		jsonBody.Data = utils.Base64Encode(jsonBody.Data)
 		s.debugOut("request data base64: ", jsonBody.Data)
 	}
-	jsonBody.Sign = utils.Base64Encode(utils.HMAC_SHA256_BASE(utils.Str2Bytes(utils.AddStr(path, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan)), utils.Base64Decode(s.authToken.Secret)))
+	jsonBody.Sign = utils.Base64Encode(utils.HMAC_SHA256_BASE(utils.Str2Bytes(utils.AddStr(path, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan)), tokenSecret))
 
 	// 添加ECDSA签名
 	if err := s.addECDSASign(jsonBody); err != nil {
@@ -440,7 +447,11 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 		return ex.Throw{Msg: "response plan invalid, must be 0 or 1, got: " + utils.AnyToStr(respData.Plan)}
 	}
 
-	validSign := utils.HMAC_SHA256_BASE(utils.Str2Bytes(utils.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan)), utils.Base64Decode(s.authToken.Secret))
+	// 验证响应时也需要解码token secret
+	respTokenSecret := utils.Base64Decode(s.authToken.Secret)
+	defer DIC.ClearData(respTokenSecret) // 清除响应验证时解码的token secret
+
+	validSign := utils.HMAC_SHA256_BASE(utils.Str2Bytes(utils.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan)), respTokenSecret)
 	if utils.Base64Encode(validSign) != respData.Sign {
 		return ex.Throw{Msg: "post response sign verify invalid"}
 	}
@@ -455,7 +466,7 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 		dec = utils.Base64Decode(respData.Data)
 		s.debugOut("response data base64: ", string(dec))
 	} else if respData.Plan == 1 {
-		dec, err = utils.AesGCMDecryptBase(respData.Data, utils.Base64Decode(s.authToken.Secret)[:32], utils.Str2Bytes(utils.AddStr(respData.Time, respData.Nonce, respData.Plan, path)))
+		dec, err = utils.AesGCMDecryptBase(respData.Data, respTokenSecret[:32], utils.Str2Bytes(utils.AddStr(respData.Time, respData.Nonce, respData.Plan, path)))
 		if err != nil {
 			return ex.Throw{Msg: "post response data AES decrypt failed"}
 		}

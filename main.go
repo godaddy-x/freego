@@ -141,12 +141,6 @@ func initGRPC() {
 	client.CreateAuthorizeTLS("./rpcx/cert/server.key")
 }
 
-func init() {
-	//initConsul()
-	//initRedis()
-	//initGRPC()
-}
-
 func main() {
 	defer cache.ShutdownAllRedisManagers()
 	initMysqlDB()

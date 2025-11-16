@@ -36,7 +36,7 @@ func NewSDK(debug bool) *sdk.HttpSDK {
 		KeyPath:   "/key",
 		LoginPath: "/login",
 	}
-	//_ = newObject.SetECDSAObject(clientPrk, serverPub)
+	_ = newObject.SetECDSAObject(clientPrk, serverPub)
 	return newObject
 }
 
