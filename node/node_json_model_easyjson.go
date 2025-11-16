@@ -240,6 +240,12 @@ func easyjson19e19bc5DecodeGithubComGodaddyXFreegoNode2(in *jlexer.Lexer, out *J
 			} else {
 				out.Sign = string(in.String())
 			}
+		case "e":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Valid = string(in.String())
+			}
 		case "c":
 			if in.IsNull() {
 				in.Skip()
@@ -291,6 +297,11 @@ func easyjson19e19bc5EncodeGithubComGodaddyXFreegoNode2(out *jwriter.Writer, in 
 		const prefix string = ",\"s\":"
 		out.RawString(prefix)
 		out.String(string(in.Sign))
+	}
+	{
+		const prefix string = ",\"e\":"
+		out.RawString(prefix)
+		out.String(string(in.Valid))
 	}
 	{
 		const prefix string = ",\"c\":"
@@ -365,6 +376,12 @@ func easyjson19e19bc5DecodeGithubComGodaddyXFreegoNode3(in *jlexer.Lexer, out *J
 			} else {
 				out.Sign = string(in.String())
 			}
+		case "v":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Valid = string(in.String())
+			}
 		case "t":
 			if in.IsNull() {
 				in.Skip()
@@ -405,6 +422,11 @@ func easyjson19e19bc5EncodeGithubComGodaddyXFreegoNode3(out *jwriter.Writer, in 
 		const prefix string = ",\"s\":"
 		out.RawString(prefix)
 		out.String(string(in.Sign))
+	}
+	{
+		const prefix string = ",\"v\":"
+		out.RawString(prefix)
+		out.String(string(in.Valid))
 	}
 	{
 		const prefix string = ",\"t\":"

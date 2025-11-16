@@ -71,6 +71,40 @@ func (s *HttpSDK) SetECDSAObject(prkB64, pubB64 string) error {
 	return nil
 }
 
+// addECDSASign 为请求JSON体添加ECDSA签名（对HMAC签名进行二次签名）
+func (s *HttpSDK) addECDSASign(jsonBody *node.JsonBody) error {
+	if len(s.ecdsaObject) > 0 && s.ecdsaObject[0] != nil {
+		ecdsaSign, err := s.ecdsaObject[0].Sign(utils.Base64Decode(jsonBody.Sign))
+		if err != nil {
+			return ex.Throw{Msg: "ECDSA sign failed: " + err.Error()}
+		}
+		jsonBody.Valid = utils.Base64Encode(ecdsaSign)
+		s.debugOut("ECDSA sign added for HMAC signature: ", jsonBody.Valid)
+	}
+	return nil
+}
+
+// verifyECDSASign 验证响应数据的ECDSA签名
+func (s *HttpSDK) verifyECDSASign(validSign []byte, respData *node.JsonResp) error {
+	if len(s.ecdsaObject) > 0 && len(respData.Valid) > 0 {
+		ecdsaValid := false
+		for _, ecdsaObj := range s.ecdsaObject {
+			if ecdsaObj == nil {
+				continue
+			}
+			if err := ecdsaObj.Verify(validSign, utils.Base64Decode(respData.Valid)); err == nil {
+				ecdsaValid = true
+				s.debugOut("response ECDSA sign verify: success")
+				break
+			}
+		}
+		if !ecdsaValid {
+			return ex.Throw{Msg: "post response ECDSA sign verify invalid"}
+		}
+	}
+	return nil
+}
+
 func (s *HttpSDK) SetECDHObject(object *crypto.EcdhObject) error {
 	s.ecdhObject = object
 	return nil
@@ -194,6 +228,12 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	}
 	jsonBody.Data = d
 	jsonBody.Sign = utils.Base64Encode(utils.HMAC_SHA256_BASE(utils.Str2Bytes(utils.AddStr(path, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan)), sharedKey))
+
+	// 添加ECDSA签名
+	if err := s.addECDSASign(jsonBody); err != nil {
+		return err
+	}
+
 	bytesData, err := utils.JsonMarshal(jsonBody)
 	if err != nil {
 		return ex.Throw{Msg: "jsonBody data JsonMarshal invalid"}
@@ -248,6 +288,11 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 		return ex.Throw{Msg: "post response sign verify invalid"}
 	}
 	s.debugOut("response sign verify: ", utils.Base64Encode(validSign) == respData.Sign)
+
+	// 验证ECDSA签名
+	if err := s.verifyECDSASign(validSign, respData); err != nil {
+		return err
+	}
 	dec, err := utils.AesGCMDecryptBase(respData.Data, sharedKey, utils.Str2Bytes(utils.AddStr(respData.Time, respData.Nonce, respData.Plan, path)))
 	if err != nil {
 		return ex.Throw{Msg: "post response data AES decrypt failed"}
@@ -347,6 +392,12 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 		s.debugOut("request data base64: ", jsonBody.Data)
 	}
 	jsonBody.Sign = utils.Base64Encode(utils.HMAC_SHA256_BASE(utils.Str2Bytes(utils.AddStr(path, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan)), utils.Base64Decode(s.authToken.Secret)))
+
+	// 添加ECDSA签名
+	if err := s.addECDSASign(jsonBody); err != nil {
+		return err
+	}
+
 	bytesData, err := utils.JsonMarshal(jsonBody)
 	if err != nil {
 		return ex.Throw{Msg: "jsonBody data JsonMarshal invalid"}
@@ -394,6 +445,11 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 		return ex.Throw{Msg: "post response sign verify invalid"}
 	}
 	s.debugOut("response sign verify: ", utils.Base64Encode(validSign) == respData.Sign)
+
+	// 验证ECDSA签名
+	if err := s.verifyECDSASign(validSign, respData); err != nil {
+		return err
+	}
 	var dec []byte
 	if respData.Plan == 0 {
 		dec = utils.Base64Decode(respData.Data)

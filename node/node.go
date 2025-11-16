@@ -43,6 +43,7 @@ const (
 
 	Authorization = "Authorization"
 	SharedKey     = "SharedKey"
+	Cipher        = "Cipher"
 )
 
 var (
@@ -177,9 +178,19 @@ func (self *Context) GetTokenSecret() []byte {
 }
 
 func (self *Context) GetHmac256Sign(d, n string, t, p int64, key []byte) []byte {
-	part := utils.Str2Bytes(utils.AddStr(self.Path, d, n, t, p))
-	return utils.HMAC_SHA256_BASE(part, key)
-	//return utils.HMAC_SHA256_BASE(part, self.GetTokenSecret())
+	return utils.HMAC_SHA256_BASE(utils.Str2Bytes(utils.AddStr(self.Path, d, n, t, p)), key)
+}
+
+func (self *Context) CheckECDSASign(msg, sign []byte) (crypto.Cipher, error) {
+	if len(self.RSA) == 0 {
+		return nil, nil
+	}
+	for _, cip := range self.RSA {
+		if err := cip.Verify(msg, sign); err == nil {
+			return cip, nil
+		}
+	}
+	return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request signature valid invalid"}
 }
 
 func (self *Context) AddStorage(k string, v interface{}) {
@@ -455,13 +466,22 @@ func (self *Context) validJsonBody() error {
 	if len(sharedKey) == 0 {
 		sharedKey = self.GetTokenSecret()
 	}
-	if utils.Base64Encode(self.GetHmac256Sign(d, body.Nonce, body.Time, body.Plan, sharedKey)) != body.Sign {
+	// Secret签名校验
+	sign := self.GetHmac256Sign(d, body.Nonce, body.Time, body.Plan, sharedKey)
+	if utils.Base64Encode(sign) != body.Sign {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature invalid"}
+	}
+	// ECDSA签名校验，如果服务端没配置cipher则忽略
+	cipher, err := self.CheckECDSASign(sign, utils.Base64Decode(body.Valid))
+	if err != nil {
+		return err
+	}
+	if cipher != nil {
+		self.AddStorage(Cipher, cipher)
 	}
 	if err := self.validReplayAttack(body.Sign); err != nil {
 		return err
 	}
-	var err error
 	var rawData []byte
 	if body.Plan == 0 && !anonymous { // 登录状态 P0 Base64
 		rawData = utils.Base64Decode(d)

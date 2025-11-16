@@ -545,6 +545,7 @@ func defaultRenderPre(ctx *Context) error {
 			Time:  utils.UnixSecond(),
 			Nonce: utils.RandNonce(),
 		}
+		var sign []byte
 		if routerConfig.UseRSA { // 非登录状态响应
 			if ctx.JsonBody.Plan == 2 {
 				v := ctx.GetStorage(SharedKey)
@@ -556,10 +557,11 @@ func defaultRenderPre(ctx *Context) error {
 				defer DIC.ClearData(key) // 使用完毕清空敏感密钥
 				resp.Data, err = utils.AesGCMEncryptBase(data, key[0:32], utils.Str2Bytes(utils.AddStr(resp.Time, resp.Nonce, resp.Plan, ctx.Path)))
 				if err != nil {
-					return ex.Throw{Code: http.StatusInternalServerError, Msg: "AES encryption response data failed", Err: err}
+					return ex.Throw{Code: http.StatusInternalServerError, Msg: "encryption response data failed", Err: err}
 				}
 				ctx.DelStorage(SharedKey)
-				resp.Sign = utils.Base64Encode(ctx.GetHmac256Sign(resp.Data, resp.Nonce, resp.Time, resp.Plan, key))
+				sign = ctx.GetHmac256Sign(resp.Data, resp.Nonce, resp.Time, resp.Plan, key)
+				resp.Sign = utils.Base64Encode(sign)
 			} else {
 				return ex.Throw{Msg: "anonymous response plan invalid"}
 			}
@@ -569,14 +571,26 @@ func defaultRenderPre(ctx *Context) error {
 			resp.Plan = 1
 			resp.Data, err = utils.AesGCMEncryptBase(data, key[0:32], utils.Str2Bytes(utils.AddStr(resp.Time, resp.Nonce, resp.Plan, ctx.Path)))
 			if err != nil {
-				return ex.Throw{Code: http.StatusInternalServerError, Msg: "AES encryption response data failed", Err: err}
+				return ex.Throw{Code: http.StatusInternalServerError, Msg: "encryption response data failed", Err: err}
 			}
-			resp.Sign = utils.Base64Encode(ctx.GetHmac256Sign(resp.Data, resp.Nonce, resp.Time, resp.Plan, key))
+			sign = ctx.GetHmac256Sign(resp.Data, resp.Nonce, resp.Time, resp.Plan, key)
+			resp.Sign = utils.Base64Encode(sign)
 		} else { // 单纯Base64编码格式响应
 			key := ctx.GetTokenSecret()
 			defer DIC.ClearData(key) // 使用完毕清空敏感密钥
 			resp.Data = utils.Base64Encode(data)
-			resp.Sign = utils.Base64Encode(ctx.GetHmac256Sign(resp.Data, resp.Nonce, resp.Time, resp.Plan, key))
+			sign = ctx.GetHmac256Sign(resp.Data, resp.Nonce, resp.Time, resp.Plan, key)
+			resp.Sign = utils.Base64Encode(sign)
+		}
+		// 如果cipher不为空则增加ECDSA签名数据
+		cipher := ctx.GetStorage(Cipher)
+		if cipher != nil {
+			result, err := cipher.(crypto.Cipher).Sign(sign)
+			if err != nil {
+				return ex.Throw{Code: http.StatusInternalServerError, Msg: "response sign data failed", Err: err}
+			}
+			ctx.DelStorage(Cipher)
+			resp.Valid = utils.Base64Encode(result)
 		}
 		if result, err := utils.JsonMarshal(resp); err != nil {
 			return ex.Throw{Code: http.StatusInternalServerError, Msg: "response JSON data failed", Err: err}

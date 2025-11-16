@@ -207,9 +207,10 @@
 │     • Payload 完整性验证                 │
 │                                          │
 │  ✅ 双向ECDSA签名验证                    │
-│     • 客户端使用私钥签名请求             │
-│     • 服务端使用公钥验证签名             │
-│     • 防止身份伪造和中间人攻击           │
+│     • 客户端使用私钥签名HMAC签名         │
+│     • 服务端使用公钥验证ECDSA签名        │
+│     • 响应也包含ECDSA签名验证            │
+│     • 性能优化：只对44字节签名进行ECDSA │
 │                                          │
 │  ✅ 动态密钥生成                         │
 │     • PBKDF2 密钥派生                    │
@@ -255,14 +256,14 @@
 ┌─────────────────────────────────────────┐
 │         签名层安全 (Integrity)           │
 ├─────────────────────────────────────────┤
-│  ✅ HMAC-SHA256 完整性验证               │
-│     • 签名内容: path+d+n+t+p            │
-│     • Secret 密钥绑定                    │
-│     • 常量时间比较 (防时序攻击)          │
+│  ✅ 双重签名验证                           │
+│     • HMAC-SHA256: 数据完整性             │
+│     • ECDSA: 身份认证与不可否认性         │
+│     • 性能优化: ECDSA只对44字节签名签名   │
 │                                          │
 │  ✅ 防篡改机制                           │
-│     • 双重验证 (HMAC + GCM Tag)         │
-│     • 任意字节修改立即失败               │
+│     • 三重验证 (HMAC + GCM Tag + ECDSA) │
+│     • 双向签名 (请求+响应)               │
 │     • 无法伪造有效签名                   │
 └─────────────────────────────────────────┘
 ```
@@ -405,12 +406,12 @@
   │     AAD: t+n+p+path                │
   │     ↓                              │
   │  8. HMAC-SHA256签名                │
-  │     签名内容: path+d+n+t+p+sharedKey
+  │     签名内容: path+d+n+t+p
   │     ↓                              │
-  │  9. 创建客户端ECDSA签名             │
-  │     使用clientPrk对以下内容签名:    │
-  │     serverPub + clientPub + noc + exp
-  │     → clientSig                     │
+  │  9. 创建客户端ECDSA签名 (性能优化)  │
+  │     使用clientPrk对HMAC签名进行签名 │
+  │     只对44字节签名签名，避免大数据 │
+  │     → requestEcdsaSig              │
   │     ↓                              │
   ├─────────  发送请求  ────────────────▶│
   │    Header:                          │
@@ -421,11 +422,11 @@
   │      sig: clientSig,                │
   │      exp: timestamp                 │
   │    }                                │
-  │    {d: encrypted, t, n, p:2, s}    │
+  │    {d: encrypted, t, n, p:2, s, e: requestEcdsaSig}
   │                                    │
   │ 10. 验证客户端ECDSA签名             │
   │     使用服务端预设的客户端ECDSA公钥 │
-  │     Verify(clientSig, serverPub+clientPub+noc+exp)
+  │     Verify(requestEcdsaSig, s)
   │     ↓                              │
   │ 11. 验证HMAC签名                    │
   │     ↓                              │
@@ -445,13 +446,21 @@
   │ 17. 响应AES-GCM加密                 │
   │     ↓                              │
   │ 18. 响应HMAC-SHA256签名             │
+  │     ↓                              │
+  │ 19. 响应ECDSA签名 (双向保护)        │
+  │     使用serverPrk对响应HMAC签名签名 │
+  │     → responseEcdsaSig             │
   │◀────────  返回响应  ─────────────────┤
   │    {c, m, d: encrypted,            │
-  │     t, n, p:2, s}                  │
+  │     t, n, p:2, s, e: responseEcdsaSig}
   │                                    │
- 19. 验证响应签名 & GCM解密              │
+ 20. 验证响应ECDSA签名               │
+  │     使用客户端预设的服务端ECDSA公钥 │
+  │     Verify(responseEcdsaSig, s)    │
+  │     ↓                              │
+21. 验证响应HMAC签名 & GCM解密       │
   │                                    │
- 20. 业务数据处理                       │
+ 22. 业务数据处理                       │
 ```
 
 ---
@@ -701,7 +710,7 @@
 
 - ✅ AES-256-GCM 认证加密
 - ✅ HMAC-SHA256 完整性验证
-- ✅ 双向 ECDSA 签名验证
+- ✅ 双向 ECDSA 签名验证 (性能优化：只对 HMAC 签名签名)
 - ✅ JWT 认证 + RBAC 授权
 - ✅ 动态密钥生成 (PBKDF2)
 - ✅ AAD 上下文绑定 (Time + Nonce + Plan + Path)
@@ -724,6 +733,6 @@
 
 ---
 
-**文档版本**: v1.1 (双向 ECDSA 签名验证)
-**最后更新**: 2025-11-15
+**文档版本**: v1.2 (双向 ECDSA 签名验证 + 性能优化)
+**最后更新**: 2025-11-16
 **安全等级**: 🏆 金融机构级 (Tier 4)

@@ -24,6 +24,7 @@ type JsonBody struct {
 	Data  string `json:"d"` // 16字节 (8+8) - string字段
 	Nonce string `json:"n"` // 16字节 (8+8) - string字段
 	Sign  string `json:"s"` // 16字节 (8+8) - string字段
+	Valid string `json:"e"` // 16字节 (8+8) - string字段
 
 	// 8字节字段组 (2个int64字段，16字节)
 	Time int64 `json:"t"` // 8字节 - int64字段
@@ -40,6 +41,7 @@ type JsonResp struct {
 	Data    string `json:"d"` // 16字节 (8+8) - string字段
 	Nonce   string `json:"n"` // 16字节 (8+8) - string字段
 	Sign    string `json:"s"` // 16字节 (8+8) - string字段
+	Valid   string `json:"e"` // 16字节 (8+8) - string字段
 
 	// 8字节字段组 (3个字段：1个int+2个int64，24字节)
 	Code int   `json:"c"` // 8字节 - int字段

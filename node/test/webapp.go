@@ -9,7 +9,6 @@ import (
 	"github.com/godaddy-x/freego/rpcx"
 	"github.com/godaddy-x/freego/rpcx/pb"
 	"github.com/godaddy-x/freego/utils"
-	"github.com/godaddy-x/freego/utils/crypto"
 	"github.com/godaddy-x/freego/utils/jwt"
 	"github.com/godaddy-x/freego/utils/sdk"
 )
@@ -183,8 +182,8 @@ func NewHTTP() *MyWebNode {
 	})
 
 	// 增加双向验签的ECDSA
-	cipher, _ := crypto.CreateS256ECDSAWithBase64(serverPrk, clientPub)
-	my.AddCipher(cipher)
+	//cipher, _ := crypto.CreateS256ECDSAWithBase64(serverPrk, clientPub)
+	//my.AddCipher(cipher)
 
 	//my.AddRedisCache(func(ds ...string) (cache.Cache, error) {
 	//	rds, err := cache.NewRedis(ds...)
