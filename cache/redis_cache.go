@@ -396,6 +396,7 @@ func (self *RedisManager) InitConfig(input ...RedisConfig) (*RedisManager, error
 			WriteTimeout:    time.Duration(writeTimeout) * time.Second,
 			PoolTimeout:     time.Duration(poolTimeout) * time.Second,
 
+			DialerRetries: 1,
 			// 高可用重连配置
 			MaxRetries:      maxRetries,
 			MinRetryBackoff: time.Duration(minRetryBackoff) * time.Millisecond,
