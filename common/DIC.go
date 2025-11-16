@@ -5,13 +5,15 @@ const (
 )
 
 // ClearData 最终清空底层数组的函数
-func ClearData(b []byte) {
-	if len(b) == 0 {
-		return
-	}
-	// 覆盖所有已使用的底层数组元素（len(s)是当前切片的长度）
-	for i := 0; i < len(b); i++ {
-		b[i] = 0 // 用0填充，彻底清除
+func ClearData(arr ...[]byte) {
+	for _, b := range arr {
+		if len(b) == 0 {
+			return
+		}
+		// 覆盖所有已使用的底层数组元素（len(s)是当前切片的长度）
+		for i := 0; i < len(b); i++ {
+			b[i] = 0 // 用0填充，彻底清除
+		}
 	}
 }
 

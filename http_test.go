@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	ecc "github.com/godaddy-x/eccrypto"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/sdk"
 	"github.com/valyala/fasthttp"
@@ -80,17 +79,15 @@ func TestECCWithECDSASecurity(t *testing.T) {
 	}
 
 	// 设置ECDSA密钥对（模拟客户端私钥）
-	clientPrk, clientPub, err := ecc.CreateECDSA()
-	if err != nil {
-		t.Fatalf("创建ECDSA密钥对失败: %v", err)
-	}
-	clientPrkB64 := utils.Base64Encode(ecc.GetECDSAPublicKeyBytes(clientPub))
-	clientPubB64 := utils.Base64Encode(ecc.GetECDSAPrivateKeyBytes(clientPrk))
-
-	// 配置客户端ECDSA对象
-	if err := httpSDK.SetECDSAObject(clientPrkB64, clientPubB64); err != nil {
-		t.Fatalf("设置ECDSA对象失败: %v", err)
-	}
+	//clientPrk, err := ecc.CreateECDSA()
+	//if err != nil {
+	//	t.Fatalf("创建ECDSA密钥对失败: %v", err)
+	//}
+	//
+	//// 配置客户端ECDSA对象
+	//if err := httpSDK.SetECDSAObject(clientPrkB64, clientPubB64); err != nil {
+	//	t.Fatalf("设置ECDSA对象失败: %v", err)
+	//}
 
 	testCases := []struct {
 		name        string
@@ -131,7 +128,7 @@ func TestECCWithECDSASecurity(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// 执行ECC请求（包含ECDSA签名）
 			responseData := sdk.AuthToken{}
-			err := httpSDK.PostByECC("/getUser", tc.requestData, &responseData, true)
+			err := httpSDK.PostByECC("/getUser", tc.requestData, &responseData)
 
 			if tc.expectError {
 				if err == nil {

@@ -4,8 +4,9 @@ import (
 	ecdh2 "crypto/ecdh"
 	"crypto/sha512"
 	"fmt"
-	"github.com/godaddy-x/freego/utils/crypto"
 	"time"
+
+	"github.com/godaddy-x/freego/utils/crypto"
 
 	"golang.org/x/crypto/pbkdf2"
 

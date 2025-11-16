@@ -437,7 +437,8 @@ func (self *Context) validJsonBody() error {
 		if err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "prk load error", Err: err}
 		}
-
+		prkBs := prk.Bytes()
+		defer DIC.ClearData(prkBs) // 方法结束清除临时私钥的底层字节
 		pub, err := ecc.LoadECDHPublicKeyFromBase64(public.Tag)
 		if err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "pub load error", Err: err}
@@ -447,13 +448,12 @@ func (self *Context) validJsonBody() error {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "shared key error", Err: err}
 		}
 		sharedKey = pbkdf2.Key(shared, utils.Base64Decode(prkObject.Noc), 1024, 32, sha512.New)
-		defer DIC.ClearData(sharedKey)
+		defer DIC.ClearData(shared, sharedKey)
 	}
 
 	// 签名验证：Plan 0/1使用token secret，Plan 2使用sharedKey
 	if len(sharedKey) == 0 {
 		sharedKey = self.GetTokenSecret()
-		defer DIC.ClearData(sharedKey)
 	}
 	if utils.Base64Encode(self.GetHmac256Sign(d, body.Nonce, body.Time, body.Plan, sharedKey)) != body.Sign {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature invalid"}
