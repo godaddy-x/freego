@@ -963,6 +963,459 @@ func BenchmarkObjectPoolPerformance(b *testing.B) {
 }
 
 // ==========================================
+// 性能对比基准测试 - 对标主流ORM框架
+// ==========================================
+
+// BenchmarkORMComparison ORM框架性能对比基准测试
+// 对标主流ORM框架的性能表现，包含CRUD操作、查询、批量操作等核心场景
+func BenchmarkORMComparison(b *testing.B) {
+	// 每个子测试独立初始化和清理数据库连接，避免并发冲突
+
+	b.Run("SingleInsert", func(b *testing.B) {
+		if err := initBenchmarkEnvironment(); err != nil {
+			b.Fatalf("初始化基准测试环境失败: %v", err)
+		}
+		defer MysqlClose()
+
+		b.ResetTimer()
+		b.RunParallel(func(pb *testing.PB) {
+			for pb.Next() {
+				testWallet := createBenchmarkWallet()
+				db, _ := NewMysql(Option{DsName: DIC.MASTER, Database: "exchange2", Timeout: 5000})
+				if err := db.Save(testWallet); err != nil {
+					b.Error(err)
+				}
+				db.Close()
+			}
+		})
+	})
+
+	b.Run("SingleQuery", func(b *testing.B) {
+		if err := initBenchmarkEnvironment(); err != nil {
+			b.Fatalf("初始化基准测试环境失败: %v", err)
+		}
+		defer MysqlClose()
+
+		// 预先插入一些测试数据
+		setupBenchmarkData(b)
+
+		b.ResetTimer()
+		b.RunParallel(func(pb *testing.PB) {
+			for pb.Next() {
+				db, _ := NewMysql(Option{DsName: DIC.MASTER, Database: "exchange2", Timeout: 5000})
+				var result OwWallet
+				if err := db.FindOne(sqlc.M().Eq("id", 1983821936127377408), &result); err != nil {
+					// 忽略查询错误，只测试性能
+				}
+				db.Close()
+			}
+		})
+	})
+
+	b.Run("BatchInsert_10", func(b *testing.B) {
+		if err := initBenchmarkEnvironment(); err != nil {
+			b.Fatalf("初始化基准测试环境失败: %v", err)
+		}
+		defer MysqlClose()
+
+		b.ResetTimer()
+		b.RunParallel(func(pb *testing.PB) {
+			for pb.Next() {
+				var wallets []sqlc.Object
+				for i := 0; i < 10; i++ {
+					wallets = append(wallets, createBenchmarkWallet())
+				}
+				db, _ := NewMysql(Option{DsName: DIC.MASTER, Database: "exchange2", Timeout: 5000})
+				if err := db.Save(wallets...); err != nil {
+					b.Error(err)
+				}
+				db.Close()
+			}
+		})
+	})
+
+	b.Run("ComplexQuery", func(b *testing.B) {
+		if err := initBenchmarkEnvironment(); err != nil {
+			b.Fatalf("初始化基准测试环境失败: %v", err)
+		}
+		defer MysqlClose()
+
+		// 预先插入测试数据
+		setupBenchmarkData(b)
+
+		b.ResetTimer()
+		b.RunParallel(func(pb *testing.PB) {
+			for pb.Next() {
+				db, _ := NewMysql(Option{DsName: DIC.MASTER, Database: "exchange2", Timeout: 5000})
+				var results []*OwWallet
+				err := db.FindList(sqlc.M(&OwWallet{}).
+					Eq("state", 1).
+					Like("appID", "bench_%").
+					Orderby("id", sqlc.DESC_).
+					Limit(1, 50), &results)
+				if err != nil {
+					b.Error(err)
+				}
+				db.Close()
+			}
+		})
+	})
+
+	b.Run("TransactionWorkload", func(b *testing.B) {
+		if err := initBenchmarkEnvironment(); err != nil {
+			b.Fatalf("初始化基准测试环境失败: %v", err)
+		}
+		defer MysqlClose()
+
+		b.ResetTimer()
+		b.RunParallel(func(pb *testing.PB) {
+			for pb.Next() {
+				db, _ := NewMysql(Option{DsName: DIC.MASTER, Database: "exchange2", Timeout: 10000, OpenTx: true})
+
+				// 事务中执行多个操作
+				wallet := createBenchmarkWallet()
+				if err := db.Save(wallet); err != nil {
+					b.Error(err)
+					db.Close()
+					continue
+				}
+
+				wallet.Alias = "updated_in_transaction"
+				if err := db.Update(wallet); err != nil {
+					b.Error(err)
+					db.Close()
+					continue
+				}
+
+				if err := db.Close(); err != nil {
+					b.Error(err)
+				}
+			}
+		})
+	})
+
+	b.Run("ConcurrentReadWrite", func(b *testing.B) {
+		if err := initBenchmarkEnvironment(); err != nil {
+			b.Fatalf("初始化基准测试环境失败: %v", err)
+		}
+		defer MysqlClose()
+
+		// 预先插入测试数据
+		setupBenchmarkData(b)
+
+		b.ResetTimer()
+		b.RunParallel(func(pb *testing.PB) {
+			for pb.Next() {
+				// 混合读写操作
+				if pb.Next() { // 50%读操作
+					db, _ := NewMysql(Option{DsName: DIC.MASTER, Database: "exchange2", Timeout: 5000})
+					var result OwWallet
+					db.FindOne(sqlc.M().Eq("state", 1), &result)
+					db.Close()
+				} else { // 50%写操作
+					db, _ := NewMysql(Option{DsName: DIC.MASTER, Database: "exchange2", Timeout: 5000})
+					wallet := createBenchmarkWallet()
+					db.Save(wallet)
+					db.Close()
+				}
+			}
+		})
+	})
+}
+
+// BenchmarkPerformanceMetrics 性能指标详细分析
+// 分析ORM框架在不同场景下的详细性能指标
+func BenchmarkPerformanceMetrics(b *testing.B) {
+	// 内存效率测试（不需要数据库连接）
+	b.Run("MemoryEfficiency", func(b *testing.B) {
+		b.ResetTimer()
+		b.RunParallel(func(pb *testing.PB) {
+			for pb.Next() {
+				// 测试对象池内存复用效率
+				buffer := rowByteSlicePool.Get().([][]byte)
+
+				// 模拟数据处理
+				if len(buffer) == 0 {
+					buffer = append(buffer, make([]byte, 1024))
+				}
+				copy(buffer[0][:64], []byte("Memory efficiency test data for benchmark analysis"))
+
+				ReleaseOutDest([][][]byte{buffer})
+			}
+		})
+	})
+
+	// 连接池效率测试
+	b.Run("ConnectionPoolEfficiency", func(b *testing.B) {
+		if err := initBenchmarkEnvironment(); err != nil {
+			b.Fatalf("初始化基准测试环境失败: %v", err)
+		}
+		defer MysqlClose()
+
+		b.ResetTimer()
+		b.RunParallel(func(pb *testing.PB) {
+			for pb.Next() {
+				db, _ := NewMysql(Option{DsName: DIC.MASTER, Database: "exchange2", Timeout: 3000})
+
+				// 快速查询测试连接池效率
+				var result OwWallet
+				db.FindOne(sqlc.M().Eq("id", 1), &result)
+
+				db.Close()
+			}
+		})
+	})
+
+	// 语句缓存效率测试
+	b.Run("StatementCacheEfficiency", func(b *testing.B) {
+		if err := initBenchmarkEnvironment(); err != nil {
+			b.Fatalf("初始化基准测试环境失败: %v", err)
+		}
+		defer MysqlClose()
+
+		// 预先准备测试数据
+		setupBenchmarkData(b)
+
+		b.ResetTimer()
+		b.RunParallel(func(pb *testing.PB) {
+			for pb.Next() {
+				db, _ := NewMysql(Option{DsName: DIC.MASTER, Database: "exchange2", Timeout: 5000})
+
+				// 使用相同的查询条件测试语句缓存效果
+				var result OwWallet
+				err := db.FindOne(sqlc.M().Eq("appID", "bench_app_123456").Eq("state", 1), &result)
+				if err != nil && err.Error() != "record not found" {
+					b.Error(err)
+				}
+
+				db.Close()
+			}
+		})
+	})
+}
+
+// BenchmarkScalabilityAnalysis 可扩展性分析基准测试
+// 测试ORM框架在不同负载条件下的可扩展性表现
+func BenchmarkScalabilityAnalysis(b *testing.B) {
+	// 测试不同并发级别的性能表现
+	concurrencyLevels := []int{1, 5, 10, 20, 50}
+
+	for _, concurrency := range concurrencyLevels {
+		b.Run(fmt.Sprintf("Concurrency_%d", concurrency), func(b *testing.B) {
+			if err := initBenchmarkEnvironment(); err != nil {
+				b.Fatalf("初始化基准测试环境失败: %v", err)
+			}
+			defer MysqlClose()
+
+			b.SetParallelism(concurrency)
+			b.ResetTimer()
+
+			b.RunParallel(func(pb *testing.PB) {
+				for pb.Next() {
+					db, _ := NewMysql(Option{DsName: DIC.MASTER, Database: "exchange2", Timeout: 5000})
+
+					wallet := createBenchmarkWallet()
+					if err := db.Save(wallet); err != nil {
+						b.Error(err)
+					}
+
+					db.Close()
+				}
+			})
+		})
+	}
+}
+
+// BenchmarkResourceUtilization 资源利用率分析基准测试
+// 分析ORM框架的CPU、内存、网络资源利用率
+func BenchmarkResourceUtilization(b *testing.B) {
+
+	b.Run("CPU_IntensiveWorkload", func(b *testing.B) {
+		if err := initBenchmarkEnvironment(); err != nil {
+			b.Fatalf("初始化基准测试环境失败: %v", err)
+		}
+		defer MysqlClose()
+
+		// 预先准备测试数据
+		setupBenchmarkData(b)
+
+		b.ResetTimer()
+		b.RunParallel(func(pb *testing.PB) {
+			for pb.Next() {
+				// CPU密集型操作：复杂查询和数据处理
+				db, _ := NewMysql(Option{DsName: DIC.MASTER, Database: "exchange2", Timeout: 5000})
+
+				var results []*OwWallet
+				err := db.FindList(sqlc.M(&OwWallet{}).
+					Eq("state", 1).
+					Like("appID", "bench_%").
+					Gte("ctime", utils.UnixMilli()-3600000).
+					Orderby("id", sqlc.DESC_).
+					Limit(1, 200), &results)
+
+				if err != nil {
+					b.Error(err)
+				}
+
+				// 模拟数据处理
+				for _, wallet := range results {
+					_ = wallet.AppID + wallet.WalletID // 字符串连接操作
+				}
+
+				db.Close()
+			}
+		})
+	})
+
+	b.Run("Memory_IntensiveWorkload", func(b *testing.B) {
+		if err := initBenchmarkEnvironment(); err != nil {
+			b.Fatalf("初始化基准测试环境失败: %v", err)
+		}
+		defer MysqlClose()
+
+		// 预先准备测试数据
+		setupBenchmarkData(b)
+
+		b.ResetTimer()
+		b.RunParallel(func(pb *testing.PB) {
+			for pb.Next() {
+				// 内存密集型操作：大结果集查询
+				db, _ := NewMysql(Option{DsName: DIC.MASTER, Database: "exchange2", Timeout: 5000})
+
+				var results []*OwWallet
+				err := db.FindList(sqlc.M(&OwWallet{}).
+					Like("appID", "bench_%").
+					Orderby("id", sqlc.DESC_).
+					Limit(1, 1000), &results) // 查询1000条记录
+
+				if err != nil {
+					b.Error(err)
+				}
+
+				// 强制触发GC以观察内存回收效率
+				// runtime.GC()
+
+				db.Close()
+			}
+		})
+	})
+
+	b.Run("Network_IntensiveWorkload", func(b *testing.B) {
+		if err := initBenchmarkEnvironment(); err != nil {
+			b.Fatalf("初始化基准测试环境失败: %v", err)
+		}
+		defer MysqlClose()
+
+		b.ResetTimer()
+		b.RunParallel(func(pb *testing.PB) {
+			for pb.Next() {
+				// 网络密集型操作：频繁的短连接操作
+				for i := 0; i < 10; i++ { // 每个goroutine执行10次短操作
+					db, _ := NewMysql(Option{DsName: DIC.MASTER, Database: "exchange2", Timeout: 2000})
+
+					var result OwWallet
+					db.FindOne(sqlc.M().Eq("id", 1), &result)
+
+					db.Close()
+				}
+			}
+		})
+	})
+}
+
+// ==========================================
+// 辅助函数
+// ==========================================
+
+// initBenchmarkEnvironment 初始化基准测试环境
+func initBenchmarkEnvironment() error {
+	// 读取数据库配置
+	conf := MysqlConfig{}
+	var err error
+	paths := []string{
+		"resource/mysql.json",
+		"../resource/mysql.json",
+		"../../resource/mysql.json",
+	}
+
+	for _, path := range paths {
+		if err = utils.ReadLocalJsonConfig(path, &conf); err == nil {
+			break
+		}
+	}
+
+	if err != nil {
+		return fmt.Errorf("无法读取数据库配置: %v", err)
+	}
+
+	// 初始化数据库连接
+	mysqlMgr := new(MysqlManager)
+	if err := mysqlMgr.InitConfigAndCache(nil, conf); err != nil {
+		return fmt.Errorf("数据库初始化失败: %v", err)
+	}
+
+	// 注册模型
+	if err := ModelDriver(&OwWallet{}); err != nil {
+		return fmt.Errorf("模型注册失败: %v", err)
+	}
+
+	return nil
+}
+
+// createBenchmarkWallet 创建用于基准测试的钱包对象
+func createBenchmarkWallet() *OwWallet {
+	now := utils.UnixMilli()
+	return &OwWallet{
+		Id:           utils.NextIID(),
+		AppID:        "bench_app_123456",
+		WalletID:     fmt.Sprintf("bench_wallet_%d", utils.NextIID()%10000),
+		Alias:        "bench_wallet_test",
+		IsTrust:      1,
+		PasswordType: 1,
+		Password:     []byte("bench_password_test_data"),
+		AuthKey:      "bench_auth_key_test",
+		RootPath:     "/bench/path/to/wallet",
+		AccountIndex: 0,
+		Keystore:     `{"version":3,"id":"bench-1234-5678-9abc-def0","address":"benchabcd1234ef567890","crypto":{"ciphertext":"bench_cipher","cipherparams":{"iv":"bench_iv"},"cipher":"aes-128-ctr","kdf":"scrypt","kdfparams":{"dklen":32,"salt":"bench_salt","n":8192,"r":8,"p":1},"mac":"bench_mac"}}`,
+		Applytime:    now,
+		Succtime:     now,
+		Dealstate:    1,
+		Ctime:        now,
+		Utime:        now,
+		State:        1,
+	}
+}
+
+// setupBenchmarkData 预设基准测试数据
+func setupBenchmarkData(b *testing.B) {
+	// 确保有足够的测试数据
+	db, err := NewMysql(Option{DsName: DIC.MASTER, Database: "exchange2", Timeout: 5000})
+	if err != nil {
+		b.Logf("设置测试数据失败: %v", err)
+		return
+	}
+	defer db.Close()
+
+	// 检查是否已有测试数据
+	count, err := db.Count(sqlc.M(&OwWallet{}).Eq("appID", "bench_app_123456"))
+	if err != nil {
+		b.Logf("检查测试数据失败: %v", err)
+		return
+	}
+
+	// 如果没有足够的测试数据，插入一些
+	if count < 100 {
+		var testData []sqlc.Object
+		for i := 0; i < 50; i++ {
+			testData = append(testData, createBenchmarkWallet())
+		}
+		if err := db.Save(testData...); err != nil {
+			b.Logf("插入测试数据失败: %v", err)
+		}
+	}
+}
+
+// ==========================================
 // 辅助函数
 // ==========================================
 
