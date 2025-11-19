@@ -3,7 +3,6 @@ package node
 import (
 	"context"
 	"fmt"
-	DIC "github.com/godaddy-x/freego/common"
 	"net"
 	"net/http"
 	"os"
@@ -12,6 +11,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	DIC "github.com/godaddy-x/freego/common"
 
 	"github.com/buaazp/fasthttprouter"
 	"github.com/godaddy-x/freego/cache"
@@ -137,6 +138,7 @@ func (self *HttpNode) StartServer(addr string) {
 	// 关闭数据库连接
 	zlog.Info("starting database connections close", 0)
 	sqld.MysqlClose()
+	sqld.MongoClose()
 	zlog.Info("database connections close completed", 0)
 
 	// 关闭所有Redis管理器并清理资源

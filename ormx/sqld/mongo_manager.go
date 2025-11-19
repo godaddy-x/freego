@@ -3,6 +3,10 @@ package sqld
 import (
 	"context"
 	"fmt"
+	"reflect"
+	"sync"
+	"time"
+
 	"github.com/godaddy-x/freego/cache"
 	DIC "github.com/godaddy-x/freego/common"
 	"github.com/godaddy-x/freego/ormx/sqlc"
@@ -14,13 +18,12 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
 	"go.uber.org/zap"
-	"reflect"
-	"time"
 )
 
 var (
-	mgoSessions = make(map[string]*MGOManager)
-	mgoSlowlog  *zap.Logger
+	mgoSessions      = make(map[string]*MGOManager)
+	mgoSessionsMutex sync.RWMutex
+	mgoSlowlog       *zap.Logger
 )
 
 type SortBy struct {
@@ -167,48 +170,89 @@ func (self *MGOManager) InitConfigAndCache(manager cache.Cache, input ...MGOConf
 
 func (self *MGOManager) buildByConfig(manager cache.Cache, input ...MGOConfig) error {
 	for _, v := range input {
+		// 1. 配置参数校验
 		if len(v.Database) == 0 {
-			panic("mongo database is nil")
+			return utils.Error("mongo config invalid: database is required")
 		}
+		if len(v.ConnectionURI) == 0 && len(v.Addrs) == 0 {
+			return utils.Error("mongo config invalid: connectionURI or addrs is required")
+		}
+
+		// 2. 设置连接池默认值
+		if v.PoolLimit <= 0 {
+			v.PoolLimit = 100 // 默认连接池大小
+		}
+		if v.ConnectTimeout <= 0 {
+			v.ConnectTimeout = 10 // 默认10秒连接超时
+		}
+		if v.SocketTimeout <= 0 {
+			v.SocketTimeout = 30 // 默认30秒socket超时
+		}
+		if len(v.AuthMechanism) == 0 {
+			v.AuthMechanism = "SCRAM-SHA-1" // 默认认证机制
+		}
+
+		// 3. 生成数据源名称
 		dsName := DIC.MASTER
 		if len(v.DsName) > 0 {
 			dsName = v.DsName
 		}
+
+		// 4. 并发安全检查：检查是否已存在
+		mgoSessionsMutex.Lock()
 		if _, b := mgoSessions[dsName]; b {
+			mgoSessionsMutex.Unlock()
 			return utils.Error("mongo init failed: [", v.DsName, "] exist")
 		}
+		mgoSessionsMutex.Unlock()
+
+		// 5. 构建连接选项
 		opts := options.Client()
+
 		if len(v.ConnectionURI) == 0 {
-			if len(v.AuthMechanism) == 0 {
-				v.AuthMechanism = "SCRAM-SHA-1"
+			// 使用传统配置构建连接URI
+			if len(v.Addrs) == 0 {
+				return utils.Error("mongo config invalid: addrs is required when connectionURI is empty")
 			}
-			credential := options.Credential{
-				AuthMechanism: v.AuthMechanism,
-				Username:      v.Username,
-				Password:      v.Password,
-				AuthSource:    v.Database,
-			}
-			opts = options.Client().ApplyURI(fmt.Sprintf("mongodb://%s", v.Addrs[0]))
+
+			// 设置认证凭据
 			if len(v.Username) > 0 && len(v.Password) > 0 {
+				credential := options.Credential{
+					AuthMechanism: v.AuthMechanism,
+					Username:      v.Username,
+					Password:      v.Password,
+					AuthSource:    v.Database,
+				}
 				opts.SetAuth(credential)
 			}
+
+			// 设置连接URI（使用第一个地址作为示例）
+			opts.ApplyURI(fmt.Sprintf("mongodb://%s", v.Addrs[0]))
 		} else {
-			opts = options.Client().ApplyURI(v.ConnectionURI)
+			// 使用完整的连接URI
+			opts.ApplyURI(v.ConnectionURI)
 		}
+
+		// 6. 设置连接参数
 		opts.SetDirect(v.Direct)
 		opts.SetTimeout(time.Second * time.Duration(v.ConnectTimeout))
-		opts.SetMinPoolSize(100)
+		opts.SetMinPoolSize(10) // 设置最小连接池大小
 		opts.SetMaxPoolSize(uint64(v.PoolLimit))
 		opts.SetSocketTimeout(time.Second * time.Duration(v.SocketTimeout))
-		// 连接数据库
+
+		// 7. 打开数据库连接
 		session, err := mongo.Connect(context.Background(), opts)
 		if err != nil {
-			panic(err)
+			return utils.Error("mongo connect failed: ", err)
 		}
-		// 判断服务是不是可用
+
+		// 8. 验证连接
 		if err := session.Ping(context.Background(), readpref.Primary()); err != nil {
-			panic(err)
+			session.Disconnect(context.Background())
+			return utils.Error("mongo ping failed: ", err)
 		}
+
+		// 9. 创建 MGOManager
 		mgo := &MGOManager{}
 		mgo.Session = session
 		mgo.CacheManager = manager
@@ -216,14 +260,33 @@ func (self *MGOManager) buildByConfig(manager cache.Cache, input ...MGOConfig) e
 		mgo.Database = v.Database
 		mgo.SlowQuery = v.SlowQuery
 		mgo.SlowLogPath = v.SlowLogPath
+		mgo.Timeout = 10000 // 默认10秒
 		if v.OpenTx {
 			mgo.OpenTx = v.OpenTx
 		}
+		if v.Timeout > 0 {
+			mgo.Timeout = v.Timeout
+		}
+
+		// 10. 并发安全地注册数据源（再次检查避免重复）
+		mgoSessionsMutex.Lock()
+		if _, b := mgoSessions[mgo.DsName]; b {
+			mgoSessionsMutex.Unlock()
+			session.Disconnect(context.Background())
+			return utils.Error("mongo init failed: [", v.DsName, "] exist (concurrent init)")
+		}
 		mgoSessions[mgo.DsName] = mgo
-		// init zlog
+		mgoSessionsMutex.Unlock()
+
+		// 11. 初始化慢查询日志
 		mgo.initSlowLog()
-		zlog.Printf("mongodb service【%s】has been started successful", mgo.DsName)
+
+		zlog.Printf("mongodb service【%s】has been started successful", dsName)
 	}
+
+	// 12. 验证至少初始化一个数据源
+	mgoSessionsMutex.RLock()
+	defer mgoSessionsMutex.RUnlock()
 	if len(mgoSessions) == 0 {
 		return utils.Error("mongo init failed: sessions is nil")
 	}
@@ -649,6 +712,30 @@ func (self *MGOManager) Close() error {
 		self.PackContext.CancelFunc()
 	}
 	return nil
+}
+
+// MongoClose 关闭所有MongoDB连接（在服务器优雅关闭时调用）
+func MongoClose() {
+	zlog.Info("mongodb service closing starting", 0)
+
+	mgoSessionsMutex.Lock()
+	defer mgoSessionsMutex.Unlock()
+
+	for name, mgo := range mgoSessions {
+		zlog.Info("mongodb service closing connection", 0, zlog.String("name", name))
+		if mgo.Session != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err := mgo.Session.Disconnect(ctx); err != nil {
+				zlog.Error("mongodb service disconnect error", 0, zlog.String("name", name), zlog.AddError(err))
+			} else {
+				zlog.Info("mongodb service connection closed", 0, zlog.String("name", name))
+			}
+		}
+		delete(mgoSessions, name)
+	}
+
+	zlog.Info("mongodb service closing completed", 0)
 }
 
 func (self *MGOManager) GetCollectionObject(o sqlc.Object) (*mongo.Collection, error) {
