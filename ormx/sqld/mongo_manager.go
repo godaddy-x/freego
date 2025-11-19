@@ -366,7 +366,7 @@ func (self *MGOManager) getSlowLog() *zap.Logger {
 }
 
 func (self *MGOManager) Save(data ...sqlc.Object) error {
-	if data == nil || len(data) == 0 {
+	if len(data) == 0 {
 		return self.Error("[Mongo.Save] data is nil")
 	}
 	if len(data) > 2000 {
@@ -387,8 +387,8 @@ func (self *MGOManager) Save(data ...sqlc.Object) error {
 	if zlog.IsDebug() {
 		defer zlog.Debug("[Mongo.Save]", utils.UnixMilli(), zlog.Any("data", data))
 	}
-	adds := make([]interface{}, 0, len(data))
-	for _, v := range data {
+	adds := make([]interface{}, len(data))
+	for i, v := range data {
 		if obv.PkKind == reflect.Int64 {
 			lastInsertId := utils.GetInt64(utils.GetPtr(v, obv.PkOffset))
 			if lastInsertId == 0 {
@@ -410,20 +410,23 @@ func (self *MGOManager) Save(data ...sqlc.Object) error {
 		} else {
 			return self.Error("only Int64 and string and ObjectID type IDs are supported")
 		}
-		adds = append(adds, v)
+		adds[i] = v
 	}
-	res, err := db.InsertMany(self.GetSessionContext(), adds)
+	// 性能优化：使用无序插入提升并发性能
+	// 注意：如果业务需要保证ID顺序，请保持ordered=true
+	opts := options.InsertMany().SetOrdered(false)
+	res, err := db.InsertMany(self.GetSessionContext(), adds, opts)
 	if err != nil {
 		return self.Error("[Mongo.Save] save failed: ", err)
 	}
 	if len(res.InsertedIDs) != len(adds) {
-		return self.Error("[Mongo.Save] save failed: InsertedIDs length invalid")
+		return self.Error("[Mongo.Save] save failed: InsertedIDs length invalid：", len(res.InsertedIDs), " - ", len(adds))
 	}
 	return nil
 }
 
 func (self *MGOManager) Update(data ...sqlc.Object) error {
-	if data == nil || len(data) == 0 {
+	if len(data) == 0 {
 		return self.Error("[Mongo.Update] data is nil")
 	}
 	if len(data) > 2000 {
@@ -444,8 +447,9 @@ func (self *MGOManager) Update(data ...sqlc.Object) error {
 	if zlog.IsDebug() {
 		defer zlog.Debug("[Mongo.Update]", utils.UnixMilli(), zlog.Any("data", data))
 	}
-	var lastInsertId interface{}
+
 	for _, v := range data {
+		var lastInsertId interface{}
 		if obv.PkKind == reflect.Int64 {
 			pk := utils.GetInt64(utils.GetPtr(v, obv.PkOffset))
 			if pk == 0 {
@@ -506,7 +510,7 @@ func (self *MGOManager) UpdateByCnd(cnd *sqlc.Cnd) (int64, error) {
 }
 
 func (self *MGOManager) Delete(data ...sqlc.Object) error {
-	if data == nil || len(data) == 0 {
+	if len(data) == 0 {
 		return self.Error("[Mongo.Delete] data is nil")
 	}
 	if len(data) > 2000 {
@@ -524,32 +528,42 @@ func (self *MGOManager) Delete(data ...sqlc.Object) error {
 	if err != nil {
 		return self.Error(err)
 	}
+	// 优化：大数据量时只记录统计信息，避免序列化完整数据
 	if zlog.IsDebug() {
-		defer zlog.Debug("[Mongo.Delete]", utils.UnixMilli(), zlog.Any("data", data))
+		defer zlog.Debug("[Mongo.Delete]", utils.UnixMilli(), zlog.Int("count", len(data)))
 	}
-	delIds := make([]interface{}, 0, len(data))
-	for _, v := range data {
-		if obv.PkKind == reflect.Int64 {
-			lastInsertId := utils.GetInt64(utils.GetPtr(v, obv.PkOffset))
-			if lastInsertId == 0 {
+
+	// 预分配精确大小，避免slice扩容
+	delIds := make([]interface{}, len(data))
+	for i, v := range data {
+		var delId interface{}
+
+		// 根据主键类型获取ID
+		switch obv.PkKind {
+		case reflect.Int64:
+			delId = utils.GetInt64(utils.GetPtr(v, obv.PkOffset))
+			if delId == 0 {
 				return self.Error("[Mongo.Delete] data object id is nil")
 			}
-			delIds = append(delIds, lastInsertId)
-		} else if obv.PkKind == reflect.String {
-			lastInsertId := utils.GetString(utils.GetPtr(v, obv.PkOffset))
-			if len(lastInsertId) == 0 {
+		case reflect.String:
+			delId = utils.GetString(utils.GetPtr(v, obv.PkOffset))
+			if len(delId.(string)) == 0 {
 				return self.Error("[Mongo.Delete] data object id is nil")
 			}
-			delIds = append(delIds, lastInsertId)
-		} else if obv.PkType == "primitive.ObjectID" {
-			lastInsertId := utils.GetObjectID(utils.GetPtr(v, obv.PkOffset))
-			if IsNullObjectID(lastInsertId) {
-				return self.Error("[Mongo.Update] data object id is nil")
+		case reflect.Ptr:
+			if obv.PkType == "primitive.ObjectID" {
+				delId = utils.GetObjectID(utils.GetPtr(v, obv.PkOffset))
+				if IsNullObjectID(delId.(primitive.ObjectID)) {
+					return self.Error("[Mongo.Delete] data object id is nil")
+				}
+			} else {
+				return self.Error("unsupported pointer type for primary key")
 			}
-			delIds = append(delIds, lastInsertId)
-		} else {
+		default:
 			return self.Error("only Int64 and string and ObjectID type IDs are supported")
 		}
+
+		delIds[i] = delId
 	}
 	if len(delIds) > 0 {
 		if _, err := db.DeleteMany(self.GetSessionContext(), bson.M{"_id": bson.M{"$in": delIds}}); err != nil {
@@ -560,35 +574,47 @@ func (self *MGOManager) Delete(data ...sqlc.Object) error {
 }
 
 func (self *MGOManager) DeleteById(object sqlc.Object, data ...interface{}) (int64, error) {
-	if data == nil || len(data) == 0 {
+	// 基础验证
+	if object == nil {
+		return 0, self.Error("[Mongo.DeleteById] object is nil")
+	}
+	if len(data) == 0 {
 		return 0, self.Error("[Mongo.DeleteById] data is nil")
 	}
 	if len(data) > 2000 {
 		return 0, self.Error("[Mongo.DeleteById] data length > 2000")
 	}
+
+	// 获取表信息
 	d := object
 	if len(self.MGOSyncData) > 0 {
 		d = self.MGOSyncData[0].CacheModel
 	}
+
+	// 验证表是否存在（虽然结果未使用，但确保表已注册）
 	_, ok := modelDrivers[d.GetTable()]
 	if !ok {
 		return 0, self.Error("[Mongo.DeleteById] registration object type not found [", d.GetTable(), "]")
 	}
+
+	// 获取数据库连接
 	db, err := self.GetDatabase(d.GetTable())
 	if err != nil {
 		return 0, self.Error(err)
 	}
+
+	// 优化：大数据量时只记录统计信息
 	if zlog.IsDebug() {
-		defer zlog.Debug("[Mongo.DeleteById]", utils.UnixMilli(), zlog.Any("data", data))
+		defer zlog.Debug("[Mongo.DeleteById]", utils.UnixMilli(), zlog.Int("count", len(data)))
 	}
-	if len(data) > 0 {
-		res, err := db.DeleteMany(self.GetSessionContext(), bson.M{"_id": bson.M{"$in": data}})
-		if err != nil {
-			return 0, self.Error("[Mongo.DeleteById] delete failed: ", err)
-		}
-		return res.DeletedCount, nil
+
+	// 执行批量删除
+	res, err := db.DeleteMany(self.GetSessionContext(), bson.M{"_id": bson.M{"$in": data}})
+	if err != nil {
+		return 0, self.Error("[Mongo.DeleteById] delete failed: ", err)
 	}
-	return 0, nil
+
+	return res.DeletedCount, nil
 }
 
 func (self *MGOManager) DeleteByCnd(cnd *sqlc.Cnd) (int64, error) {
@@ -983,7 +1009,7 @@ func buildMongoMatch(cnd *sqlc.Cnd) bson.M {
 		case sqlc.NOT_LIKE_:
 			// unsupported
 		case sqlc.OR_:
-			if values == nil || len(values) == 0 {
+			if len(values) == 0 {
 				continue
 			}
 			var array []interface{}
