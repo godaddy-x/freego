@@ -305,7 +305,7 @@ func AnyToStr(any interface{}) string {
 	} else if str, ok := any.(int64); ok {
 		return strconv.FormatInt(str, 10)
 	} else if str, ok := any.(float32); ok {
-		return strconv.FormatFloat(float64(str), 'f', 16, 64)
+		return strconv.FormatFloat(float64(str), 'f', -1, 32)
 	} else if str, ok := any.(float64); ok {
 		return strconv.FormatFloat(str, 'f', 16, 64)
 	} else if str, ok := any.(uint); ok {
