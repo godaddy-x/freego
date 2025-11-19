@@ -60,21 +60,37 @@ func deserializeValue(value []byte, input interface{}) (interface{}, error) {
 // parseIntValue 解析整数值
 func parseIntValue(value []byte, input interface{}) (interface{}, error) {
 	str := utils.Bytes2Str(value)
-	intVal, err := utils.StrToInt64(str)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse int value: %w", err)
-	}
 
 	switch ptr := input.(type) {
 	case *int:
-		*ptr = int(intVal)
+		intVal, err := utils.StrToInt(str)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse int value: %w", err)
+		}
+		*ptr = intVal
 	case *int8:
-		*ptr = int8(intVal)
+		intVal, err := utils.StrToInt8(str)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse int8 value: %w", err)
+		}
+		*ptr = intVal
 	case *int16:
-		*ptr = int16(intVal)
+		intVal, err := utils.StrToInt16(str)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse int16 value: %w", err)
+		}
+		*ptr = intVal
 	case *int32:
-		*ptr = int32(intVal)
+		intVal, err := utils.StrToInt32(str)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse int32 value: %w", err)
+		}
+		*ptr = intVal
 	case *int64:
+		intVal, err := utils.StrToInt64(str)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse int64 value: %w", err)
+		}
 		*ptr = intVal
 	}
 	return input, nil

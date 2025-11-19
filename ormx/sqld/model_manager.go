@@ -1293,19 +1293,17 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 			}
 			return nil
 		case "*uint":
-			if ret, err := utils.NewUint64(b); err != nil {
+			if ret, err := utils.NewUint(b); err != nil {
 				return err
 			} else {
-				uintValue := uint(ret)
-				utils.SetUintP(ptr, &uintValue)
+				utils.SetUintP(ptr, &ret)
 			}
 			return nil
 		case "*uint8":
-			if ret, err := utils.NewUint16(b); err != nil {
+			if ret, err := utils.NewUint8(b); err != nil {
 				return err
 			} else {
-				uint8Value := uint8(ret)
-				utils.SetUint8P(ptr, &uint8Value)
+				utils.SetUint8P(ptr, &ret)
 			}
 			return nil
 		case "*uint16":

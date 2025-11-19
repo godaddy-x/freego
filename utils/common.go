@@ -233,29 +233,29 @@ func StrToInt(str string) (int, error) {
 
 // string to int8
 func StrToInt8(str string) (int8, error) {
-	b, err := strconv.ParseInt(str, 10, 64)
+	i, err := strconv.ParseInt(str, 10, 8)
 	if err != nil {
 		return 0, errors.New("string to int8 failed")
 	}
-	return int8(b), nil
+	return int8(i), nil
 }
 
 // string to int16
 func StrToInt16(str string) (int16, error) {
-	b, err := strconv.ParseInt(str, 10, 64)
+	i, err := strconv.ParseInt(str, 10, 16)
 	if err != nil {
 		return 0, errors.New("string to int16 failed")
 	}
-	return int16(b), nil
+	return int16(i), nil
 }
 
 // string to int32
 func StrToInt32(str string) (int32, error) {
-	b, err := strconv.ParseInt(str, 10, 64)
+	i, err := strconv.ParseInt(str, 10, 32)
 	if err != nil {
 		return 0, errors.New("string to int32 failed")
 	}
-	return int32(b), nil
+	return int32(i), nil
 }
 
 // string to int64
