@@ -498,13 +498,17 @@ func (self *MGOManager) UpdateByCnd(cnd *sqlc.Cnd) (int64, error) {
 	if upset == nil || len(upset) == 0 {
 		return 0, self.Error("pipe upset is nil")
 	}
-	defer self.writeLog("[Mongo.UpdateByCnd]", utils.UnixMilli(), map[string]interface{}{"match": match, "upset": upset}, nil)
+
+	if zlog.IsDebug() {
+		defer self.writeLog("[Mongo.UpdateByCnd]", utils.UnixMilli(), map[string]interface{}{"match": match, "upset": upset}, nil)
+	}
+
 	res, err := db.UpdateMany(self.GetSessionContext(), match, upset)
 	if err != nil {
 		return 0, self.Error("[Mongo.UpdateByCnd] update failed: ", err)
 	}
 	if res.ModifiedCount == 0 {
-		return 0, self.Error("[Mongo.Update] update failed: ModifiedCount = 0")
+		return 0, self.Error("[Mongo.UpdateByCnd] update failed: ModifiedCount = 0")
 	}
 	return res.ModifiedCount, nil
 }
@@ -993,34 +997,47 @@ func buildMongoMatch(cnd *sqlc.Cnd) bson.M {
 		case sqlc.IS_NULL_:
 			query[key] = nil
 		case sqlc.IS_NOT_NULL_:
-			// unsupported
+			query[key] = bson.M{"$ne": nil} // 字段不为null
 		case sqlc.BETWEEN_:
-			query[key] = bson.M{"$gte": values[0], "$lte": values[1]}
+			if len(values) >= 2 {
+				query[key] = bson.M{"$gte": values[0], "$lte": values[1]}
+			}
 		case sqlc.BETWEEN2_:
-			query[key] = bson.M{"$gte": values[0], "$lt": values[1]}
+			if len(values) >= 2 {
+				query[key] = bson.M{"$gte": values[0], "$lt": values[1]}
+			}
 		case sqlc.NOT_BETWEEN_:
-			// unsupported
+			if len(values) >= 2 {
+				query[key] = bson.M{"$not": bson.M{"$gte": values[0], "$lte": values[1]}}
+			}
 		case sqlc.IN_:
 			query[key] = bson.M{"$in": values}
 		case sqlc.NOT_IN_:
 			query[key] = bson.M{"$nin": values}
 		case sqlc.LIKE_:
-			query[key] = bson.M{"$regex": value}
+			if value != "" {
+				// 使用正则表达式，添加大小写不敏感选项
+				query[key] = bson.M{"$regex": value, "$options": "i"}
+			}
 		case sqlc.NOT_LIKE_:
-			// unsupported
+			if value != "" {
+				query[key] = bson.M{"$not": bson.M{"$regex": value, "$options": "i"}}
+			}
 		case sqlc.OR_:
 			if len(values) == 0 {
 				continue
 			}
 			var array []interface{}
 			for _, v := range values {
-				cnd, ok := v.(*sqlc.Cnd)
-				if !ok {
-					continue
+				if sub, ok := v.(*sqlc.Cnd); ok {
+					if subQuery := buildMongoMatch(sub); subQuery != nil && len(subQuery) > 0 {
+						array = append(array, subQuery)
+					}
 				}
-				array = append(array, buildMongoMatch(cnd))
 			}
-			query["$or"] = array
+			if len(array) > 0 {
+				query["$or"] = array
+			}
 		}
 	}
 	return query
