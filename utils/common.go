@@ -290,40 +290,48 @@ func AnyToStr(any interface{}) string {
 	if any == nil {
 		return ""
 	}
+
+	// 快速路径：最常见的类型直接处理
 	if str, ok := any.(string); ok {
 		return str
-	} else if str, ok := any.([]byte); ok {
+	}
+	if str, ok := any.([]byte); ok {
 		return Bytes2Str(str)
-	} else if str, ok := any.(int); ok {
-		return strconv.FormatInt(int64(str), 10)
-	} else if str, ok := any.(int8); ok {
-		return strconv.FormatInt(int64(str), 10)
-	} else if str, ok := any.(int16); ok {
-		return strconv.FormatInt(int64(str), 10)
-	} else if str, ok := any.(int32); ok {
-		return strconv.FormatInt(int64(str), 10)
-	} else if str, ok := any.(int64); ok {
-		return strconv.FormatInt(str, 10)
-	} else if str, ok := any.(float32); ok {
-		return strconv.FormatFloat(float64(str), 'f', -1, 32)
-	} else if str, ok := any.(float64); ok {
-		return strconv.FormatFloat(str, 'f', 16, 64)
-	} else if str, ok := any.(uint); ok {
-		return strconv.FormatUint(uint64(str), 10)
-	} else if str, ok := any.(uint8); ok {
-		return strconv.FormatUint(uint64(str), 10)
-	} else if str, ok := any.(uint16); ok {
-		return strconv.FormatUint(uint64(str), 10)
-	} else if str, ok := any.(uint32); ok {
-		return strconv.FormatUint(uint64(str), 10)
-	} else if str, ok := any.(uint64); ok {
-		return strconv.FormatUint(str, 10)
-	} else if str, ok := any.(bool); ok {
-		if str {
+	}
+
+	// 其他类型使用高效的type switch
+	switch v := any.(type) {
+	case int:
+		return strconv.FormatInt(int64(v), 10)
+	case int8:
+		return strconv.FormatInt(int64(v), 10)
+	case int16:
+		return strconv.FormatInt(int64(v), 10)
+	case int32:
+		return strconv.FormatInt(int64(v), 10)
+	case int64:
+		return strconv.FormatInt(v, 10)
+	case float32:
+		return strconv.FormatFloat(float64(v), 'f', -1, 32)
+	case float64:
+		return strconv.FormatFloat(v, 'f', 16, 64)
+	case uint:
+		return strconv.FormatUint(uint64(v), 10)
+	case uint8:
+		return strconv.FormatUint(uint64(v), 10)
+	case uint16:
+		return strconv.FormatUint(uint64(v), 10)
+	case uint32:
+		return strconv.FormatUint(uint64(v), 10)
+	case uint64:
+		return strconv.FormatUint(v, 10)
+	case bool:
+		if v {
 			return "true"
 		}
 		return "false"
-	} else {
+	default:
+		// 复杂类型回退到JSON序列化
 		if ret, err := JsonMarshal(any); err != nil {
 			log.Println("any to json failed: ", err)
 			return ""
