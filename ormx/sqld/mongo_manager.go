@@ -507,8 +507,11 @@ func (self *MGOManager) UpdateByCnd(cnd *sqlc.Cnd) (int64, error) {
 	if err != nil {
 		return 0, self.Error("[Mongo.UpdateByCnd] update failed: ", err)
 	}
-	if res.ModifiedCount == 0 {
-		return 0, self.Error("[Mongo.UpdateByCnd] update failed: ModifiedCount = 0")
+	// 注意：ModifiedCount == 0 并不一定是错误
+	// 可能是匹配到了文档但更新内容和原有内容相同
+	// 只有在既没有匹配到文档也没有修改任何文档时才报错
+	if res.MatchedCount == 0 && res.ModifiedCount == 0 {
+		return 0, self.Error("[Mongo.UpdateByCnd] no documents matched the update condition")
 	}
 	return res.ModifiedCount, nil
 }
@@ -638,9 +641,8 @@ func (self *MGOManager) DeleteByCnd(cnd *sqlc.Cnd) (int64, error) {
 	if err != nil {
 		return 0, self.Error("[Mongo.DeleteByCnd] delete failed: ", err)
 	}
-	if res.DeletedCount == 0 {
-		return 0, self.Error("[Mongo.DeleteByCnd] delete failed: ModifiedCount = 0")
-	}
+	// 注意：DeletedCount == 0 并不一定是错误
+	// 如果没有文档匹配删除条件，DeletedCount 为 0 是正常的
 	return res.DeletedCount, nil
 }
 

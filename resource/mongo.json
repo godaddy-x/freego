@@ -6,7 +6,7 @@
   "Direct": true,
   "ConnectTimeout": 5,
   "SocketTimeout": 5,
-  "Database": "openserver",
+  "Database": "ops_dev",
   "Username": "",
   "Password": "",
   "PoolLimit": 4096,
