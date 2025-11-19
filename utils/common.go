@@ -291,26 +291,28 @@ func AnyToStr(any interface{}) string {
 		return ""
 	}
 
-	// 快速路径：最常见的类型直接处理
+	// 快速路径：最常见的非指针类型直接处理
 	if str, ok := any.(string); ok {
 		return str
 	}
 	if str, ok := any.([]byte); ok {
 		return Bytes2Str(str)
 	}
+	if i, ok := any.(int64); ok {
+		return strconv.FormatInt(i, 10)
+	}
+	if i, ok := any.(int); ok {
+		return strconv.FormatInt(int64(i), 10)
+	}
 
 	// 其他类型使用高效的type switch
 	switch v := any.(type) {
-	case int:
-		return strconv.FormatInt(int64(v), 10)
 	case int8:
 		return strconv.FormatInt(int64(v), 10)
 	case int16:
 		return strconv.FormatInt(int64(v), 10)
 	case int32:
 		return strconv.FormatInt(int64(v), 10)
-	case int64:
-		return strconv.FormatInt(v, 10)
 	case float32:
 		return strconv.FormatFloat(float64(v), 'f', -1, 32)
 	case float64:
@@ -330,8 +332,88 @@ func AnyToStr(any interface{}) string {
 			return "true"
 		}
 		return "false"
+	// 指针类型：直接匹配，避免反射开销
+	case *string:
+		if v == nil {
+			return ""
+		}
+		return *v
+	case *[]byte:
+		if v == nil {
+			return ""
+		}
+		return Bytes2Str(*v)
+	case *int:
+		if v == nil {
+			return ""
+		}
+		return strconv.FormatInt(int64(*v), 10)
+	case *int64:
+		if v == nil {
+			return ""
+		}
+		return strconv.FormatInt(*v, 10)
+	case *bool:
+		if v == nil {
+			return ""
+		}
+		if *v {
+			return "true"
+		}
+		return "false"
+	// 其他常见指针类型
+	case *int8:
+		if v == nil {
+			return ""
+		}
+		return strconv.FormatInt(int64(*v), 10)
+	case *int16:
+		if v == nil {
+			return ""
+		}
+		return strconv.FormatInt(int64(*v), 10)
+	case *int32:
+		if v == nil {
+			return ""
+		}
+		return strconv.FormatInt(int64(*v), 10)
+	case *uint:
+		if v == nil {
+			return ""
+		}
+		return strconv.FormatUint(uint64(*v), 10)
+	case *uint8:
+		if v == nil {
+			return ""
+		}
+		return strconv.FormatUint(uint64(*v), 10)
+	case *uint16:
+		if v == nil {
+			return ""
+		}
+		return strconv.FormatUint(uint64(*v), 10)
+	case *uint32:
+		if v == nil {
+			return ""
+		}
+		return strconv.FormatUint(uint64(*v), 10)
+	case *uint64:
+		if v == nil {
+			return ""
+		}
+		return strconv.FormatUint(*v, 10)
+	case *float32:
+		if v == nil {
+			return ""
+		}
+		return strconv.FormatFloat(float64(*v), 'f', -1, 32)
+	case *float64:
+		if v == nil {
+			return ""
+		}
+		return strconv.FormatFloat(*v, 'f', 16, 64)
 	default:
-		// 复杂类型回退到JSON序列化
+		// 复杂类型回退到JSON序列化兜底
 		if ret, err := JsonMarshal(any); err != nil {
 			log.Println("any to json failed: ", err)
 			return ""
