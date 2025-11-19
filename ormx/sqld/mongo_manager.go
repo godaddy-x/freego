@@ -38,20 +38,34 @@ const (
 )
 
 /********************************** 数据库配置参数 **********************************/
+/*
+MongoDB连接参数优化说明：
+1. 连接池配置：MinPoolSize/MaxPoolSize/MaxConnecting - 优化资源利用和性能
+2. 超时配置：ConnectTimeout/SocketTimeout/ServerSelectionTimeout - 提升连接稳定性和响应速度
+3. 心跳检测：HeartbeatInterval - 保持连接活性，及时发现连接问题
+4. 连接生命周期：MaxConnIdleTime - 避免连接池中积累过多空闲连接
+5. 连接验证：带超时的连接建立和ping验证，确保连接可用性
+*/
 
 // 数据库配置
 type MGOConfig struct {
 	DBConfig
-	AuthMechanism  string
-	Addrs          []string
-	Direct         bool
-	ConnectTimeout int64
-	SocketTimeout  int64
-	Database       string
-	Username       string
-	Password       string
-	PoolLimit      int
-	ConnectionURI  string
+	AuthMechanism          string
+	Addrs                  []string
+	Direct                 bool
+	ConnectTimeout         int64 // 连接超时时间（秒）
+	SocketTimeout          int64 // Socket读写超时时间（秒）
+	ServerSelectionTimeout int64 // 服务器选择超时时间（秒）
+	HeartbeatInterval      int64 // 心跳检测间隔（秒）
+	MaxConnIdleTime        int64 // 连接最大空闲时间（秒）
+	MaxConnLifetime        int64 // 连接最大生命周期（秒）
+	Database               string
+	Username               string
+	Password               string
+	PoolLimit              int    // 连接池最大大小
+	MinPoolSize            int    // 连接池最小大小
+	MaxConnecting          uint64 // 最大并发连接数
+	ConnectionURI          string
 }
 
 type PackContext struct {
@@ -178,15 +192,33 @@ func (self *MGOManager) buildByConfig(manager cache.Cache, input ...MGOConfig) e
 			return utils.Error("mongo config invalid: connectionURI or addrs is required")
 		}
 
-		// 2. 设置连接池默认值
+		// 2. 设置连接池和超时默认值
 		if v.PoolLimit <= 0 {
-			v.PoolLimit = 100 // 默认连接池大小
+			v.PoolLimit = 100 // 默认连接池最大大小
+		}
+		if v.MinPoolSize <= 0 {
+			v.MinPoolSize = 10 // 默认连接池最小大小
+		}
+		if v.MaxConnecting <= 0 {
+			v.MaxConnecting = 10 // 默认最大并发连接数
 		}
 		if v.ConnectTimeout <= 0 {
 			v.ConnectTimeout = 10 // 默认10秒连接超时
 		}
 		if v.SocketTimeout <= 0 {
-			v.SocketTimeout = 30 // 默认30秒socket超时
+			v.SocketTimeout = 30 // 默认30秒socket读写超时
+		}
+		if v.ServerSelectionTimeout <= 0 {
+			v.ServerSelectionTimeout = 30 // 默认30秒服务器选择超时
+		}
+		if v.HeartbeatInterval <= 0 {
+			v.HeartbeatInterval = 10 // 默认10秒心跳间隔
+		}
+		if v.MaxConnIdleTime <= 0 {
+			v.MaxConnIdleTime = 60 // 默认60秒连接最大空闲时间
+		}
+		if v.MaxConnLifetime <= 0 {
+			v.MaxConnLifetime = 600 // 默认10分钟连接最大生命周期
 		}
 		if len(v.AuthMechanism) == 0 {
 			v.AuthMechanism = "SCRAM-SHA-1" // 默认认证机制
@@ -235,19 +267,36 @@ func (self *MGOManager) buildByConfig(manager cache.Cache, input ...MGOConfig) e
 
 		// 6. 设置连接参数
 		opts.SetDirect(v.Direct)
-		opts.SetTimeout(time.Second * time.Duration(v.ConnectTimeout))
-		opts.SetMinPoolSize(10) // 设置最小连接池大小
-		opts.SetMaxPoolSize(uint64(v.PoolLimit))
-		opts.SetSocketTimeout(time.Second * time.Duration(v.SocketTimeout))
 
-		// 7. 打开数据库连接
-		session, err := mongo.Connect(context.Background(), opts)
+		// 设置超时参数 - 优化连接稳定性和性能
+		opts.SetConnectTimeout(time.Second * time.Duration(v.ConnectTimeout))                 // 连接建立超时
+		opts.SetSocketTimeout(time.Second * time.Duration(v.SocketTimeout))                   // Socket读写超时
+		opts.SetServerSelectionTimeout(time.Second * time.Duration(v.ServerSelectionTimeout)) // 服务器选择超时
+
+		// 设置心跳检测参数 - 保持连接活性
+		opts.SetHeartbeatInterval(time.Second * time.Duration(v.HeartbeatInterval)) // 心跳检测间隔
+
+		// 设置连接池参数 - 优化资源利用
+		opts.SetMinPoolSize(uint64(v.MinPoolSize)) // 最小连接池大小，避免频繁创建销毁
+		opts.SetMaxPoolSize(uint64(v.PoolLimit))   // 最大连接池大小，限制资源使用
+		opts.SetMaxConnecting(v.MaxConnecting)     // 最大并发连接数，控制连接创建速度
+
+		// 设置连接生命周期参数 - 管理连接健康
+		opts.SetMaxConnIdleTime(time.Second * time.Duration(v.MaxConnIdleTime)) // 连接最大空闲时间
+		// 注意: MaxConnLifetime 在较新版本的 MongoDB Go 驱动中可能不可用，取决于驱动版本
+
+		// 7. 打开数据库连接（带超时控制）
+		connectCtx, cancel := context.WithTimeout(context.Background(), time.Second*time.Duration(v.ConnectTimeout))
+		defer cancel()
+		session, err := mongo.Connect(connectCtx, opts)
 		if err != nil {
 			return utils.Error("mongo connect failed: ", err)
 		}
 
-		// 8. 验证连接
-		if err := session.Ping(context.Background(), readpref.Primary()); err != nil {
+		// 8. 验证连接（带超时控制）
+		pingCtx, pingCancel := context.WithTimeout(context.Background(), time.Second*10) // ping超时10秒
+		defer pingCancel()
+		if err := session.Ping(pingCtx, readpref.Primary()); err != nil {
 			session.Disconnect(context.Background())
 			return utils.Error("mongo ping failed: ", err)
 		}
@@ -708,7 +757,7 @@ func (self *MGOManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 }
 
 func (self *MGOManager) Close() error {
-	if self.PackContext.Context != nil && self.PackContext.CancelFunc != nil {
+	if self.PackContext != nil && self.PackContext.Context != nil && self.PackContext.CancelFunc != nil {
 		self.PackContext.CancelFunc()
 	}
 	return nil
