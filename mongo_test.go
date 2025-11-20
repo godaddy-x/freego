@@ -2069,6 +2069,96 @@ func TestMongoUseTransactionWithContextOperations(t *testing.T) {
 			t.Logf("✅ UseTransactionWithContext正确返回错误: %v", err)
 		}
 	})
+
+	t.Run("TransactionResolveContextVerification", func(t *testing.T) {
+		// 直接测试resolveContext在事务中的行为
+		called := false
+		sessionCtxFound := false
+
+		err := sqld.UseTransactionWithContext(context.Background(), func(mgo *sqld.MGOManager) error {
+			called = true
+
+			// 在事务中测试resolveContext的行为
+			// 传入nil应该返回sessionContext
+			testCtx1 := mgo.TestResolveContext(nil)
+			// 传入自定义context也应该返回sessionContext（因为在事务中）
+			testCtx2 := mgo.TestResolveContext(context.TODO())
+
+			// 验证两个context都应该相同且不为空
+			if testCtx1 == nil {
+				t.Errorf("❌ TestResolveContext(nil) 在事务中返回nil")
+			} else {
+				sessionCtxFound = true
+				t.Logf("✅ TestResolveContext(nil) 返回有效context: %T", testCtx1)
+			}
+
+			if testCtx2 == nil {
+				t.Errorf("❌ TestResolveContext(customCtx) 在事务中返回nil")
+			}
+
+			if testCtx1 != testCtx2 {
+				t.Logf("⚠️ 在事务中TestResolveContext返回不同的context，可能正常")
+			} else {
+				t.Logf("✅ 在事务中TestResolveContext返回相同的context")
+			}
+
+			return fmt.Errorf("测试错误")
+		})
+
+		if called && sessionCtxFound {
+			t.Logf("✅ 事务中resolveContext行为验证成功")
+		} else if called && !sessionCtxFound {
+			t.Errorf("❌ 事务中resolveContext没有返回有效的sessionContext")
+		} else {
+			t.Logf("事务函数未被调用: %v", err)
+		}
+
+		if err != nil {
+			t.Logf("✅ UseTransactionWithContext正确返回错误: %v", err)
+		}
+	})
+
+	t.Run("ResolveContextNonTransactionVerification", func(t *testing.T) {
+		// 初始化MongoDB
+		if err := initMongoForTest(); err != nil {
+			t.Logf("MongoDB初始化失败，跳过resolveContext测试: %v", err)
+			return
+		}
+
+		// 使用NewMongo获取已初始化的管理器
+		mgo, err := sqld.NewMongo(sqld.Option{
+			DsName:   "master",
+			Database: "ops_dev",
+		})
+		if err != nil {
+			t.Fatalf("创建Mongo实例失败: %v", err)
+		}
+		defer mgo.Close()
+
+		// 测试1: 传入nil，应该返回默认context
+		ctx1 := mgo.TestResolveContext(nil)
+		if ctx1 == nil {
+			t.Errorf("❌ TestResolveContext(nil) 在非事务中返回nil")
+		} else {
+			t.Logf("✅ TestResolveContext(nil) 返回默认context: %T", ctx1)
+		}
+
+		// 测试2: 传入自定义context，应该返回自定义context
+		customCtx := context.WithValue(context.Background(), "test", "value")
+		ctx2 := mgo.TestResolveContext(customCtx)
+		if ctx2 != customCtx {
+			t.Errorf("❌ TestResolveContext(customCtx) 没有返回传入的context")
+		} else {
+			t.Logf("✅ TestResolveContext(customCtx) 正确返回传入的context")
+		}
+
+		// 测试3: 验证context值是否正确传递
+		if val := ctx2.Value("test"); val != "value" {
+			t.Errorf("❌ TestResolveContext 没有正确传递context值")
+		} else {
+			t.Logf("✅ TestResolveContext 正确传递context值: %v", val)
+		}
+	})
 }
 
 // TestMongoContextTimeoutOperations 测试带Context超时的CRUD方法

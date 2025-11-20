@@ -210,6 +210,25 @@ func (self *MGOManager) GetSessionContext() context.Context {
 	return self.PackContext.SessionContext
 }
 
+// resolveContext 解析并返回正确的context用于数据库操作
+// 优先级：事务中sessionContext > 用户传入ctx > 默认context
+func (self *MGOManager) resolveContext(userCtx context.Context) context.Context {
+	if self.PackContext.SessionContext != nil {
+		// 在事务中，必须使用sessionContext确保事务正确性
+		return self.PackContext.SessionContext
+	}
+	// 非事务中，使用用户传入的ctx或默认context
+	if userCtx != nil {
+		return userCtx
+	}
+	return self.PackContext.Context
+}
+
+// TestResolveContext 仅用于测试的公共方法，验证resolveContext的行为
+func (self *MGOManager) TestResolveContext(userCtx context.Context) context.Context {
+	return self.resolveContext(userCtx)
+}
+
 func (self *MGOManager) InitConfig(input ...MGOConfig) error {
 	return self.buildByConfig(nil, input...)
 }
@@ -411,7 +430,7 @@ func (self *MGOManager) Save(data ...sqlc.Object) error {
 	}
 
 	// 调用统一的 WithContext 版本，使用默认上下文
-	return self.SaveWithContext(self.PackContext.Context, data...)
+	return self.SaveWithContext(nil, data...)
 }
 
 func (self *MGOManager) Update(data ...sqlc.Object) error {
@@ -424,7 +443,7 @@ func (self *MGOManager) Update(data ...sqlc.Object) error {
 	}
 
 	// 调用统一的 WithContext 版本，使用默认上下文
-	return self.UpdateWithContext(self.PackContext.Context, data...)
+	return self.UpdateWithContext(nil, data...)
 }
 
 func (self *MGOManager) UpdateByCnd(cnd *sqlc.Cnd) (int64, error) {
@@ -434,7 +453,7 @@ func (self *MGOManager) UpdateByCnd(cnd *sqlc.Cnd) (int64, error) {
 	}
 
 	// 调用统一的 WithContext 版本，使用默认上下文
-	return self.UpdateByCndWithContext(self.PackContext.Context, cnd)
+	return self.UpdateByCndWithContext(nil, cnd)
 }
 
 func (self *MGOManager) Delete(data ...sqlc.Object) error {
@@ -447,7 +466,7 @@ func (self *MGOManager) Delete(data ...sqlc.Object) error {
 	}
 
 	// 调用统一的 WithContext 版本，使用默认上下文
-	return self.DeleteWithContext(self.PackContext.Context, data...)
+	return self.DeleteWithContext(nil, data...)
 }
 
 func (self *MGOManager) DeleteById(object sqlc.Object, data ...interface{}) (int64, error) {
@@ -463,7 +482,7 @@ func (self *MGOManager) DeleteById(object sqlc.Object, data ...interface{}) (int
 	}
 
 	// 调用统一的 WithContext 版本，使用默认上下文
-	return self.DeleteByIdWithContext(self.PackContext.Context, object, data...)
+	return self.DeleteByIdWithContext(nil, object, data...)
 }
 
 func (self *MGOManager) DeleteByCnd(cnd *sqlc.Cnd) (int64, error) {
@@ -473,7 +492,7 @@ func (self *MGOManager) DeleteByCnd(cnd *sqlc.Cnd) (int64, error) {
 	}
 
 	// 调用统一的 WithContext 版本，使用默认上下文
-	return self.DeleteByCndWithContext(self.PackContext.Context, cnd)
+	return self.DeleteByCndWithContext(nil, cnd)
 }
 
 func (self *MGOManager) Count(cnd *sqlc.Cnd) (int64, error) {
@@ -483,7 +502,7 @@ func (self *MGOManager) Count(cnd *sqlc.Cnd) (int64, error) {
 	}
 
 	// 调用统一的 WithContext 版本，使用默认上下文
-	return self.CountWithContext(self.PackContext.Context, cnd)
+	return self.CountWithContext(nil, cnd)
 }
 
 func (self *MGOManager) Exists(cnd *sqlc.Cnd) (bool, error) {
@@ -493,7 +512,7 @@ func (self *MGOManager) Exists(cnd *sqlc.Cnd) (bool, error) {
 	}
 
 	// 调用统一的 WithContext 版本，使用默认上下文
-	return self.ExistsWithContext(self.PackContext.Context, cnd)
+	return self.ExistsWithContext(nil, cnd)
 }
 
 func (self *MGOManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
@@ -503,7 +522,7 @@ func (self *MGOManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
 	}
 
 	// 调用统一的 WithContext 版本，使用默认上下文
-	return self.FindOneWithContext(self.PackContext.Context, cnd, data)
+	return self.FindOneWithContext(nil, cnd, data)
 }
 
 // FindById 按ID查询单条数据
@@ -529,7 +548,7 @@ func (self *MGOManager) FindOneComplex(cnd *sqlc.Cnd, data sqlc.Object) error {
 
 func (self *MGOManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	// 直接调用统一的 WithContext 版本，使用默认上下文
-	return self.FindListWithContext(self.PackContext.Context, cnd, data)
+	return self.FindListWithContext(nil, cnd, data)
 }
 
 func (self *MGOManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
@@ -558,11 +577,8 @@ func (self *MGOManager) SaveWithContext(ctx context.Context, data ...sqlc.Object
 		return self.Error("[Mongo.Save] data length > 2000")
 	}
 
-	// Context 处理：如果传入 nil，使用 sessionContext；否则使用自定义 context
-	// 注意：在事务中请直接使用 Save 方法，不要使用 SaveWithContext
-	if ctx == nil {
-		ctx = self.GetSessionContext()
-	}
+	// 解析正确的context用于数据库操作
+	ctx = self.resolveContext(ctx)
 
 	d := data[0]
 	if len(self.MGOSyncData) > 0 {
@@ -627,11 +643,8 @@ func (self *MGOManager) UpdateWithContext(ctx context.Context, data ...sqlc.Obje
 		return self.Error("[Mongo.Update] data length > 2000")
 	}
 
-	// Context 处理：如果传入 nil，使用 sessionContext；否则使用自定义 context
-	// 注意：在事务中请直接使用 Update 方法，不要使用 UpdateWithContext
-	if ctx == nil {
-		ctx = self.GetSessionContext()
-	}
+	// 解析正确的context用于数据库操作
+	ctx = self.resolveContext(ctx)
 
 	d := data[0]
 	if len(self.MGOSyncData) > 0 {
@@ -690,11 +703,8 @@ func (self *MGOManager) UpdateByCndWithContext(ctx context.Context, cnd *sqlc.Cn
 		return 0, self.Error("[Mongo.UpdateByCnd] data model is nil")
 	}
 
-	// Context 处理：如果传入 nil，使用 sessionContext；否则使用自定义 context
-	// 注意：在事务中请直接使用 UpdateByCnd 方法，不要使用 UpdateByCndWithContext
-	if ctx == nil {
-		ctx = self.GetSessionContext()
-	}
+	// 解析正确的context用于数据库操作
+	ctx = self.resolveContext(ctx)
 
 	db, err := self.GetDatabase(cnd.Model.GetTable())
 	if err != nil {
@@ -734,11 +744,8 @@ func (self *MGOManager) DeleteWithContext(ctx context.Context, data ...sqlc.Obje
 		return self.Error("[Mongo.Delete] data length > 2000")
 	}
 
-	// Context 处理：如果传入 nil，使用 sessionContext；否则使用自定义 context
-	// 注意：在事务中请直接使用 Delete 方法，不要使用 DeleteWithContext
-	if ctx == nil {
-		ctx = self.GetSessionContext()
-	}
+	// 解析正确的context用于数据库操作
+	ctx = self.resolveContext(ctx)
 
 	d := data[0]
 	if len(self.MGOSyncData) > 0 {
@@ -810,11 +817,8 @@ func (self *MGOManager) DeleteByIdWithContext(ctx context.Context, object sqlc.O
 		return 0, self.Error("[Mongo.DeleteById] data length > 2000")
 	}
 
-	// Context 处理：如果传入 nil，使用 sessionContext；否则使用自定义 context
-	// 注意：在事务中请直接使用 DeleteById 方法，不要使用 DeleteByIdWithContext
-	if ctx == nil {
-		ctx = self.GetSessionContext()
-	}
+	// 解析正确的context用于数据库操作
+	ctx = self.resolveContext(ctx)
 
 	// 获取表信息
 	d := object
@@ -855,11 +859,8 @@ func (self *MGOManager) DeleteByCndWithContext(ctx context.Context, cnd *sqlc.Cn
 		return 0, self.Error("[Mongo.DeleteByCnd] data model is nil")
 	}
 
-	// Context 处理：如果传入 nil，使用 sessionContext；否则使用自定义 context
-	// 注意：在事务中请直接使用 DeleteByCnd 方法，不要使用 DeleteByCndWithContext
-	if ctx == nil {
-		ctx = self.GetSessionContext()
-	}
+	// 解析正确的context用于数据库操作
+	ctx = self.resolveContext(ctx)
 
 	db, err := self.GetDatabase(cnd.Model.GetTable())
 	if err != nil {
@@ -886,11 +887,8 @@ func (self *MGOManager) FindOneWithContext(ctx context.Context, cnd *sqlc.Cnd, d
 		return self.Error("[Mongo.FindOne] data is nil")
 	}
 
-	// Context 处理：如果传入 nil，使用 sessionContext；否则使用自定义 context
-	// 注意：在事务中请直接使用 FindOne 方法，不要使用 FindOneWithContext
-	if ctx == nil {
-		ctx = self.GetSessionContext()
-	}
+	// 解析正确的context用于数据库操作
+	ctx = self.resolveContext(ctx)
 
 	db, err := self.GetDatabase(data.GetTable())
 	if err != nil {
@@ -922,11 +920,8 @@ func (self *MGOManager) FindListWithContext(ctx context.Context, cnd *sqlc.Cnd, 
 		return self.Error("[Mongo.FindList] data model is nil")
 	}
 
-	// Context 处理：如果传入 nil，使用 sessionContext；否则使用自定义 context
-	// 注意：在事务中请直接使用 FindList 方法，不要使用 FindListWithContext
-	if ctx == nil {
-		ctx = self.GetSessionContext()
-	}
+	// 解析正确的context用于数据库操作
+	ctx = self.resolveContext(ctx)
 
 	// 处理分页逻辑
 	if cnd.Pagination.IsFastPage { // 快速分页
@@ -1001,11 +996,8 @@ func (self *MGOManager) CountWithContext(ctx context.Context, cnd *sqlc.Cnd) (in
 		return 0, self.Error("[Mongo.Count] data model is nil")
 	}
 
-	// Context 处理：如果传入 nil，使用 sessionContext；否则使用自定义 context
-	// 注意：在事务中请直接使用 Count 方法，不要使用 CountWithContext
-	if ctx == nil {
-		ctx = self.GetSessionContext()
-	}
+	// 解析正确的context用于数据库操作
+	ctx = self.resolveContext(ctx)
 
 	db, err := self.GetDatabase(cnd.Model.GetTable())
 	if err != nil {
@@ -1048,11 +1040,8 @@ func (self *MGOManager) ExistsWithContext(ctx context.Context, cnd *sqlc.Cnd) (b
 		return false, self.Error("[Mongo.Exists] data model is nil")
 	}
 
-	// Context 处理：如果传入 nil，使用 sessionContext；否则使用自定义 context
-	// 注意：在事务中请直接使用 Exists 方法，不要使用 ExistsWithContext
-	if ctx == nil {
-		ctx = self.GetSessionContext()
-	}
+	// 解析正确的context用于数据库操作
+	ctx = self.resolveContext(ctx)
 
 	db, err := self.GetDatabase(cnd.Model.GetTable())
 	if err != nil {
@@ -1074,22 +1063,16 @@ func (self *MGOManager) ExistsWithContext(ctx context.Context, cnd *sqlc.Cnd) (b
 
 // FindOneComplexWithContext 带上下文超时的复杂条件查询单条数据方法
 func (self *MGOManager) FindOneComplexWithContext(ctx context.Context, cnd *sqlc.Cnd, data sqlc.Object) error {
-	// Context 处理：如果传入 nil，使用 sessionContext；否则使用自定义 context
-	// 注意：在事务中请直接使用 FindOneComplex 方法，不要使用 FindOneComplexWithContext
-	if ctx == nil {
-		ctx = self.GetSessionContext()
-	}
-	return self.FindOneComplex(cnd, data)
+	// 解析正确的context用于数据库操作
+	ctx = self.resolveContext(ctx)
+	return self.FindOneWithContext(ctx, cnd, data)
 }
 
 // FindListComplexWithContext 带上下文超时的复杂条件查询数据列表方法
 func (self *MGOManager) FindListComplexWithContext(ctx context.Context, cnd *sqlc.Cnd, data interface{}) error {
-	// Context 处理：如果传入 nil，使用 sessionContext；否则使用自定义 context
-	// 注意：在事务中请直接使用 FindListComplex 方法，不要使用 FindListComplexWithContext
-	if ctx == nil {
-		ctx = self.GetSessionContext()
-	}
-	return self.FindListComplex(cnd, data)
+	// 解析正确的context用于数据库操作
+	ctx = self.resolveContext(ctx)
+	return self.FindListWithContext(ctx, cnd, data)
 }
 
 func (self *MGOManager) Close() error {
