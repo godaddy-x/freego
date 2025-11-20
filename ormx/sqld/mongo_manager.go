@@ -882,6 +882,12 @@ func (self *MGOManager) FindOneWithContext(ctx context.Context, cnd *sqlc.Cnd, d
 		return self.Error("[Mongo.FindOne] data is nil")
 	}
 
+	// 使用setMongoValue进行不反射填充
+	obv, ok := modelDrivers[data.GetTable()]
+	if !ok {
+		return self.Error("[Mongo.FindOne] registration object type not found [", data.GetTable(), "]")
+	}
+
 	// 解析正确的context用于数据库操作
 	ctx = self.resolveContext(ctx)
 
@@ -893,11 +899,26 @@ func (self *MGOManager) FindOneWithContext(ctx context.Context, cnd *sqlc.Cnd, d
 	opts := buildQueryOneOptions(cnd)
 	defer self.writeLog("[Mongo.FindOne]", utils.UnixMilli(), pipe, opts)
 	cur := db.FindOne(ctx, pipe, opts...)
-	if err := cur.Decode(data); err != nil {
+	raw, err := cur.Raw()
+	if err != nil {
 		if err == mongo.ErrNoDocuments {
 			return nil // 没有找到记录不认为是错误
 		}
 		return self.Error(err)
+	}
+
+	for _, elem := range obv.FieldElem {
+		if elem.Ignore {
+			continue
+		}
+		// 使用FieldBsonName来查找BSON字段，如果为空则使用FieldJsonName
+		fieldName := elem.FieldBsonName
+		if fieldName == "" {
+			fieldName = elem.FieldJsonName
+		}
+		if bsonValue := raw.Lookup(fieldName); !bsonValue.IsZero() {
+			setMongoValue(data, elem, bsonValue)
+		}
 	}
 	return nil
 }
