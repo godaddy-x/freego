@@ -104,16 +104,33 @@ func UseTransaction(fn func(mgo *MGOManager) error, option ...Option) error {
 		return err
 	}
 	defer self.Close()
-	return self.Session.UseSession(self.PackContext.Context, func(sessionContext mongo.SessionContext) error {
+
+	// 使用独立的上下文作为事务的父上下文，避免超时影响
+	txContext, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	return self.Session.UseSession(txContext, func(sessionContext mongo.SessionContext) error {
+		// 设置会话上下文
 		self.PackContext.SessionContext = sessionContext
-		if err := self.PackContext.SessionContext.StartTransaction(); err != nil {
-			return err
+
+		// 启动事务
+		if err := sessionContext.StartTransaction(); err != nil {
+			return utils.Error("[Mongo.UseTransaction] start transaction failed: ", err)
 		}
+
+		// 执行用户函数
 		if err := fn(self); err != nil {
-			self.PackContext.SessionContext.AbortTransaction(self.PackContext.SessionContext)
-			return err
+			// 回滚事务
+			sessionContext.AbortTransaction(sessionContext)
+			return utils.Error("[Mongo.UseTransaction] transaction aborted due to error: ", err)
 		}
-		return self.PackContext.SessionContext.CommitTransaction(self.PackContext.SessionContext)
+
+		// 提交事务
+		if err := sessionContext.CommitTransaction(sessionContext); err != nil {
+			return utils.Error("[Mongo.UseTransaction] commit transaction failed: ", err)
+		}
+
+		return nil
 	})
 }
 
