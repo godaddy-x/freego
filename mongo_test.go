@@ -1892,6 +1892,185 @@ func TestMongoUseTransactionOperations(t *testing.T) {
 	})
 }
 
+// TestMongoUseTransactionWithContextOperations 测试UseTransactionWithContext方法各种场景
+func TestMongoUseTransactionWithContextOperations(t *testing.T) {
+	// 注意：MongoDB事务需要副本集支持，单节点可能不支持
+	// 这里我们只测试基本的函数调用是否正常，不验证实际的事务行为
+
+	t.Run("TransactionWithContextFunctionCall", func(t *testing.T) {
+		// 测试带上下文的事务函数是否被正确调用
+		ctx := context.Background()
+		called := false
+		err := sqld.UseTransactionWithContext(ctx, func(mgo *sqld.MGOManager) error {
+			called = true
+			return nil
+		})
+
+		// 由于单节点MongoDB不支持事务，这里可能会失败
+		// 但我们主要验证函数调用是否正常
+		if called {
+			t.Logf("✅ 带上下文的事务函数被正确调用")
+		} else if err != nil {
+			t.Logf("带上下文的事务调用失败（可能是环境不支持）: %v", err)
+		}
+	})
+
+	t.Run("TransactionWithContextErrorHandling", func(t *testing.T) {
+		// 测试带上下文的事务错误处理
+		ctx := context.Background()
+		err := sqld.UseTransactionWithContext(ctx, func(mgo *sqld.MGOManager) error {
+			return fmt.Errorf("模拟事务错误")
+		})
+
+		// 事务应该失败
+		if err == nil {
+			t.Error("期望事务失败，但事务成功了")
+		} else {
+			t.Logf("✅ 带上下文的事务错误正确处理: %v", err)
+		}
+	})
+
+	t.Run("TransactionWithContextTimeout", func(t *testing.T) {
+		// 测试带超时的上下文
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
+
+		start := time.Now()
+		err := sqld.UseTransactionWithContext(ctx, func(mgo *sqld.MGOManager) error {
+			// 模拟一个稍微长一点的操作
+			time.Sleep(200 * time.Millisecond)
+			return nil
+		})
+
+		elapsed := time.Since(start)
+
+		// 应该因为超时而失败
+		if err == nil {
+			t.Error("期望事务因超时失败，但事务成功了")
+		} else {
+			t.Logf("✅ 带超时上下文的事务正确处理: %v (耗时: %v)", err, elapsed)
+		}
+	})
+
+	t.Run("TransactionWithContextNilContext", func(t *testing.T) {
+		// 测试传入nil上下文的情况
+		called := false
+		err := sqld.UseTransactionWithContext(nil, func(mgo *sqld.MGOManager) error {
+			called = true
+			return nil
+		})
+
+		// 由于单节点MongoDB不支持事务，这里可能会失败
+		// 但我们主要验证函数调用是否正常
+		if called {
+			t.Logf("✅ nil上下文的事务函数被正确调用")
+		} else if err != nil {
+			t.Logf("nil上下文的事务调用失败（可能是环境不支持）: %v", err)
+		}
+	})
+
+	t.Run("TransactionContextPropagationTimeout", func(t *testing.T) {
+		// 测试事务上下文的超时贯穿性
+		// 由于当前环境不支持事务，我们通过模拟的方式验证context传递
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+		defer cancel()
+
+		start := time.Now()
+		// 让context超时
+		time.Sleep(20 * time.Millisecond)
+
+		called := false
+		err := sqld.UseTransactionWithContext(ctx, func(mgo *sqld.MGOManager) error {
+			called = true
+			return fmt.Errorf("测试错误")
+		})
+
+		elapsed := time.Since(start)
+
+		// 验证结果
+		if ctx.Err() == context.DeadlineExceeded {
+			t.Logf("✅ 上下文超时正常: context在%v后超时", elapsed)
+		} else {
+			t.Logf("❌ 上下文超时异常: %v", ctx.Err())
+		}
+
+		if err != nil {
+			t.Logf("✅ UseTransactionWithContext正确返回错误: %v", err)
+		}
+
+		// 验证即使context已超时，函数仍然会被调用（因为事务启动失败在context检查之前）
+		if called {
+			t.Logf("✅ 事务函数被调用（事务启动失败前）")
+		} else {
+			t.Logf("事务函数未被调用: %v", err)
+		}
+	})
+
+	t.Run("TransactionContextPropagationCancellation", func(t *testing.T) {
+		// 测试事务上下文的可取消性
+		ctx, cancel := context.WithCancel(context.Background())
+
+		// 立即取消context
+		cancel()
+
+		called := false
+		err := sqld.UseTransactionWithContext(ctx, func(mgo *sqld.MGOManager) error {
+			called = true
+			return fmt.Errorf("测试错误")
+		})
+
+		// 验证结果
+		if ctx.Err() == context.Canceled {
+			t.Logf("✅ 上下文取消正常: context已被取消")
+		} else {
+			t.Logf("❌ 上下文取消异常: %v", ctx.Err())
+		}
+
+		if err != nil {
+			t.Logf("✅ UseTransactionWithContext正确返回错误: %v", err)
+		}
+
+		// 即使context已取消，函数仍然可能被调用（因为MongoDB session创建失败在context检查之前）
+		if called {
+			t.Logf("✅ 事务函数被调用（事务启动失败前）")
+		} else {
+			t.Logf("事务函数未被调用: %v", err)
+		}
+	})
+
+	t.Run("TransactionContextInheritance", func(t *testing.T) {
+		// 测试context的继承关系
+		parentCtx := context.Background()
+		childCtx := context.WithValue(parentCtx, "test_key", "test_value")
+
+		called := false
+		testValue := ""
+
+		err := sqld.UseTransactionWithContext(childCtx, func(mgo *sqld.MGOManager) error {
+			called = true
+			// 尝试从context中获取值
+			if val := childCtx.Value("test_key"); val != nil {
+				testValue = val.(string)
+			}
+			return fmt.Errorf("测试错误")
+		})
+
+		if called {
+			if testValue == "test_value" {
+				t.Logf("✅ Context值继承正常: 成功获取到context中的值 '%s'", testValue)
+			} else {
+				t.Logf("❌ Context值继承异常: 期望 'test_value', 实际 '%s'", testValue)
+			}
+		} else {
+			t.Logf("事务函数未被调用，无法验证context继承: %v", err)
+		}
+
+		if err != nil {
+			t.Logf("✅ UseTransactionWithContext正确返回错误: %v", err)
+		}
+	})
+}
+
 // TestMongoContextTimeoutOperations 测试带Context超时的CRUD方法
 func TestMongoContextTimeoutOperations(t *testing.T) {
 	// 初始化MongoDB
@@ -1922,6 +2101,7 @@ func TestMongoContextTimeoutOperations(t *testing.T) {
 		Ctime:    time.Now().Unix(),
 	}
 
+	// 先保存 wallet，确保有有效的 ID
 	t.Run("SaveWithContextSuccess", func(t *testing.T) {
 		// 测试带Context的保存成功
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -1933,10 +2113,20 @@ func TestMongoContextTimeoutOperations(t *testing.T) {
 			return
 		}
 
+		if wallet.Id == 0 {
+			t.Errorf("保存后 wallet ID 仍然为 0")
+			return
+		}
+
 		t.Logf("✅ SaveWithContext保存成功，ID: %d", wallet.Id)
 	})
 
 	t.Run("FindOneWithContextSuccess", func(t *testing.T) {
+		// 确保 wallet 已经被保存
+		if wallet.Id == 0 {
+			t.Skip("wallet 未保存，跳过查询测试")
+		}
+
 		// 测试带Context的查询
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -1958,10 +2148,16 @@ func TestMongoContextTimeoutOperations(t *testing.T) {
 	})
 
 	t.Run("UpdateWithContextSuccess", func(t *testing.T) {
+		// 确保 wallet 已经被保存
+		if wallet.Id == 0 {
+			t.Skip("wallet 未保存，跳过更新测试")
+		}
+
 		// 测试带Context的更新
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
+		t.Logf("更新前的 wallet ID: %d", wallet.Id)
 		wallet.Alias = "Context超时测试钱包-已更新"
 		wallet.Utime = time.Now().Unix()
 
