@@ -3,6 +3,7 @@ package sqld
 import (
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/godaddy-x/freego/utils"
@@ -109,6 +110,52 @@ func setMongoValue(obj interface{}, elem *FieldElem, bsonValue bson.RawValue) er
 				t := time.UnixMilli(int64(dateTime))
 				utils.SetTime(ptr, t)
 			}
+		case "primitive.DateTime":
+			if dateTime, ok := bsonValue.DateTimeOK(); ok {
+				// primitive.DateTime is just an int64 alias
+				utils.SetInt64(ptr, int64(dateTime))
+			}
+		case "primitive.Timestamp":
+			if t, i, ok := bsonValue.TimestampOK(); ok {
+				// primitive.Timestamp has T and I fields
+				ts := primitive.Timestamp{T: t, I: i}
+				reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(ts))
+			}
+		case "primitive.Binary":
+			if subtype, binary, ok := bsonValue.BinaryOK(); ok {
+				bin := primitive.Binary{Subtype: subtype, Data: binary}
+				reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(bin))
+			}
+		case "primitive.Regex":
+			if pattern, options, ok := bsonValue.RegexOK(); ok {
+				regex := primitive.Regex{Pattern: pattern, Options: options}
+				reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(regex))
+			}
+		case "primitive.JavaScript":
+			if js, ok := bsonValue.JavaScriptOK(); ok {
+				reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(primitive.JavaScript(js)))
+			}
+		case "primitive.CodeWithScope":
+			if js, scope, ok := bsonValue.CodeWithScopeOK(); ok {
+				code := primitive.CodeWithScope{Code: primitive.JavaScript(js), Scope: scope}
+				reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(code))
+			}
+		case "primitive.MinKey":
+			if bsonValue.Type == bson.TypeMinKey {
+				reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(primitive.MinKey{}))
+			}
+		case "primitive.MaxKey":
+			if bsonValue.Type == bson.TypeMaxKey {
+				reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(primitive.MaxKey{}))
+			}
+		case "primitive.Undefined":
+			if bsonValue.Type == bson.TypeUndefined {
+				reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(primitive.Undefined{}))
+			}
+		case "primitive.Null":
+			if bsonValue.Type == bson.TypeNull {
+				reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(primitive.Null{}))
+			}
 		case "decimal.Decimal":
 			// decimal.Decimal is a complex struct, we need to use reflection
 			fieldVal := reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName)
@@ -129,6 +176,84 @@ func setMongoValue(obj interface{}, elem *FieldElem, bsonValue bson.RawValue) er
 			if dateTime, ok := bsonValue.DateTimeOK(); ok {
 				t := time.UnixMilli(int64(dateTime))
 				utils.SetTimeP(ptr, &t)
+			}
+		case "*int":
+			if int32Val, ok := bsonValue.Int32OK(); ok {
+				v := int(int32Val)
+				reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(&v))
+			} else if int64Val, ok := bsonValue.Int64OK(); ok {
+				v := int(int64Val)
+				reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(&v))
+			}
+		case "*int8":
+			if int32Val, ok := bsonValue.Int32OK(); ok {
+				v := int8(int32Val)
+				reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(&v))
+			}
+		case "*int16":
+			if int32Val, ok := bsonValue.Int32OK(); ok {
+				v := int16(int32Val)
+				reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(&v))
+			}
+		case "*int32":
+			if int32Val, ok := bsonValue.Int32OK(); ok {
+				v := int32Val
+				reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(&v))
+			}
+		case "*int64":
+			if int64Val, ok := bsonValue.Int64OK(); ok {
+				v := int64Val
+				reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(&v))
+			}
+		case "*uint":
+			if int64Val, ok := bsonValue.Int64OK(); ok && int64Val >= 0 {
+				v := uint(int64Val)
+				reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(&v))
+			}
+		case "*uint8":
+			if int32Val, ok := bsonValue.Int32OK(); ok && int32Val >= 0 {
+				v := uint8(int32Val)
+				reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(&v))
+			}
+		case "*uint16":
+			if int32Val, ok := bsonValue.Int32OK(); ok && int32Val >= 0 {
+				v := uint16(int32Val)
+				reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(&v))
+			}
+		case "*uint32":
+			if int64Val, ok := bsonValue.Int64OK(); ok && int64Val >= 0 {
+				v := uint32(int64Val)
+				reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(&v))
+			}
+		case "*uint64":
+			if int64Val, ok := bsonValue.Int64OK(); ok && int64Val >= 0 {
+				v := uint64(int64Val)
+				reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(&v))
+			}
+		case "*bool":
+			if boolVal, ok := bsonValue.BooleanOK(); ok {
+				v := boolVal
+				reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(&v))
+			}
+		case "*float32":
+			if floatVal, ok := bsonValue.DoubleOK(); ok {
+				v := float32(floatVal)
+				reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(&v))
+			}
+		case "*float64":
+			if floatVal, ok := bsonValue.DoubleOK(); ok {
+				v := floatVal
+				reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(&v))
+			}
+		case "*string":
+			if str, ok := bsonValue.StringValueOK(); ok {
+				v := str
+				reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(&v))
+			}
+		case "*primitive.ObjectID":
+			if oid, ok := bsonValue.ObjectIDOK(); ok {
+				v := oid
+				reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(&v))
 			}
 		}
 	case reflect.Slice:
@@ -265,6 +390,187 @@ func setMongoValue(obj interface{}, elem *FieldElem, bsonValue bson.RawValue) er
 			}); err == nil {
 				// For ObjectID arrays, we need to use reflection as it's a complex type
 				reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(values))
+			}
+		case "[]uint8":
+			// []uint8 can be stored as Binary or Array in MongoDB
+			if values, err := parseBsonArray(arr, func(v bson.RawValue) (uint8, error) {
+				if int32Val, ok := v.Int32OK(); ok && int32Val >= 0 && int32Val <= 255 {
+					return uint8(int32Val), nil
+				}
+				return 0, fmt.Errorf("not a valid uint8 value")
+			}); err == nil {
+				utils.SetUint8Arr(ptr, values)
+			}
+		case "[][]uint8":
+			// Array of byte arrays
+			if values, err := parseBsonArray(arr, func(v bson.RawValue) ([]uint8, error) {
+				if _, binary, ok := v.BinaryOK(); ok {
+					return binary, nil
+				} else if v.Type == bson.TypeArray {
+					subArr := v.Array()
+					if subValues, err := parseBsonArray(subArr, func(sv bson.RawValue) (uint8, error) {
+						if int32Val, ok := sv.Int32OK(); ok && int32Val >= 0 && int32Val <= 255 {
+							return uint8(int32Val), nil
+						}
+						return 0, fmt.Errorf("not a valid uint8 value in nested array")
+					}); err == nil {
+						return subValues, nil
+					}
+				}
+				return nil, fmt.Errorf("not a valid []uint8 value")
+			}); err == nil {
+				reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(values))
+			}
+		case "[]time.Time":
+			if values, err := parseBsonArray(arr, func(v bson.RawValue) (time.Time, error) {
+				if dateTime, ok := v.DateTimeOK(); ok {
+					return time.UnixMilli(int64(dateTime)), nil
+				}
+				return time.Time{}, fmt.Errorf("not a valid time.Time value")
+			}); err == nil {
+				reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(values))
+			}
+		case "[]interface{}":
+			if values, err := parseBsonArray(arr, func(v bson.RawValue) (interface{}, error) {
+				// Handle different BSON types for interface{}
+				switch v.Type {
+				case bson.TypeString:
+					if str, ok := v.StringValueOK(); ok {
+						return str, nil
+					}
+				case bson.TypeInt32:
+					if int32Val, ok := v.Int32OK(); ok {
+						return int32Val, nil
+					}
+				case bson.TypeInt64:
+					if int64Val, ok := v.Int64OK(); ok {
+						return int64Val, nil
+					}
+				case bson.TypeDouble:
+					if floatVal, ok := v.DoubleOK(); ok {
+						return floatVal, nil
+					}
+				case bson.TypeBoolean:
+					if boolVal, ok := v.BooleanOK(); ok {
+						return boolVal, nil
+					}
+				case bson.TypeObjectID:
+					if oid, ok := v.ObjectIDOK(); ok {
+						return oid, nil
+					}
+				case bson.TypeBinary:
+					if _, binary, ok := v.BinaryOK(); ok {
+						return binary, nil
+					}
+				}
+				return nil, fmt.Errorf("unsupported type in interface{} array")
+			}); err == nil {
+				reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(values))
+			}
+		}
+	case reflect.Map:
+		if bsonValue.Type == bson.TypeEmbeddedDocument {
+			doc := bsonValue.Document()
+			trimmedType := strings.TrimSpace(elem.FieldType)
+			// Check for both exact match and with trailing space
+			if trimmedType == "map[string]interface{}" || trimmedType == "map[string]interface {}" || strings.HasPrefix(trimmedType, "map[string]interface") {
+				m := make(map[string]interface{})
+				elements, err := doc.Elements()
+				if err == nil {
+					for _, element := range elements {
+						key := element.Key()
+						value := element.Value()
+						// Convert BSON value to interface{}
+						switch value.Type {
+						case bson.TypeString:
+							if str, ok := value.StringValueOK(); ok {
+								m[key] = str
+							}
+						case bson.TypeInt32:
+							if int32Val, ok := value.Int32OK(); ok {
+								m[key] = int32Val
+							}
+						case bson.TypeInt64:
+							if int64Val, ok := value.Int64OK(); ok {
+								m[key] = int64Val
+							}
+						case bson.TypeDouble:
+							if floatVal, ok := value.DoubleOK(); ok {
+								m[key] = floatVal
+							}
+						case bson.TypeBoolean:
+							if boolVal, ok := value.BooleanOK(); ok {
+								m[key] = boolVal
+							}
+						case bson.TypeObjectID:
+							if oid, ok := value.ObjectIDOK(); ok {
+								m[key] = oid
+							}
+						case bson.TypeBinary:
+							if _, binary, ok := value.BinaryOK(); ok {
+								m[key] = binary
+							}
+						case bson.TypeEmbeddedDocument:
+							// For nested documents, we could recursively process them
+							// For now, skip to avoid complexity
+							continue
+						case bson.TypeArray:
+							// For arrays in maps, skip for now
+							continue
+						default:
+							// For unsupported types, skip
+							continue
+						}
+					}
+					reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(m))
+				}
+			}
+		}
+	case reflect.Interface:
+		// Handle interface{} type - try to convert based on BSON type
+		switch bsonValue.Type {
+		case bson.TypeString:
+			if str, ok := bsonValue.StringValueOK(); ok {
+				reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(str))
+			}
+		case bson.TypeInt32:
+			if int32Val, ok := bsonValue.Int32OK(); ok {
+				reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(int32Val))
+			}
+		case bson.TypeInt64:
+			if int64Val, ok := bsonValue.Int64OK(); ok {
+				reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(int64Val))
+			}
+		case bson.TypeDouble:
+			if floatVal, ok := bsonValue.DoubleOK(); ok {
+				reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(floatVal))
+			}
+		case bson.TypeBoolean:
+			if boolVal, ok := bsonValue.BooleanOK(); ok {
+				reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(boolVal))
+			}
+		case bson.TypeObjectID:
+			if oid, ok := bsonValue.ObjectIDOK(); ok {
+				reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(oid))
+			}
+		case bson.TypeBinary:
+			if _, binary, ok := bsonValue.BinaryOK(); ok {
+				reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.ValueOf(binary))
+			}
+		case bson.TypeNull:
+			// For null values, set to nil
+			reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName).Set(reflect.Zero(reflect.TypeOf((*interface{})(nil)).Elem()))
+		}
+	default:
+		// For unsupported types, try string conversion as fallback
+		if str, ok := bsonValue.StringValueOK(); ok {
+			// This is a fallback for any unsupported types that might be stored as strings
+			switch elem.FieldKind {
+			case reflect.String:
+				utils.SetString(ptr, str)
+			default:
+				// For other types, we could potentially try parsing the string
+				// but for now, we'll skip to avoid complexity
 			}
 		}
 	}
