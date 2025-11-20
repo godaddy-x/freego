@@ -168,6 +168,8 @@ type IDBase interface {
 	BuildSortBy(cnd *sqlc.Cnd) string
 	// 构建分页条件
 	BuildPagination(cnd *sqlc.Cnd, sql string, values []interface{}) (string, error)
+	// 带上下文超时的构建分页条件
+	BuildPaginationWithContext(ctx context.Context, cnd *sqlc.Cnd, sqlBytes []byte, values []interface{}) ([]byte, error)
 	// 数据库操作缓存异常
 	Error(data ...interface{}) error
 	// 带上下文超时的保存数据
@@ -281,6 +283,10 @@ func (self *DBManager) BuildSortBy(cnd *sqlc.Cnd) string {
 
 func (self *DBManager) BuildPagination(cnd *sqlc.Cnd, sql string, values []interface{}) (string, error) {
 	return "", utils.Error("No implementation method [BuildPagination] was found")
+}
+
+func (self *DBManager) BuildPaginationWithContext(ctx context.Context, cnd *sqlc.Cnd, sqlBytes []byte, values []interface{}) ([]byte, error) {
+	return nil, utils.Error("No implementation method [BuildPaginationWithContext] was found")
 }
 
 func (self *DBManager) Error(data ...interface{}) error {
@@ -543,6 +549,10 @@ func init() {
 }
 
 func (self *RDBManager) Save(data ...sqlc.Object) error {
+	return self.SaveWithContext(nil, data...)
+}
+
+func (self *RDBManager) SaveWithContext(ctx context.Context, data ...sqlc.Object) error {
 	if len(data) == 0 {
 		return self.Error("[Mysql.Save] data is nil")
 	}
@@ -674,8 +684,11 @@ func (self *RDBManager) Save(data ...sqlc.Object) error {
 		zlog.Debug("[Mysql.Save] byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
 		defer zlog.Debug("[Mysql.Save] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
-	defer cancel()
+	if ctx == nil {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
+		defer cancel()
+	}
 	var err error
 	var stmt *sql.Stmt
 	if self.OpenTx {
@@ -733,6 +746,10 @@ func (self *RDBManager) Save(data ...sqlc.Object) error {
 }
 
 func (self *RDBManager) Update(data ...sqlc.Object) error {
+	return self.UpdateWithContext(nil, data...)
+}
+
+func (self *RDBManager) UpdateWithContext(ctx context.Context, data ...sqlc.Object) error {
 	if len(data) == 0 {
 		return self.Error("[Mysql.Update] data is nil")
 	}
@@ -822,8 +839,11 @@ func (self *RDBManager) Update(data ...sqlc.Object) error {
 		zlog.Debug("[Mysql.Update] byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
 		defer zlog.Debug("[Mysql.Update] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
-	defer cancel()
+	if ctx == nil {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
+		defer cancel()
+	}
 	var err error
 	var stmt *sql.Stmt
 	if self.OpenTx {
@@ -883,6 +903,10 @@ func (self *RDBManager) Update(data ...sqlc.Object) error {
 }
 
 func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) (int64, error) {
+	return self.UpdateByCndWithContext(nil, cnd)
+}
+
+func (self *RDBManager) UpdateByCndWithContext(ctx context.Context, cnd *sqlc.Cnd) (int64, error) {
 	if cnd.Model == nil {
 		return 0, self.Error("[Mysql.UpdateByCnd] data is nil")
 	}
@@ -953,8 +977,11 @@ func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) (int64, error) {
 		zlog.Debug("[Mysql.UpdateByCnd] byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
 		defer zlog.Debug("[Mysql.UpdateByCnd] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
-	defer cancel()
+	if ctx == nil {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
+		defer cancel()
+	}
 	var err error
 	var stmt *sql.Stmt
 	if self.OpenTx {
@@ -1014,6 +1041,10 @@ func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) (int64, error) {
 }
 
 func (self *RDBManager) Delete(data ...sqlc.Object) error {
+	return self.DeleteWithContext(nil, data...)
+}
+
+func (self *RDBManager) DeleteWithContext(ctx context.Context, data ...sqlc.Object) error {
 	if len(data) == 0 {
 		return self.Error("[Mysql.Delete] data is nil")
 	}
@@ -1072,8 +1103,11 @@ func (self *RDBManager) Delete(data ...sqlc.Object) error {
 		zlog.Debug("[Mysql.Delete] byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
 		defer zlog.Debug("[Mysql.Delete] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
-	defer cancel()
+	if ctx == nil {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
+		defer cancel()
+	}
 	var err error
 	var stmt *sql.Stmt
 	if self.OpenTx {
@@ -1129,6 +1163,10 @@ func (self *RDBManager) Delete(data ...sqlc.Object) error {
 }
 
 func (self *RDBManager) DeleteById(object sqlc.Object, data ...interface{}) (int64, error) {
+	return self.DeleteByIdWithContext(nil, object, data...)
+}
+
+func (self *RDBManager) DeleteByIdWithContext(ctx context.Context, object sqlc.Object, data ...interface{}) (int64, error) {
 	if len(data) == 0 {
 		return 0, self.Error("[Mysql.DeleteById] data is nil")
 	}
@@ -1175,8 +1213,11 @@ func (self *RDBManager) DeleteById(object sqlc.Object, data ...interface{}) (int
 		zlog.Debug("[Mysql.DeleteById] byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
 		defer zlog.Debug("[Mysql.DeleteById] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
-	defer cancel()
+	if ctx == nil {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
+		defer cancel()
+	}
 	var err error
 	var stmt *sql.Stmt
 	if self.OpenTx {
@@ -1230,6 +1271,10 @@ func (self *RDBManager) DeleteById(object sqlc.Object, data ...interface{}) (int
 }
 
 func (self *RDBManager) DeleteByCnd(cnd *sqlc.Cnd) (int64, error) {
+	return self.DeleteByCndWithContext(nil, cnd)
+}
+
+func (self *RDBManager) DeleteByCndWithContext(ctx context.Context, cnd *sqlc.Cnd) (int64, error) {
 	if cnd.Model == nil {
 		return 0, self.Error("[Mysql.DeleteByCnd] data is nil")
 	}
@@ -1259,8 +1304,11 @@ func (self *RDBManager) DeleteByCnd(cnd *sqlc.Cnd) (int64, error) {
 		zlog.Debug("[Mysql.DeleteByCnd] byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
 		defer zlog.Debug("[Mysql.DeleteByCnd] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
-	defer cancel()
+	if ctx == nil {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
+		defer cancel()
+	}
 	var err error
 	var stmt *sql.Stmt
 	if self.OpenTx {
@@ -1320,6 +1368,10 @@ func (self *RDBManager) DeleteByCnd(cnd *sqlc.Cnd) (int64, error) {
 }
 
 func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
+	return self.FindOneWithContext(nil, cnd, data)
+}
+
+func (self *RDBManager) FindOneWithContext(ctx context.Context, cnd *sqlc.Cnd, data sqlc.Object) error {
 	if data == nil {
 		return self.Error("[Mysql.FindOne] data is nil")
 	}
@@ -1366,8 +1418,11 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
 		zlog.Debug("[Mysql.FindOne] byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
 		defer zlog.Debug("[Mysql.FindOne] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
-	defer cancel()
+	if ctx == nil {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
+		defer cancel()
+	}
 	var err error
 	var stmt *sql.Stmt
 	var rows *sql.Rows
@@ -1447,6 +1502,10 @@ func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
 //   - 支持JOIN、GROUP BY、HAVING等复杂查询
 //   - 自动处理分页和排序逻辑
 func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
+	return self.FindListWithContext(nil, cnd, data)
+}
+
+func (self *RDBManager) FindListWithContext(ctx context.Context, cnd *sqlc.Cnd, data interface{}) error {
 	if data == nil {
 		return self.Error("[Mysql.FindList] data is nil")
 	}
@@ -1495,7 +1554,7 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 		sqlbuf.WriteString(sortby)
 	}
 	// 优化：直接传入字节数组，避免 Bytes2Str 转换
-	prepareBytes, err := self.BuildPagination(cnd, sqlbuf.Bytes(), parameter)
+	prepareBytes, err := self.BuildPaginationWithContext(ctx, cnd, sqlbuf.Bytes(), parameter)
 	if err != nil {
 		return self.Error(err)
 	}
@@ -1504,8 +1563,11 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 		zlog.Debug("[Mysql.FindList] byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
 		defer zlog.Debug("[Mysql.FindList] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
-	defer cancel()
+	if ctx == nil {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
+		defer cancel()
+	}
 	var stmt *sql.Stmt
 	var rows *sql.Rows
 
@@ -1587,6 +1649,10 @@ func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 }
 
 func (self *RDBManager) Count(cnd *sqlc.Cnd) (int64, error) {
+	return self.CountWithContext(nil, cnd)
+}
+
+func (self *RDBManager) CountWithContext(ctx context.Context, cnd *sqlc.Cnd) (int64, error) {
 	if cnd.Model == nil {
 		return 0, self.Error("[Mysql.Count] data is nil")
 	}
@@ -1620,8 +1686,11 @@ func (self *RDBManager) Count(cnd *sqlc.Cnd) (int64, error) {
 		zlog.Debug("[Mysql.Count] byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
 		defer zlog.Debug("[Mysql.Count] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
-	defer cancel()
+	if ctx == nil {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
+		defer cancel()
+	}
 	var err error
 	var rows *sql.Rows
 	var stmt *sql.Stmt
@@ -1682,6 +1751,10 @@ func (self *RDBManager) Count(cnd *sqlc.Cnd) (int64, error) {
 }
 
 func (self *RDBManager) Exists(cnd *sqlc.Cnd) (bool, error) {
+	return self.ExistsWithContext(nil, cnd)
+}
+
+func (self *RDBManager) ExistsWithContext(ctx context.Context, cnd *sqlc.Cnd) (bool, error) {
 	if cnd.Model == nil {
 		return false, self.Error("[Mysql.Exists] data is nil")
 	}
@@ -1714,8 +1787,11 @@ func (self *RDBManager) Exists(cnd *sqlc.Cnd) (bool, error) {
 		zlog.Debug("[Mysql.Exists] byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
 		defer zlog.Debug("[Mysql.Exists] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
-	defer cancel()
+	if ctx == nil {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
+		defer cancel()
+	}
 	var err error
 	var rows *sql.Rows
 	var stmt *sql.Stmt
@@ -1764,6 +1840,10 @@ func (self *RDBManager) Exists(cnd *sqlc.Cnd) (bool, error) {
 }
 
 func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data sqlc.Object) error {
+	return self.FindOneComplexWithContext(nil, cnd, data)
+}
+
+func (self *RDBManager) FindOneComplexWithContext(ctx context.Context, cnd *sqlc.Cnd, data sqlc.Object) error {
 	if data == nil {
 		return self.Error("[Mysql.FindOneComplex] data is nil")
 	}
@@ -1877,8 +1957,11 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data sqlc.Object) error {
 		zlog.Debug("[Mysql.FindOneComplex] byte size", 0, zlog.Int("estimatedSize", sqlBufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
 		defer zlog.Debug("[Mysql.FindOneComplex] sql log", utils.UnixMilli(), zlog.String("sql", prepare), zlog.Any("values", parameter))
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
-	defer cancel()
+	if ctx == nil {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
+		defer cancel()
+	}
 	var err error
 	var stmt *sql.Stmt
 	var rows *sql.Rows
@@ -1964,6 +2047,10 @@ func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data sqlc.Object) error {
 //   - 支持JOIN、GROUP BY、HAVING等复杂查询
 //   - 自动处理分页和排序逻辑
 func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
+	return self.FindListComplexWithContext(nil, cnd, data)
+}
+
+func (self *RDBManager) FindListComplexWithContext(ctx context.Context, cnd *sqlc.Cnd, data interface{}) error {
 	if data == nil {
 		return self.Error("[Mysql.FindListComplex] data is nil")
 	}
@@ -2075,7 +2162,7 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 		sqlbuf.WriteString(sortby)
 	}
 
-	prepareBytes, err := self.BuildPagination(cnd, sqlbuf.Bytes(), parameter)
+	prepareBytes, err := self.BuildPaginationWithContext(ctx, cnd, sqlbuf.Bytes(), parameter)
 	if err != nil {
 		return self.Error(err)
 	}
@@ -2083,8 +2170,11 @@ func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 		zlog.Debug("[Mysql.FindListComplex] byte size", 0, zlog.Int("estimatedSize", sqlbufSize), zlog.Int("sqlbufSize", len(sqlbuf.Bytes())))
 		defer zlog.Debug("[Mysql.FindListComplex] sql log", utils.UnixMilli(), zlog.String("sql", utils.Bytes2Str(prepareBytes)), zlog.Any("values", parameter))
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
-	defer cancel()
+	if ctx == nil {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
+		defer cancel()
+	}
 	var stmt *sql.Stmt
 	var rows *sql.Rows
 
@@ -2910,8 +3000,13 @@ func (self *RDBManager) BuildSortBy(cnd *sqlc.Cnd) string {
 	return ""
 }
 
-// BuildPagination 优化版本：直接接收和返回字节数组
-func (self *RDBManager) BuildPagination(cnd *sqlc.Cnd, sqlBytes []byte, values []interface{}) ([]byte, error) {
+func (self *RDBManager) BuildPagination(cnd *sqlc.Cnd, sql string, values []interface{}) (string, error) {
+	sqlBytes := []byte(sql)
+	result, err := self.BuildPaginationWithContext(nil, cnd, sqlBytes, values)
+	return string(result), err
+}
+
+func (self *RDBManager) BuildPaginationWithContext(ctx context.Context, cnd *sqlc.Cnd, sqlBytes []byte, values []interface{}) ([]byte, error) {
 	if cnd == nil {
 		return sqlBytes, nil
 	}
@@ -2936,8 +3031,6 @@ func (self *RDBManager) BuildPagination(cnd *sqlc.Cnd, sqlBytes []byte, values [
 			return nil, err
 		}
 		countSql := utils.Bytes2Str(countSqlBytes)
-		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(self.Timeout)*time.Millisecond)
-		defer cancel()
 		var rows *sql.Rows
 		if self.OpenTx {
 			rows, err = self.Tx.QueryContext(ctx, countSql, values...)

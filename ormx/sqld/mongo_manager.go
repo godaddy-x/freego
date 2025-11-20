@@ -543,7 +543,7 @@ func (self *MGOManager) FindById(data sqlc.Object) error {
 
 // FindOneComplex 按复杂条件查询单条数据
 func (self *MGOManager) FindOneComplex(cnd *sqlc.Cnd, data sqlc.Object) error {
-	return self.FindOne(cnd, data)
+	return self.FindOneComplexWithContext(nil, cnd, data)
 }
 
 func (self *MGOManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
@@ -552,7 +552,7 @@ func (self *MGOManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 }
 
 func (self *MGOManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
-	return self.FindList(cnd, data)
+	return self.FindListComplexWithContext(nil, cnd, data)
 }
 
 // BuildCondKey 构建数据表别名
@@ -1063,16 +1063,18 @@ func (self *MGOManager) ExistsWithContext(ctx context.Context, cnd *sqlc.Cnd) (b
 
 // FindOneComplexWithContext 带上下文超时的复杂条件查询单条数据方法
 func (self *MGOManager) FindOneComplexWithContext(ctx context.Context, cnd *sqlc.Cnd, data sqlc.Object) error {
-	// 解析正确的context用于数据库操作
-	ctx = self.resolveContext(ctx)
 	return self.FindOneWithContext(ctx, cnd, data)
 }
 
 // FindListComplexWithContext 带上下文超时的复杂条件查询数据列表方法
 func (self *MGOManager) FindListComplexWithContext(ctx context.Context, cnd *sqlc.Cnd, data interface{}) error {
-	// 解析正确的context用于数据库操作
-	ctx = self.resolveContext(ctx)
 	return self.FindListWithContext(ctx, cnd, data)
+}
+
+// BuildPaginationWithContext 带上下文超时的构建分页条件方法 (MongoDB不需要分页，直接返回原数据)
+func (self *MGOManager) BuildPaginationWithContext(ctx context.Context, cnd *sqlc.Cnd, sqlBytes []byte, values []interface{}) ([]byte, error) {
+	// MongoDB 不需要SQL风格的分页，直接返回原字节数组
+	return sqlBytes, nil
 }
 
 func (self *MGOManager) Close() error {
