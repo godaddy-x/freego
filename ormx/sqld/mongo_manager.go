@@ -520,22 +520,6 @@ func (self *MGOManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
 	return self.FindOneWithContext(nil, cnd, data)
 }
 
-// FindById 按ID查询单条数据
-func (self *MGOManager) FindById(data sqlc.Object) error {
-	if data == nil {
-		return self.Error("[Mongo.FindById] data is nil")
-	}
-
-	// 获取ID字段的值
-	idValue := reflect.ValueOf(data).Elem().FieldByName("Id")
-	if !idValue.IsValid() || idValue.IsZero() {
-		return self.Error("[Mongo.FindById] id field is not set or invalid")
-	}
-
-	condition := sqlc.M(data).Eq("_id", idValue.Interface())
-	return self.FindOne(condition, data)
-}
-
 // FindOneComplex 按复杂条件查询单条数据
 func (self *MGOManager) FindOneComplex(cnd *sqlc.Cnd, data sqlc.Object) error {
 	return self.FindOneComplexWithContext(nil, cnd, data)
@@ -882,12 +866,6 @@ func (self *MGOManager) FindOneWithContext(ctx context.Context, cnd *sqlc.Cnd, d
 		return self.Error("[Mongo.FindOne] data is nil")
 	}
 
-	// 使用setMongoValue进行不反射填充
-	obv, ok := modelDrivers[data.GetTable()]
-	if !ok {
-		return self.Error("[Mongo.FindOne] registration object type not found [", data.GetTable(), "]")
-	}
-
 	// 解析正确的context用于数据库操作
 	ctx = self.resolveContext(ctx)
 
@@ -907,18 +885,9 @@ func (self *MGOManager) FindOneWithContext(ctx context.Context, cnd *sqlc.Cnd, d
 		return self.Error(err)
 	}
 
-	for _, elem := range obv.FieldElem {
-		if elem.Ignore {
-			continue
-		}
-		// 使用FieldBsonName来查找BSON字段，如果为空则使用FieldJsonName
-		fieldName := elem.FieldBsonName
-		if fieldName == "" {
-			fieldName = elem.FieldJsonName
-		}
-		if bsonValue := raw.Lookup(fieldName); !bsonValue.IsZero() {
-			setMongoValue(data, elem, bsonValue)
-		}
+	// 使用公共方法解码BSON到对象
+	if err := decodeBsonToObject(data, raw); err != nil {
+		return self.Error(err)
 	}
 	return nil
 }
@@ -996,12 +965,26 @@ func (self *MGOManager) FindListWithContext(ctx context.Context, cnd *sqlc.Cnd, 
 	if err != nil {
 		return self.Error("[Mongo.FindList] query failed: ", err)
 	}
-	if err := cur.All(ctx, data); err != nil {
-		if err == mongo.ErrNoDocuments {
-			return nil
+	defer cur.Close(ctx)
+
+	// 循环处理每个文档（无反射解码）
+	for cur.Next(ctx) {
+		// 创建新对象实例
+		model := cnd.Model.NewObject()
+
+		// 使用无反射解码
+		if err := decodeBsonToObject(model, cur.Current); err != nil {
+			return self.Error("[Mongo.FindList] decode failed: ", err)
 		}
-		return self.Error(err)
+
+		// 添加到结果集
+		cnd.Model.AppendObject(data, model)
 	}
+
+	if err := cur.Err(); err != nil {
+		return self.Error("[Mongo.FindList] cursor error: ", err)
+	}
+
 	return nil
 }
 

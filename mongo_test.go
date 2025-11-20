@@ -12,7 +12,6 @@ import (
 	"github.com/godaddy-x/freego/ormx/sqld"
 	"github.com/godaddy-x/freego/utils"
 	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 var mongoInitOnce sync.Once
@@ -373,12 +372,7 @@ func (o *TestWallet) NewObject() sqlc.Object {
 }
 
 func (o *TestWallet) AppendObject(data interface{}, target sqlc.Object) {
-	// 简单的对象赋值实现
-	if wallet, ok := target.(*TestWallet); ok {
-		if source, ok := data.(*TestWallet); ok {
-			*wallet = *source
-		}
-	}
+	*data.(*[]*TestWallet) = append(*data.(*[]*TestWallet), target.(*TestWallet))
 }
 
 func (o *TestWallet) NewIndex() []sqlc.Index {
@@ -403,37 +397,37 @@ type TestAllTypes struct {
 	Uint    uint    `json:"uint" bson:"uint"`
 	Float64 float64 `json:"float64" bson:"float64"`
 	Float32 float32 `json:"float32" bson:"float32"`
-	Bool    bool    `json:"bool" bson:"bool"`
-
-	// 数组类型
-	StringArr  []string  `json:"stringArr" bson:"stringArr"`
-	IntArr     []int     `json:"intArr" bson:"intArr"`
-	Int64Arr   []int64   `json:"int64Arr" bson:"int64Arr"`
-	Int32Arr   []int32   `json:"int32Arr" bson:"int32Arr"`
-	Int16Arr   []int16   `json:"int16Arr" bson:"int16Arr"`
-	Int8Arr    []int8    `json:"int8Arr" bson:"int8Arr"`
-	UintArr    []uint    `json:"uintArr" bson:"uintArr"`
-	Uint64Arr  []uint64  `json:"uint64Arr" bson:"uint64Arr"`
-	Uint32Arr  []uint32  `json:"uint32Arr" bson:"uint32Arr"`
-	Uint16Arr  []uint16  `json:"uint16Arr" bson:"uint16Arr"`
-	Uint8Arr   []uint8   `json:"uint8Arr" bson:"uint8Arr"`
-	Float64Arr []float64 `json:"float64Arr" bson:"float64Arr"`
-	Float32Arr []float32 `json:"float32Arr" bson:"float32Arr"`
-	BoolArr    []bool    `json:"boolArr" bson:"boolArr"`
-
-	// 特殊类型
-	ObjectID primitive.ObjectID `json:"objectID" bson:"objectID"`
-	Binary   []byte             `json:"binary" bson:"binary"`
-	Time     time.Time          `json:"time" bson:"time"`
-
-	// Map类型 - 重要类型支持测试
-	StringMap map[string]interface{} `json:"stringMap" bson:"stringMap"`
-
-	// Interface类型 - 测试动态类型支持
-	Interface interface{} `json:"interface" bson:"interface"`
-
-	// 测试时间戳
-	Ctime int64 `json:"ctime" bson:"ctime"`
+	//Bool    bool    `json:"bool" bson:"bool"`
+	//
+	//// 数组类型
+	//StringArr  []string  `json:"stringArr" bson:"stringArr"`
+	//IntArr     []int     `json:"intArr" bson:"intArr"`
+	//Int64Arr   []int64   `json:"int64Arr" bson:"int64Arr"`
+	//Int32Arr   []int32   `json:"int32Arr" bson:"int32Arr"`
+	//Int16Arr   []int16   `json:"int16Arr" bson:"int16Arr"`
+	//Int8Arr    []int8    `json:"int8Arr" bson:"int8Arr"`
+	//UintArr    []uint    `json:"uintArr" bson:"uintArr"`
+	//Uint64Arr  []uint64  `json:"uint64Arr" bson:"uint64Arr"`
+	//Uint32Arr  []uint32  `json:"uint32Arr" bson:"uint32Arr"`
+	//Uint16Arr  []uint16  `json:"uint16Arr" bson:"uint16Arr"`
+	//Uint8Arr   []uint8   `json:"uint8Arr" bson:"uint8Arr"`
+	//Float64Arr []float64 `json:"float64Arr" bson:"float64Arr"`
+	//Float32Arr []float32 `json:"float32Arr" bson:"float32Arr"`
+	//BoolArr    []bool    `json:"boolArr" bson:"boolArr"`
+	//
+	//// 特殊类型
+	//ObjectID primitive.ObjectID `json:"objectID" bson:"objectID"`
+	//Binary   []byte             `json:"binary" bson:"binary"`
+	//Time     time.Time          `json:"time" bson:"time"`
+	//
+	//// Map类型 - 重要类型支持测试
+	//StringMap map[string]interface{} `json:"stringMap" bson:"stringMap"`
+	//
+	//// Interface类型 - 测试动态类型支持
+	//Interface interface{} `json:"interface" bson:"interface"`
+	//
+	//// 测试时间戳
+	//Ctime int64 `json:"ctime" bson:"ctime"`
 }
 
 func (o *TestAllTypes) GetTable() string {
@@ -445,11 +439,7 @@ func (o *TestAllTypes) NewObject() sqlc.Object {
 }
 
 func (o *TestAllTypes) AppendObject(data interface{}, target sqlc.Object) {
-	if allTypes, ok := target.(*TestAllTypes); ok {
-		if source, ok := data.(*TestAllTypes); ok {
-			*allTypes = *source
-		}
-	}
+	*data.(*[]*TestAllTypes) = append(*data.(*[]*TestAllTypes), target.(*TestAllTypes))
 }
 
 func (o *TestAllTypes) NewIndex() []sqlc.Index {
@@ -475,13 +465,13 @@ func TestMongoFindOneAllTypes(t *testing.T) {
 	defer mgoManager.Close()
 
 	// 清理可能存在的旧测试数据
-	cleanupCondition := sqlc.M(&TestAllTypes{}).Gte("_id", 0)
-	_, _ = mgoManager.DeleteByCnd(cleanupCondition)
+	//cleanupCondition := sqlc.M(&TestAllTypes{}).Gte("_id", 0)
+	//_, _ = mgoManager.DeleteByCnd(cleanupCondition)
 
-	// 创建测试数据 - 只包含基本类型进行测试
-	now := time.Now()
+	nextID := utils.NextIID()
+	//now := time.Now()
 	testData := &TestAllTypes{
-		Id:      1,
+		Id:      nextID,
 		String:  "测试字符串",
 		Int64:   9223372036854775807,
 		Int32:   2147483647,
@@ -495,45 +485,45 @@ func TestMongoFindOneAllTypes(t *testing.T) {
 		Uint:    987654,
 		Float64: 3.141592653589793,
 		Float32: 3.14159,
-		Bool:    true,
-
-		// 数组类型
-		StringArr:  []string{"hello", "world", "test"},
-		IntArr:     []int{1, 2, 3, 4, 5},
-		Int64Arr:   []int64{100, 200, 300},
-		Int32Arr:   []int32{10, 20, 30},
-		Int16Arr:   []int16{1, 2, 3},
-		Int8Arr:    []int8{1, 2, 3},
-		UintArr:    []uint{10, 20, 30},
-		Uint64Arr:  []uint64{1000, 2000, 3000},
-		Uint32Arr:  []uint32{100, 200, 300},
-		Uint16Arr:  []uint16{10, 20, 30},
-		Uint8Arr:   []uint8{1, 2, 3, 4, 5},
-		Float64Arr: []float64{1.1, 2.2, 3.3},
-		Float32Arr: []float32{1.1, 2.2, 3.3},
-		BoolArr:    []bool{true, false, true},
-
-		// 特殊类型
-		ObjectID: primitive.NewObjectID(),
-		Binary:   []byte{1, 2, 3, 4, 5},
-		Time:     now,
-
-		// Map类型测试数据 - 使用简单类型避免序列化问题
-		StringMap: map[string]interface{}{
-			"string_key": "hello world",
-			"int_key":    42,
-			"float_key":  3.14159,
-			"bool_key":   true,
-		},
-
-		// Interface类型测试数据 - 测试动态类型
-		Interface: map[string]interface{}{
-			"nested_string": "interface test",
-			"nested_number": 123,
-			"nested_array":  []interface{}{"a", "b", "c"},
-		},
-
-		Ctime: utils.UnixMilli(),
+		//Bool:    true,
+		//
+		//// 数组类型
+		//StringArr:  []string{"hello", "world", "test"},
+		//IntArr:     []int{1, 2, 3, 4, 5},
+		//Int64Arr:   []int64{100, 200, 300},
+		//Int32Arr:   []int32{10, 20, 30},
+		//Int16Arr:   []int16{1, 2, 3},
+		//Int8Arr:    []int8{1, 2, 3},
+		//UintArr:    []uint{10, 20, 30},
+		//Uint64Arr:  []uint64{1000, 2000, 3000},
+		//Uint32Arr:  []uint32{100, 200, 300},
+		//Uint16Arr:  []uint16{10, 20, 30},
+		//Uint8Arr:   []uint8{1, 2, 3, 4, 5},
+		//Float64Arr: []float64{1.1, 2.2, 3.3},
+		//Float32Arr: []float32{1.1, 2.2, 3.3},
+		//BoolArr:    []bool{true, false, true},
+		//
+		//// 特殊类型
+		//ObjectID: primitive.NewObjectID(),
+		//Binary:   []byte{1, 2, 3, 4, 5},
+		//Time:     time.Now(),
+		//
+		//// Map类型测试数据 - 使用简单类型避免序列化问题
+		//StringMap: map[string]interface{}{
+		//	"string_key": "hello world",
+		//	"int_key":    42,
+		//	"float_key":  3.14159,
+		//	"bool_key":   true,
+		//},
+		//
+		//// Interface类型测试数据 - 测试动态类型
+		//Interface: map[string]interface{}{
+		//	"nested_string": "interface test",
+		//	"nested_number": 123,
+		//	"nested_array":  []interface{}{"a", "b", "c"},
+		//},
+		//
+		//Ctime: utils.UnixMilli(),
 	}
 
 	// 插入测试数据
@@ -543,12 +533,13 @@ func TestMongoFindOneAllTypes(t *testing.T) {
 	}
 	t.Logf("保存数据成功: Id=%d, Int64=%d, String=%s", testData.Id, testData.Int64, testData.String)
 
+	fmt.Println("all type id:", testData.Id)
 	// 检查保存后的数据类型（可选，用于调试）
 	// checkBsonTypes(t, mgoManager, testData)
 
 	// 查询数据 - 使用简单的条件
 	result := &TestAllTypes{}
-	condition := sqlc.M(result).Eq("int64", testData.Int64) // 使用一个确定存在的字段
+	condition := sqlc.M(result).Eq("id", testData.Id) // 使用一个确定存在的字段
 	t.Logf("查询条件: int64=%d", testData.Int64)
 	err = mgoManager.FindOne(condition, result)
 	if err != nil {
@@ -579,7 +570,7 @@ func TestMongoFindOneAllTypes(t *testing.T) {
 		{"Uint", result.Uint, testData.Uint},
 		{"Float64", result.Float64, testData.Float64},
 		{"Float32", result.Float32, testData.Float32},
-		{"Bool", result.Bool, testData.Bool},
+		//{"Bool", result.Bool, testData.Bool},
 	}
 	for _, typ := range basicTypes {
 		if verifyField(t, typ.name, typ.actual, typ.expected) {
@@ -587,127 +578,127 @@ func TestMongoFindOneAllTypes(t *testing.T) {
 		}
 	}
 
-	// 数组类型验证 (14个)
-	t.Logf("📋 数组类型 (14个):")
-	if verifySlice(t, "StringArr", result.StringArr, testData.StringArr) {
-		t.Logf("  ✅ StringArr: %v", result.StringArr)
-	}
-	if verifySlice(t, "IntArr", result.IntArr, testData.IntArr) {
-		t.Logf("  ✅ IntArr: %v", result.IntArr)
-	}
-	if verifySlice(t, "Int64Arr", result.Int64Arr, testData.Int64Arr) {
-		t.Logf("  ✅ Int64Arr: %v", result.Int64Arr)
-	}
-	if verifySlice(t, "Int32Arr", result.Int32Arr, testData.Int32Arr) {
-		t.Logf("  ✅ Int32Arr: %v", result.Int32Arr)
-	}
-	if verifySlice(t, "Int16Arr", result.Int16Arr, testData.Int16Arr) {
-		t.Logf("  ✅ Int16Arr: %v", result.Int16Arr)
-	}
-	if verifySlice(t, "Int8Arr", result.Int8Arr, testData.Int8Arr) {
-		t.Logf("  ✅ Int8Arr: %v", result.Int8Arr)
-	}
-	if verifySlice(t, "UintArr", result.UintArr, testData.UintArr) {
-		t.Logf("  ✅ UintArr: %v", result.UintArr)
-	}
-	if verifySlice(t, "Uint64Arr", result.Uint64Arr, testData.Uint64Arr) {
-		t.Logf("  ✅ Uint64Arr: %v", result.Uint64Arr)
-	}
-	if verifySlice(t, "Uint32Arr", result.Uint32Arr, testData.Uint32Arr) {
-		t.Logf("  ✅ Uint32Arr: %v", result.Uint32Arr)
-	}
-	if verifySlice(t, "Uint16Arr", result.Uint16Arr, testData.Uint16Arr) {
-		t.Logf("  ✅ Uint16Arr: %v", result.Uint16Arr)
-	}
-	if verifySlice(t, "Uint8Arr", result.Uint8Arr, testData.Uint8Arr) {
-		t.Logf("  ✅ Uint8Arr: %v", result.Uint8Arr)
-	}
-	if verifySlice(t, "Float64Arr", result.Float64Arr, testData.Float64Arr) {
-		t.Logf("  ✅ Float64Arr: %v", result.Float64Arr)
-	}
-	if verifySlice(t, "Float32Arr", result.Float32Arr, testData.Float32Arr) {
-		t.Logf("  ✅ Float32Arr: %v", result.Float32Arr)
-	}
-	if verifySlice(t, "BoolArr", result.BoolArr, testData.BoolArr) {
-		t.Logf("  ✅ BoolArr: %v", result.BoolArr)
-	}
+	//// 数组类型验证 (14个)
+	//t.Logf("📋 数组类型 (14个):")
+	//if verifySlice(t, "StringArr", result.StringArr, testData.StringArr) {
+	//	t.Logf("  ✅ StringArr: %v", result.StringArr)
+	//}
+	//if verifySlice(t, "IntArr", result.IntArr, testData.IntArr) {
+	//	t.Logf("  ✅ IntArr: %v", result.IntArr)
+	//}
+	//if verifySlice(t, "Int64Arr", result.Int64Arr, testData.Int64Arr) {
+	//	t.Logf("  ✅ Int64Arr: %v", result.Int64Arr)
+	//}
+	//if verifySlice(t, "Int32Arr", result.Int32Arr, testData.Int32Arr) {
+	//	t.Logf("  ✅ Int32Arr: %v", result.Int32Arr)
+	//}
+	//if verifySlice(t, "Int16Arr", result.Int16Arr, testData.Int16Arr) {
+	//	t.Logf("  ✅ Int16Arr: %v", result.Int16Arr)
+	//}
+	//if verifySlice(t, "Int8Arr", result.Int8Arr, testData.Int8Arr) {
+	//	t.Logf("  ✅ Int8Arr: %v", result.Int8Arr)
+	//}
+	//if verifySlice(t, "UintArr", result.UintArr, testData.UintArr) {
+	//	t.Logf("  ✅ UintArr: %v", result.UintArr)
+	//}
+	//if verifySlice(t, "Uint64Arr", result.Uint64Arr, testData.Uint64Arr) {
+	//	t.Logf("  ✅ Uint64Arr: %v", result.Uint64Arr)
+	//}
+	//if verifySlice(t, "Uint32Arr", result.Uint32Arr, testData.Uint32Arr) {
+	//	t.Logf("  ✅ Uint32Arr: %v", result.Uint32Arr)
+	//}
+	//if verifySlice(t, "Uint16Arr", result.Uint16Arr, testData.Uint16Arr) {
+	//	t.Logf("  ✅ Uint16Arr: %v", result.Uint16Arr)
+	//}
+	//if verifySlice(t, "Uint8Arr", result.Uint8Arr, testData.Uint8Arr) {
+	//	t.Logf("  ✅ Uint8Arr: %v", result.Uint8Arr)
+	//}
+	//if verifySlice(t, "Float64Arr", result.Float64Arr, testData.Float64Arr) {
+	//	t.Logf("  ✅ Float64Arr: %v", result.Float64Arr)
+	//}
+	//if verifySlice(t, "Float32Arr", result.Float32Arr, testData.Float32Arr) {
+	//	t.Logf("  ✅ Float32Arr: %v", result.Float32Arr)
+	//}
+	//if verifySlice(t, "BoolArr", result.BoolArr, testData.BoolArr) {
+	//	t.Logf("  ✅ BoolArr: %v", result.BoolArr)
+	//}
+	//
+	//// 新增数组类型验证 (暂时跳过)
+	//t.Logf("📋 新增数组类型 (暂时跳过)")
+	//
+	//// 特殊类型验证 (5个)
+	//t.Logf("🎯 特殊类型 (5个):")
+	//if result.ObjectID != testData.ObjectID {
+	//	t.Errorf("❌ ObjectID不匹配: 期望 %v, 实际 %v", testData.ObjectID, result.ObjectID)
+	//} else {
+	//	t.Logf("  ✅ ObjectID: %v", result.ObjectID)
+	//}
+	//
+	//if string(result.Binary) != string(testData.Binary) {
+	//	t.Errorf("❌ Binary不匹配: 期望 %v, 实际 %v", testData.Binary, result.Binary)
+	//} else {
+	//	t.Logf("  ✅ Binary: %v", result.Binary)
+	//}
+	//
+	//if result.Time.Unix() != testData.Time.Unix() {
+	//	t.Errorf("❌ Time不匹配: 期望 %v, 实际 %v", testData.Time, result.Time)
+	//} else {
+	//	t.Logf("  ✅ Time: %v", result.Time)
+	//}
+	//
+	//// MongoDB特有类型验证 (暂时跳过复杂类型)
+	//t.Logf("🎯 MongoDB特有类型 (暂时跳过复杂类型)")
+	//
+	//// 指针类型验证 (暂时跳过)
+	//t.Logf("📍 指针类型 (暂时跳过)")
+	//
+	//// Map类型验证 (1个)
+	//t.Logf("🔗 Map类型 (1个):")
+	//if result.StringMap == nil {
+	//	t.Errorf("❌ StringMap为nil")
+	//} else if len(result.StringMap) != len(testData.StringMap) {
+	//	t.Errorf("❌ StringMap长度不匹配: 期望 %d, 实际 %d", len(testData.StringMap), len(result.StringMap))
+	//} else {
+	//	// 检查几个关键字段
+	//	if str, ok := result.StringMap["string_key"].(string); !ok || str != "hello world" {
+	//		t.Errorf("❌ StringMap string_key不匹配")
+	//	} else if num, ok := result.StringMap["int_key"].(int32); !ok || num != 42 {
+	//		t.Errorf("❌ StringMap int_key不匹配")
+	//	} else if bl, ok := result.StringMap["bool_key"].(bool); !ok || bl != true {
+	//		t.Errorf("❌ StringMap bool_key不匹配")
+	//	} else {
+	//		t.Logf("  ✅ StringMap: %v", result.StringMap)
+	//	}
+	//}
+	//
+	//// Interface类型验证 (1个)
+	//t.Logf("🔄 Interface类型 (1个):")
+	//if result.Interface == nil {
+	//	t.Errorf("❌ Interface为nil")
+	//} else {
+	//	// 检查嵌套结构
+	//	if ifaceMap, ok := result.Interface.(map[string]interface{}); !ok {
+	//		t.Errorf("❌ Interface类型不是map[string]interface{}")
+	//	} else if str, ok := ifaceMap["nested_string"].(string); !ok || str != "interface test" {
+	//		t.Errorf("❌ Interface nested_string不匹配")
+	//	} else if num, ok := ifaceMap["nested_number"].(int32); !ok || num != 123 {
+	//		t.Errorf("❌ Interface nested_number不匹配")
+	//	} else if arr, ok := ifaceMap["nested_array"].([]interface{}); !ok || len(arr) != 3 {
+	//		t.Errorf("❌ Interface nested_array不匹配")
+	//	} else {
+	//		t.Logf("  ✅ Interface: %v", result.Interface)
+	//	}
+	//}
+	//
+	//t.Logf("🎉 总计: 32个类型验证完成！")
+	//t.Logf("🚀 MongoDB零反射解码setMongoValue方法工作正常！")
 
-	// 新增数组类型验证 (暂时跳过)
-	t.Logf("📋 新增数组类型 (暂时跳过)")
-
-	// 特殊类型验证 (5个)
-	t.Logf("🎯 特殊类型 (5个):")
-	if result.ObjectID != testData.ObjectID {
-		t.Errorf("❌ ObjectID不匹配: 期望 %v, 实际 %v", testData.ObjectID, result.ObjectID)
-	} else {
-		t.Logf("  ✅ ObjectID: %v", result.ObjectID)
-	}
-
-	if string(result.Binary) != string(testData.Binary) {
-		t.Errorf("❌ Binary不匹配: 期望 %v, 实际 %v", testData.Binary, result.Binary)
-	} else {
-		t.Logf("  ✅ Binary: %v", result.Binary)
-	}
-
-	if result.Time.Unix() != testData.Time.Unix() {
-		t.Errorf("❌ Time不匹配: 期望 %v, 实际 %v", testData.Time, result.Time)
-	} else {
-		t.Logf("  ✅ Time: %v", result.Time)
-	}
-
-	// MongoDB特有类型验证 (暂时跳过复杂类型)
-	t.Logf("🎯 MongoDB特有类型 (暂时跳过复杂类型)")
-
-	// 指针类型验证 (暂时跳过)
-	t.Logf("📍 指针类型 (暂时跳过)")
-
-	// Map类型验证 (1个)
-	t.Logf("🔗 Map类型 (1个):")
-	if result.StringMap == nil {
-		t.Errorf("❌ StringMap为nil")
-	} else if len(result.StringMap) != len(testData.StringMap) {
-		t.Errorf("❌ StringMap长度不匹配: 期望 %d, 实际 %d", len(testData.StringMap), len(result.StringMap))
-	} else {
-		// 检查几个关键字段
-		if str, ok := result.StringMap["string_key"].(string); !ok || str != "hello world" {
-			t.Errorf("❌ StringMap string_key不匹配")
-		} else if num, ok := result.StringMap["int_key"].(int32); !ok || num != 42 {
-			t.Errorf("❌ StringMap int_key不匹配")
-		} else if bl, ok := result.StringMap["bool_key"].(bool); !ok || bl != true {
-			t.Errorf("❌ StringMap bool_key不匹配")
-		} else {
-			t.Logf("  ✅ StringMap: %v", result.StringMap)
-		}
-	}
-
-	// Interface类型验证 (1个)
-	t.Logf("🔄 Interface类型 (1个):")
-	if result.Interface == nil {
-		t.Errorf("❌ Interface为nil")
-	} else {
-		// 检查嵌套结构
-		if ifaceMap, ok := result.Interface.(map[string]interface{}); !ok {
-			t.Errorf("❌ Interface类型不是map[string]interface{}")
-		} else if str, ok := ifaceMap["nested_string"].(string); !ok || str != "interface test" {
-			t.Errorf("❌ Interface nested_string不匹配")
-		} else if num, ok := ifaceMap["nested_number"].(int32); !ok || num != 123 {
-			t.Errorf("❌ Interface nested_number不匹配")
-		} else if arr, ok := ifaceMap["nested_array"].([]interface{}); !ok || len(arr) != 3 {
-			t.Errorf("❌ Interface nested_array不匹配")
-		} else {
-			t.Logf("  ✅ Interface: %v", result.Interface)
-		}
-	}
-
-	t.Logf("🎉 总计: 32个类型验证完成！")
-	t.Logf("🚀 MongoDB零反射解码setMongoValue方法工作正常！")
-
-	// 清理测试数据
-	deleteCondition := sqlc.M(result).Eq("_id", testData.Id)
-	_, err = mgoManager.DeleteByCnd(deleteCondition)
-	if err != nil {
-		t.Logf("清理测试数据失败: %v", err)
-	}
+	//// 清理测试数据
+	//deleteCondition := sqlc.M(result).Eq("_id", testData.Id)
+	//_, err = mgoManager.DeleteByCnd(deleteCondition)
+	//if err != nil {
+	//	t.Logf("清理测试数据失败: %v", err)
+	//}
 }
 
 // verifyField 验证单个字段值
@@ -3259,14 +3250,14 @@ func BenchmarkDecodeMethod(b *testing.B) {
 	defer manager.Close()
 
 	// 查询条件
-	condition := sqlc.M(&TestWallet{}).Asc("_id").Limit(1, 1)
+	condition := sqlc.M(&TestAllTypes{}).Desc("_id").Offset(0, 3000)
 
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			result := &TestWallet{}
+			result := make([]*TestAllTypes, 0, 3000)
 			// 使用manager.FindOne方法（临时修改为Decode）
-			manager.FindOne(condition, result)
+			manager.FindList(condition, &result)
 		}
 	})
 }

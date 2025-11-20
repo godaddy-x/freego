@@ -9,12 +9,36 @@ import (
 	"strings"
 	"time"
 
+	"github.com/godaddy-x/freego/ormx/sqlc"
 	"github.com/godaddy-x/freego/utils/decimal"
 
 	"github.com/godaddy-x/freego/utils"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
+
+// decodeBsonToObject 将BSON文档解码填充到对象中（无反射模式）
+func decodeBsonToObject(data sqlc.Object, raw bson.Raw) error {
+	obv, ok := modelDrivers[data.GetTable()]
+	if !ok {
+		return fmt.Errorf("[Mongo.Decode] registration object type not found [%s]", data.GetTable())
+	}
+
+	for _, elem := range obv.FieldElem {
+		if elem.Ignore {
+			continue
+		}
+		// 使用FieldBsonName来查找BSON字段，如果为空则使用FieldJsonName
+		fieldName := elem.FieldBsonName
+		if fieldName == "" {
+			fieldName = elem.FieldJsonName
+		}
+		if bsonValue := raw.Lookup(fieldName); !bsonValue.IsZero() {
+			setMongoValue(data, elem, bsonValue)
+		}
+	}
+	return nil
+}
 
 // setMongoValue 将BSON值赋值给对象字段（完善错误处理与类型兼容）
 func setMongoValue(obj interface{}, elem *FieldElem, bsonValue bson.RawValue) error {
