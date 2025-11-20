@@ -224,11 +224,6 @@ func (self *MGOManager) resolveContext(userCtx context.Context) context.Context 
 	return self.PackContext.Context
 }
 
-// TestResolveContext 仅用于测试的公共方法，验证resolveContext的行为
-func (self *MGOManager) TestResolveContext(userCtx context.Context) context.Context {
-	return self.resolveContext(userCtx)
-}
-
 func (self *MGOManager) InitConfig(input ...MGOConfig) error {
 	return self.buildByConfig(nil, input...)
 }

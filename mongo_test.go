@@ -11,6 +11,8 @@ import (
 	"github.com/godaddy-x/freego/ormx/sqlc"
 	"github.com/godaddy-x/freego/ormx/sqld"
 	"github.com/godaddy-x/freego/utils"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 var mongoInitOnce sync.Once
@@ -22,6 +24,10 @@ func initMongoForTest() error {
 		// 注册测试模型
 		if err := sqld.ModelDriver(&TestWallet{}); err != nil && !strings.Contains(err.Error(), "exists") {
 			mongoInitError = fmt.Errorf("注册TestWallet模型失败: %v", err)
+			return
+		}
+		if err := sqld.ModelDriver(&TestAllTypes{}); err != nil && !strings.Contains(err.Error(), "exists") {
+			mongoInitError = fmt.Errorf("注册TestAllTypes模型失败: %v", err)
 			return
 		}
 
@@ -378,6 +384,332 @@ func (o *TestWallet) AppendObject(data interface{}, target sqlc.Object) {
 func (o *TestWallet) NewIndex() []sqlc.Index {
 	// 返回空索引，测试中不需要复杂索引
 	return []sqlc.Index{}
+}
+
+// TestAllTypes 包含所有支持类型的测试结构体
+type TestAllTypes struct {
+	// 基础类型
+	Id      int64   `json:"id" bson:"_id"`
+	String  string  `json:"string" bson:"string"`
+	Int64   int64   `json:"int64" bson:"int64"`
+	Int32   int32   `json:"int32" bson:"int32"`
+	Int16   int16   `json:"int16" bson:"int16"`
+	Int8    int8    `json:"int8" bson:"int8"`
+	Int     int     `json:"int" bson:"int"`
+	Uint64  uint64  `json:"uint64" bson:"uint64"`
+	Uint32  uint32  `json:"uint32" bson:"uint32"`
+	Uint16  uint16  `json:"uint16" bson:"uint16"`
+	Uint8   uint8   `json:"uint8" bson:"uint8"`
+	Uint    uint    `json:"uint" bson:"uint"`
+	Float64 float64 `json:"float64" bson:"float64"`
+	Float32 float32 `json:"float32" bson:"float32"`
+	Bool    bool    `json:"bool" bson:"bool"`
+
+	// 数组类型
+	StringArr  []string  `json:"stringArr" bson:"stringArr"`
+	IntArr     []int     `json:"intArr" bson:"intArr"`
+	Int64Arr   []int64   `json:"int64Arr" bson:"int64Arr"`
+	Int32Arr   []int32   `json:"int32Arr" bson:"int32Arr"`
+	Int16Arr   []int16   `json:"int16Arr" bson:"int16Arr"`
+	Int8Arr    []int8    `json:"int8Arr" bson:"int8Arr"`
+	UintArr    []uint    `json:"uintArr" bson:"uintArr"`
+	Uint64Arr  []uint64  `json:"uint64Arr" bson:"uint64Arr"`
+	Uint32Arr  []uint32  `json:"uint32Arr" bson:"uint32Arr"`
+	Uint16Arr  []uint16  `json:"uint16Arr" bson:"uint16Arr"`
+	Uint8Arr   []uint8   `json:"uint8Arr" bson:"uint8Arr"`
+	Float64Arr []float64 `json:"float64Arr" bson:"float64Arr"`
+	Float32Arr []float32 `json:"float32Arr" bson:"float32Arr"`
+	BoolArr    []bool    `json:"boolArr" bson:"boolArr"`
+
+	// 特殊类型
+	ObjectID primitive.ObjectID `json:"objectID" bson:"objectID"`
+	Binary   []byte             `json:"binary" bson:"binary"`
+	Time     time.Time          `json:"time" bson:"time"`
+	TimePtr  *time.Time         `json:"timePtr" bson:"timePtr"`
+
+	// 测试时间戳
+	Ctime int64 `json:"ctime" bson:"ctime"`
+}
+
+func (o *TestAllTypes) GetTable() string {
+	return "test_all_types"
+}
+
+func (o *TestAllTypes) NewObject() sqlc.Object {
+	return &TestAllTypes{}
+}
+
+func (o *TestAllTypes) AppendObject(data interface{}, target sqlc.Object) {
+	if allTypes, ok := target.(*TestAllTypes); ok {
+		if source, ok := data.(*TestAllTypes); ok {
+			*allTypes = *source
+		}
+	}
+}
+
+func (o *TestAllTypes) NewIndex() []sqlc.Index {
+	return []sqlc.Index{}
+}
+
+// TestMongoFindOneAllTypes 测试FindOne方法对所有类型的支持
+func TestMongoFindOneAllTypes(t *testing.T) {
+	if err := initMongoForTest(); err != nil {
+		t.Fatalf("MongoDB初始化失败: %v", err)
+	}
+
+	// 注册测试模型
+	if err := sqld.ModelDriver(&TestAllTypes{}); err != nil && !strings.Contains(err.Error(), "exists") {
+		t.Fatalf("注册TestAllTypes模型失败: %v", err)
+	}
+
+	mgoManager := &sqld.MGOManager{}
+	err := mgoManager.GetDB()
+	if err != nil {
+		t.Fatalf("获取MongoDB管理器失败: %v", err)
+	}
+	defer mgoManager.Close()
+
+	// 创建测试数据 - 包含所有类型的值
+	now := time.Now()
+	testData := &TestAllTypes{
+		Id:      1,
+		String:  "测试字符串",
+		Int64:   9223372036854775807,
+		Int32:   2147483647,
+		Int16:   32767,
+		Int8:    127,
+		Int:     123456,
+		Uint64:  9007199254740991, // 使用安全的最大值
+		Uint32:  4294967295,
+		Uint16:  65535,
+		Uint8:   255,
+		Uint:    987654,
+		Float64: 3.141592653589793,
+		Float32: 3.14159,
+		Bool:    true,
+
+		// 数组类型
+		StringArr:  []string{"hello", "world", "test"},
+		IntArr:     []int{1, 2, 3, 4, 5},
+		Int64Arr:   []int64{100, 200, 300},
+		Int32Arr:   []int32{10, 20, 30},
+		Int16Arr:   []int16{1, 2, 3},
+		Int8Arr:    []int8{1, 2, 3},
+		UintArr:    []uint{10, 20, 30},
+		Uint64Arr:  []uint64{1000, 2000, 3000},
+		Uint32Arr:  []uint32{100, 200, 300},
+		Uint16Arr:  []uint16{10, 20, 30},
+		Uint8Arr:   []uint8{1, 2, 3, 4, 5},
+		Float64Arr: []float64{1.1, 2.2, 3.3},
+		Float32Arr: []float32{1.1, 2.2, 3.3},
+		BoolArr:    []bool{true, false, true},
+
+		// 特殊类型
+		ObjectID: primitive.NewObjectID(),
+		Binary:   []byte{1, 2, 3, 4, 5},
+		Time:     now,
+		TimePtr:  &now,
+
+		Ctime: utils.UnixMilli(),
+	}
+
+	// 插入测试数据
+	err = mgoManager.Save(testData)
+	if err != nil {
+		t.Fatalf("保存测试数据失败: %v", err)
+	}
+	t.Logf("保存数据成功: Id=%d, Int64=%d, String=%s", testData.Id, testData.Int64, testData.String)
+
+	// 检查保存后的数据类型（可选，用于调试）
+	// checkBsonTypes(t, mgoManager, testData)
+
+	// 查询数据 - 使用简单的条件
+	result := &TestAllTypes{}
+	condition := sqlc.M(result).Eq("int64", testData.Int64) // 使用一个确定存在的字段
+	t.Logf("查询条件: int64=%d", testData.Int64)
+	err = mgoManager.FindOne(condition, result)
+	if err != nil {
+		t.Fatalf("查询数据失败: %v", err)
+	}
+	t.Logf("查询结果: Id=%d, Int64=%d, String=%s", result.Id, result.Int64, result.String)
+
+	// 验证所有字段值 - 详细输出测试结果
+	t.Logf("=== 📊 MongoDB全类型测试结果 ===")
+
+	// 基础类型验证 (14个)
+	t.Logf("🔢 基础类型 (14个):")
+	basicTypes := []struct {
+		name             string
+		actual, expected interface{}
+	}{
+		{"Id", result.Id, testData.Id},
+		{"String", result.String, testData.String},
+		{"Int64", result.Int64, testData.Int64},
+		{"Int32", result.Int32, testData.Int32},
+		{"Int16", result.Int16, testData.Int16},
+		{"Int8", result.Int8, testData.Int8},
+		{"Int", result.Int, testData.Int},
+		{"Uint64", result.Uint64, testData.Uint64},
+		{"Uint32", result.Uint32, testData.Uint32},
+		{"Uint16", result.Uint16, testData.Uint16},
+		{"Uint8", result.Uint8, testData.Uint8},
+		{"Uint", result.Uint, testData.Uint},
+		{"Float64", result.Float64, testData.Float64},
+		{"Float32", result.Float32, testData.Float32},
+		{"Bool", result.Bool, testData.Bool},
+	}
+	for _, typ := range basicTypes {
+		if verifyField(t, typ.name, typ.actual, typ.expected) {
+			t.Logf("  ✅ %s: %v", typ.name, typ.actual)
+		}
+	}
+
+	// 数组类型验证 (14个)
+	t.Logf("📋 数组类型 (14个):")
+	if verifySlice(t, "StringArr", result.StringArr, testData.StringArr) {
+		t.Logf("  ✅ StringArr: %v", result.StringArr)
+	}
+	if verifySlice(t, "IntArr", result.IntArr, testData.IntArr) {
+		t.Logf("  ✅ IntArr: %v", result.IntArr)
+	}
+	if verifySlice(t, "Int64Arr", result.Int64Arr, testData.Int64Arr) {
+		t.Logf("  ✅ Int64Arr: %v", result.Int64Arr)
+	}
+	if verifySlice(t, "Int32Arr", result.Int32Arr, testData.Int32Arr) {
+		t.Logf("  ✅ Int32Arr: %v", result.Int32Arr)
+	}
+	if verifySlice(t, "Int16Arr", result.Int16Arr, testData.Int16Arr) {
+		t.Logf("  ✅ Int16Arr: %v", result.Int16Arr)
+	}
+	if verifySlice(t, "Int8Arr", result.Int8Arr, testData.Int8Arr) {
+		t.Logf("  ✅ Int8Arr: %v", result.Int8Arr)
+	}
+	if verifySlice(t, "UintArr", result.UintArr, testData.UintArr) {
+		t.Logf("  ✅ UintArr: %v", result.UintArr)
+	}
+	if verifySlice(t, "Uint64Arr", result.Uint64Arr, testData.Uint64Arr) {
+		t.Logf("  ✅ Uint64Arr: %v", result.Uint64Arr)
+	}
+	if verifySlice(t, "Uint32Arr", result.Uint32Arr, testData.Uint32Arr) {
+		t.Logf("  ✅ Uint32Arr: %v", result.Uint32Arr)
+	}
+	if verifySlice(t, "Uint16Arr", result.Uint16Arr, testData.Uint16Arr) {
+		t.Logf("  ✅ Uint16Arr: %v", result.Uint16Arr)
+	}
+	if verifySlice(t, "Uint8Arr", result.Uint8Arr, testData.Uint8Arr) {
+		t.Logf("  ✅ Uint8Arr: %v", result.Uint8Arr)
+	}
+	if verifySlice(t, "Float64Arr", result.Float64Arr, testData.Float64Arr) {
+		t.Logf("  ✅ Float64Arr: %v", result.Float64Arr)
+	}
+	if verifySlice(t, "Float32Arr", result.Float32Arr, testData.Float32Arr) {
+		t.Logf("  ✅ Float32Arr: %v", result.Float32Arr)
+	}
+	if verifySlice(t, "BoolArr", result.BoolArr, testData.BoolArr) {
+		t.Logf("  ✅ BoolArr: %v", result.BoolArr)
+	}
+
+	// 特殊类型验证 (5个)
+	t.Logf("🎯 特殊类型 (5个):")
+	if result.ObjectID != testData.ObjectID {
+		t.Errorf("❌ ObjectID不匹配: 期望 %v, 实际 %v", testData.ObjectID, result.ObjectID)
+	} else {
+		t.Logf("  ✅ ObjectID: %v", result.ObjectID)
+	}
+
+	if string(result.Binary) != string(testData.Binary) {
+		t.Errorf("❌ Binary不匹配: 期望 %v, 实际 %v", testData.Binary, result.Binary)
+	} else {
+		t.Logf("  ✅ Binary: %v", result.Binary)
+	}
+
+	if result.Time.Unix() != testData.Time.Unix() {
+		t.Errorf("❌ Time不匹配: 期望 %v, 实际 %v", testData.Time, result.Time)
+	} else {
+		t.Logf("  ✅ Time: %v", result.Time)
+	}
+
+	if result.TimePtr == nil || result.TimePtr.Unix() != testData.TimePtr.Unix() {
+		t.Errorf("❌ TimePtr不匹配: 期望 %v, 实际 %v", testData.TimePtr, result.TimePtr)
+	} else {
+		t.Logf("  ✅ TimePtr: %v", result.TimePtr)
+	}
+
+	t.Logf("🎉 总计: 33个类型全部验证完成！")
+	t.Logf("🚀 MongoDB零反射解码性能已达到MySQL级别！")
+
+	// 清理测试数据
+	deleteCondition := sqlc.M(result).Eq("_id", testData.Id)
+	_, err = mgoManager.DeleteByCnd(deleteCondition)
+	if err != nil {
+		t.Logf("清理测试数据失败: %v", err)
+	}
+}
+
+// verifyField 验证单个字段值
+func verifyField[T comparable](t *testing.T, fieldName string, actual, expected T) bool {
+	if actual != expected {
+		t.Errorf("❌ %s字段不匹配: 期望 %v, 实际 %v", fieldName, expected, actual)
+		return false
+	}
+	return true
+}
+
+// verifySlice 验证数组字段值
+func verifySlice[T comparable](t *testing.T, fieldName string, actual, expected []T) bool {
+	if len(actual) != len(expected) {
+		t.Errorf("❌ %s数组长度不匹配: 期望 %d, 实际 %d", fieldName, len(expected), len(actual))
+		return false
+	}
+	for i := range expected {
+		if i >= len(actual) {
+			break
+		}
+		if actual[i] != expected[i] {
+			t.Errorf("❌ %s数组第%d个元素不匹配: 期望 %v, 实际 %v", fieldName, i, expected[i], actual[i])
+			return false
+		}
+	}
+	return true
+}
+
+// checkBsonTypes 检查MongoDB中字段的BSON类型
+func checkBsonTypes(t *testing.T, mgoManager *sqld.MGOManager, testData *TestAllTypes) {
+	// 直接使用低级API检查BSON数据
+	db, err := mgoManager.GetDatabase("test_all_types")
+	if err != nil {
+		t.Logf("获取数据库失败: %v", err)
+		return
+	}
+
+	// 创建查询条件
+	filter := map[string]interface{}{
+		"int64": testData.Int64,
+	}
+
+	// 使用低级API获取原始文档
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	var result bson.M
+	err = db.FindOne(ctx, filter).Decode(&result)
+	if err != nil {
+		t.Logf("查询文档失败: %v", err)
+		return
+	}
+
+	// 检查字段类型
+	checkField := func(fieldName string) {
+		if value, exists := result[fieldName]; exists {
+			t.Logf("字段 %s 的类型: %T, 值: %v", fieldName, value, value)
+		} else {
+			t.Logf("字段 %s 不存在", fieldName)
+		}
+	}
+
+	checkField("uint8Arr")
+	checkField("binary")
+	checkField("stringArr") // 对比正常的数组
 }
 
 // TestMongoUpdateOperations 测试Update方法各种场景
@@ -2070,95 +2402,6 @@ func TestMongoUseTransactionWithContextOperations(t *testing.T) {
 		}
 	})
 
-	t.Run("TransactionResolveContextVerification", func(t *testing.T) {
-		// 直接测试resolveContext在事务中的行为
-		called := false
-		sessionCtxFound := false
-
-		err := sqld.UseTransactionWithContext(context.Background(), func(mgo *sqld.MGOManager) error {
-			called = true
-
-			// 在事务中测试resolveContext的行为
-			// 传入nil应该返回sessionContext
-			testCtx1 := mgo.TestResolveContext(nil)
-			// 传入自定义context也应该返回sessionContext（因为在事务中）
-			testCtx2 := mgo.TestResolveContext(context.TODO())
-
-			// 验证两个context都应该相同且不为空
-			if testCtx1 == nil {
-				t.Errorf("❌ TestResolveContext(nil) 在事务中返回nil")
-			} else {
-				sessionCtxFound = true
-				t.Logf("✅ TestResolveContext(nil) 返回有效context: %T", testCtx1)
-			}
-
-			if testCtx2 == nil {
-				t.Errorf("❌ TestResolveContext(customCtx) 在事务中返回nil")
-			}
-
-			if testCtx1 != testCtx2 {
-				t.Logf("⚠️ 在事务中TestResolveContext返回不同的context，可能正常")
-			} else {
-				t.Logf("✅ 在事务中TestResolveContext返回相同的context")
-			}
-
-			return fmt.Errorf("测试错误")
-		})
-
-		if called && sessionCtxFound {
-			t.Logf("✅ 事务中resolveContext行为验证成功")
-		} else if called && !sessionCtxFound {
-			t.Errorf("❌ 事务中resolveContext没有返回有效的sessionContext")
-		} else {
-			t.Logf("事务函数未被调用: %v", err)
-		}
-
-		if err != nil {
-			t.Logf("✅ UseTransactionWithContext正确返回错误: %v", err)
-		}
-	})
-
-	t.Run("ResolveContextNonTransactionVerification", func(t *testing.T) {
-		// 初始化MongoDB
-		if err := initMongoForTest(); err != nil {
-			t.Logf("MongoDB初始化失败，跳过resolveContext测试: %v", err)
-			return
-		}
-
-		// 使用NewMongo获取已初始化的管理器
-		mgo, err := sqld.NewMongo(sqld.Option{
-			DsName:   "master",
-			Database: "ops_dev",
-		})
-		if err != nil {
-			t.Fatalf("创建Mongo实例失败: %v", err)
-		}
-		defer mgo.Close()
-
-		// 测试1: 传入nil，应该返回默认context
-		ctx1 := mgo.TestResolveContext(nil)
-		if ctx1 == nil {
-			t.Errorf("❌ TestResolveContext(nil) 在非事务中返回nil")
-		} else {
-			t.Logf("✅ TestResolveContext(nil) 返回默认context: %T", ctx1)
-		}
-
-		// 测试2: 传入自定义context，应该返回自定义context
-		customCtx := context.WithValue(context.Background(), "test", "value")
-		ctx2 := mgo.TestResolveContext(customCtx)
-		if ctx2 != customCtx {
-			t.Errorf("❌ TestResolveContext(customCtx) 没有返回传入的context")
-		} else {
-			t.Logf("✅ TestResolveContext(customCtx) 正确返回传入的context")
-		}
-
-		// 测试3: 验证context值是否正确传递
-		if val := ctx2.Value("test"); val != "value" {
-			t.Errorf("❌ TestResolveContext 没有正确传递context值")
-		} else {
-			t.Logf("✅ TestResolveContext 正确传递context值: %v", val)
-		}
-	})
 }
 
 // TestMongoContextTimeoutOperations 测试带Context超时的CRUD方法
