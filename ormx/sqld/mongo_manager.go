@@ -499,9 +499,7 @@ func (self *MGOManager) UpdateByCnd(cnd *sqlc.Cnd) (int64, error) {
 		return 0, self.Error("pipe upset is nil")
 	}
 
-	if zlog.IsDebug() {
-		defer self.writeLog("[Mongo.UpdateByCnd]", utils.UnixMilli(), map[string]interface{}{"match": match, "upset": upset}, nil)
-	}
+	defer self.writeLog("[Mongo.UpdateByCnd]", utils.UnixMilli(), map[string]interface{}{"match": match, "upset": upset}, nil)
 
 	res, err := db.UpdateMany(self.GetSessionContext(), match, upset)
 	if err != nil {
@@ -655,12 +653,15 @@ func (self *MGOManager) Count(cnd *sqlc.Cnd) (int64, error) {
 		return 0, self.Error(err)
 	}
 	pipe := buildMongoMatch(cnd)
-	defer self.writeLog("[Mongo.Count]", utils.UnixMilli(), pipe, nil)
 	var pageTotal int64
 	if pipe == nil || len(pipe) == 0 {
 		pageTotal, err = db.EstimatedDocumentCount(self.GetSessionContext())
+		// 记录估算计数的日志（无查询条件）
+		defer self.writeLog("[Mongo.Count] EstimatedDocumentCount", utils.UnixMilli(), nil, nil)
 	} else {
 		pageTotal, err = db.CountDocuments(self.GetSessionContext(), pipe)
+		// 记录精确计数的日志（有查询条件）
+		defer self.writeLog("[Mongo.Count] CountDocuments", utils.UnixMilli(), pipe, nil)
 	}
 	if err != nil {
 		return 0, self.Error("[Mongo.Count] count failed: ", err)
@@ -682,11 +683,25 @@ func (self *MGOManager) Count(cnd *sqlc.Cnd) (int64, error) {
 }
 
 func (self *MGOManager) Exists(cnd *sqlc.Cnd) (bool, error) {
-	check, err := self.Count(cnd)
-	if err != nil {
-		return false, err
+	if cnd.Model == nil {
+		return false, self.Error("[Mongo.Exists] data model is nil")
 	}
-	return check > 0, nil
+	db, err := self.GetDatabase(cnd.Model.GetTable())
+	if err != nil {
+		return false, self.Error(err)
+	}
+
+	pipe := buildMongoMatch(cnd)
+	defer self.writeLog("[Mongo.Exists]", utils.UnixMilli(), pipe, nil)
+
+	// 使用CountDocuments并设置limit为1来提高效率
+	opts := options.Count().SetLimit(1)
+	count, err := db.CountDocuments(self.GetSessionContext(), pipe, opts)
+	if err != nil {
+		return false, self.Error("[Mongo.Exists] exists check failed: ", err)
+	}
+
+	return count > 0, nil
 }
 
 func (self *MGOManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
@@ -717,6 +732,9 @@ func (self *MGOManager) FindOneComplex(cnd *sqlc.Cnd, data sqlc.Object) error {
 func (self *MGOManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	if data == nil {
 		return self.Error("[Mongo.FindList] data is nil")
+	}
+	if cnd == nil {
+		return self.Error("[Mongo.FindList] condition is nil")
 	}
 	if cnd.Model == nil {
 		return self.Error("[Mongo.FindList] data model is nil")
@@ -819,25 +837,22 @@ func MongoClose() {
 	zlog.Info("mongodb service closing completed", 0)
 }
 
-func (self *MGOManager) GetCollectionObject(o sqlc.Object) (*mongo.Collection, error) {
-	if o == nil {
-		return nil, self.Error("[Mongo.GetDBObject] model is nil")
-	}
-	db, err := self.GetDatabase(o.GetTable())
-	if err != nil {
-		return nil, self.Error(err)
-	}
-	return db, nil
-}
-
 func buildQueryOneOptions(cnd *sqlc.Cnd) []*options.FindOneOptions {
+	if cnd == nil {
+		return nil
+	}
+
 	var optsArr []*options.FindOneOptions
+
+	// 处理字段投影
 	project := buildMongoProject(cnd)
 	if project != nil && len(project) > 0 {
 		projectOpts := &options.FindOneOptions{}
 		projectOpts.SetProjection(project)
 		optsArr = append(optsArr, projectOpts)
 	}
+
+	// 处理排序
 	sortBy := buildMongoSortBy(cnd)
 	if sortBy != nil && len(sortBy) > 0 {
 		d := bson.D{}
@@ -845,6 +860,8 @@ func buildQueryOneOptions(cnd *sqlc.Cnd) []*options.FindOneOptions {
 			d = append(d, bson.E{Key: v.Key, Value: v.Sort})
 		}
 		sortByOpts := &options.FindOneOptions{}
+
+		// 设置排序规则（collation）- 用于国际化排序
 		if cnd.CollationConfig != nil {
 			sortByOpts.SetCollation(&options.Collation{
 				Locale:          cnd.CollationConfig.Locale,
@@ -858,9 +875,11 @@ func buildQueryOneOptions(cnd *sqlc.Cnd) []*options.FindOneOptions {
 				Backwards:       cnd.CollationConfig.Backwards,
 			})
 		}
+
 		sortByOpts.SetSort(d)
 		optsArr = append(optsArr, sortByOpts)
 	}
+
 	return optsArr
 }
 
@@ -909,69 +928,9 @@ func buildQueryOptions(cnd *sqlc.Cnd) []*options.FindOptions {
 	return optsArr
 }
 
-// 获取最终pipe条件集合,包含$match $project $sort $skip $limit
-//func (self *MGOManager) buildPipeCondition(cnd *sqlc.Cnd, countBy bool) ([]interface{}, error) {
-//	match := buildMongoMatch(cnd)
-//	upset := buildMongoUpset(cnd)
-//	project := buildMongoProject(cnd)
-//	aggregate := buildMongoAggregate(cnd)
-//	sortBy := buildMongoSortBy(cnd)
-//	sample := buildMongoSample(cnd)
-//	pageInfo := buildMongoLimit(cnd)
-//	pipe := make([]interface{}, 0, 10)
-//	if match != nil && len(match) > 0 {
-//		pipe = append(pipe, map[string]interface{}{"$match": match})
-//	}
-//	if upset != nil && len(upset) > 0 {
-//		pipe = append(pipe, map[string]interface{}{"$set": upset})
-//	}
-//	if project != nil && len(project) > 0 {
-//		pipe = append(pipe, map[string]interface{}{"$project": project})
-//	}
-//	if aggregate != nil && len(aggregate) > 0 {
-//		for _, v := range aggregate {
-//			if len(v) == 0 {
-//				continue
-//			}
-//			pipe = append(pipe, v)
-//		}
-//	}
-//	if sample != nil {
-//		pipe = append(pipe, sample)
-//	}
-//	if !countBy && sortBy != nil && len(sortBy) > 0 {
-//		pipe = append(pipe, map[string]interface{}{"$sort": sortBy})
-//	}
-//	if !countBy && cnd.LimitSize > 0 {
-//		pipe = append(pipe, map[string]interface{}{"$limit": cnd.LimitSize})
-//	}
-//	if !countBy && pageInfo != nil && len(pageInfo) == 2 {
-//		pipe = append(pipe, map[string]interface{}{"$skip": pageInfo[0]})
-//		pipe = append(pipe, map[string]interface{}{"$limit": pageInfo[1]})
-//		if !cnd.CacheConfig.Open && !cnd.Pagination.IsOffset {
-//			pageTotal, err := self.Count(cnd)
-//			if err != nil {
-//				return nil, err
-//			}
-//			var pageCount int64
-//			if pageTotal%cnd.Pagination.PageSize == 0 {
-//				pageCount = pageTotal / cnd.Pagination.PageSize
-//			} else {
-//				pageCount = pageTotal/cnd.Pagination.PageSize + 1
-//			}
-//			cnd.Pagination.PageTotal = pageTotal
-//			cnd.Pagination.PageCount = pageCount
-//		}
-//	}
-//	if countBy {
-//		pipe = append(pipe, map[string]interface{}{"$count": COUNT_BY})
-//	}
-//	return pipe, nil
-//}
-
 // 构建mongo逻辑条件命令
 func buildMongoMatch(cnd *sqlc.Cnd) bson.M {
-	if len(cnd.Conditions) == 0 {
+	if cnd == nil || len(cnd.Conditions) == 0 {
 		return nil
 	}
 	query := bson.M{}
@@ -1068,6 +1027,92 @@ func buildMongoProject(cnd *sqlc.Cnd) bson.M {
 	return project
 }
 
+// 构建mongo字段更新命令
+func buildMongoUpset(cnd *sqlc.Cnd) bson.M {
+	if len(cnd.Upsets) == 0 {
+		return nil
+	}
+	upset := bson.M{}
+	for k, v := range cnd.Upsets {
+		if k == JID || k == BID {
+			continue
+		}
+		upset[k] = v
+	}
+	if len(upset) == 0 {
+		return nil
+	}
+	return bson.M{"$set": upset}
+}
+
+// 构建mongo排序命令
+func buildMongoSortBy(cnd *sqlc.Cnd) []SortBy {
+	var sortBys []SortBy
+	if cnd.Pagination.IsFastPage {
+		if cnd.Pagination.FastPageSortParam == sqlc.DESC_ {
+			sortBys = append(sortBys, SortBy{Key: getKey(cnd.Pagination.FastPageKey), Sort: -1})
+		} else {
+			sortBys = append(sortBys, SortBy{Key: getKey(cnd.Pagination.FastPageKey), Sort: 1})
+		}
+	}
+	for _, v := range cnd.Orderbys {
+		key := getKey(v.Key)
+		if key == getKey(cnd.Pagination.FastPageKey) {
+			continue
+		}
+		if v.Value == sqlc.DESC_ {
+			sortBys = append(sortBys, SortBy{Key: key, Sort: -1})
+		} else {
+			sortBys = append(sortBys, SortBy{Key: key, Sort: 1})
+		}
+	}
+	return sortBys
+}
+
+func getKey(key string) string {
+	if key == JID {
+		return BID
+	}
+	return key
+}
+
+// 构建mongo分页命令
+func buildMongoLimit(cnd *sqlc.Cnd) (int64, int64) {
+	if cnd.LimitSize > 0 { // 优先resultSize截取
+		return 0, cnd.LimitSize
+	}
+	pg := cnd.Pagination
+	if pg.PageNo == 0 && pg.PageSize == 0 {
+		return 0, 0
+	}
+	if pg.PageSize <= 0 {
+		pg.PageSize = 10
+	}
+	if pg.IsOffset {
+		return pg.PageNo, pg.PageSize
+	}
+	pageNo := pg.PageNo
+	pageSize := pg.PageSize
+	return (pageNo - 1) * pageSize, pageSize
+}
+
+func (self *MGOManager) writeLog(title string, start int64, pipe, opts interface{}) {
+	cost := utils.UnixMilli() - start
+	if self.SlowQuery > 0 && cost > self.SlowQuery {
+		l := self.getSlowLog()
+		if l != nil {
+			if opts == nil {
+				opts = &options.FindOptions{}
+			}
+			l.Warn(title, zlog.Int64("cost", cost), zlog.Any("pipe", pipe), zlog.Any("opts", opts))
+		}
+	}
+	if zlog.IsDebug() {
+		pipeStr, _ := utils.JsonMarshal(pipe)
+		defer zlog.Debug(title, start, zlog.String("pipe", utils.Bytes2Str(pipeStr)), zlog.Any("opts", opts))
+	}
+}
+
 func buildMongoAggregate(cnd *sqlc.Cnd) []map[string]interface{} {
 	if len(cnd.Groupbys) == 0 && len(cnd.Aggregates) == 0 {
 		return nil
@@ -1145,96 +1190,10 @@ func buildMongoAggregate(cnd *sqlc.Cnd) []map[string]interface{} {
 	return result
 }
 
-// 构建mongo字段更新命令
-func buildMongoUpset(cnd *sqlc.Cnd) bson.M {
-	if len(cnd.Upsets) == 0 {
-		return nil
-	}
-	upset := bson.M{}
-	for k, v := range cnd.Upsets {
-		if k == JID || k == BID {
-			continue
-		}
-		upset[k] = v
-	}
-	if len(upset) == 0 {
-		return nil
-	}
-	return bson.M{"$set": upset}
-}
-
-// 构建mongo排序命令
-func buildMongoSortBy(cnd *sqlc.Cnd) []SortBy {
-	var sortBys []SortBy
-	if cnd.Pagination.IsFastPage {
-		if cnd.Pagination.FastPageSortParam == sqlc.DESC_ {
-			sortBys = append(sortBys, SortBy{Key: getKey(cnd.Pagination.FastPageKey), Sort: -1})
-		} else {
-			sortBys = append(sortBys, SortBy{Key: getKey(cnd.Pagination.FastPageKey), Sort: 1})
-		}
-	}
-	for _, v := range cnd.Orderbys {
-		key := getKey(v.Key)
-		if key == getKey(cnd.Pagination.FastPageKey) {
-			continue
-		}
-		if v.Value == sqlc.DESC_ {
-			sortBys = append(sortBys, SortBy{Key: key, Sort: -1})
-		} else {
-			sortBys = append(sortBys, SortBy{Key: key, Sort: 1})
-		}
-	}
-	return sortBys
-}
-
-func getKey(key string) string {
-	if key == JID {
-		return BID
-	}
-	return key
-}
-
 // 构建mongo随机选取命令
 func buildMongoSample(cnd *sqlc.Cnd) bson.M {
 	if cnd.SampleSize == 0 {
 		return nil
 	}
 	return bson.M{"$sample": bson.M{"size": cnd.SampleSize}}
-}
-
-// 构建mongo分页命令
-func buildMongoLimit(cnd *sqlc.Cnd) (int64, int64) {
-	if cnd.LimitSize > 0 { // 优先resultSize截取
-		return 0, cnd.LimitSize
-	}
-	pg := cnd.Pagination
-	if pg.PageNo == 0 && pg.PageSize == 0 {
-		return 0, 0
-	}
-	if pg.PageSize <= 0 {
-		pg.PageSize = 10
-	}
-	if pg.IsOffset {
-		return pg.PageNo, pg.PageSize
-	}
-	pageNo := pg.PageNo
-	pageSize := pg.PageSize
-	return (pageNo - 1) * pageSize, pageSize
-}
-
-func (self *MGOManager) writeLog(title string, start int64, pipe, opts interface{}) {
-	cost := utils.UnixMilli() - start
-	if self.SlowQuery > 0 && cost > self.SlowQuery {
-		l := self.getSlowLog()
-		if l != nil {
-			if opts == nil {
-				opts = &options.FindOptions{}
-			}
-			l.Warn(title, zlog.Int64("cost", cost), zlog.Any("pipe", pipe), zlog.Any("opts", opts))
-		}
-	}
-	if zlog.IsDebug() {
-		pipeStr, _ := utils.JsonMarshal(pipe)
-		defer zlog.Debug(title, start, zlog.String("pipe", utils.Bytes2Str(pipeStr)), zlog.Any("opts", opts))
-	}
 }

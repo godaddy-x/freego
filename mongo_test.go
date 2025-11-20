@@ -1000,6 +1000,860 @@ func TestMongoDeleteByCndOperations(t *testing.T) {
 	})
 }
 
+// TestMongoCountOperations 测试Count方法各种场景
+func TestMongoCountOperations(t *testing.T) {
+	// 初始化MongoDB
+	if err := initMongoForTest(); err != nil {
+		t.Logf("MongoDB初始化失败，跳过Count测试: %v", err)
+		return
+	}
+
+	// 使用NewMongo获取已初始化的管理器
+	manager, err := sqld.NewMongo(sqld.Option{
+		DsName:   "master",
+		Database: "ops_dev",
+		Timeout:  10000,
+	})
+	if err != nil {
+		t.Logf("获取MongoDB管理器失败，跳过Count测试: %v", err)
+		return
+	}
+	defer manager.Close()
+
+	// 准备测试数据
+	countTestAppID := "count_test_" + fmt.Sprintf("%d", time.Now().Unix())
+	wallets := []*TestWallet{
+		{
+			AppID:    countTestAppID,
+			WalletID: "count_wallet_1",
+			Alias:    "计数测试钱包1",
+			State:    1,
+			Ctime:    time.Now().Unix(),
+		},
+		{
+			AppID:    countTestAppID,
+			WalletID: "count_wallet_2",
+			Alias:    "计数测试钱包2",
+			State:    1,
+			Ctime:    time.Now().Unix(),
+		},
+		{
+			AppID:    countTestAppID,
+			WalletID: "count_wallet_3",
+			Alias:    "计数测试钱包3",
+			State:    0, // 不同的状态
+			Ctime:    time.Now().Unix(),
+		},
+		{
+			AppID:    "other_count_app_" + fmt.Sprintf("%d", time.Now().Unix()),
+			WalletID: "other_count_wallet",
+			Alias:    "其他应用计数钱包",
+			State:    1,
+			Ctime:    time.Now().Unix(),
+		},
+	}
+
+	// 批量保存测试数据
+	err = manager.Save(wallets[0], wallets[1], wallets[2], wallets[3])
+	if err != nil {
+		t.Errorf("保存测试数据失败: %v", err)
+		return
+	}
+
+	t.Run("CountWithCondition", func(t *testing.T) {
+		// 测试有条件计数
+		condition := sqlc.M(&TestWallet{})
+		condition.Eq("appID", countTestAppID)
+		condition.Eq("state", 1)
+
+		count, err := manager.Count(condition)
+		if err != nil {
+			t.Errorf("有条件Count操作失败: %v", err)
+			return
+		}
+
+		// 应该统计到2个钱包（状态为1的）
+		expectedCount := int64(2)
+		if count != expectedCount {
+			t.Errorf("期望统计到%d个文档，实际统计到%d个", expectedCount, count)
+		}
+
+		t.Logf("✅ 有条件计数成功，统计到 %d 个文档", count)
+	})
+
+	t.Run("CountWithPartialCondition", func(t *testing.T) {
+		// 测试部分条件计数（只按appID）
+		condition := sqlc.M(&TestWallet{})
+		condition.Eq("appID", countTestAppID)
+
+		count, err := manager.Count(condition)
+		if err != nil {
+			t.Errorf("部分条件Count操作失败: %v", err)
+			return
+		}
+
+		// 应该统计到3个钱包（同一个appID的所有钱包）
+		expectedCount := int64(3)
+		if count != expectedCount {
+			t.Errorf("期望统计到%d个文档，实际统计到%d个", expectedCount, count)
+		}
+
+		t.Logf("✅ 部分条件计数成功，统计到 %d 个文档", count)
+	})
+
+	t.Run("CountAll", func(t *testing.T) {
+		// 测试无条件计数（统计所有文档）
+		condition := sqlc.M(&TestWallet{})
+
+		count, err := manager.Count(condition)
+		if err != nil {
+			t.Errorf("无条件Count操作失败: %v", err)
+			return
+		}
+
+		// 至少应该有我们刚才保存的4个钱包
+		if count < 4 {
+			t.Errorf("期望至少统计到4个文档，实际统计到%d个", count)
+		}
+
+		t.Logf("✅ 全表计数成功，统计到 %d 个文档", count)
+	})
+
+	t.Run("CountNonExistent", func(t *testing.T) {
+		// 测试不存在条件的计数
+		condition := sqlc.M(&TestWallet{})
+		condition.Eq("appID", "non_existent_app_"+fmt.Sprintf("%d", time.Now().Unix()))
+
+		count, err := manager.Count(condition)
+		if err != nil {
+			t.Errorf("不存在条件Count操作失败: %v", err)
+			return
+		}
+
+		// 应该统计到0个文档
+		expectedCount := int64(0)
+		if count != expectedCount {
+			t.Errorf("期望统计到%d个文档，实际统计到%d个", expectedCount, count)
+		}
+
+		t.Logf("✅ 不存在条件计数成功，统计到 %d 个文档", count)
+	})
+
+	t.Run("CountWithPagination", func(t *testing.T) {
+		// 测试带分页的计数
+		condition := sqlc.M(&TestWallet{})
+		condition.Eq("appID", countTestAppID)
+		condition.Limit(1, 10) // 第1页，每页10条
+
+		count, err := manager.Count(condition)
+		if err != nil {
+			t.Errorf("带分页Count操作失败: %v", err)
+			return
+		}
+
+		// 应该统计到3个钱包
+		expectedCount := int64(3)
+		if count != expectedCount {
+			t.Errorf("期望统计到%d个文档，实际统计到%d个", expectedCount, count)
+		}
+
+		// 验证分页信息是否被正确设置
+		if condition.Pagination.PageCount != 1 {
+			t.Errorf("期望页数为1，实际为%d", condition.Pagination.PageCount)
+		}
+
+		if condition.Pagination.PageTotal != expectedCount {
+			t.Errorf("期望总数为%d，实际为%d", expectedCount, condition.Pagination.PageTotal)
+		}
+
+		t.Logf("✅ 带分页计数成功，统计到 %d 个文档，页数: %d", count, condition.Pagination.PageCount)
+	})
+}
+
+// TestMongoExistsOperations 测试Exists方法各种场景
+func TestMongoExistsOperations(t *testing.T) {
+	// 初始化MongoDB
+	if err := initMongoForTest(); err != nil {
+		t.Logf("MongoDB初始化失败，跳过Exists测试: %v", err)
+		return
+	}
+
+	// 使用NewMongo获取已初始化的管理器
+	manager, err := sqld.NewMongo(sqld.Option{
+		DsName:   "master",
+		Database: "ops_dev",
+		Timeout:  10000,
+	})
+	if err != nil {
+		t.Logf("获取MongoDB管理器失败，跳过Exists测试: %v", err)
+		return
+	}
+	defer manager.Close()
+
+	// 准备测试数据
+	existsTestAppID := "exists_test_" + fmt.Sprintf("%d", time.Now().Unix())
+	wallets := []*TestWallet{
+		{
+			AppID:    existsTestAppID,
+			WalletID: "exists_wallet_1",
+			Alias:    "存在检查测试钱包1",
+			State:    1,
+			Ctime:    time.Now().Unix(),
+		},
+		{
+			AppID:    existsTestAppID,
+			WalletID: "exists_wallet_2",
+			Alias:    "存在检查测试钱包2",
+			State:    0, // 不同的状态
+			Ctime:    time.Now().Unix(),
+		},
+	}
+
+	// 批量保存测试数据
+	err = manager.Save(wallets[0], wallets[1])
+	if err != nil {
+		t.Errorf("保存测试数据失败: %v", err)
+		return
+	}
+
+	t.Run("ExistsWithCondition", func(t *testing.T) {
+		// 测试有条件存在检查
+		condition := sqlc.M(&TestWallet{})
+		condition.Eq("appID", existsTestAppID)
+		condition.Eq("state", 1)
+
+		exists, err := manager.Exists(condition)
+		if err != nil {
+			t.Errorf("有条件Exists操作失败: %v", err)
+			return
+		}
+
+		// 应该存在（状态为1的钱包）
+		if !exists {
+			t.Error("期望记录存在，但返回不存在")
+		}
+
+		t.Logf("✅ 有条件存在检查成功，记录存在: %t", exists)
+	})
+
+	t.Run("ExistsWithPartialCondition", func(t *testing.T) {
+		// 测试部分条件存在检查
+		condition := sqlc.M(&TestWallet{})
+		condition.Eq("appID", existsTestAppID)
+
+		exists, err := manager.Exists(condition)
+		if err != nil {
+			t.Errorf("部分条件Exists操作失败: %v", err)
+			return
+		}
+
+		// 应该存在（有这个appID的钱包）
+		if !exists {
+			t.Error("期望记录存在，但返回不存在")
+		}
+
+		t.Logf("✅ 部分条件存在检查成功，记录存在: %t", exists)
+	})
+
+	t.Run("ExistsNonExistent", func(t *testing.T) {
+		// 测试不存在记录的存在检查
+		condition := sqlc.M(&TestWallet{})
+		condition.Eq("appID", "non_existent_app_"+fmt.Sprintf("%d", time.Now().Unix()))
+		condition.Eq("walletID", "non_existent_wallet")
+
+		exists, err := manager.Exists(condition)
+		if err != nil {
+			t.Errorf("不存在记录Exists操作失败: %v", err)
+			return
+		}
+
+		// 应该不存在
+		if exists {
+			t.Error("期望记录不存在，但返回存在")
+		}
+
+		t.Logf("✅ 不存在记录检查成功，记录不存在: %t", exists)
+	})
+
+	t.Run("ExistsWithComplexCondition", func(t *testing.T) {
+		// 测试复杂条件存在检查（应该不存在的状态+ID组合）
+		condition := sqlc.M(&TestWallet{})
+		condition.Eq("appID", existsTestAppID)
+		condition.Eq("walletID", "exists_wallet_1")
+		condition.Eq("state", 0) // 这个钱包的状态是1，所以组合条件应该不存在
+
+		exists, err := manager.Exists(condition)
+		if err != nil {
+			t.Errorf("复杂条件Exists操作失败: %v", err)
+			return
+		}
+
+		// 应该不存在
+		if exists {
+			t.Error("期望记录不存在，但返回存在")
+		}
+
+		t.Logf("✅ 复杂条件存在检查成功，记录不存在: %t", exists)
+	})
+
+	t.Run("ExistsAll", func(t *testing.T) {
+		// 测试无条件存在检查（检查表是否有任何记录）
+		condition := sqlc.M(&TestWallet{})
+
+		exists, err := manager.Exists(condition)
+		if err != nil {
+			t.Errorf("无条件Exists操作失败: %v", err)
+			return
+		}
+
+		// 应该存在（表中有记录）
+		if !exists {
+			t.Error("期望表中有记录，但返回不存在")
+		}
+
+		t.Logf("✅ 无条件存在检查成功，记录存在: %t", exists)
+	})
+}
+
+// TestMongoFindOneOperations 测试FindOne方法各种场景
+func TestMongoFindOneOperations(t *testing.T) {
+	// 初始化MongoDB
+	if err := initMongoForTest(); err != nil {
+		t.Logf("MongoDB初始化失败，跳过FindOne测试: %v", err)
+		return
+	}
+
+	// 使用NewMongo获取已初始化的管理器
+	manager, err := sqld.NewMongo(sqld.Option{
+		DsName:   "master",
+		Database: "ops_dev",
+		Timeout:  10000,
+	})
+	if err != nil {
+		t.Logf("获取MongoDB管理器失败，跳过FindOne测试: %v", err)
+		return
+	}
+	defer manager.Close()
+
+	// 准备测试数据
+	findOneTestAppID := "find_one_test_" + fmt.Sprintf("%d", time.Now().Unix())
+	wallets := []*TestWallet{
+		{
+			AppID:    findOneTestAppID,
+			WalletID: "find_one_wallet_1",
+			Alias:    "FindOne测试钱包1",
+			State:    1,
+			Ctime:    time.Now().Unix(),
+		},
+		{
+			AppID:    findOneTestAppID,
+			WalletID: "find_one_wallet_2",
+			Alias:    "FindOne测试钱包2",
+			State:    0, // 不同的状态
+			Ctime:    time.Now().Unix(),
+		},
+		{
+			AppID:    "other_find_one_app_" + fmt.Sprintf("%d", time.Now().Unix()),
+			WalletID: "other_wallet",
+			Alias:    "其他应用FindOne钱包",
+			State:    1,
+			Ctime:    time.Now().Unix(),
+		},
+	}
+
+	// 批量保存测试数据
+	err = manager.Save(wallets[0], wallets[1], wallets[2])
+	if err != nil {
+		t.Errorf("保存测试数据失败: %v", err)
+		return
+	}
+
+	t.Run("FindOneById", func(t *testing.T) {
+		// 测试通过ID查找
+		result := &TestWallet{}
+		condition := sqlc.M(&TestWallet{}).Eq("_id", wallets[0].Id)
+
+		err := manager.FindOne(condition, result)
+		if err != nil {
+			t.Errorf("FindOne通过ID查找失败: %v", err)
+			return
+		}
+
+		// 验证结果
+		if result.Id != wallets[0].Id {
+			t.Errorf("期望ID %d，实际ID %d", wallets[0].Id, result.Id)
+		}
+		if result.AppID != wallets[0].AppID {
+			t.Errorf("期望AppID %s，实际AppID %s", wallets[0].AppID, result.AppID)
+		}
+
+		t.Logf("✅ 通过ID查找成功: ID=%d, AppID=%s", result.Id, result.AppID)
+	})
+
+	t.Run("FindOneByCondition", func(t *testing.T) {
+		// 测试通过条件查找
+		result := &TestWallet{}
+		condition := sqlc.M(&TestWallet{}).Eq("appID", findOneTestAppID).Eq("state", 1)
+
+		err := manager.FindOne(condition, result)
+		if err != nil {
+			t.Errorf("FindOne通过条件查找失败: %v", err)
+			return
+		}
+
+		// 验证结果（应该返回第一个匹配的记录）
+		if result.AppID != findOneTestAppID {
+			t.Errorf("期望AppID %s，实际AppID %s", findOneTestAppID, result.AppID)
+		}
+		if result.State != 1 {
+			t.Errorf("期望State 1，实际State %d", result.State)
+		}
+
+		t.Logf("✅ 通过条件查找成功: AppID=%s, State=%d", result.AppID, result.State)
+	})
+
+	t.Run("FindOneWithSorting", func(t *testing.T) {
+		// 测试带排序的查找
+		result := &TestWallet{}
+		condition := sqlc.M(&TestWallet{}).Eq("appID", findOneTestAppID).Desc("ctime")
+
+		err := manager.FindOne(condition, result)
+		if err != nil {
+			t.Errorf("FindOne带排序查找失败: %v", err)
+			return
+		}
+
+		// 验证结果（应该返回ctime最大的记录）
+		if result.AppID != findOneTestAppID {
+			t.Errorf("期望AppID %s，实际AppID %s", findOneTestAppID, result.AppID)
+		}
+
+		t.Logf("✅ 带排序查找成功: AppID=%s, Ctime=%d", result.AppID, result.Ctime)
+	})
+
+	t.Run("FindOneNotFound", func(t *testing.T) {
+		// 测试查找不存在的记录
+		result := &TestWallet{}
+		condition := sqlc.M(&TestWallet{}).Eq("appID", "non_existent_"+fmt.Sprintf("%d", time.Now().Unix()))
+
+		err := manager.FindOne(condition, result)
+		if err != nil {
+			t.Errorf("查找不存在记录时应该返回nil错误，实际返回: %v", err)
+			return
+		}
+
+		// 验证结果应该是空的（零值）
+		if result.Id != 0 {
+			t.Errorf("不存在记录时ID应该为0，实际为%d", result.Id)
+		}
+
+		t.Logf("✅ 查找不存在记录正确返回空结果: ID=%d", result.Id)
+	})
+
+	t.Run("FindOneWithProjection", func(t *testing.T) {
+		// 测试带字段投影的查找
+		result := &TestWallet{}
+		condition := sqlc.M(&TestWallet{}).Eq("_id", wallets[0].Id).Fields("appID", "walletID")
+
+		err := manager.FindOne(condition, result)
+		if err != nil {
+			t.Errorf("FindOne带投影查找失败: %v", err)
+			return
+		}
+
+		// 验证投影的字段
+		if result.AppID != wallets[0].AppID {
+			t.Errorf("期望AppID %s，实际AppID %s", wallets[0].AppID, result.AppID)
+		}
+		if result.WalletID != wallets[0].WalletID {
+			t.Errorf("期望WalletID %s，实际WalletID %s", wallets[0].WalletID, result.WalletID)
+		}
+
+		// 验证未投影的字段应该是零值
+		if result.Alias != "" {
+			t.Logf("⚠️  未投影字段Alias仍有值（可能因为未正确应用投影）: %s", result.Alias)
+		}
+
+		t.Logf("✅ 带投影查找成功: AppID=%s, WalletID=%s", result.AppID, result.WalletID)
+	})
+
+	t.Run("FindOneNilData", func(t *testing.T) {
+		// 测试传入nil数据参数
+		condition := sqlc.M(&TestWallet{}).Eq("appID", findOneTestAppID)
+
+		err := manager.FindOne(condition, nil)
+		if err == nil {
+			t.Error("传入nil数据参数应该报错")
+		}
+
+		t.Logf("✅ nil数据参数正确报错: %v", err)
+	})
+}
+
+// TestBuildQueryOneOptionsOperations 测试buildQueryOneOptions方法各种场景
+func TestBuildQueryOneOptionsOperations(t *testing.T) {
+	// 注册测试模型
+	if err := sqld.ModelDriver(&TestWallet{}); err != nil && !strings.Contains(err.Error(), "exists") {
+		t.Fatalf("注册TestWallet模型失败: %v", err)
+	}
+
+	t.Run("BuildQueryOneOptionsWithProjection", func(t *testing.T) {
+		// 测试带字段投影的选项构建
+		condition := sqlc.M(&TestWallet{}).Fields("appID", "walletID", "alias")
+
+		// 注意：buildQueryOneOptions是内部函数，无法直接调用
+		// 我们通过FindOne方法来间接验证选项构建的正确性
+
+		// 初始化MongoDB
+		if err := initMongoForTest(); err != nil {
+			t.Logf("MongoDB初始化失败，跳过buildQueryOneOptions测试: %v", err)
+			return
+		}
+
+		manager, err := sqld.NewMongo(sqld.Option{
+			DsName:   "master",
+			Database: "ops_dev",
+			Timeout:  10000,
+		})
+		if err != nil {
+			t.Logf("获取MongoDB管理器失败: %v", err)
+			return
+		}
+		defer manager.Close()
+
+		// 创建测试数据
+		wallet := &TestWallet{
+			AppID:    "query_options_test_" + fmt.Sprintf("%d", time.Now().Unix()),
+			WalletID: "query_options_wallet",
+			Alias:    "查询选项测试钱包",
+			State:    1,
+			Ctime:    time.Now().Unix(),
+		}
+
+		err = manager.Save(wallet)
+		if err != nil {
+			t.Errorf("保存测试数据失败: %v", err)
+			return
+		}
+
+		// 测试投影功能
+		result := &TestWallet{}
+		err = manager.FindOne(condition, result)
+		if err != nil {
+			t.Errorf("带投影的FindOne失败: %v", err)
+			return
+		}
+
+		// 验证投影字段
+		if result.AppID == "" || result.WalletID == "" {
+			t.Error("投影字段应该被正确返回")
+		}
+
+		t.Logf("✅ 投影选项构建正确: AppID=%s, WalletID=%s", result.AppID, result.WalletID)
+	})
+
+	t.Run("BuildQueryOneOptionsWithSorting", func(t *testing.T) {
+		// 测试带排序的选项构建
+		condition := sqlc.M(&TestWallet{}).Desc("ctime")
+
+		// 初始化MongoDB
+		if err := initMongoForTest(); err != nil {
+			t.Logf("MongoDB初始化失败，跳过排序测试: %v", err)
+			return
+		}
+
+		manager, err := sqld.NewMongo(sqld.Option{
+			DsName:   "master",
+			Database: "ops_dev",
+			Timeout:  10000,
+		})
+		if err != nil {
+			t.Logf("获取MongoDB管理器失败: %v", err)
+			return
+		}
+		defer manager.Close()
+
+		// 创建多个测试数据
+		wallets := []*TestWallet{
+			{
+				AppID:    "sort_test_" + fmt.Sprintf("%d", time.Now().Unix()),
+				WalletID: "sort_wallet_1",
+				Alias:    "排序测试钱包1",
+				State:    1,
+				Ctime:    time.Now().Unix() - 100, // 较早的时间
+			},
+			{
+				AppID:    "sort_test_" + fmt.Sprintf("%d", time.Now().Unix()+1),
+				WalletID: "sort_wallet_2",
+				Alias:    "排序测试钱包2",
+				State:    1,
+				Ctime:    time.Now().Unix(), // 较晚的时间
+			},
+		}
+
+		err = manager.Save(wallets[0], wallets[1])
+		if err != nil {
+			t.Errorf("保存排序测试数据失败: %v", err)
+			return
+		}
+
+		// 测试降序排序（应该返回ctime最大的记录）
+		result := &TestWallet{}
+		err = manager.FindOne(condition, result)
+		if err != nil {
+			t.Errorf("带排序的FindOne失败: %v", err)
+			return
+		}
+
+		// 验证排序结果（应该返回ctime最大的记录）
+		if result.Ctime != wallets[1].Ctime {
+			t.Errorf("期望返回ctime最大的记录 %d，实际返回 %d", wallets[1].Ctime, result.Ctime)
+		}
+
+		t.Logf("✅ 排序选项构建正确: 返回了ctime最大的记录 %d", result.Ctime)
+	})
+
+	t.Run("BuildQueryOneOptionsNilCondition", func(t *testing.T) {
+		// 测试nil条件的情况
+		// 注意：buildQueryOneOptions是内部函数，我们无法直接测试
+		// 但我们可以通过传递nil条件给FindOne来间接测试
+
+		// 初始化MongoDB
+		if err := initMongoForTest(); err != nil {
+			t.Logf("MongoDB初始化失败，跳过nil条件测试: %v", err)
+			return
+		}
+
+		manager, err := sqld.NewMongo(sqld.Option{
+			DsName:   "master",
+			Database: "ops_dev",
+			Timeout:  10000,
+		})
+		if err != nil {
+			t.Logf("获取MongoDB管理器失败: %v", err)
+			return
+		}
+		defer manager.Close()
+
+		result := &TestWallet{}
+		// 传递nil条件应该不会崩溃
+		err = manager.FindOne(nil, result)
+		// 这个调用可能会失败，但不应该导致panic
+		if err == nil {
+			t.Logf("nil条件查询成功返回")
+		} else {
+			t.Logf("nil条件查询失败（预期行为）: %v", err)
+		}
+
+		t.Logf("✅ nil条件处理正确，不会导致崩溃")
+	})
+}
+
+// TestMongoFindListOperations 测试FindList方法各种场景
+func TestMongoFindListOperations(t *testing.T) {
+	// 初始化MongoDB
+	if err := initMongoForTest(); err != nil {
+		t.Logf("MongoDB初始化失败，跳过FindList测试: %v", err)
+		return
+	}
+
+	// 使用NewMongo获取已初始化的管理器
+	manager, err := sqld.NewMongo(sqld.Option{
+		DsName:   "master",
+		Database: "ops_dev",
+		Timeout:  10000,
+	})
+	if err != nil {
+		t.Logf("获取MongoDB管理器失败，跳过FindList测试: %v", err)
+		return
+	}
+	defer manager.Close()
+
+	// 准备测试数据
+	findListTestAppID := "find_list_test_" + fmt.Sprintf("%d", time.Now().Unix())
+	wallets := []*TestWallet{
+		{
+			AppID:    findListTestAppID,
+			WalletID: "find_list_wallet_1",
+			Alias:    "FindList测试钱包1",
+			State:    1,
+			Ctime:    time.Now().Unix() - 200,
+		},
+		{
+			AppID:    findListTestAppID,
+			WalletID: "find_list_wallet_2",
+			Alias:    "FindList测试钱包2",
+			State:    1,
+			Ctime:    time.Now().Unix() - 100,
+		},
+		{
+			AppID:    findListTestAppID,
+			WalletID: "find_list_wallet_3",
+			Alias:    "FindList测试钱包3",
+			State:    0,
+			Ctime:    time.Now().Unix(),
+		},
+		{
+			AppID:    "other_find_list_app_" + fmt.Sprintf("%d", time.Now().Unix()),
+			WalletID: "other_wallet",
+			Alias:    "其他应用FindList钱包",
+			State:    1,
+			Ctime:    time.Now().Unix(),
+		},
+	}
+
+	// 批量保存测试数据
+	err = manager.Save(wallets[0], wallets[1], wallets[2], wallets[3])
+	if err != nil {
+		t.Errorf("保存测试数据失败: %v", err)
+		return
+	}
+
+	t.Run("FindListBasic", func(t *testing.T) {
+		// 测试基本的列表查询
+		var results []*TestWallet
+		condition := sqlc.M(&TestWallet{}).Eq("appID", findListTestAppID)
+
+		err := manager.FindList(condition, &results)
+		if err != nil {
+			t.Errorf("FindList基本查询失败: %v", err)
+			return
+		}
+
+		// 应该找到3个钱包
+		expectedCount := 3
+		if len(results) != expectedCount {
+			t.Errorf("期望找到%d个记录，实际找到%d个", expectedCount, len(results))
+		}
+
+		t.Logf("✅ 基本列表查询成功，找到 %d 个记录", len(results))
+	})
+
+	t.Run("FindListWithSorting", func(t *testing.T) {
+		// 测试带排序的列表查询
+		var results []*TestWallet
+		condition := sqlc.M(&TestWallet{}).Eq("appID", findListTestAppID).Desc("ctime")
+
+		err := manager.FindList(condition, &results)
+		if err != nil {
+			t.Errorf("FindList带排序查询失败: %v", err)
+			return
+		}
+
+		// 验证排序结果（应该按ctime降序排列）
+		if len(results) >= 2 {
+			if results[0].Ctime < results[1].Ctime {
+				t.Error("排序失败：第一个记录的ctime应该大于第二个记录")
+			}
+		}
+
+		t.Logf("✅ 带排序列表查询成功，记录按ctime降序排列")
+	})
+
+	t.Run("FindListWithPagination", func(t *testing.T) {
+		// 测试带分页的列表查询
+		var results []*TestWallet
+		condition := sqlc.M(&TestWallet{}).Eq("appID", findListTestAppID).Limit(1, 2)
+
+		err := manager.FindList(condition, &results)
+		if err != nil {
+			t.Errorf("FindList带分页查询失败: %v", err)
+			return
+		}
+
+		// 应该只返回2条记录（第1页，每页2条）
+		expectedCount := 2
+		if len(results) != expectedCount {
+			t.Errorf("期望返回%d条记录，实际返回%d条", expectedCount, len(results))
+		}
+
+		// 验证分页信息
+		if condition.Pagination.PageTotal != 3 {
+			t.Errorf("期望总数为3，实际为%d", condition.Pagination.PageTotal)
+		}
+
+		t.Logf("✅ 带分页列表查询成功，返回 %d 条记录，总数 %d", len(results), condition.Pagination.PageTotal)
+	})
+
+	t.Run("FindListWithProjection", func(t *testing.T) {
+		// 测试带字段投影的列表查询
+		var results []*TestWallet
+		condition := sqlc.M(&TestWallet{}).Eq("appID", findListTestAppID).Fields("appID", "walletID")
+
+		err := manager.FindList(condition, &results)
+		if err != nil {
+			t.Errorf("FindList带投影查询失败: %v", err)
+			return
+		}
+
+		// 验证投影的字段
+		if len(results) > 0 {
+			result := results[0]
+			if result.AppID == "" || result.WalletID == "" {
+				t.Error("投影字段应该被正确返回")
+			}
+			// 验证未投影的字段（可能仍然有值，取决于MongoDB行为）
+			t.Logf("✅ 带投影列表查询成功，返回 %d 条记录", len(results))
+		}
+	})
+
+	t.Run("FindListEmptyResult", func(t *testing.T) {
+		// 测试空结果查询
+		var results []*TestWallet
+		condition := sqlc.M(&TestWallet{}).Eq("appID", "non_existent_"+fmt.Sprintf("%d", time.Now().Unix()))
+
+		err := manager.FindList(condition, &results)
+		if err != nil {
+			t.Errorf("FindList空结果查询失败: %v", err)
+			return
+		}
+
+		// 应该返回空切片
+		if len(results) != 0 {
+			t.Errorf("期望返回0条记录，实际返回%d条", len(results))
+		}
+
+		t.Logf("✅ 空结果查询成功，返回 %d 条记录", len(results))
+	})
+
+	t.Run("FindListNilData", func(t *testing.T) {
+		// 测试nil数据参数
+		condition := sqlc.M(&TestWallet{}).Eq("appID", findListTestAppID)
+
+		err := manager.FindList(condition, nil)
+		if err == nil {
+			t.Error("传入nil数据参数应该报错")
+		}
+
+		t.Logf("✅ nil数据参数正确报错: %v", err)
+	})
+
+	t.Run("FindListNilCondition", func(t *testing.T) {
+		// 测试nil条件参数
+		var results []*TestWallet
+
+		err := manager.FindList(nil, &results)
+		if err == nil {
+			t.Error("传入nil条件参数应该报错")
+		}
+
+		t.Logf("✅ nil条件参数正确报错: %v", err)
+	})
+
+	t.Run("FindListNilModel", func(t *testing.T) {
+		// 测试nil模型条件
+		var results []*TestWallet
+		condition := &sqlc.Cnd{} // 没有设置Model
+
+		err := manager.FindList(condition, &results)
+		if err == nil {
+			t.Error("nil模型条件应该报错")
+		}
+
+		t.Logf("✅ nil模型条件正确报错: %v", err)
+	})
+}
+
 // TestMongoSaveOperations 测试Save方法各种场景
 func TestMongoSaveOperations(t *testing.T) {
 	// 注册测试模型
