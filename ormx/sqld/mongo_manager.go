@@ -1,6 +1,7 @@
 package sqld
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"reflect"
@@ -383,12 +384,167 @@ func (self *MGOManager) getSlowLog() *zap.Logger {
 }
 
 func (self *MGOManager) Save(data ...sqlc.Object) error {
+	// 基础参数验证
 	if len(data) == 0 {
 		return self.Error("[Mongo.Save] data is nil")
 	}
 	if len(data) > 2000 {
 		return self.Error("[Mongo.Save] data length > 2000")
 	}
+
+	// 调用统一的 WithContext 版本，使用默认上下文
+	return self.SaveWithContext(self.PackContext.Context, data...)
+}
+
+func (self *MGOManager) Update(data ...sqlc.Object) error {
+	// 基础参数验证
+	if len(data) == 0 {
+		return self.Error("[Mongo.Update] data is nil")
+	}
+	if len(data) > 2000 {
+		return self.Error("[Mongo.Update] data length > 2000")
+	}
+
+	// 调用统一的 WithContext 版本，使用默认上下文
+	return self.UpdateWithContext(self.PackContext.Context, data...)
+}
+
+func (self *MGOManager) UpdateByCnd(cnd *sqlc.Cnd) (int64, error) {
+	// 基础参数验证
+	if cnd.Model == nil {
+		return 0, self.Error("[Mongo.UpdateByCnd] data model is nil")
+	}
+
+	// 调用统一的 WithContext 版本，使用默认上下文
+	return self.UpdateByCndWithContext(self.PackContext.Context, cnd)
+}
+
+func (self *MGOManager) Delete(data ...sqlc.Object) error {
+	// 基础参数验证
+	if len(data) == 0 {
+		return self.Error("[Mongo.Delete] data is nil")
+	}
+	if len(data) > 2000 {
+		return self.Error("[Mongo.Delete] data length > 2000")
+	}
+
+	// 调用统一的 WithContext 版本，使用默认上下文
+	return self.DeleteWithContext(self.PackContext.Context, data...)
+}
+
+func (self *MGOManager) DeleteById(object sqlc.Object, data ...interface{}) (int64, error) {
+	// 基础参数验证
+	if object == nil {
+		return 0, self.Error("[Mongo.DeleteById] object is nil")
+	}
+	if len(data) == 0 {
+		return 0, self.Error("[Mongo.DeleteById] data is nil")
+	}
+	if len(data) > 2000 {
+		return 0, self.Error("[Mongo.DeleteById] data length > 2000")
+	}
+
+	// 调用统一的 WithContext 版本，使用默认上下文
+	return self.DeleteByIdWithContext(self.PackContext.Context, object, data...)
+}
+
+func (self *MGOManager) DeleteByCnd(cnd *sqlc.Cnd) (int64, error) {
+	// 基础参数验证
+	if cnd.Model == nil {
+		return 0, self.Error("[Mongo.DeleteByCnd] data model is nil")
+	}
+
+	// 调用统一的 WithContext 版本，使用默认上下文
+	return self.DeleteByCndWithContext(self.PackContext.Context, cnd)
+}
+
+func (self *MGOManager) Count(cnd *sqlc.Cnd) (int64, error) {
+	// 基础参数验证
+	if cnd.Model == nil {
+		return 0, self.Error("[Mongo.Count] data model is nil")
+	}
+
+	// 调用统一的 WithContext 版本，使用默认上下文
+	return self.CountWithContext(self.PackContext.Context, cnd)
+}
+
+func (self *MGOManager) Exists(cnd *sqlc.Cnd) (bool, error) {
+	// 基础参数验证
+	if cnd.Model == nil {
+		return false, self.Error("[Mongo.Exists] data model is nil")
+	}
+
+	// 调用统一的 WithContext 版本，使用默认上下文
+	return self.ExistsWithContext(self.PackContext.Context, cnd)
+}
+
+func (self *MGOManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
+	// 基础参数验证
+	if data == nil {
+		return self.Error("[Mongo.FindOne] data is nil")
+	}
+
+	// 调用统一的 WithContext 版本，使用默认上下文
+	return self.FindOneWithContext(self.PackContext.Context, cnd, data)
+}
+
+// FindById 按ID查询单条数据
+func (self *MGOManager) FindById(data sqlc.Object) error {
+	if data == nil {
+		return self.Error("[Mongo.FindById] data is nil")
+	}
+
+	// 获取ID字段的值
+	idValue := reflect.ValueOf(data).Elem().FieldByName("Id")
+	if !idValue.IsValid() || idValue.IsZero() {
+		return self.Error("[Mongo.FindById] id field is not set or invalid")
+	}
+
+	condition := sqlc.M(data).Eq("_id", idValue.Interface())
+	return self.FindOne(condition, data)
+}
+
+// FindOneComplex 按复杂条件查询单条数据
+func (self *MGOManager) FindOneComplex(cnd *sqlc.Cnd, data sqlc.Object) error {
+	return self.FindOne(cnd, data)
+}
+
+func (self *MGOManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
+	// 直接调用统一的 WithContext 版本，使用默认上下文
+	return self.FindListWithContext(self.PackContext.Context, cnd, data)
+}
+
+func (self *MGOManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
+	return self.FindList(cnd, data)
+}
+
+// BuildCondKey 构建数据表别名
+func (self *MGOManager) BuildCondKey(cnd *sqlc.Cnd, key string, buf *bytes.Buffer) {
+	// MongoDB 不需要表别名，直接使用字段名
+	if key == "id" || key == "Id" {
+		buf.WriteString("_id")
+	} else {
+		buf.WriteString(key)
+	}
+}
+
+// 带Context超时的CRUD方法扩展
+
+// SaveWithContext 带上下文超时的保存数据方法
+func (self *MGOManager) SaveWithContext(ctx context.Context, data ...sqlc.Object) error {
+	// 基础参数验证
+	if len(data) == 0 {
+		return self.Error("[Mongo.Save] data is nil")
+	}
+	if len(data) > 2000 {
+		return self.Error("[Mongo.Save] data length > 2000")
+	}
+
+	// Context 处理
+	if ctx == nil {
+		ctx = self.PackContext.Context
+	}
+
 	d := data[0]
 	if len(self.MGOSyncData) > 0 {
 		d = self.MGOSyncData[0].CacheModel
@@ -432,7 +588,7 @@ func (self *MGOManager) Save(data ...sqlc.Object) error {
 	// 性能优化：使用无序插入提升并发性能
 	// 注意：如果业务需要保证ID顺序，请保持ordered=true
 	opts := options.InsertMany().SetOrdered(false)
-	res, err := db.InsertMany(self.GetSessionContext(), adds, opts)
+	res, err := db.InsertMany(ctx, adds, opts)
 	if err != nil {
 		return self.Error("[Mongo.Save] save failed: ", err)
 	}
@@ -442,289 +598,88 @@ func (self *MGOManager) Save(data ...sqlc.Object) error {
 	return nil
 }
 
-func (self *MGOManager) Update(data ...sqlc.Object) error {
-	if len(data) == 0 {
-		return self.Error("[Mongo.Update] data is nil")
-	}
-	if len(data) > 2000 {
-		return self.Error("[Mongo.Update] data length > 2000")
-	}
-	d := data[0]
-	if len(self.MGOSyncData) > 0 {
-		d = self.MGOSyncData[0].CacheModel
-	}
-	obv, ok := modelDrivers[d.GetTable()]
-	if !ok {
-		return self.Error("[Mongo.Update] registration object type not found [", d.GetTable(), "]")
-	}
-	db, err := self.GetDatabase(d.GetTable())
-	if err != nil {
-		return self.Error(err)
-	}
-	if zlog.IsDebug() {
-		defer zlog.Debug("[Mongo.Update]", utils.UnixMilli(), zlog.Any("data", data))
+// UpdateWithContext 带上下文超时的更新数据方法
+func (self *MGOManager) UpdateWithContext(ctx context.Context, data ...sqlc.Object) error {
+	if ctx == nil {
+		return self.Update(data...)
 	}
 
-	for _, v := range data {
-		var lastInsertId interface{}
-		if obv.PkKind == reflect.Int64 {
-			pk := utils.GetInt64(utils.GetPtr(v, obv.PkOffset))
-			if pk == 0 {
-				return self.Error("[Mongo.Update] data object id is nil")
-			}
-			lastInsertId = pk
-		} else if obv.PkKind == reflect.String {
-			pk := utils.GetString(utils.GetPtr(v, obv.PkOffset))
-			if len(pk) == 0 {
-				return self.Error("[Mongo.Update] data object id is nil")
-			}
-			lastInsertId = pk
-		} else if obv.PkType == "primitive.ObjectID" {
-			pk := utils.GetObjectID(utils.GetPtr(v, obv.PkOffset))
-			if IsNullObjectID(pk) {
-				return self.Error("[Mongo.Update] data object id is nil")
-			}
-			lastInsertId = pk
-		} else {
-			return self.Error("only Int64 and string and ObjectID type IDs are supported")
-		}
-		res, err := db.ReplaceOne(self.GetSessionContext(), bson.M{"_id": lastInsertId}, v)
-		if err != nil {
-			return self.Error("[Mongo.Update] update failed: ", err)
-		}
-		if res.ModifiedCount == 0 {
-			return self.Error("[Mongo.Update] update failed: ModifiedCount = 0")
-		}
-	}
-	return nil
+	// 设置上下文
+	oldContext := self.PackContext.Context
+	defer func() { self.PackContext.Context = oldContext }()
+
+	self.PackContext.Context = ctx
+	return self.Update(data...)
 }
 
-func (self *MGOManager) UpdateByCnd(cnd *sqlc.Cnd) (int64, error) {
-	if cnd.Model == nil {
-		return 0, self.Error("[Mongo.UpdateByCnd] data model is nil")
-	}
-	db, err := self.GetDatabase(cnd.Model.GetTable())
-	if err != nil {
-		return 0, err
-	}
-	match := buildMongoMatch(cnd)
-	upset := buildMongoUpset(cnd)
-	if match == nil || len(match) == 0 {
-		return 0, self.Error("pipe match is nil")
-	}
-	if upset == nil || len(upset) == 0 {
-		return 0, self.Error("pipe upset is nil")
+// UpdateByCndWithContext 带上下文超时的按条件更新数据方法
+func (self *MGOManager) UpdateByCndWithContext(ctx context.Context, cnd *sqlc.Cnd) (int64, error) {
+	if ctx == nil {
+		return self.UpdateByCnd(cnd)
 	}
 
-	defer self.writeLog("[Mongo.UpdateByCnd]", utils.UnixMilli(), map[string]interface{}{"match": match, "upset": upset}, nil)
+	// 设置上下文
+	oldContext := self.PackContext.Context
+	defer func() { self.PackContext.Context = oldContext }()
 
-	res, err := db.UpdateMany(self.GetSessionContext(), match, upset)
-	if err != nil {
-		return 0, self.Error("[Mongo.UpdateByCnd] update failed: ", err)
-	}
-	// 注意：ModifiedCount == 0 并不一定是错误
-	// 可能是匹配到了文档但更新内容和原有内容相同
-	// 只有在既没有匹配到文档也没有修改任何文档时才报错
-	if res.MatchedCount == 0 && res.ModifiedCount == 0 {
-		return 0, self.Error("[Mongo.UpdateByCnd] no documents matched the update condition")
-	}
-	return res.ModifiedCount, nil
+	self.PackContext.Context = ctx
+	return self.UpdateByCnd(cnd)
 }
 
-func (self *MGOManager) Delete(data ...sqlc.Object) error {
-	if len(data) == 0 {
-		return self.Error("[Mongo.Delete] data is nil")
-	}
-	if len(data) > 2000 {
-		return self.Error("[Mongo.Delete] data length > 2000")
-	}
-	d := data[0]
-	if len(self.MGOSyncData) > 0 {
-		d = self.MGOSyncData[0].CacheModel
-	}
-	obv, ok := modelDrivers[d.GetTable()]
-	if !ok {
-		return self.Error("[Mongo.Delete] registration object type not found [", d.GetTable(), "]")
-	}
-	db, err := self.GetDatabase(d.GetTable())
-	if err != nil {
-		return self.Error(err)
-	}
-	// 优化：大数据量时只记录统计信息，避免序列化完整数据
-	if zlog.IsDebug() {
-		defer zlog.Debug("[Mongo.Delete]", utils.UnixMilli(), zlog.Int("count", len(data)))
+// DeleteWithContext 带上下文超时的删除数据方法
+func (self *MGOManager) DeleteWithContext(ctx context.Context, data ...sqlc.Object) error {
+	if ctx == nil {
+		return self.Delete(data...)
 	}
 
-	// 预分配精确大小，避免slice扩容
-	delIds := make([]interface{}, len(data))
-	for i, v := range data {
-		var delId interface{}
+	// 设置上下文
+	oldContext := self.PackContext.Context
+	defer func() { self.PackContext.Context = oldContext }()
 
-		// 根据主键类型获取ID
-		switch obv.PkKind {
-		case reflect.Int64:
-			delId = utils.GetInt64(utils.GetPtr(v, obv.PkOffset))
-			if delId == 0 {
-				return self.Error("[Mongo.Delete] data object id is nil")
-			}
-		case reflect.String:
-			delId = utils.GetString(utils.GetPtr(v, obv.PkOffset))
-			if len(delId.(string)) == 0 {
-				return self.Error("[Mongo.Delete] data object id is nil")
-			}
-		case reflect.Ptr:
-			if obv.PkType == "primitive.ObjectID" {
-				delId = utils.GetObjectID(utils.GetPtr(v, obv.PkOffset))
-				if IsNullObjectID(delId.(primitive.ObjectID)) {
-					return self.Error("[Mongo.Delete] data object id is nil")
-				}
-			} else {
-				return self.Error("unsupported pointer type for primary key")
-			}
-		default:
-			return self.Error("only Int64 and string and ObjectID type IDs are supported")
-		}
-
-		delIds[i] = delId
-	}
-	if len(delIds) > 0 {
-		if _, err := db.DeleteMany(self.GetSessionContext(), bson.M{"_id": bson.M{"$in": delIds}}); err != nil {
-			return self.Error("[Mongo.Delete] delete failed: ", err)
-		}
-	}
-	return nil
+	self.PackContext.Context = ctx
+	return self.Delete(data...)
 }
 
-func (self *MGOManager) DeleteById(object sqlc.Object, data ...interface{}) (int64, error) {
-	// 基础验证
-	if object == nil {
-		return 0, self.Error("[Mongo.DeleteById] object is nil")
-	}
-	if len(data) == 0 {
-		return 0, self.Error("[Mongo.DeleteById] data is nil")
-	}
-	if len(data) > 2000 {
-		return 0, self.Error("[Mongo.DeleteById] data length > 2000")
+// DeleteByIdWithContext 带上下文超时的按ID删除数据方法
+func (self *MGOManager) DeleteByIdWithContext(ctx context.Context, object sqlc.Object, data ...interface{}) (int64, error) {
+	if ctx == nil {
+		return self.DeleteById(object, data...)
 	}
 
-	// 获取表信息
-	d := object
-	if len(self.MGOSyncData) > 0 {
-		d = self.MGOSyncData[0].CacheModel
-	}
+	// 设置上下文
+	oldContext := self.PackContext.Context
+	defer func() { self.PackContext.Context = oldContext }()
 
-	// 验证表是否存在（虽然结果未使用，但确保表已注册）
-	_, ok := modelDrivers[d.GetTable()]
-	if !ok {
-		return 0, self.Error("[Mongo.DeleteById] registration object type not found [", d.GetTable(), "]")
-	}
-
-	// 获取数据库连接
-	db, err := self.GetDatabase(d.GetTable())
-	if err != nil {
-		return 0, self.Error(err)
-	}
-
-	// 优化：大数据量时只记录统计信息
-	if zlog.IsDebug() {
-		defer zlog.Debug("[Mongo.DeleteById]", utils.UnixMilli(), zlog.Int("count", len(data)))
-	}
-
-	// 执行批量删除
-	res, err := db.DeleteMany(self.GetSessionContext(), bson.M{"_id": bson.M{"$in": data}})
-	if err != nil {
-		return 0, self.Error("[Mongo.DeleteById] delete failed: ", err)
-	}
-
-	return res.DeletedCount, nil
+	self.PackContext.Context = ctx
+	return self.DeleteById(object, data...)
 }
 
-func (self *MGOManager) DeleteByCnd(cnd *sqlc.Cnd) (int64, error) {
-	if cnd.Model == nil {
-		return 0, self.Error("[Mongo.DeleteByCnd] data model is nil")
+// DeleteByCndWithContext 带上下文超时的按条件删除数据方法
+func (self *MGOManager) DeleteByCndWithContext(ctx context.Context, cnd *sqlc.Cnd) (int64, error) {
+	if ctx == nil {
+		return self.DeleteByCnd(cnd)
 	}
-	db, err := self.GetDatabase(cnd.Model.GetTable())
-	if err != nil {
-		return 0, err
-	}
-	match := buildMongoMatch(cnd)
-	if match == nil || len(match) == 0 {
-		return 0, self.Error("pipe match is nil")
-	}
-	defer self.writeLog("[Mongo.DeleteByCnd]", utils.UnixMilli(), map[string]interface{}{"match": match}, nil)
-	res, err := db.DeleteMany(self.GetSessionContext(), match)
-	if err != nil {
-		return 0, self.Error("[Mongo.DeleteByCnd] delete failed: ", err)
-	}
-	// 注意：DeletedCount == 0 并不一定是错误
-	// 如果没有文档匹配删除条件，DeletedCount 为 0 是正常的
-	return res.DeletedCount, nil
+
+	// 设置上下文
+	oldContext := self.PackContext.Context
+	defer func() { self.PackContext.Context = oldContext }()
+
+	self.PackContext.Context = ctx
+	return self.DeleteByCnd(cnd)
 }
 
-func (self *MGOManager) Count(cnd *sqlc.Cnd) (int64, error) {
-	if cnd.Model == nil {
-		return 0, self.Error("[Mongo.Count] data model is nil")
-	}
-	db, err := self.GetDatabase(cnd.Model.GetTable())
-	if err != nil {
-		return 0, self.Error(err)
-	}
-	pipe := buildMongoMatch(cnd)
-	var pageTotal int64
-	if pipe == nil || len(pipe) == 0 {
-		pageTotal, err = db.EstimatedDocumentCount(self.GetSessionContext())
-		// 记录估算计数的日志（无查询条件）
-		defer self.writeLog("[Mongo.Count] EstimatedDocumentCount", utils.UnixMilli(), nil, nil)
-	} else {
-		pageTotal, err = db.CountDocuments(self.GetSessionContext(), pipe)
-		// 记录精确计数的日志（有查询条件）
-		defer self.writeLog("[Mongo.Count] CountDocuments", utils.UnixMilli(), pipe, nil)
-	}
-	if err != nil {
-		return 0, self.Error("[Mongo.Count] count failed: ", err)
-	}
-	//pageTotal, err = db.EstimatedDocumentCount(self.GetSessionContext(), pipe)
-	if pageTotal > 0 && cnd.Pagination.PageSize > 0 {
-		var pageCount int64
-		if pageTotal%cnd.Pagination.PageSize == 0 {
-			pageCount = pageTotal / cnd.Pagination.PageSize
-		} else {
-			pageCount = pageTotal/cnd.Pagination.PageSize + 1
-		}
-		cnd.Pagination.PageCount = pageCount
-	} else {
-		cnd.Pagination.PageCount = 0
-	}
-	cnd.Pagination.PageTotal = pageTotal
-	return pageTotal, nil
-}
-
-func (self *MGOManager) Exists(cnd *sqlc.Cnd) (bool, error) {
-	if cnd.Model == nil {
-		return false, self.Error("[Mongo.Exists] data model is nil")
-	}
-	db, err := self.GetDatabase(cnd.Model.GetTable())
-	if err != nil {
-		return false, self.Error(err)
-	}
-
-	pipe := buildMongoMatch(cnd)
-	defer self.writeLog("[Mongo.Exists]", utils.UnixMilli(), pipe, nil)
-
-	// 使用CountDocuments并设置limit为1来提高效率
-	opts := options.Count().SetLimit(1)
-	count, err := db.CountDocuments(self.GetSessionContext(), pipe, opts)
-	if err != nil {
-		return false, self.Error("[Mongo.Exists] exists check failed: ", err)
-	}
-
-	return count > 0, nil
-}
-
-func (self *MGOManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
+// FindOneWithContext 带上下文超时的查询单条数据方法
+func (self *MGOManager) FindOneWithContext(ctx context.Context, cnd *sqlc.Cnd, data sqlc.Object) error {
+	// 基础参数验证
 	if data == nil {
 		return self.Error("[Mongo.FindOne] data is nil")
 	}
+
+	// Context 处理
+	if ctx == nil {
+		ctx = self.PackContext.Context
+	}
+
 	db, err := self.GetDatabase(data.GetTable())
 	if err != nil {
 		return self.Error(err)
@@ -732,21 +687,19 @@ func (self *MGOManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
 	pipe := buildMongoMatch(cnd)
 	opts := buildQueryOneOptions(cnd)
 	defer self.writeLog("[Mongo.FindOne]", utils.UnixMilli(), pipe, opts)
-	cur := db.FindOne(self.GetSessionContext(), pipe, opts...)
+	cur := db.FindOne(ctx, pipe, opts...)
 	if err := cur.Decode(data); err != nil {
 		if err == mongo.ErrNoDocuments {
-			return nil
+			return nil // 没有找到记录不认为是错误
 		}
 		return self.Error(err)
 	}
 	return nil
 }
 
-func (self *MGOManager) FindOneComplex(cnd *sqlc.Cnd, data sqlc.Object) error {
-	return self.FindOne(cnd, data)
-}
-
-func (self *MGOManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
+// FindListWithContext 带上下文超时的查询数据列表方法
+func (self *MGOManager) FindListWithContext(ctx context.Context, cnd *sqlc.Cnd, data interface{}) error {
+	// 基础参数验证
 	if data == nil {
 		return self.Error("[Mongo.FindList] data is nil")
 	}
@@ -756,10 +709,13 @@ func (self *MGOManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	if cnd.Model == nil {
 		return self.Error("[Mongo.FindList] data model is nil")
 	}
-	db, err := self.GetDatabase(cnd.Model.GetTable())
-	if err != nil {
-		return self.Error(err)
+
+	// Context 处理
+	if ctx == nil {
+		ctx = self.PackContext.Context
 	}
+
+	// 处理分页逻辑
 	if cnd.Pagination.IsFastPage { // 快速分页
 		if cnd.Pagination.FastPageSortCountQ { // 执行总条数统计
 			if _, err := self.Count(cnd); err != nil {
@@ -803,14 +759,20 @@ func (self *MGOManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 			return err
 		}
 	}
+
+	// 执行查询
+	db, err := self.GetDatabase(cnd.Model.GetTable())
+	if err != nil {
+		return self.Error(err)
+	}
 	pipe := buildMongoMatch(cnd)
 	opts := buildQueryOptions(cnd)
 	defer self.writeLog("[Mongo.FindList]", utils.UnixMilli(), pipe, opts)
-	cur, err := db.Find(self.GetSessionContext(), pipe, opts...)
+	cur, err := db.Find(ctx, pipe, opts...)
 	if err != nil {
 		return self.Error("[Mongo.FindList] query failed: ", err)
 	}
-	if err := cur.All(self.GetSessionContext(), data); err != nil {
+	if err := cur.All(ctx, data); err != nil {
 		if err == mongo.ErrNoDocuments {
 			return nil
 		}
@@ -819,8 +781,60 @@ func (self *MGOManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	return nil
 }
 
-func (self *MGOManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
-	return self.FindList(cnd, data)
+// CountWithContext 带上下文超时的统计数据方法
+func (self *MGOManager) CountWithContext(ctx context.Context, cnd *sqlc.Cnd) (int64, error) {
+	if ctx == nil {
+		return self.Count(cnd)
+	}
+
+	// 设置上下文
+	oldContext := self.PackContext.Context
+	defer func() { self.PackContext.Context = oldContext }()
+
+	self.PackContext.Context = ctx
+	return self.Count(cnd)
+}
+
+// ExistsWithContext 带上下文超时的检测是否存在方法
+func (self *MGOManager) ExistsWithContext(ctx context.Context, cnd *sqlc.Cnd) (bool, error) {
+	if ctx == nil {
+		return self.Exists(cnd)
+	}
+
+	// 设置上下文
+	oldContext := self.PackContext.Context
+	defer func() { self.PackContext.Context = oldContext }()
+
+	self.PackContext.Context = ctx
+	return self.Exists(cnd)
+}
+
+// FindOneComplexWithContext 带上下文超时的复杂条件查询单条数据方法
+func (self *MGOManager) FindOneComplexWithContext(ctx context.Context, cnd *sqlc.Cnd, data sqlc.Object) error {
+	if ctx == nil {
+		return self.FindOneComplex(cnd, data)
+	}
+
+	// 设置上下文
+	oldContext := self.PackContext.Context
+	defer func() { self.PackContext.Context = oldContext }()
+
+	self.PackContext.Context = ctx
+	return self.FindOneComplex(cnd, data)
+}
+
+// FindListComplexWithContext 带上下文超时的复杂条件查询数据列表方法
+func (self *MGOManager) FindListComplexWithContext(ctx context.Context, cnd *sqlc.Cnd, data interface{}) error {
+	if ctx == nil {
+		return self.FindListComplex(cnd, data)
+	}
+
+	// 设置上下文
+	oldContext := self.PackContext.Context
+	defer func() { self.PackContext.Context = oldContext }()
+
+	self.PackContext.Context = ctx
+	return self.FindListComplex(cnd, data)
 }
 
 func (self *MGOManager) Close() error {

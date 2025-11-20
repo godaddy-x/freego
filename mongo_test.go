@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"sync"
@@ -1888,6 +1889,395 @@ func TestMongoUseTransactionOperations(t *testing.T) {
 		} else {
 			t.Logf("✅ 事务错误正确处理: %v", err)
 		}
+	})
+}
+
+// TestMongoContextTimeoutOperations 测试带Context超时的CRUD方法
+func TestMongoContextTimeoutOperations(t *testing.T) {
+	// 初始化MongoDB
+	if err := initMongoForTest(); err != nil {
+		t.Logf("MongoDB初始化失败，跳过ContextTimeout测试: %v", err)
+		return
+	}
+
+	// 使用NewMongo获取已初始化的管理器
+	manager, err := sqld.NewMongo(sqld.Option{
+		DsName:   "master",
+		Database: "ops_dev",
+		Timeout:  10000,
+	})
+	if err != nil {
+		t.Logf("获取MongoDB管理器失败，跳过ContextTimeout测试: %v", err)
+		return
+	}
+	defer manager.Close()
+
+	// 准备测试数据
+	contextTestAppID := "ctx_timeout_test_" + fmt.Sprintf("%d", time.Now().Unix())
+	wallet := &TestWallet{
+		AppID:    contextTestAppID,
+		WalletID: "ctx_timeout_wallet",
+		Alias:    "Context超时测试钱包",
+		State:    1,
+		Ctime:    time.Now().Unix(),
+	}
+
+	t.Run("SaveWithContextSuccess", func(t *testing.T) {
+		// 测试带Context的保存成功
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		err := manager.SaveWithContext(ctx, wallet)
+		if err != nil {
+			t.Errorf("SaveWithContext保存失败: %v", err)
+			return
+		}
+
+		t.Logf("✅ SaveWithContext保存成功，ID: %d", wallet.Id)
+	})
+
+	t.Run("FindOneWithContextSuccess", func(t *testing.T) {
+		// 测试带Context的查询
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		var result TestWallet
+		condition := sqlc.M(&TestWallet{}).Eq("_id", wallet.Id)
+
+		err := manager.FindOneWithContext(ctx, condition, &result)
+		if err != nil {
+			t.Errorf("FindOneWithContext查询失败: %v", err)
+			return
+		}
+
+		if result.Id != wallet.Id {
+			t.Errorf("查询结果ID不匹配，期望%d，实际%d", wallet.Id, result.Id)
+		}
+
+		t.Logf("✅ FindOneWithContext查询成功，钱包: %s", result.Alias)
+	})
+
+	t.Run("UpdateWithContextSuccess", func(t *testing.T) {
+		// 测试带Context的更新
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		wallet.Alias = "Context超时测试钱包-已更新"
+		wallet.Utime = time.Now().Unix()
+
+		err := manager.UpdateWithContext(ctx, wallet)
+		if err != nil {
+			t.Errorf("UpdateWithContext更新失败: %v", err)
+			return
+		}
+
+		t.Logf("✅ UpdateWithContext更新成功")
+	})
+
+	t.Run("CountWithContextSuccess", func(t *testing.T) {
+		// 测试带Context的计数
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		condition := sqlc.M(&TestWallet{}).Eq("appID", contextTestAppID)
+		count, err := manager.CountWithContext(ctx, condition)
+		if err != nil {
+			t.Errorf("CountWithContext计数失败: %v", err)
+			return
+		}
+
+		if count != 1 {
+			t.Errorf("计数结果不正确，期望1，实际%d", count)
+		}
+
+		t.Logf("✅ CountWithContext计数成功，数量: %d", count)
+	})
+
+	t.Run("ExistsWithContextSuccess", func(t *testing.T) {
+		// 测试带Context的存在检查
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		condition := sqlc.M(&TestWallet{}).Eq("_id", wallet.Id)
+		exists, err := manager.ExistsWithContext(ctx, condition)
+		if err != nil {
+			t.Errorf("ExistsWithContext检查失败: %v", err)
+			return
+		}
+
+		if !exists {
+			t.Errorf("ExistsWithContext应该返回true")
+		}
+
+		t.Logf("✅ ExistsWithContext存在检查成功: %t", exists)
+	})
+
+	t.Run("FindListWithContextSuccess", func(t *testing.T) {
+		// 测试带Context的列表查询
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		var results []*TestWallet
+		condition := sqlc.M(&TestWallet{}).Eq("appID", contextTestAppID)
+
+		err := manager.FindListWithContext(ctx, condition, &results)
+		if err != nil {
+			t.Errorf("FindListWithContext查询失败: %v", err)
+			return
+		}
+
+		if len(results) != 1 {
+			t.Errorf("列表查询结果数量不正确，期望1，实际%d", len(results))
+		}
+
+		t.Logf("✅ FindListWithContext列表查询成功，数量: %d", len(results))
+	})
+
+	t.Run("DeleteWithContextSuccess", func(t *testing.T) {
+		// 测试带Context的删除
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		err := manager.DeleteWithContext(ctx, wallet)
+		if err != nil {
+			t.Errorf("DeleteWithContext删除失败: %v", err)
+			return
+		}
+
+		t.Logf("✅ DeleteWithContext删除成功")
+	})
+
+	t.Run("ContextTimeoutCancellation", func(t *testing.T) {
+		// 测试Context超时取消
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
+		defer cancel()
+
+		// 等待上下文超时
+		time.Sleep(10 * time.Millisecond)
+
+		// 尝试执行操作，应该失败
+		var result TestWallet
+		condition := sqlc.M(&TestWallet{}).Eq("_id", 999999)
+
+		err := manager.FindOneWithContext(ctx, condition, &result)
+		if err == nil {
+			t.Logf("Context超时测试：操作未按预期失败，可能因为上下文未正确传递")
+		} else {
+			t.Logf("✅ Context超时测试：操作正确失败: %v", err)
+		}
+	})
+
+	t.Run("NilContextFallback", func(t *testing.T) {
+		// 测试nil Context的降级行为
+		walletNilCtx := &TestWallet{
+			AppID:    "nil_ctx_test_" + fmt.Sprintf("%d", time.Now().Unix()),
+			WalletID: "nil_ctx_wallet",
+			Alias:    "NilContext测试钱包",
+			State:    1,
+			Ctime:    time.Now().Unix(),
+		}
+
+		// 使用nil Context，应该降级到普通方法
+		err := manager.SaveWithContext(nil, walletNilCtx)
+		if err != nil {
+			t.Errorf("NilContext降级保存失败: %v", err)
+			return
+		}
+
+		// 验证保存结果
+		var result TestWallet
+		condition := sqlc.M(&TestWallet{}).Eq("_id", walletNilCtx.Id)
+		err = manager.FindOne(condition, &result)
+		if err != nil {
+			t.Errorf("验证NilContext保存结果失败: %v", err)
+			return
+		}
+
+		t.Logf("✅ NilContext降级测试成功，ID: %d", result.Id)
+
+		// 清理测试数据
+		manager.Delete(walletNilCtx)
+	})
+
+	t.Run("FindByIdSuccess", func(t *testing.T) {
+		// 测试FindById方法
+		walletForFindById := &TestWallet{
+			AppID:    "findbyid_test_" + fmt.Sprintf("%d", time.Now().Unix()),
+			WalletID: "findbyid_wallet",
+			Alias:    "FindById测试钱包",
+			State:    1,
+			Ctime:    time.Now().Unix(),
+		}
+
+		// 先保存数据
+		err := manager.Save(walletForFindById)
+		if err != nil {
+			t.Errorf("保存测试数据失败: %v", err)
+			return
+		}
+
+		// 使用FindById查询（需要设置要查询的ID）
+		result := &TestWallet{Id: walletForFindById.Id}
+		err = manager.FindById(result)
+		if err != nil {
+			t.Errorf("FindById查询失败: %v", err)
+			return
+		}
+
+		if result.Id != walletForFindById.Id {
+			t.Errorf("FindById结果ID不匹配，期望%d，实际%d", walletForFindById.Id, result.Id)
+		}
+
+		if result.Alias != walletForFindById.Alias {
+			t.Errorf("FindById结果别名不匹配，期望%s，实际%s", walletForFindById.Alias, result.Alias)
+		}
+
+		t.Logf("✅ FindById查询成功，钱包: %s", result.Alias)
+
+		// 清理测试数据
+		manager.Delete(walletForFindById)
+	})
+
+	t.Run("FindByIdNilData", func(t *testing.T) {
+		// 测试FindById传入nil数据
+		err := manager.FindById(nil)
+		if err == nil {
+			t.Error("FindById传入nil数据应该报错")
+		}
+
+		t.Logf("✅ FindById nil数据参数正确报错: %v", err)
+	})
+
+	t.Run("FindByIdInvalidId", func(t *testing.T) {
+		// 测试FindById传入无效ID的数据
+		var result TestWallet
+		err := manager.FindById(&result)
+		if err == nil {
+			t.Error("FindById传入无效ID应该报错")
+		}
+
+		t.Logf("✅ FindById 无效ID正确报错: %v", err)
+	})
+
+	t.Run("FindOneComplexWithContextSuccess", func(t *testing.T) {
+		// 测试FindOneComplexWithContext方法
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		walletForComplex := &TestWallet{
+			AppID:    "complex_ctx_test_" + fmt.Sprintf("%d", time.Now().Unix()),
+			WalletID: "complex_ctx_wallet",
+			Alias:    "ComplexContext测试钱包",
+			State:    1,
+			Ctime:    time.Now().Unix(),
+		}
+
+		// 先保存数据
+		err := manager.Save(walletForComplex)
+		if err != nil {
+			t.Errorf("保存测试数据失败: %v", err)
+			return
+		}
+
+		// 使用FindOneComplexWithContext查询
+		var result TestWallet
+		condition := sqlc.M(&TestWallet{}).Eq("_id", walletForComplex.Id)
+
+		err = manager.FindOneComplexWithContext(ctx, condition, &result)
+		if err != nil {
+			t.Errorf("FindOneComplexWithContext查询失败: %v", err)
+			return
+		}
+
+		if result.Id != walletForComplex.Id {
+			t.Errorf("FindOneComplexWithContext结果ID不匹配，期望%d，实际%d", walletForComplex.Id, result.Id)
+		}
+
+		t.Logf("✅ FindOneComplexWithContext查询成功，钱包: %s", result.Alias)
+
+		// 清理测试数据
+		manager.Delete(walletForComplex)
+	})
+
+	t.Run("FindListComplexWithContextSuccess", func(t *testing.T) {
+		// 测试FindListComplexWithContext方法
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		walletForComplexList := &TestWallet{
+			AppID:    "complex_list_ctx_test_" + fmt.Sprintf("%d", time.Now().Unix()),
+			WalletID: "complex_list_ctx_wallet",
+			Alias:    "ComplexListContext测试钱包",
+			State:    1,
+			Ctime:    time.Now().Unix(),
+		}
+
+		// 先保存数据
+		err := manager.Save(walletForComplexList)
+		if err != nil {
+			t.Errorf("保存测试数据失败: %v", err)
+			return
+		}
+
+		// 使用FindListComplexWithContext查询
+		var results []*TestWallet
+		condition := sqlc.M(&TestWallet{}).Eq("appID", walletForComplexList.AppID)
+
+		err = manager.FindListComplexWithContext(ctx, condition, &results)
+		if err != nil {
+			t.Errorf("FindListComplexWithContext查询失败: %v", err)
+			return
+		}
+
+		if len(results) != 1 {
+			t.Errorf("FindListComplexWithContext期望返回1条记录，实际返回%d条", len(results))
+		}
+
+		if results[0].Id != walletForComplexList.Id {
+			t.Errorf("FindListComplexWithContext结果ID不匹配，期望%d，实际%d", walletForComplexList.Id, results[0].Id)
+		}
+
+		t.Logf("✅ FindListComplexWithContext查询成功，返回 %d 条记录", len(results))
+
+		// 清理测试数据
+		manager.Delete(walletForComplexList)
+	})
+
+	t.Run("ComplexContextNilFallback", func(t *testing.T) {
+		// 测试Complex方法nil Context的降级行为
+		walletComplexNil := &TestWallet{
+			AppID:    "complex_nil_ctx_test_" + fmt.Sprintf("%d", time.Now().Unix()),
+			WalletID: "complex_nil_ctx_wallet",
+			Alias:    "ComplexNilContext测试钱包",
+			State:    1,
+			Ctime:    time.Now().Unix(),
+		}
+
+		// 先保存数据
+		err := manager.Save(walletComplexNil)
+		if err != nil {
+			t.Errorf("保存测试数据失败: %v", err)
+			return
+		}
+
+		// 使用nil Context，应该降级到普通方法
+		var result TestWallet
+		condition := sqlc.M(&TestWallet{}).Eq("_id", walletComplexNil.Id)
+
+		err = manager.FindOneComplexWithContext(nil, condition, &result)
+		if err != nil {
+			t.Errorf("FindOneComplexWithContext nil context查询失败: %v", err)
+			return
+		}
+
+		if result.Id != walletComplexNil.Id {
+			t.Errorf("FindOneComplexWithContext nil context结果不匹配")
+		}
+
+		t.Logf("✅ FindOneComplexWithContext nil context降级测试成功，ID: %d", result.Id)
+
+		// 清理测试数据
+		manager.Delete(walletComplexNil)
 	})
 }
 

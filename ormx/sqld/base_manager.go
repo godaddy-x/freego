@@ -170,6 +170,30 @@ type IDBase interface {
 	BuildPagination(cnd *sqlc.Cnd, sql string, values []interface{}) (string, error)
 	// 数据库操作缓存异常
 	Error(data ...interface{}) error
+	// 带上下文超时的保存数据
+	SaveWithContext(ctx context.Context, data ...sqlc.Object) error
+	// 带上下文超时的更新数据
+	UpdateWithContext(ctx context.Context, data ...sqlc.Object) error
+	// 带上下文超时的按条件更新数据
+	UpdateByCndWithContext(ctx context.Context, cnd *sqlc.Cnd) (int64, error)
+	// 带上下文超时的删除数据
+	DeleteWithContext(ctx context.Context, data ...sqlc.Object) error
+	// 带上下文超时的按ID删除数据
+	DeleteByIdWithContext(ctx context.Context, object sqlc.Object, data ...interface{}) (int64, error)
+	// 带上下文超时的按条件删除数据
+	DeleteByCndWithContext(ctx context.Context, cnd *sqlc.Cnd) (int64, error)
+	// 带上下文超时的查询单条数据
+	FindOneWithContext(ctx context.Context, cnd *sqlc.Cnd, data sqlc.Object) error
+	// 带上下文超时的查询数据列表
+	FindListWithContext(ctx context.Context, cnd *sqlc.Cnd, data interface{}) error
+	// 带上下文超时的复杂条件查询单条数据
+	FindOneComplexWithContext(ctx context.Context, cnd *sqlc.Cnd, data sqlc.Object) error
+	// 带上下文超时的复杂条件查询数据列表
+	FindListComplexWithContext(ctx context.Context, cnd *sqlc.Cnd, data interface{}) error
+	// 带上下文超时的统计数据
+	CountWithContext(ctx context.Context, cnd *sqlc.Cnd) (int64, error)
+	// 带上下文超时的检测是否存在
+	ExistsWithContext(ctx context.Context, cnd *sqlc.Cnd) (bool, error)
 }
 
 func (self *DBManager) InitConfig(input interface{}) error {
@@ -266,6 +290,66 @@ func (self *DBManager) Error(data ...interface{}) error {
 	err := utils.Error(data...)
 	self.Errors = append(self.Errors, err)
 	return err
+}
+
+// 带上下文超时的保存数据方法默认实现
+func (self *DBManager) SaveWithContext(ctx context.Context, data ...sqlc.Object) error {
+	return utils.Error("No implementation method [SaveWithContext] was found")
+}
+
+// 带上下文超时的更新数据方法默认实现
+func (self *DBManager) UpdateWithContext(ctx context.Context, data ...sqlc.Object) error {
+	return utils.Error("No implementation method [UpdateWithContext] was found")
+}
+
+// 带上下文超时的按条件更新数据方法默认实现
+func (self *DBManager) UpdateByCndWithContext(ctx context.Context, cnd *sqlc.Cnd) (int64, error) {
+	return 0, utils.Error("No implementation method [UpdateByCndWithContext] was found")
+}
+
+// 带上下文超时的删除数据方法默认实现
+func (self *DBManager) DeleteWithContext(ctx context.Context, data ...sqlc.Object) error {
+	return utils.Error("No implementation method [DeleteWithContext] was found")
+}
+
+// 带上下文超时的按ID删除数据方法默认实现
+func (self *DBManager) DeleteByIdWithContext(ctx context.Context, object sqlc.Object, data ...interface{}) (int64, error) {
+	return 0, utils.Error("No implementation method [DeleteByIdWithContext] was found")
+}
+
+// 带上下文超时的按条件删除数据方法默认实现
+func (self *DBManager) DeleteByCndWithContext(ctx context.Context, cnd *sqlc.Cnd) (int64, error) {
+	return 0, utils.Error("No implementation method [DeleteByCndWithContext] was found")
+}
+
+// 带上下文超时的查询单条数据方法默认实现
+func (self *DBManager) FindOneWithContext(ctx context.Context, cnd *sqlc.Cnd, data sqlc.Object) error {
+	return utils.Error("No implementation method [FindOneWithContext] was found")
+}
+
+// 带上下文超时的查询数据列表方法默认实现
+func (self *DBManager) FindListWithContext(ctx context.Context, cnd *sqlc.Cnd, data interface{}) error {
+	return utils.Error("No implementation method [FindListWithContext] was found")
+}
+
+// 带上下文超时的复杂条件查询单条数据方法默认实现
+func (self *DBManager) FindOneComplexWithContext(ctx context.Context, cnd *sqlc.Cnd, data sqlc.Object) error {
+	return utils.Error("No implementation method [FindOneComplexWithContext] was found")
+}
+
+// 带上下文超时的复杂条件查询数据列表方法默认实现
+func (self *DBManager) FindListComplexWithContext(ctx context.Context, cnd *sqlc.Cnd, data interface{}) error {
+	return utils.Error("No implementation method [FindListComplexWithContext] was found")
+}
+
+// 带上下文超时的统计数据方法默认实现
+func (self *DBManager) CountWithContext(ctx context.Context, cnd *sqlc.Cnd) (int64, error) {
+	return 0, utils.Error("No implementation method [CountWithContext] was found")
+}
+
+// 带上下文超时的检测是否存在方法默认实现
+func (self *DBManager) ExistsWithContext(ctx context.Context, cnd *sqlc.Cnd) (bool, error) {
+	return false, utils.Error("No implementation method [ExistsWithContext] was found")
 }
 
 /********************************** 关系数据库ORM默认实现 -> MySQL(如需实现其他类型数据库则自行实现IDBase接口) **********************************/
