@@ -12,6 +12,7 @@ import (
 
 // setMongoValue 直接将BSON值赋值给对象字段（避免反射）
 func setMongoValue(obj interface{}, elem *FieldElem, bsonValue bson.RawValue) error {
+	// 获取字段指针（基于偏移量的安全访问）
 	ptr := utils.GetPtr(obj, elem.FieldOffset)
 
 	// 特殊处理：[]uint8类型在MongoDB中保存为Binary，不是Array
@@ -109,16 +110,16 @@ func setMongoValue(obj interface{}, elem *FieldElem, bsonValue bson.RawValue) er
 				utils.SetTime(ptr, t)
 			}
 		case "decimal.Decimal":
-			// MongoDB decimal128 type or string representation
-			if str, ok := bsonValue.StringValueOK(); ok {
-				if len(str) == 0 {
-					str = "0"
-				}
-				// For decimal.Decimal, we need to use reflection as it's a complex struct
-				// This is a simplified implementation
-				if decimalType := reflect.TypeOf((*interface{ SetString(string) })(nil)).Elem(); decimalType.Kind() == reflect.Interface {
-					// If the field implements SetString interface, use it
-					// This is a placeholder - actual implementation would depend on the decimal library used
+			// decimal.Decimal is a complex struct, we need to use reflection
+			fieldVal := reflect.ValueOf(obj).Elem().FieldByName(elem.FieldName)
+			if fieldVal.IsValid() && fieldVal.CanSet() {
+				// Try to call SetString method if it exists
+				setStringMethod := fieldVal.MethodByName("SetString")
+				if setStringMethod.IsValid() {
+					// Call SetString(str) via reflection
+					if str, ok := bsonValue.StringValueOK(); ok {
+						setStringMethod.Call([]reflect.Value{reflect.ValueOf(str)})
+					}
 				}
 			}
 		}
@@ -270,7 +271,7 @@ func setMongoValue(obj interface{}, elem *FieldElem, bsonValue bson.RawValue) er
 	return nil
 }
 
-// parseBsonArray 泛型函数，用于解析BSON数组并转换为Go切片
+// parseBsonArray 泛型解析BSON数组（严格处理错误）
 func parseBsonArray[T any](arr bson.Raw, converter func(bson.RawValue) (T, error)) ([]T, error) {
 	elements, err := arr.Elements()
 	if err != nil {
@@ -278,10 +279,12 @@ func parseBsonArray[T any](arr bson.Raw, converter func(bson.RawValue) (T, error
 	}
 
 	result := make([]T, 0, len(elements))
-	for _, element := range elements {
-		if value, err := converter(element.Value()); err == nil {
-			result = append(result, value)
+	for i, elem := range elements {
+		val, err := converter(elem.Value())
+		if err != nil {
+			return nil, fmt.Errorf("array element %d: %v", i, err)
 		}
+		result = append(result, val)
 	}
 	return result, nil
 }
