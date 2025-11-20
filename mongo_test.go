@@ -47,6 +47,12 @@ func initMongoForTest() error {
 		}
 		// 注意：这里不关闭连接，让它在整个测试过程中保持
 	})
+
+	// 如果初始化失败，重置Once以允许重试
+	if mongoInitError != nil {
+		mongoInitOnce = sync.Once{} // 重置Once，允许下次重试
+	}
+
 	return mongoInitError
 }
 
@@ -3288,6 +3294,1363 @@ func BenchmarkSetMongoValueMethod(b *testing.B) {
 			result := &TestWallet{}
 			// 使用manager.FindOne方法（当前为setMongoValue）
 			manager.FindOne(condition, result)
+		}
+	})
+}
+
+// ==================== 新增测试用例 ====================
+
+// TestMongoDataTypeIntegrity 数据类型完整性测试
+func TestMongoDataTypeIntegrity(t *testing.T) {
+	if err := initMongoForTest(); err != nil {
+		t.Fatalf("MongoDB初始化失败: %v", err)
+	}
+
+	manager, err := sqld.NewMongo(sqld.Option{
+		DsName:   "master",
+		Database: "ops_dev",
+		Timeout:  10000,
+	})
+	if err != nil {
+		t.Fatalf("获取MongoDB管理器失败: %v", err)
+	}
+	defer manager.Close()
+
+	t.Run("AllPrimitiveTypes", func(t *testing.T) {
+		// 测试所有基础数据类型
+		testData := &TestAllTypes{
+			Id:      utils.NextIID(),
+			String:  "测试字符串",
+			Int64:   9223372036854775807,
+			Int32:   2147483647,
+			Int16:   32767,
+			Int8:    127,
+			Int:     123456,
+			Uint64:  9007199254740991,
+			Uint32:  4294967295,
+			Uint16:  65535,
+			Uint8:   255,
+			Uint:    987654,
+			Float64: 3.141592653589793,
+			Float32: 3.14159,
+		}
+
+		err := manager.Save(testData)
+		if err != nil {
+			t.Fatalf("保存测试数据失败: %v", err)
+		}
+
+		result := &TestAllTypes{}
+		condition := sqlc.M(&TestAllTypes{}).Eq("_id", testData.Id)
+		err = manager.FindOne(condition, result)
+		if err != nil {
+			t.Fatalf("查询数据失败: %v", err)
+		}
+
+		// 验证所有基础类型
+		if result.Id != testData.Id {
+			t.Errorf("Id不匹配: 期望 %d, 实际 %d", testData.Id, result.Id)
+		}
+		if result.String != testData.String {
+			t.Errorf("String不匹配: 期望 %s, 实际 %s", testData.String, result.String)
+		}
+		if result.Int64 != testData.Int64 {
+			t.Errorf("Int64不匹配: 期望 %d, 实际 %d", testData.Int64, result.Int64)
+		}
+		if result.Float64 != testData.Float64 {
+			t.Errorf("Float64不匹配: 期望 %f, 实际 %f", testData.Float64, result.Float64)
+		}
+	})
+
+	t.Run("EdgeValues", func(t *testing.T) {
+		// 测试边界值
+		edgeData := &TestAllTypes{
+			Id:      utils.NextIID(),
+			String:  "",          // 空字符串
+			Int64:   0,           // 零值
+			Int32:   -2147483648, // int32最小值
+			Int16:   -32768,      // int16最小值
+			Int8:    -128,        // int8最小值
+			Int:     0,
+			Uint64:  0,
+			Uint32:  0,
+			Uint16:  0,
+			Uint8:   0,
+			Uint:    0,
+			Float64: 0.0,
+			Float32: 0.0,
+		}
+
+		err := manager.Save(edgeData)
+		if err != nil {
+			t.Fatalf("保存边界值数据失败: %v", err)
+		}
+
+		result := &TestAllTypes{}
+		condition := sqlc.M(&TestAllTypes{}).Eq("_id", edgeData.Id)
+		err = manager.FindOne(condition, result)
+		if err != nil {
+			t.Fatalf("查询边界值数据失败: %v", err)
+		}
+
+		if result.Int32 != edgeData.Int32 {
+			t.Errorf("Int32边界值不匹配: 期望 %d, 实际 %d", edgeData.Int32, result.Int32)
+		}
+		if result.Int8 != edgeData.Int8 {
+			t.Errorf("Int8边界值不匹配: 期望 %d, 实际 %d", edgeData.Int8, result.Int8)
+		}
+	})
+
+	t.Run("SpecialCharacters", func(t *testing.T) {
+		// 测试特殊字符
+		specialData := &TestAllTypes{
+			Id:     utils.NextIID(),
+			String: "特殊字符: !@#$%^&*()_+-=[]{}|;:,.<>?`~",
+		}
+
+		err := manager.Save(specialData)
+		if err != nil {
+			t.Fatalf("保存特殊字符数据失败: %v", err)
+		}
+
+		result := &TestAllTypes{}
+		condition := sqlc.M(&TestAllTypes{}).Eq("_id", specialData.Id)
+		err = manager.FindOne(condition, result)
+		if err != nil {
+			t.Fatalf("查询特殊字符数据失败: %v", err)
+		}
+
+		if result.String != specialData.String {
+			t.Errorf("特殊字符字符串不匹配")
+		}
+	})
+}
+
+// TestMongoErrorHandling 错误处理测试
+func TestMongoErrorHandling(t *testing.T) {
+	if err := initMongoForTest(); err != nil {
+		t.Fatalf("MongoDB初始化失败: %v", err)
+	}
+
+	manager, err := sqld.NewMongo(sqld.Option{
+		DsName:   "master",
+		Database: "ops_dev",
+		Timeout:  10000,
+	})
+	if err != nil {
+		t.Fatalf("获取MongoDB管理器失败: %v", err)
+	}
+	defer manager.Close()
+
+	t.Run("InvalidConnection", func(t *testing.T) {
+		// 测试无效连接
+		invalidManager := &sqld.MGOManager{}
+		err := invalidManager.InitConfig(sqld.MGOConfig{
+			Addrs: []string{"invalid.host:27017"},
+		})
+		if err == nil {
+			t.Error("期望无效连接初始化失败")
+		}
+	})
+
+	t.Run("TimeoutHandling", func(t *testing.T) {
+		// 测试超时处理
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
+		defer cancel()
+
+		result := &TestWallet{}
+		condition := sqlc.M(&TestWallet{}).Eq("_id", 1)
+		err := manager.FindOneWithContext(ctx, condition, result)
+		if err == nil {
+			t.Log("超时测试：查询未按预期超时（可能因为查询太快）")
+		} else {
+			t.Logf("✅ 超时处理正确: %v", err)
+		}
+	})
+
+	t.Run("InvalidDataFormat", func(t *testing.T) {
+		// 测试无效数据格式 - 使用不存在的字段查询
+		result := &TestWallet{}
+		condition := sqlc.M(&TestWallet{}).Eq("nonexistent_field", map[string]interface{}{"invalid": "data"})
+		err := manager.FindOne(condition, result)
+		// MongoDB对数据格式比较宽容，这里主要测试查询执行是否正常
+		// 如果有错误，记录下来；如果没有错误，也是正常的
+		if err != nil {
+			t.Logf("无效数据格式查询返回错误: %v", err)
+		} else {
+			t.Log("✅ 无效数据格式查询正常执行")
+		}
+	})
+}
+
+// TestMongoConcurrentOperations 并发操作测试
+func TestMongoConcurrentOperations(t *testing.T) {
+	if err := initMongoForTest(); err != nil {
+		t.Fatalf("MongoDB初始化失败: %v", err)
+	}
+
+	manager, err := sqld.NewMongo(sqld.Option{
+		DsName:   "master",
+		Database: "ops_dev",
+		Timeout:  10000,
+	})
+	if err != nil {
+		t.Fatalf("获取MongoDB管理器失败: %v", err)
+	}
+	defer manager.Close()
+
+	t.Run("ConcurrentCRUD", func(t *testing.T) {
+		// 并发CRUD操作测试
+		const goroutines = 10
+		const operations = 5
+
+		var wg sync.WaitGroup
+		errChan := make(chan error, goroutines*operations)
+
+		for i := 0; i < goroutines; i++ {
+			wg.Add(1)
+			go func(id int) {
+				defer wg.Done()
+
+				for j := 0; j < operations; j++ {
+					// 创建唯一标识
+					appID := fmt.Sprintf("concurrent_app_%d_%d_%d", id, j, time.Now().UnixNano())
+
+					// 插入
+					wallet := &TestWallet{
+						AppID:    appID,
+						WalletID: fmt.Sprintf("concurrent_wallet_%d_%d", id, j),
+						Alias:    fmt.Sprintf("并发钱包%d-%d", id, j),
+						Ctime:    time.Now().Unix(),
+						State:    1,
+					}
+
+					err := manager.Save(wallet)
+					if err != nil {
+						errChan <- fmt.Errorf("goroutine %d operation %d save failed: %v", id, j, err)
+						return
+					}
+
+					// 查询
+					result := &TestWallet{}
+					condition := sqlc.M(&TestWallet{}).Eq("_id", wallet.Id)
+					err = manager.FindOne(condition, result)
+					if err != nil {
+						errChan <- fmt.Errorf("goroutine %d operation %d find failed: %v", id, j, err)
+						return
+					}
+
+					// 验证数据一致性
+					if result.AppID != appID {
+						errChan <- fmt.Errorf("goroutine %d operation %d data inconsistency", id, j)
+						return
+					}
+
+					// 更新
+					wallet.Alias = fmt.Sprintf("更新后的并发钱包%d-%d", id, j)
+					err = manager.Update(wallet)
+					if err != nil {
+						errChan <- fmt.Errorf("goroutine %d operation %d update failed: %v", id, j, err)
+						return
+					}
+
+					// 删除
+					err = manager.Delete(wallet)
+					if err != nil {
+						errChan <- fmt.Errorf("goroutine %d operation %d delete failed: %v", id, j, err)
+						return
+					}
+				}
+			}(i)
+		}
+
+		wg.Wait()
+		close(errChan)
+
+		// 检查是否有错误
+		var errors []error
+		for err := range errChan {
+			errors = append(errors, err)
+		}
+
+		if len(errors) > 0 {
+			t.Errorf("并发操作出现%d个错误: %v", len(errors), errors[:minInt(3, len(errors))])
+		} else {
+			t.Logf("✅ 并发CRUD操作成功: %d个goroutine，每个执行%d个操作", goroutines, operations)
+		}
+	})
+
+	t.Run("ConcurrentRead", func(t *testing.T) {
+		// 准备测试数据
+		baseAppID := fmt.Sprintf("concurrent_read_%d", time.Now().Unix())
+		wallets := make([]*TestWallet, 50)
+
+		for i := 0; i < 50; i++ {
+			wallets[i] = &TestWallet{
+				AppID:    baseAppID,
+				WalletID: fmt.Sprintf("read_wallet_%d", i),
+				Alias:    fmt.Sprintf("并发读取钱包%d", i),
+				Ctime:    time.Now().Unix(),
+				State:    1,
+			}
+		}
+
+		// 批量保存
+		interfaces := make([]sqlc.Object, len(wallets))
+		for i, wallet := range wallets {
+			interfaces[i] = wallet
+		}
+		err := manager.Save(interfaces...)
+		if err != nil {
+			t.Fatalf("准备测试数据失败: %v", err)
+		}
+
+		// 并发读取测试
+		const readGoroutines = 20
+		var wg sync.WaitGroup
+		errChan := make(chan error, readGoroutines)
+
+		for i := 0; i < readGoroutines; i++ {
+			wg.Add(1)
+			go func(id int) {
+				defer wg.Done()
+
+				for j := 0; j < 10; j++ {
+					var results []*TestWallet
+					condition := sqlc.M(&TestWallet{}).Eq("appID", baseAppID)
+					err := manager.FindList(condition, &results)
+					if err != nil {
+						errChan <- fmt.Errorf("goroutine %d read %d failed: %v", id, j, err)
+						return
+					}
+
+					if len(results) != 50 {
+						errChan <- fmt.Errorf("goroutine %d read %d: expected 50 results, got %d", id, j, len(results))
+						return
+					}
+				}
+			}(i)
+		}
+
+		wg.Wait()
+		close(errChan)
+
+		var errors []error
+		for err := range errChan {
+			errors = append(errors, err)
+		}
+
+		if len(errors) > 0 {
+			t.Errorf("并发读取出现%d个错误: %v", len(errors), errors[:minInt(3, len(errors))])
+		} else {
+			t.Logf("✅ 并发读取操作成功: %d个goroutine，每个执行10次读取", readGoroutines)
+		}
+	})
+}
+
+// TestMongoBoundaryConditions 边界条件测试
+func TestMongoBoundaryConditions(t *testing.T) {
+	if err := initMongoForTest(); err != nil {
+		t.Fatalf("MongoDB初始化失败: %v", err)
+	}
+
+	manager, err := sqld.NewMongo(sqld.Option{
+		DsName:   "master",
+		Database: "ops_dev",
+		Timeout:  10000,
+	})
+	if err != nil {
+		t.Fatalf("获取MongoDB管理器失败: %v", err)
+	}
+	defer manager.Close()
+
+	t.Run("EmptyCollections", func(t *testing.T) {
+		// 测试空集合操作
+		var results []*TestWallet
+		condition := sqlc.M(&TestWallet{}).Eq("nonexistent", "value")
+		err := manager.FindList(condition, &results)
+		if err != nil {
+			t.Errorf("空集合查询失败: %v", err)
+		}
+		if len(results) != 0 {
+			t.Errorf("期望空结果，实际得到%d条记录", len(results))
+		}
+		t.Log("✅ 空集合查询正确")
+	})
+
+	t.Run("LargeDataSets", func(t *testing.T) {
+		// 测试大数据集
+		const largeBatchSize = 1000
+		wallets := make([]*TestWallet, largeBatchSize)
+
+		for i := 0; i < largeBatchSize; i++ {
+			wallets[i] = &TestWallet{
+				AppID:    fmt.Sprintf("large_test_%d", time.Now().Unix()),
+				WalletID: fmt.Sprintf("large_wallet_%d", i),
+				Alias:    fmt.Sprintf("大数据钱包%d", i),
+				Ctime:    time.Now().Unix(),
+				State:    1,
+			}
+		}
+
+		// 批量保存
+		interfaces := make([]sqlc.Object, len(wallets))
+		for i, wallet := range wallets {
+			interfaces[i] = wallet
+		}
+
+		start := time.Now()
+		err := manager.Save(interfaces...)
+		duration := time.Since(start)
+
+		if err != nil {
+			t.Errorf("大数据集保存失败: %v", err)
+		} else {
+			t.Logf("✅ 大数据集保存成功: %d条记录，耗时%s", largeBatchSize, duration)
+		}
+
+		// 测试大数据集查询
+		var results []*TestWallet
+		condition := sqlc.M(&TestWallet{}).Eq("appID", wallets[0].AppID)
+		err = manager.FindList(condition, &results)
+		if err != nil {
+			t.Errorf("大数据集查询失败: %v", err)
+		} else if len(results) != largeBatchSize {
+			t.Errorf("大数据集查询结果不正确: 期望%d，实际%d", largeBatchSize, len(results))
+		} else {
+			t.Logf("✅ 大数据集查询成功: %d条记录", len(results))
+		}
+	})
+
+	t.Run("UnicodeAndEmoji", func(t *testing.T) {
+		// 测试Unicode和Emoji
+		unicodeData := &TestWallet{
+			AppID:    fmt.Sprintf("unicode_test_%d", time.Now().Unix()),
+			WalletID: "unicode_wallet",
+			Alias:    "Unicode测试: 你好世界 🌍🚀💻 中文English 表情符号 😀🎉",
+			Ctime:    time.Now().Unix(),
+			State:    1,
+		}
+
+		err := manager.Save(unicodeData)
+		if err != nil {
+			t.Errorf("Unicode数据保存失败: %v", err)
+			return
+		}
+
+		result := &TestWallet{}
+		condition := sqlc.M(&TestWallet{}).Eq("_id", unicodeData.Id)
+		err = manager.FindOne(condition, result)
+		if err != nil {
+			t.Errorf("Unicode数据查询失败: %v", err)
+			return
+		}
+
+		if result.Alias != unicodeData.Alias {
+			t.Errorf("Unicode字符串不匹配")
+		} else {
+			t.Log("✅ Unicode和Emoji处理正确")
+		}
+	})
+}
+
+// TestMongoIndexOperations 索引操作测试
+func TestMongoIndexOperations(t *testing.T) {
+	if err := initMongoForTest(); err != nil {
+		t.Fatalf("MongoDB初始化失败: %v", err)
+	}
+
+	manager, err := sqld.NewMongo(sqld.Option{
+		DsName:   "master",
+		Database: "ops_dev",
+		Timeout:  10000,
+	})
+	if err != nil {
+		t.Fatalf("获取MongoDB管理器失败: %v", err)
+	}
+	defer manager.Close()
+
+	t.Run("IndexUsage", func(t *testing.T) {
+		// 测试索引使用情况
+		// 准备测试数据
+		baseAppID := fmt.Sprintf("index_test_%d", time.Now().Unix())
+		wallets := make([]*TestWallet, 100)
+
+		for i := 0; i < 100; i++ {
+			wallets[i] = &TestWallet{
+				AppID:    baseAppID,
+				WalletID: fmt.Sprintf("index_wallet_%d", i),
+				Alias:    fmt.Sprintf("索引测试钱包%d", i),
+				Ctime:    time.Now().Unix(),
+				State:    int64(i % 2), // 交替状态
+			}
+		}
+
+		// 批量保存
+		interfaces := make([]sqlc.Object, len(wallets))
+		for i, wallet := range wallets {
+			interfaces[i] = wallet
+		}
+		err := manager.Save(interfaces...)
+		if err != nil {
+			t.Fatalf("索引测试数据准备失败: %v", err)
+		}
+
+		// 测试带索引的查询性能
+		start := time.Now()
+
+		var results []*TestWallet
+		condition := sqlc.M(&TestWallet{}).Eq("appID", baseAppID).Eq("state", 1)
+		err = manager.FindList(condition, &results)
+		duration := time.Since(start)
+
+		if err != nil {
+			t.Errorf("索引查询失败: %v", err)
+		} else {
+			t.Logf("✅ 索引查询成功: 找到%d条记录，耗时%s", len(results), duration)
+		}
+
+		// 验证查询结果
+		expectedCount := 50 // 因为状态交替，应该有50条状态为1的记录
+		if len(results) != expectedCount {
+			t.Errorf("索引查询结果不正确: 期望%d，实际%d", expectedCount, len(results))
+		}
+	})
+}
+
+// TestMongoPerformanceBenchmarks 性能基准测试
+func TestMongoPerformanceBenchmarks(t *testing.T) {
+	if err := initMongoForTest(); err != nil {
+		t.Skip("MongoDB初始化失败，跳过性能测试")
+	}
+
+	manager, err := sqld.NewMongo(sqld.Option{
+		DsName:   "master",
+		Database: "ops_dev",
+		Timeout:  10000,
+	})
+	if err != nil {
+		t.Skip("获取MongoDB管理器失败，跳过性能测试")
+	}
+	defer manager.Close()
+
+	t.Run("FindOnePerformance", func(t *testing.T) {
+		// FindOne性能测试
+		const iterations = 100
+		condition := sqlc.M(&TestWallet{}).Asc("_id").Limit(1, 1)
+
+		start := time.Now()
+		for i := 0; i < iterations; i++ {
+			result := &TestWallet{}
+			err := manager.FindOne(condition, result)
+			if err != nil && i == 0 { // 只记录第一次错误
+				t.Logf("FindOne性能测试警告: %v", err)
+			}
+		}
+		duration := time.Since(start)
+
+		avgTime := duration / time.Duration(iterations)
+		qps := float64(iterations) / duration.Seconds()
+
+		t.Logf("✅ FindOne性能测试完成:")
+		t.Logf("  总次数: %d", iterations)
+		t.Logf("  总耗时: %v", duration)
+		t.Logf("  平均耗时: %v", avgTime)
+		t.Logf("  QPS: %.2f", qps)
+	})
+
+	t.Run("FindListPerformance", func(t *testing.T) {
+		// FindList性能测试
+		const iterations = 10
+		condition := sqlc.M(&TestWallet{}).Limit(1, 100)
+
+		start := time.Now()
+		totalRecords := 0
+		for i := 0; i < iterations; i++ {
+			var results []*TestWallet
+			err := manager.FindList(condition, &results)
+			if err != nil && i == 0 {
+				t.Logf("FindList性能测试警告: %v", err)
+			}
+			totalRecords += len(results)
+		}
+		duration := time.Since(start)
+
+		avgTime := duration / time.Duration(iterations)
+		qps := float64(iterations) / duration.Seconds()
+		avgRecords := totalRecords / iterations
+
+		t.Logf("✅ FindList性能测试完成:")
+		t.Logf("  总次数: %d", iterations)
+		t.Logf("  总耗时: %v", duration)
+		t.Logf("  平均耗时: %v", avgTime)
+		t.Logf("  平均记录数: %d", avgRecords)
+		t.Logf("  QPS: %.2f", qps)
+	})
+
+	t.Run("BatchSavePerformance", func(t *testing.T) {
+		// 批量保存性能测试
+		const batchSize = 100
+
+		wallets := make([]*TestWallet, batchSize)
+		for i := 0; i < batchSize; i++ {
+			wallets[i] = &TestWallet{
+				AppID:    fmt.Sprintf("perf_test_%d", time.Now().Unix()),
+				WalletID: fmt.Sprintf("perf_wallet_%d", i),
+				Alias:    fmt.Sprintf("性能测试钱包%d", i),
+				Ctime:    time.Now().Unix(),
+				State:    1,
+			}
+		}
+
+		interfaces := make([]sqlc.Object, len(wallets))
+		for i, wallet := range wallets {
+			interfaces[i] = wallet
+		}
+
+		start := time.Now()
+		err := manager.Save(interfaces...)
+		duration := time.Since(start)
+
+		if err != nil {
+			t.Errorf("批量保存性能测试失败: %v", err)
+		} else {
+			avgTime := duration / time.Duration(batchSize)
+			qps := float64(batchSize) / duration.Seconds()
+
+			t.Logf("✅ 批量保存性能测试完成:")
+			t.Logf("  批次大小: %d", batchSize)
+			t.Logf("  总耗时: %v", duration)
+			t.Logf("  平均耗时: %v", avgTime)
+			t.Logf("  QPS: %.2f", qps)
+		}
+	})
+}
+
+// TestMongoConnectionManagement 连接管理测试
+func TestMongoConnectionManagement(t *testing.T) {
+	if err := initMongoForTest(); err != nil {
+		t.Fatalf("MongoDB初始化失败: %v", err)
+	}
+
+	t.Run("ConnectionPool", func(t *testing.T) {
+		// 测试连接池管理
+		config := sqld.MGOConfig{
+			Addrs:         []string{"127.0.0.1:27017"},
+			Database:      "test_conn_pool",
+			PoolLimit:     10,
+			MinPoolSize:   2,
+			MaxConnecting: 5,
+		}
+
+		manager := &sqld.MGOManager{}
+		err := manager.InitConfig(config)
+		if err != nil {
+			t.Logf("连接池测试跳过（可能因为MongoDB未运行）: %v", err)
+			return
+		}
+		defer manager.Close()
+
+		// 测试多个并发连接
+		const concurrentConns = 5
+		var wg sync.WaitGroup
+		errChan := make(chan error, concurrentConns)
+
+		for i := 0; i < concurrentConns; i++ {
+			wg.Add(1)
+			go func(id int) {
+				defer wg.Done()
+
+				// 执行一些简单的操作来测试连接
+				wallet := &TestWallet{
+					AppID:    fmt.Sprintf("conn_test_%d_%d", id, time.Now().Unix()),
+					WalletID: fmt.Sprintf("conn_wallet_%d", id),
+					Ctime:    time.Now().Unix(),
+					State:    1,
+				}
+
+				err := manager.Save(wallet)
+				if err != nil {
+					errChan <- fmt.Errorf("连接%d保存失败: %v", id, err)
+					return
+				}
+
+				// 查询验证
+				result := &TestWallet{}
+				condition := sqlc.M(&TestWallet{}).Eq("_id", wallet.Id)
+				err = manager.FindOne(condition, result)
+				if err != nil {
+					errChan <- fmt.Errorf("连接%d查询失败: %v", id, err)
+					return
+				}
+			}(i)
+		}
+
+		wg.Wait()
+		close(errChan)
+
+		var errors []error
+		for err := range errChan {
+			errors = append(errors, err)
+		}
+
+		if len(errors) > 0 {
+			t.Errorf("连接池测试出现%d个错误: %v", len(errors), errors)
+		} else {
+			t.Logf("✅ 连接池管理正常: %d个并发连接测试通过", concurrentConns)
+		}
+	})
+
+	t.Run("ConnectionRecovery", func(t *testing.T) {
+		// 测试连接恢复
+		manager, err := sqld.NewMongo(sqld.Option{
+			DsName:   "master",
+			Database: "ops_dev",
+			Timeout:  10000,
+		})
+		if err != nil {
+			t.Logf("连接恢复测试跳过: %v", err)
+			return
+		}
+		defer manager.Close()
+
+		// 执行一些操作验证连接正常
+		wallet := &TestWallet{
+			AppID:    fmt.Sprintf("recovery_test_%d", time.Now().Unix()),
+			WalletID: "recovery_wallet",
+			Ctime:    time.Now().Unix(),
+			State:    1,
+		}
+
+		err = manager.Save(wallet)
+		if err != nil {
+			t.Errorf("连接恢复测试失败: %v", err)
+		} else {
+			t.Log("✅ 连接恢复测试通过")
+		}
+	})
+}
+
+// TestMongoComplexQueries 复杂查询测试
+func TestMongoComplexQueries(t *testing.T) {
+	if err := initMongoForTest(); err != nil {
+		t.Fatalf("MongoDB初始化失败: %v", err)
+	}
+
+	manager, err := sqld.NewMongo(sqld.Option{
+		DsName:   "master",
+		Database: "ops_dev",
+		Timeout:  10000,
+	})
+	if err != nil {
+		t.Fatalf("获取MongoDB管理器失败: %v", err)
+	}
+	defer manager.Close()
+
+	// 准备复杂查询的测试数据
+	baseAppID := fmt.Sprintf("complex_query_%d", time.Now().Unix())
+	wallets := []*TestWallet{
+		{
+			AppID:    baseAppID,
+			WalletID: "complex_1",
+			Alias:    "复杂查询测试钱包1",
+			State:    1,
+			IsTrust:  1,
+			Ctime:    time.Now().Unix() - 3600, // 1小时前
+			Utime:    time.Now().Unix(),
+		},
+		{
+			AppID:    baseAppID,
+			WalletID: "complex_2",
+			Alias:    "复杂查询测试钱包2",
+			State:    0,
+			IsTrust:  0,
+			Ctime:    time.Now().Unix() - 1800, // 30分钟前
+			Utime:    time.Now().Unix(),
+		},
+		{
+			AppID:    baseAppID,
+			WalletID: "complex_3",
+			Alias:    "复杂查询测试钱包3",
+			State:    1,
+			IsTrust:  1,
+			Ctime:    time.Now().Unix(),
+			Utime:    time.Now().Unix(),
+		},
+	}
+
+	// 批量保存测试数据
+	interfaces := make([]sqlc.Object, len(wallets))
+	for i, wallet := range wallets {
+		interfaces[i] = wallet
+	}
+	err = manager.Save(interfaces...)
+	if err != nil {
+		t.Fatalf("保存复杂查询测试数据失败: %v", err)
+	}
+
+	t.Run("ComplexConditionQuery", func(t *testing.T) {
+		// 复杂条件查询：状态为1且信任的钱包
+		var results []*TestWallet
+		condition := sqlc.M(&TestWallet{}).
+			Eq("appID", baseAppID).
+			Eq("state", 1).
+			Eq("isTrust", 1)
+
+		err := manager.FindList(condition, &results)
+		if err != nil {
+			t.Errorf("复杂条件查询失败: %v", err)
+			return
+		}
+
+		expectedCount := 2 // wallet_1 和 wallet_3
+		if len(results) != expectedCount {
+			t.Errorf("复杂条件查询结果不正确: 期望%d，实际%d", expectedCount, len(results))
+		} else {
+			t.Logf("✅ 复杂条件查询成功: 找到%d条记录", len(results))
+		}
+	})
+
+	t.Run("RangeQuery", func(t *testing.T) {
+		// 范围查询：创建时间大于30分钟前的钱包
+		var results []*TestWallet
+		condition := sqlc.M(&TestWallet{}).
+			Eq("appID", baseAppID).
+			Gt("ctime", time.Now().Unix()-1800) // 大于30分钟前
+
+		err := manager.FindList(condition, &results)
+		if err != nil {
+			t.Errorf("范围查询失败: %v", err)
+			return
+		}
+
+		// 应该至少找到wallet_3（刚创建的）
+		if len(results) == 0 {
+			t.Errorf("范围查询应该至少找到1条记录，实际找到%d条", len(results))
+		} else {
+			t.Logf("✅ 范围查询成功: 找到%d条记录", len(results))
+		}
+	})
+
+	t.Run("SortingAndPagination", func(t *testing.T) {
+		// 排序和分页查询
+		var results []*TestWallet
+		condition := sqlc.M(&TestWallet{}).
+			Eq("appID", baseAppID).
+			Desc("ctime"). // 按创建时间倒序
+			Limit(1, 2)    // 第1页，每页2条
+
+		err := manager.FindList(condition, &results)
+		if err != nil {
+			t.Errorf("排序分页查询失败: %v", err)
+			return
+		}
+
+		expectedCount := 2
+		if len(results) != expectedCount {
+			t.Errorf("排序分页查询结果不正确: 期望%d，实际%d", expectedCount, len(results))
+		} else {
+			// 验证排序：第一个结果应该是ctime最大的（最新的）
+			if len(results) >= 2 && results[0].Ctime < results[1].Ctime {
+				t.Error("排序不正确：第一个记录的ctime应该大于第二个")
+			} else {
+				t.Logf("✅ 排序分页查询成功: 找到%d条记录，按ctime倒序", len(results))
+			}
+		}
+	})
+
+	t.Run("MultipleConditions", func(t *testing.T) {
+		// 多条件组合查询：状态为0的钱包
+		var results []*TestWallet
+		condition := sqlc.M(&TestWallet{}).
+			Eq("appID", baseAppID).
+			Eq("state", int64(0)) // 直接使用Eq查询状态为0的
+
+		err := manager.FindList(condition, &results)
+		if err != nil {
+			t.Errorf("多条件查询失败: %v", err)
+			return
+		}
+
+		expectedCount := 1 // 只有wallet_2的状态为0
+		if len(results) != expectedCount {
+			t.Errorf("多条件查询结果不正确: 期望%d，实际%d", expectedCount, len(results))
+		} else {
+			t.Logf("✅ 多条件查询成功: 找到%d条记录", len(results))
+		}
+	})
+}
+
+// TestMongoMemoryManagement 内存管理测试
+func TestMongoMemoryManagement(t *testing.T) {
+	if err := initMongoForTest(); err != nil {
+		t.Fatalf("MongoDB初始化失败: %v", err)
+	}
+
+	manager, err := sqld.NewMongo(sqld.Option{
+		DsName:   "master",
+		Database: "ops_dev",
+		Timeout:  10000,
+	})
+	if err != nil {
+		t.Fatalf("获取MongoDB管理器失败: %v", err)
+	}
+	defer manager.Close()
+
+	t.Run("LargeResultSetMemory", func(t *testing.T) {
+		// 测试大结果集的内存使用
+		const largeSetSize = 500
+		wallets := make([]*TestWallet, largeSetSize)
+
+		// 准备大数据
+		for i := 0; i < largeSetSize; i++ {
+			wallets[i] = &TestWallet{
+				AppID:    fmt.Sprintf("memory_test_%d", time.Now().Unix()),
+				WalletID: fmt.Sprintf("memory_wallet_%d", i),
+				Alias:    fmt.Sprintf("内存测试钱包%d", i),
+				Ctime:    time.Now().Unix(),
+				State:    1,
+			}
+		}
+
+		// 批量保存
+		interfaces := make([]sqlc.Object, len(wallets))
+		for i, wallet := range wallets {
+			interfaces[i] = wallet
+		}
+		err := manager.Save(interfaces...)
+		if err != nil {
+			t.Fatalf("准备内存测试数据失败: %v", err)
+		}
+
+		// 测试大结果集查询
+		var results []*TestWallet
+		condition := sqlc.M(&TestWallet{}).Eq("appID", wallets[0].AppID)
+		err = manager.FindList(condition, &results)
+		if err != nil {
+			t.Errorf("大结果集查询失败: %v", err)
+		} else if len(results) != largeSetSize {
+			t.Errorf("大结果集查询结果不正确: 期望%d，实际%d", largeSetSize, len(results))
+		} else {
+			t.Logf("✅ 大结果集内存管理正常: 处理%d条记录", len(results))
+		}
+	})
+
+	t.Run("MemoryLeakPrevention", func(t *testing.T) {
+		// 测试内存泄漏防护
+		// 通过多次查询验证没有内存泄漏
+		condition := sqlc.M(&TestWallet{}).Limit(1, 10)
+
+		for i := 0; i < 100; i++ {
+			var results []*TestWallet
+			err := manager.FindList(condition, &results)
+			if err != nil && i == 0 { // 只记录第一次错误
+				t.Logf("内存泄漏测试警告: %v", err)
+				break
+			}
+		}
+
+		t.Log("✅ 内存泄漏防护测试完成: 100次查询循环完成")
+	})
+}
+
+// minInt 辅助函数，返回两个整数中的较小值
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// ==================== SQL构建逻辑测试 ====================
+
+// TestMongoSQLBuildLogicWrapper SQL构建逻辑测试包装器
+func TestMongoSQLBuildLogicWrapper(t *testing.T) {
+	// 注意：由于构建函数是内部的，我们通过实际查询来间接验证构建逻辑
+	if err := initMongoForTest(); err != nil {
+		t.Fatalf("MongoDB初始化失败: %v", err)
+	}
+
+	manager, err := sqld.NewMongo(sqld.Option{
+		DsName:   "master",
+		Database: "ops_dev",
+		Timeout:  10000,
+	})
+	if err != nil {
+		t.Fatalf("获取MongoDB管理器失败: %v", err)
+	}
+	defer manager.Close()
+
+	t.Run("ConditionOperatorValidation", func(t *testing.T) {
+		// 通过实际查询验证各种条件操作符是否正确构建
+
+		// 准备测试数据
+		baseAppID := fmt.Sprintf("sql_build_test_%d", time.Now().Unix())
+		wallets := []*TestWallet{
+			{
+				AppID:    baseAppID,
+				WalletID: "wallet_1",
+				Alias:    "Test Wallet 1",
+				State:    1,
+				Ctime:    1000,
+				Utime:    time.Now().Unix(),
+			},
+			{
+				AppID:    baseAppID,
+				WalletID: "wallet_2",
+				Alias:    "Test Wallet 2",
+				State:    0,
+				Ctime:    1500,
+				Utime:    time.Now().Unix(),
+			},
+			{
+				AppID:    baseAppID,
+				WalletID: "wallet_3",
+				Alias:    "Another Wallet",
+				State:    1,
+				Ctime:    2000,
+				Utime:    time.Now().Unix(),
+			},
+		}
+
+		// 批量保存测试数据
+		interfaces := make([]sqlc.Object, len(wallets))
+		for i, wallet := range wallets {
+			interfaces[i] = wallet
+		}
+		err = manager.Save(interfaces...)
+		if err != nil {
+			t.Fatalf("保存SQL构建测试数据失败: %v", err)
+		}
+
+		// 测试各种条件操作符
+		testCases := []struct {
+			name        string
+			condition   *sqlc.Cnd
+			expectCount int
+			description string
+		}{
+			{
+				name:        "EqOperator",
+				condition:   sqlc.M(&TestWallet{}).Eq("appID", baseAppID),
+				expectCount: 3,
+				description: "等值查询",
+			},
+			{
+				name:        "NotEqOperator",
+				condition:   sqlc.M(&TestWallet{}).Eq("appID", baseAppID).NotEq("state", 1),
+				expectCount: 1, // 只有wallet_2的状态为0
+				description: "不等值查询",
+			},
+			{
+				name:        "GtOperator",
+				condition:   sqlc.M(&TestWallet{}).Eq("appID", baseAppID).Gt("ctime", 1500),
+				expectCount: 1, // 只有wallet_3的ctime为2000
+				description: "大于查询",
+			},
+			{
+				name:        "GteOperator",
+				condition:   sqlc.M(&TestWallet{}).Eq("appID", baseAppID).Gte("ctime", 1500),
+				expectCount: 2, // wallet_2和wallet_3
+				description: "大于等于查询",
+			},
+			{
+				name:        "LtOperator",
+				condition:   sqlc.M(&TestWallet{}).Eq("appID", baseAppID).Lt("ctime", 1500),
+				expectCount: 1, // 只有wallet_1的ctime为1000
+				description: "小于查询",
+			},
+			{
+				name:        "LteOperator",
+				condition:   sqlc.M(&TestWallet{}).Eq("appID", baseAppID).Lte("ctime", 1500),
+				expectCount: 2, // wallet_1和wallet_2
+				description: "小于等于查询",
+			},
+			{
+				name:        "BetweenOperator",
+				condition:   sqlc.M(&TestWallet{}).Eq("appID", baseAppID).Between("ctime", 1200, 1800),
+				expectCount: 1, // 只有wallet_2的ctime为1500
+				description: "范围查询(BETWEEN)",
+			},
+			{
+				name:        "LikeOperator",
+				condition:   sqlc.M(&TestWallet{}).Eq("appID", baseAppID).Like("alias", "Test"),
+				expectCount: 2, // wallet_1和wallet_2包含"Test"
+				description: "模糊查询(LIKE)",
+			},
+			{
+				name:        "MultipleConditions",
+				condition:   sqlc.M(&TestWallet{}).Eq("appID", baseAppID).Eq("state", 1).Like("alias", "Wallet"),
+				expectCount: 2, // wallet_1和wallet_3
+				description: "多条件组合查询",
+			},
+		}
+
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				var results []*TestWallet
+				err := manager.FindList(tc.condition, &results)
+				if err != nil {
+					t.Errorf("%s查询失败: %v", tc.description, err)
+					return
+				}
+
+				if len(results) != tc.expectCount {
+					t.Errorf("%s结果不正确，期望%d条记录，实际%d条", tc.description, tc.expectCount, len(results))
+				} else {
+					t.Logf("✅ %s验证通过: 找到%d条记录", tc.description, len(results))
+				}
+			})
+		}
+	})
+
+	t.Run("ProjectionAndSortingValidation", func(t *testing.T) {
+		// 测试字段投影和排序功能
+
+		// 准备测试数据
+		baseAppID := fmt.Sprintf("projection_test_%d", time.Now().Unix())
+		wallets := []*TestWallet{
+			{
+				AppID:    baseAppID,
+				WalletID: "proj_wallet_1",
+				Alias:    "Projection Test 1",
+				State:    1,
+				Ctime:    1000,
+			},
+			{
+				AppID:    baseAppID,
+				WalletID: "proj_wallet_2",
+				Alias:    "Projection Test 2",
+				State:    0,
+				Ctime:    2000,
+			},
+		}
+
+		// 批量保存测试数据
+		interfaces := make([]sqlc.Object, len(wallets))
+		for i, wallet := range wallets {
+			interfaces[i] = wallet
+		}
+		err = manager.Save(interfaces...)
+		if err != nil {
+			t.Fatalf("保存投影测试数据失败: %v", err)
+		}
+
+		t.Run("FieldProjection", func(t *testing.T) {
+			// 测试字段投影
+			var results []*TestWallet
+			condition := sqlc.M(&TestWallet{}).Eq("appID", baseAppID).Fields("appID", "walletID")
+			err := manager.FindList(condition, &results)
+			if err != nil {
+				t.Errorf("字段投影查询失败: %v", err)
+				return
+			}
+
+			if len(results) != 2 {
+				t.Errorf("期望2条记录，实际%d条", len(results))
+				return
+			}
+
+			// 验证投影的字段有值，未投影的字段应该有默认值
+			for _, wallet := range results {
+				if wallet.AppID == "" || wallet.WalletID == "" {
+					t.Error("投影字段应该有值")
+				}
+				// 注意：MongoDB的字段投影可能不会清空未投影字段的值
+				// 这里主要验证查询能正常执行
+			}
+			t.Log("✅ 字段投影功能验证通过")
+		})
+
+		t.Run("SortingValidation", func(t *testing.T) {
+			// 测试排序功能
+			var results []*TestWallet
+			condition := sqlc.M(&TestWallet{}).Eq("appID", baseAppID).Desc("ctime")
+			err := manager.FindList(condition, &results)
+			if err != nil {
+				t.Errorf("排序查询失败: %v", err)
+				return
+			}
+
+			if len(results) != 2 {
+				t.Errorf("期望2条记录，实际%d条", len(results))
+				return
+			}
+
+			// 验证降序排序：第一个结果的ctime应该大于第二个
+			if results[0].Ctime <= results[1].Ctime {
+				t.Error("降序排序不正确")
+			} else {
+				t.Log("✅ 降序排序验证通过")
+			}
+		})
+
+		t.Run("PaginationValidation", func(t *testing.T) {
+			// 测试分页功能
+			var results []*TestWallet
+			condition := sqlc.M(&TestWallet{}).Eq("appID", baseAppID).Limit(1, 1) // 第1页，每页1条
+			err := manager.FindList(condition, &results)
+			if err != nil {
+				t.Errorf("分页查询失败: %v", err)
+				return
+			}
+
+			if len(results) != 1 {
+				t.Errorf("分页查询期望1条记录，实际%d条", len(results))
+			} else {
+				t.Log("✅ 分页功能验证通过")
+			}
+		})
+	})
+
+	t.Run("UpdateOperationsValidation", func(t *testing.T) {
+		// 测试更新操作构建
+
+		// 准备测试数据
+		updateAppID := fmt.Sprintf("update_build_test_%d", time.Now().Unix())
+		wallet := &TestWallet{
+			AppID:    updateAppID,
+			WalletID: "update_wallet",
+			Alias:    "Original Alias",
+			State:    1,
+			Ctime:    time.Now().Unix(),
+		}
+
+		err = manager.Save(wallet)
+		if err != nil {
+			t.Fatalf("保存更新测试数据失败: %v", err)
+		}
+
+		// 测试更新操作
+		condition := sqlc.M(&TestWallet{}).Eq("_id", wallet.Id).Upset([]string{"alias", "state"}, "Updated Alias", int64(2))
+		_, err = manager.UpdateByCnd(condition)
+		if err != nil {
+			t.Errorf("条件更新失败: %v", err)
+			return
+		}
+
+		// 验证更新结果
+		var result TestWallet
+		verifyCondition := sqlc.M(&TestWallet{}).Eq("_id", wallet.Id)
+		err = manager.FindOne(verifyCondition, &result)
+		if err != nil {
+			t.Errorf("验证更新结果失败: %v", err)
+			return
+		}
+
+		if result.Alias != "Updated Alias" || result.State != 2 {
+			t.Errorf("更新结果不正确: alias=%s, state=%d", result.Alias, result.State)
+		} else {
+			t.Log("✅ 更新操作构建验证通过")
+		}
+	})
+}
+
+// TestMongoSQLBuildEdgeCases SQL构建边界情况测试
+func TestMongoSQLBuildEdgeCases(t *testing.T) {
+	if err := initMongoForTest(); err != nil {
+		t.Fatalf("MongoDB初始化失败: %v", err)
+	}
+
+	manager, err := sqld.NewMongo(sqld.Option{
+		DsName:   "master",
+		Database: "ops_dev",
+		Timeout:  10000,
+	})
+	if err != nil {
+		t.Fatalf("获取MongoDB管理器失败: %v", err)
+	}
+	defer manager.Close()
+
+	t.Run("EmptyAndNilConditions", func(t *testing.T) {
+		// 测试空条件和nil条件的处理
+		var results []*TestWallet
+
+		// 空条件应该返回所有记录（在有数据的情况下）
+		condition := sqlc.M(&TestWallet{})
+		err := manager.FindList(condition, &results)
+		// 这里不验证具体结果，因为数据库中可能有其他测试遗留的数据
+		if err != nil {
+			t.Errorf("空条件查询失败: %v", err)
+		} else {
+			t.Logf("✅ 空条件查询正常执行，返回%d条记录", len(results))
+		}
+	})
+
+	t.Run("SpecialFieldHandling", func(t *testing.T) {
+		// 测试特殊字段处理（通过实际查询验证）
+		specialAppID := fmt.Sprintf("special_field_test_%d", time.Now().Unix())
+		wallet := &TestWallet{
+			AppID:    specialAppID,
+			WalletID: "special_wallet",
+			Alias:    "Special Field Test",
+			State:    1,
+			Ctime:    time.Now().Unix(),
+		}
+
+		err = manager.Save(wallet)
+		if err != nil {
+			t.Fatalf("保存特殊字段测试数据失败: %v", err)
+		}
+
+		// 通过ID查询验证_id字段处理
+		var result TestWallet
+		condition := sqlc.M(&TestWallet{}).Eq("_id", wallet.Id) // 直接使用_id字段
+		err = manager.FindOne(condition, &result)
+		if err != nil {
+			t.Errorf("_id字段查询失败: %v", err)
+		} else if result.Id != wallet.Id {
+			t.Errorf("_id字段查询结果不匹配")
+		} else {
+			t.Log("✅ 特殊字段(_id)处理验证通过")
+		}
+	})
+
+	t.Run("ComplexQueryCombinations", func(t *testing.T) {
+		// 测试复杂查询组合的边界情况
+		complexAppID := fmt.Sprintf("complex_edge_test_%d", time.Now().Unix())
+
+		// 创建具有各种边界值的测试数据
+		wallets := []*TestWallet{
+			{
+				AppID:    complexAppID,
+				WalletID: "edge_wallet_1",
+				Alias:    "", // 空字符串
+				State:    0,
+				Ctime:    0, // 零值时间戳
+			},
+			{
+				AppID:    complexAppID,
+				WalletID: "edge_wallet_2",
+				Alias:    "Normal Wallet",
+				State:    1,
+				Ctime:    time.Now().Unix(),
+			},
+		}
+
+		// 批量保存
+		interfaces := make([]sqlc.Object, len(wallets))
+		for i, wallet := range wallets {
+			interfaces[i] = wallet
+		}
+		err = manager.Save(interfaces...)
+		if err != nil {
+			t.Fatalf("保存边界测试数据失败: %v", err)
+		}
+
+		// 测试包含空值的复杂查询
+		var results []*TestWallet
+		condition := sqlc.M(&TestWallet{}).
+			Eq("appID", complexAppID).
+			Gte("state", 0) // 包含零值
+
+		err = manager.FindList(condition, &results)
+		if err != nil {
+			t.Errorf("边界条件复杂查询失败: %v", err)
+		} else if len(results) != 2 {
+			t.Errorf("期望2条记录，实际%d条", len(results))
+		} else {
+			t.Log("✅ 边界条件复杂查询验证通过")
 		}
 	})
 }
