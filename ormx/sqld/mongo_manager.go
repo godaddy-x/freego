@@ -568,8 +568,10 @@ func (self *MGOManager) SaveWithContext(ctx context.Context, data ...sqlc.Object
 	if zlog.IsDebug() {
 		defer zlog.Debug("[Mongo.Save]", utils.UnixMilli(), zlog.Any("data", data))
 	}
-	adds := make([]interface{}, len(data))
-	for i, v := range data {
+
+	// 使用无反射保存模式
+	// 处理每个对象的ID生成
+	for _, v := range data {
 		if obv.PkKind == reflect.Int64 {
 			lastInsertId := utils.GetInt64(utils.GetPtr(v, obv.PkOffset))
 			if lastInsertId == 0 {
@@ -591,18 +593,28 @@ func (self *MGOManager) SaveWithContext(ctx context.Context, data ...sqlc.Object
 		} else {
 			return self.Error("only Int64 and string and ObjectID type IDs are supported")
 		}
-		adds[i] = v
 	}
-	// 性能优化：使用无序插入提升并发性能
-	// 注意：如果业务需要保证ID顺序，请保持ordered=true
+
+	// 使用encodeObjectToBson编码每个对象
+	docs := make([]interface{}, len(data))
+	for i, v := range data {
+		doc, err := encodeObjectToBson(v)
+		if err != nil {
+			return self.Error("[Mongo.Save] encode failed: ", err)
+		}
+		docs[i] = doc
+	}
+
+	// 批量插入
 	opts := options.InsertMany().SetOrdered(false)
-	res, err := db.InsertMany(ctx, adds, opts)
+	res, err := db.InsertMany(ctx, docs, opts)
 	if err != nil {
 		return self.Error("[Mongo.Save] save failed: ", err)
 	}
-	if len(res.InsertedIDs) != len(adds) {
-		return self.Error("[Mongo.Save] save failed: InsertedIDs length invalid：", len(res.InsertedIDs), " - ", len(adds))
+	if len(res.InsertedIDs) != len(docs) {
+		return self.Error("[Mongo.Save] save failed: InsertedIDs length invalid：", len(res.InsertedIDs), " - ", len(docs))
 	}
+
 	return nil
 }
 

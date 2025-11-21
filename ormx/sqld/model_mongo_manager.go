@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unsafe"
 
 	"github.com/godaddy-x/freego/ormx/sqlc"
 	"github.com/godaddy-x/freego/utils/decimal"
@@ -16,6 +17,706 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
+
+// encodeObjectToBson 将对象编码为BSON文档（无反射保存）
+func encodeObjectToBson(data sqlc.Object) (bson.M, error) {
+	obv, ok := modelDrivers[data.GetTable()]
+	if !ok {
+		return nil, fmt.Errorf("[Mongo.Encode] registration object type not found [%s]", data.GetTable())
+	}
+
+	doc := bson.M{}
+	for _, elem := range obv.FieldElem {
+		if elem.Ignore {
+			continue
+		}
+
+		// 获取字段指针
+		ptr := utils.GetPtr(data, elem.FieldOffset)
+		if ptr == 0 {
+			continue // 跳过无法访问的字段
+		}
+
+		// 使用FieldBsonName作为BSON字段名，如果为空则使用FieldJsonName
+		fieldName := elem.FieldBsonName
+		if fieldName == "" {
+			fieldName = elem.FieldJsonName
+		}
+
+		// 特殊处理：[]uint8（支持Binary、Array）和primitive.ObjectID - 与decode中的顺序保持一致
+		var value interface{}
+		var err error
+		if elem.FieldType == "[]uint8" {
+			value, err = getUint8SliceValueFromObject(ptr, elem)
+		} else if elem.FieldType == "primitive.ObjectID" {
+			value, err = getObjectIDValueFromObject(ptr, elem)
+		} else {
+			// 标准类型处理 - 按照setMongoValue中的顺序
+			switch elem.FieldKind {
+			case reflect.String:
+				value, err = getStringValueFromObject(ptr, elem)
+			case reflect.Int64:
+				value, err = getInt64ValueFromObject(ptr, elem)
+			case reflect.Int:
+				value, err = getIntValueFromObject(ptr, elem)
+			case reflect.Int8:
+				value, err = getInt8ValueFromObject(ptr, elem)
+			case reflect.Int16:
+				value, err = getInt16ValueFromObject(ptr, elem)
+			case reflect.Int32:
+				value, err = getInt32ValueFromObject(ptr, elem)
+			case reflect.Uint:
+				value, err = getUintValueFromObject(ptr, elem)
+			case reflect.Uint8:
+				value, err = getUint8ValueFromObject(ptr, elem)
+			case reflect.Uint16:
+				value, err = getUint16ValueFromObject(ptr, elem)
+			case reflect.Uint32:
+				value, err = getUint32ValueFromObject(ptr, elem)
+			case reflect.Uint64:
+				value, err = getUint64ValueFromObject(ptr, elem)
+			case reflect.Float32:
+				value, err = getFloat32ValueFromObject(ptr, elem)
+			case reflect.Float64:
+				value, err = getFloat64ValueFromObject(ptr, elem)
+			case reflect.Bool:
+				value, err = getBoolValueFromObject(ptr, elem)
+			case reflect.Map:
+				value, err = getMapValueFromObject(ptr, elem)
+			case reflect.Interface:
+				value, err = getInterfaceValueFromObject(ptr, elem)
+			case reflect.Struct:
+				value, err = getStructValueFromObject(ptr, elem)
+				// 调试：打印Struct字段的值
+				if elem.FieldName == "ObjectID" {
+					fmt.Printf("DEBUG: encode ObjectID field, value: %v, err: %v\n", value, err)
+				}
+			case reflect.Slice:
+				value, err = getSliceValueFromObject(ptr, elem)
+			default:
+				// 不支持的类型跳过
+				continue
+			}
+		}
+
+		if err != nil {
+			return nil, fmt.Errorf("field %s: %v", elem.FieldName, err)
+		}
+
+		// 只有非零值才添加到文档中，但ObjectID字段例外
+		if value != nil || elem.FieldType == "primitive.ObjectID" {
+			doc[fieldName] = value
+		}
+	}
+
+	return doc, nil
+}
+
+// processValueForBson 处理值以确保可以序列化为BSON
+func processValueForBson(value interface{}) (interface{}, error) {
+	if value == nil {
+		return nil, nil
+	}
+
+	val := reflect.ValueOf(value)
+	typ := reflect.TypeOf(value)
+
+	// 处理指针
+	if typ.Kind() == reflect.Ptr {
+		if val.IsNil() {
+			return nil, nil
+		}
+		val = val.Elem()
+		typ = typ.Elem()
+		value = val.Interface()
+	}
+
+	switch typ.Kind() {
+	case reflect.Bool, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Float32, reflect.Float64, reflect.String:
+		return value, nil
+
+	case reflect.Slice, reflect.Array:
+		if val.IsNil() {
+			return nil, nil
+		}
+		result := make([]interface{}, val.Len())
+		for i := 0; i < val.Len(); i++ {
+			elem := val.Index(i).Interface()
+			processed, err := processValueForBson(elem)
+			if err != nil {
+				return nil, fmt.Errorf("slice element %d: %w", i, err)
+			}
+			result[i] = processed
+		}
+		return result, nil
+
+	case reflect.Map:
+		if val.IsNil() {
+			return nil, nil
+		}
+		result := make(map[string]interface{})
+		for _, key := range val.MapKeys() {
+			keyStr := fmt.Sprintf("%v", key.Interface())
+			mapValue := val.MapIndex(key).Interface()
+			processed, err := processValueForBson(mapValue)
+			if err != nil {
+				return nil, fmt.Errorf("map key %s: %w", keyStr, err)
+			}
+			result[keyStr] = processed
+		}
+		return result, nil
+
+	case reflect.Interface:
+		// 处理interface{}，递归处理其实际值
+		if val.IsNil() {
+			return nil, nil
+		}
+		processed, err := processValueForBson(val.Elem().Interface())
+		return processed, err
+
+	default:
+		// 对于不支持的类型，返回nil（跳过该字段）
+		return nil, nil
+	}
+}
+
+// 从对象中读取字段值的辅助函数（用于无反射编码）
+
+func getStringValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
+	val := utils.GetString(ptr)
+	if val != "" {
+		return val, nil
+	}
+	return nil, nil // 返回nil表示零值，不添加到文档中
+}
+
+func getInt64ValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
+	val := utils.GetInt64(ptr)
+	if val != 0 {
+		return val, nil
+	}
+	return nil, nil
+}
+
+func getIntValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
+	val := utils.GetInt(ptr)
+	if val != 0 {
+		return val, nil
+	}
+	return nil, nil
+}
+
+func getInt8ValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
+	val := utils.GetInt8(ptr)
+	if val != 0 {
+		return val, nil
+	}
+	return nil, nil
+}
+
+func getInt16ValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
+	val := utils.GetInt16(ptr)
+	if val != 0 {
+		return val, nil
+	}
+	return nil, nil
+}
+
+func getInt32ValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
+	val := utils.GetInt32(ptr)
+	if val != 0 {
+		return val, nil
+	}
+	return nil, nil
+}
+
+func getUintValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
+	val := utils.GetUint(ptr)
+	if val != 0 {
+		return val, nil
+	}
+	return nil, nil
+}
+
+func getUint8ValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
+	val := utils.GetUint8(ptr)
+	if val != 0 {
+		return val, nil
+	}
+	return nil, nil
+}
+
+func getUint16ValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
+	val := utils.GetUint16(ptr)
+	if val != 0 {
+		return val, nil
+	}
+	return nil, nil
+}
+
+func getUint32ValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
+	val := utils.GetUint32(ptr)
+	if val != 0 {
+		return val, nil
+	}
+	return nil, nil
+}
+
+func getUint64ValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
+	val := utils.GetUint64(ptr)
+	if val != 0 {
+		return val, nil
+	}
+	return nil, nil
+}
+
+func getFloat32ValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
+	val := utils.GetFloat32(ptr)
+	if val != 0.0 {
+		return val, nil
+	}
+	return nil, nil
+}
+
+func getFloat64ValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
+	val := utils.GetFloat64(ptr)
+	if val != 0.0 {
+		return val, nil
+	}
+	return nil, nil
+}
+
+func getBoolValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
+	val := utils.GetBool(ptr)
+	if val {
+		return val, nil
+	}
+	return nil, nil
+}
+
+func getUint8SliceValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
+	val := utils.GetUint8Arr(ptr)
+	if len(val) > 0 {
+		return val, nil
+	}
+	return nil, nil
+}
+
+func getObjectIDValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
+	val := utils.GetObjectID(ptr)
+	// ObjectID总是保存，即使是零值（因为它是重要的标识符）
+	return val, nil
+}
+
+func getMapValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
+	fieldTypeStr := strings.TrimSpace(elem.FieldType)
+
+	// 支持各种map[string]Value类型的处理
+	if !strings.HasPrefix(fieldTypeStr, "map[string]") {
+		return nil, fmt.Errorf("unsupported map type %s", elem.FieldType)
+	}
+
+	// 根据不同的Value类型进行处理
+	if strings.HasPrefix(fieldTypeStr, "map[string]interface") || strings.HasPrefix(fieldTypeStr, "map[string]any") {
+		// map[string]interface{} 或 map[string]any - 直接处理
+		mapPtr := (*map[string]interface{})(unsafe.Pointer(ptr))
+		if mapPtr == nil {
+			return nil, nil
+		}
+
+		mapValue := *mapPtr
+		if mapValue == nil || len(mapValue) == 0 {
+			return nil, nil // 空map不保存
+		}
+
+		// 将Go的map转换为可以序列化为BSON的格式
+		result := make(map[string]interface{})
+		for key, value := range mapValue {
+			// 对于嵌套的map和interface{}，递归处理
+			if processedValue, err := processValueForBson(value); err == nil && processedValue != nil {
+				result[key] = processedValue
+			}
+		}
+
+		if len(result) == 0 {
+			return nil, nil
+		}
+		return result, nil
+
+	} else if fieldTypeStr == "map[string]string" {
+		// map[string]string - 特殊处理
+		mapPtr := (*map[string]string)(unsafe.Pointer(ptr))
+		if mapPtr == nil {
+			return nil, nil
+		}
+
+		mapValue := *mapPtr
+		if len(mapValue) == 0 {
+			return nil, nil // 空map不保存
+		}
+
+		// 将map[string]string转换为map[string]interface{}
+		result := make(map[string]interface{})
+		for key, value := range mapValue {
+			result[key] = value // string直接赋值
+		}
+		return result, nil
+
+	} else if fieldTypeStr == "map[string]int" {
+		// map[string]int - 特殊处理
+		mapPtr := (*map[string]int)(unsafe.Pointer(ptr))
+		if mapPtr == nil {
+			return nil, nil
+		}
+
+		mapValue := *mapPtr
+		if len(mapValue) == 0 {
+			return nil, nil // 空map不保存
+		}
+
+		// 将map[string]int转换为map[string]interface{}
+		result := make(map[string]interface{})
+		for key, value := range mapValue {
+			if value != 0 { // 只保存非零值
+				result[key] = value
+			}
+		}
+		if len(result) == 0 {
+			return nil, nil
+		}
+		return result, nil
+
+	} else if fieldTypeStr == "map[string]int64" {
+		// map[string]int64 - 特殊处理
+		mapPtr := (*map[string]int64)(unsafe.Pointer(ptr))
+		if mapPtr == nil {
+			return nil, nil
+		}
+
+		mapValue := *mapPtr
+		if len(mapValue) == 0 {
+			return nil, nil // 空map不保存
+		}
+
+		// 将map[string]int64转换为map[string]interface{}
+		result := make(map[string]interface{})
+		for key, value := range mapValue {
+			if value != 0 { // 只保存非零值
+				result[key] = value
+			}
+		}
+		if len(result) == 0 {
+			return nil, nil
+		}
+		return result, nil
+
+	} else {
+		// 其他map[string]Value类型 - 使用反射处理
+		mapValue := reflect.ValueOf(*(*interface{})(unsafe.Pointer(ptr)))
+		if !mapValue.IsValid() || mapValue.IsNil() || mapValue.Len() == 0 {
+			return nil, nil // 无效或空map不保存
+		}
+
+		// 将任意map[string]Value转换为map[string]interface{}
+		result := make(map[string]interface{})
+		iter := mapValue.MapRange()
+		for iter.Next() {
+			key := iter.Key().String()
+			value := iter.Value().Interface()
+			// 递归处理值
+			if processedValue, err := processValueForBson(value); err == nil && processedValue != nil {
+				result[key] = processedValue
+			}
+		}
+
+		if len(result) == 0 {
+			return nil, nil
+		}
+		return result, nil
+	}
+}
+
+func getInterfaceValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
+	// 对于interface{}类型，直接获取值
+	interfacePtr := (*interface{})(unsafe.Pointer(ptr))
+	if interfacePtr == nil {
+		return nil, nil
+	}
+
+	value := *interfacePtr
+	if value == nil {
+		return nil, nil
+	}
+
+	// 处理interface{}中的值
+	return processValueForBson(value)
+}
+
+func getStructValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
+	fieldTypeStr := strings.TrimSpace(elem.FieldType)
+
+	// 根据不同的struct类型进行处理
+	switch fieldTypeStr {
+	case "time.Time":
+		timeVal := utils.GetTime(ptr)
+		return timeVal, nil
+	case "primitive.ObjectID":
+		oidVal := utils.GetObjectID(ptr)
+		return oidVal, nil
+	case "decimal.Decimal":
+		// decimal.Decimal需要特殊处理，因为它不是通过utils函数访问的
+		decimalPtr := (*decimal.Decimal)(unsafe.Pointer(ptr))
+		if decimalPtr != nil {
+			return *decimalPtr, nil
+		}
+		return nil, nil
+	default:
+		// 不支持的struct类型
+		return nil, fmt.Errorf("unsupported struct type %s", elem.FieldType)
+	}
+}
+
+func getSliceValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
+	fieldTypeStr := strings.TrimSpace(elem.FieldType)
+
+	// 根据不同的数组类型进行处理
+	switch fieldTypeStr {
+	case "[]string":
+		return getTypedSliceValue(ptr, elem, func(val interface{}) interface{} { return val })
+	case "[]int":
+		return getTypedSliceValue(ptr, elem, func(val interface{}) interface{} { return val })
+	case "[]int8":
+		return getTypedSliceValue(ptr, elem, func(val interface{}) interface{} { return val })
+	case "[]int16":
+		return getTypedSliceValue(ptr, elem, func(val interface{}) interface{} { return val })
+	case "[]int32":
+		return getTypedSliceValue(ptr, elem, func(val interface{}) interface{} { return val })
+	case "[]int64":
+		return getTypedSliceValue(ptr, elem, func(val interface{}) interface{} { return val })
+	case "[]uint":
+		return getTypedSliceValue(ptr, elem, func(val interface{}) interface{} { return val })
+	case "[]uint8":
+		// []uint8 已经在上面特殊处理，这里不应该到达
+		return nil, fmt.Errorf("[]uint8 should be handled in special case")
+	case "[]uint16":
+		return getTypedSliceValue(ptr, elem, func(val interface{}) interface{} { return val })
+	case "[]uint32":
+		return getTypedSliceValue(ptr, elem, func(val interface{}) interface{} { return val })
+	case "[]uint64":
+		return getTypedSliceValue(ptr, elem, func(val interface{}) interface{} { return val })
+	case "[]float32":
+		return getTypedSliceValue(ptr, elem, func(val interface{}) interface{} { return val })
+	case "[]float64":
+		return getTypedSliceValue(ptr, elem, func(val interface{}) interface{} { return val })
+	case "[]bool":
+		return getTypedSliceValue(ptr, elem, func(val interface{}) interface{} { return val })
+	case "[]primitive.ObjectID":
+		return getTypedSliceValue(ptr, elem, func(val interface{}) interface{} { return val })
+	case "[][]uint8":
+		return getTypedSliceValue(ptr, elem, func(val interface{}) interface{} {
+			if slice, ok := val.([]uint8); ok {
+				return slice
+			}
+			return val
+		})
+	case "[]time.Time":
+		return getTypedSliceValue(ptr, elem, func(val interface{}) interface{} { return val })
+	case "[]interface{}":
+		slicePtr := (*[]interface{})(unsafe.Pointer(ptr))
+		if slicePtr == nil || len(*slicePtr) == 0 {
+			return nil, nil
+		}
+		slice := *slicePtr
+		result := make([]interface{}, len(slice))
+		for i, v := range slice {
+			if processed, err := processValueForBson(v); err == nil {
+				result[i] = processed
+			}
+		}
+		return result, nil
+	case "[]map[string]interface{}":
+		slicePtr := (*[]map[string]interface{})(unsafe.Pointer(ptr))
+		if slicePtr == nil || len(*slicePtr) == 0 {
+			return nil, nil
+		}
+		slice := *slicePtr
+		result := make([]interface{}, len(slice))
+		for i, v := range slice {
+			if processed, err := processValueForBson(v); err == nil {
+				result[i] = processed
+			}
+		}
+		return result, nil
+	default:
+		return nil, fmt.Errorf("unsupported slice type %s (field: %s)", elem.FieldType, elem.FieldName)
+	}
+}
+
+func getTypedSliceValue(ptr uintptr, elem *FieldElem, converter func(interface{}) interface{}) (interface{}, error) {
+	// 对于不同的slice类型，我们需要根据实际类型来处理
+	switch elem.FieldType {
+	case "[]string":
+		slicePtr := (*[]string)(unsafe.Pointer(ptr))
+		if slicePtr == nil || len(*slicePtr) == 0 {
+			return nil, nil
+		}
+		slice := *slicePtr
+		result := make([]interface{}, len(slice))
+		for i, v := range slice {
+			result[i] = converter(v)
+		}
+		return result, nil
+
+	case "[]int":
+		slicePtr := (*[]int)(unsafe.Pointer(ptr))
+		if slicePtr == nil || len(*slicePtr) == 0 {
+			return nil, nil
+		}
+		slice := *slicePtr
+		result := make([]interface{}, len(slice))
+		for i, v := range slice {
+			result[i] = converter(v)
+		}
+		return result, nil
+
+	case "[]int8":
+		slicePtr := (*[]int8)(unsafe.Pointer(ptr))
+		if slicePtr == nil || len(*slicePtr) == 0 {
+			return nil, nil
+		}
+		slice := *slicePtr
+		result := make([]interface{}, len(slice))
+		for i, v := range slice {
+			result[i] = converter(v)
+		}
+		return result, nil
+
+	case "[]int16":
+		slicePtr := (*[]int16)(unsafe.Pointer(ptr))
+		if slicePtr == nil || len(*slicePtr) == 0 {
+			return nil, nil
+		}
+		slice := *slicePtr
+		result := make([]interface{}, len(slice))
+		for i, v := range slice {
+			result[i] = converter(v)
+		}
+		return result, nil
+
+	case "[]int32":
+		slicePtr := (*[]int32)(unsafe.Pointer(ptr))
+		if slicePtr == nil || len(*slicePtr) == 0 {
+			return nil, nil
+		}
+		slice := *slicePtr
+		result := make([]interface{}, len(slice))
+		for i, v := range slice {
+			result[i] = converter(v)
+		}
+		return result, nil
+
+	case "[]int64":
+		slicePtr := (*[]int64)(unsafe.Pointer(ptr))
+		if slicePtr == nil || len(*slicePtr) == 0 {
+			return nil, nil
+		}
+		slice := *slicePtr
+		result := make([]interface{}, len(slice))
+		for i, v := range slice {
+			result[i] = converter(v)
+		}
+		return result, nil
+
+	case "[]uint":
+		slicePtr := (*[]uint)(unsafe.Pointer(ptr))
+		if slicePtr == nil || len(*slicePtr) == 0 {
+			return nil, nil
+		}
+		slice := *slicePtr
+		result := make([]interface{}, len(slice))
+		for i, v := range slice {
+			result[i] = converter(v)
+		}
+		return result, nil
+
+	case "[]uint16":
+		slicePtr := (*[]uint16)(unsafe.Pointer(ptr))
+		if slicePtr == nil || len(*slicePtr) == 0 {
+			return nil, nil
+		}
+		slice := *slicePtr
+		result := make([]interface{}, len(slice))
+		for i, v := range slice {
+			result[i] = converter(v)
+		}
+		return result, nil
+
+	case "[]uint32":
+		slicePtr := (*[]uint32)(unsafe.Pointer(ptr))
+		if slicePtr == nil || len(*slicePtr) == 0 {
+			return nil, nil
+		}
+		slice := *slicePtr
+		result := make([]interface{}, len(slice))
+		for i, v := range slice {
+			result[i] = converter(v)
+		}
+		return result, nil
+
+	case "[]uint64":
+		slicePtr := (*[]uint64)(unsafe.Pointer(ptr))
+		if slicePtr == nil || len(*slicePtr) == 0 {
+			return nil, nil
+		}
+		slice := *slicePtr
+		result := make([]interface{}, len(slice))
+		for i, v := range slice {
+			result[i] = converter(v)
+		}
+		return result, nil
+
+	case "[]float32":
+		slicePtr := (*[]float32)(unsafe.Pointer(ptr))
+		if slicePtr == nil || len(*slicePtr) == 0 {
+			return nil, nil
+		}
+		slice := *slicePtr
+		result := make([]interface{}, len(slice))
+		for i, v := range slice {
+			result[i] = converter(v)
+		}
+		return result, nil
+
+	case "[]float64":
+		slicePtr := (*[]float64)(unsafe.Pointer(ptr))
+		if slicePtr == nil || len(*slicePtr) == 0 {
+			return nil, nil
+		}
+		slice := *slicePtr
+		result := make([]interface{}, len(slice))
+		for i, v := range slice {
+			result[i] = converter(v)
+		}
+		return result, nil
+
+	case "[]bool":
+		slicePtr := (*[]bool)(unsafe.Pointer(ptr))
+		if slicePtr == nil || len(*slicePtr) == 0 {
+			return nil, nil
+		}
+		slice := *slicePtr
+		result := make([]interface{}, len(slice))
+		for i, v := range slice {
+			result[i] = converter(v)
+		}
+		return result, nil
+
+	default:
+		return nil, fmt.Errorf("unsupported slice type for getTypedSliceValue: %s", elem.FieldType)
+	}
+}
 
 // decodeBsonToObject 将BSON文档解码填充到对象中（无反射模式）
 func decodeBsonToObject(data sqlc.Object, raw bson.Raw) error {
@@ -55,9 +756,12 @@ func setMongoValue(obj interface{}, elem *FieldElem, bsonValue bson.RawValue) er
 		return fmt.Errorf("field %s: failed to get field pointer", elem.FieldName)
 	}
 
-	// 特殊处理：[]uint8（支持Binary、Array）
+	// 特殊处理：[]uint8（支持Binary、Array）和primitive.ObjectID
 	if elem.FieldType == "[]uint8" {
 		return handleUint8Slice(ptr, bsonValue, elem)
+	}
+	if elem.FieldType == "primitive.ObjectID" {
+		return handleObjectID(ptr, bsonValue, elem)
 	}
 
 	switch elem.FieldKind {
@@ -129,6 +833,15 @@ func handleUint8Slice(ptr uintptr, bsonValue bson.RawValue, elem *FieldElem) err
 	}
 
 	return fmt.Errorf("field %s: []uint8 requires Binary or Array type, got %s", elem.FieldName, bsonValue.Type)
+}
+
+// handleObjectID 处理primitive.ObjectID字段
+func handleObjectID(ptr uintptr, bsonValue bson.RawValue, elem *FieldElem) error {
+	if oid, ok := bsonValue.ObjectIDOK(); ok {
+		utils.SetObjectID(ptr, oid)
+		return nil
+	}
+	return fmt.Errorf("field %s: ObjectID requires ObjectID type, got %s", elem.FieldName, bsonValue.Type)
 }
 
 // 设置字符串字段（支持字符串和数字转字符串）
@@ -411,6 +1124,12 @@ func setStruct(obj interface{}, elem *FieldElem, bsonValue bson.RawValue) error 
 		return fmt.Errorf("field %s: Null requires Null type, got %s", elem.FieldName, bsonValue.Type)
 	case "decimal.Decimal":
 		return setDecimal(fieldVal, bsonValue, elem)
+	case "primitive.ObjectID":
+		if oid, ok := bsonValue.ObjectIDOK(); ok {
+			fieldVal.Set(reflect.ValueOf(oid))
+			return nil
+		}
+		return fmt.Errorf("field %s: ObjectID requires ObjectID type, got %s", elem.FieldName, bsonValue.Type)
 	default:
 		// 自定义结构体（需根据实际逻辑扩展，此处为示例）
 		return fmt.Errorf("field %s: unsupported struct type %s", elem.FieldName, elem.FieldType)
@@ -634,30 +1353,83 @@ func setMap(obj interface{}, elem *FieldElem, bsonValue bson.RawValue) error {
 		return err
 	}
 
-	// 支持map[string]interface{}和map[string]any
 	fieldTypeStr := strings.TrimSpace(elem.FieldType)
-	if !strings.HasPrefix(fieldTypeStr, "map[string]interface") && !strings.HasPrefix(fieldTypeStr, "map[string]any") {
-		return fmt.Errorf("field %s: unsupported map type %s", elem.FieldName, elem.FieldType)
-	}
-
 	doc := bsonValue.Document()
 	elements, err := doc.Elements()
 	if err != nil {
 		return fmt.Errorf("parse document elements failed: %w", err)
 	}
 
-	m := make(map[string]interface{})
-	for _, elem := range elements {
-		key := elem.Key()
-		value := elem.Value()
-		// 递归解析嵌套值（支持基础类型、数组、文档）
-		val, err := parseMapValue(value)
-		if err != nil {
-			return fmt.Errorf("parse map value for key %s: %w", key, err)
+	// 根据不同的map类型进行处理
+	if strings.HasPrefix(fieldTypeStr, "map[string]interface") || strings.HasPrefix(fieldTypeStr, "map[string]any") {
+		// map[string]interface{} 或 map[string]any
+		m := make(map[string]interface{})
+		for _, elem := range elements {
+			key := elem.Key()
+			value := elem.Value()
+			// 递归解析嵌套值（支持基础类型、数组、文档）
+			val, err := parseMapValue(value)
+			if err != nil {
+				return fmt.Errorf("parse map value for key %s: %w", key, err)
+			}
+			m[key] = val
 		}
-		m[key] = val
+		fieldVal.Set(reflect.ValueOf(m))
+
+	} else if fieldTypeStr == "map[string]string" {
+		// map[string]string - 直接处理字符串值
+		m := make(map[string]string)
+		for _, elem := range elements {
+			key := elem.Key()
+			value := elem.Value()
+			if str, ok := value.StringValueOK(); ok {
+				m[key] = str
+			} else {
+				return fmt.Errorf("map[string]string key %s: expected string value, got %s", key, value.Type)
+			}
+		}
+		fieldVal.Set(reflect.ValueOf(m))
+
+	} else if fieldTypeStr == "map[string]int" {
+		// map[string]int - 处理数值类型
+		m := make(map[string]int)
+		for _, elem := range elements {
+			key := elem.Key()
+			value := elem.Value()
+			if int64Val, ok := value.Int64OK(); ok {
+				m[key] = int(int64Val)
+			} else if int32Val, ok := value.Int32OK(); ok {
+				m[key] = int(int32Val)
+			} else if floatVal, ok := value.DoubleOK(); ok {
+				m[key] = int(floatVal)
+			} else {
+				return fmt.Errorf("map[string]int key %s: expected numeric value, got %s", key, value.Type)
+			}
+		}
+		fieldVal.Set(reflect.ValueOf(m))
+
+	} else if fieldTypeStr == "map[string]int64" {
+		// map[string]int64 - 处理int64类型
+		m := make(map[string]int64)
+		for _, elem := range elements {
+			key := elem.Key()
+			value := elem.Value()
+			if int64Val, ok := value.Int64OK(); ok {
+				m[key] = int64Val
+			} else if int32Val, ok := value.Int32OK(); ok {
+				m[key] = int64(int32Val)
+			} else if floatVal, ok := value.DoubleOK(); ok {
+				m[key] = int64(floatVal)
+			} else {
+				return fmt.Errorf("map[string]int64 key %s: expected numeric value, got %s", key, value.Type)
+			}
+		}
+		fieldVal.Set(reflect.ValueOf(m))
+
+	} else {
+		return fmt.Errorf("field %s: unsupported map type %s", elem.FieldName, elem.FieldType)
 	}
-	fieldVal.Set(reflect.ValueOf(m))
+
 	return nil
 }
 
