@@ -941,6 +941,32 @@ func TestMongoFindOneAllTypes(t *testing.T) {
 	t.Logf("🎉 总计: 32个类型验证完成！")
 	t.Logf("🚀 MongoDB零反射解码setMongoValue方法工作正常！")
 
+	// 测试UpdateWithContext是否使用encode方法
+	t.Logf("🔄 测试UpdateWithContext的encode适配...")
+
+	// 修改测试数据
+	result.String = "更新后的字符串"
+	result.Int = 999999
+
+	// 调用UpdateWithContext
+	err = mgoManager.UpdateWithContext(context.Background(), result)
+	if err != nil {
+		t.Errorf("❌ UpdateWithContext失败: %v", err)
+	} else {
+		t.Logf("✅ UpdateWithContext成功")
+
+		// 重新查询验证更新结果
+		updated := &TestAllTypes{}
+		err = mgoManager.FindOne(sqlc.M(updated).Eq("id", result.Id), updated)
+		if err != nil {
+			t.Errorf("❌ 重新查询失败: %v", err)
+		} else if updated.String != "更新后的字符串" || updated.Int != 999999 {
+			t.Errorf("❌ 更新结果不正确: String=%s, Int=%d", updated.String, updated.Int)
+		} else {
+			t.Logf("✅ UpdateWithContext encode适配验证成功")
+		}
+	}
+
 	//// 清理测试数据
 	//deleteCondition := sqlc.M(result).Eq("_id", testData.Id)
 	//_, err = mgoManager.DeleteByCnd(deleteCondition)

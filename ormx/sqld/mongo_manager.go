@@ -662,7 +662,14 @@ func (self *MGOManager) UpdateWithContext(ctx context.Context, data ...sqlc.Obje
 		} else {
 			return self.Error("only Int64 and string and ObjectID type IDs are supported")
 		}
-		res, err := db.ReplaceOne(ctx, bson.M{"_id": lastInsertId}, v)
+
+		// 使用encodeObjectToBson编码对象
+		doc, err := encodeObjectToBson(v)
+		if err != nil {
+			return self.Error("[Mongo.Update] encode failed: ", err)
+		}
+
+		res, err := db.ReplaceOne(ctx, bson.M{"_id": lastInsertId}, doc)
 		if err != nil {
 			return self.Error("[Mongo.Update] update failed: ", err)
 		}
