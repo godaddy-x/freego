@@ -415,13 +415,21 @@ func (self *MGOManager) getSlowLog() *zap.Logger {
 	return mgoSlowlog
 }
 
-func (self *MGOManager) Save(data ...sqlc.Object) error {
-	// 基础参数验证
+// validateDataParams 统一的数据参数验证方法
+func (self *MGOManager) validateDataParams(data []sqlc.Object, operation string) error {
 	if len(data) == 0 {
-		return self.Error("[Mongo.Save] data is nil")
+		return self.Error(fmt.Sprintf("[Mongo.%s] data is nil", operation))
 	}
 	if len(data) > 2000 {
-		return self.Error("[Mongo.Save] data length > 2000")
+		return self.Error(fmt.Sprintf("[Mongo.%s] data length > 2000", operation))
+	}
+	return nil
+}
+
+func (self *MGOManager) Save(data ...sqlc.Object) error {
+	// 统一参数验证
+	if err := self.validateDataParams(data, "Save"); err != nil {
+		return err
 	}
 
 	// 调用统一的 WithContext 版本，使用默认上下文
@@ -429,12 +437,9 @@ func (self *MGOManager) Save(data ...sqlc.Object) error {
 }
 
 func (self *MGOManager) Update(data ...sqlc.Object) error {
-	// 基础参数验证
-	if len(data) == 0 {
-		return self.Error("[Mongo.Update] data is nil")
-	}
-	if len(data) > 2000 {
-		return self.Error("[Mongo.Update] data length > 2000")
+	// 统一参数验证
+	if err := self.validateDataParams(data, "Update"); err != nil {
+		return err
 	}
 
 	// 调用统一的 WithContext 版本，使用默认上下文
@@ -452,12 +457,9 @@ func (self *MGOManager) UpdateByCnd(cnd *sqlc.Cnd) (int64, error) {
 }
 
 func (self *MGOManager) Delete(data ...sqlc.Object) error {
-	// 基础参数验证
-	if len(data) == 0 {
-		return self.Error("[Mongo.Delete] data is nil")
-	}
-	if len(data) > 2000 {
-		return self.Error("[Mongo.Delete] data length > 2000")
+	// 统一参数验证
+	if err := self.validateDataParams(data, "Delete"); err != nil {
+		return err
 	}
 
 	// 调用统一的 WithContext 版本，使用默认上下文
@@ -548,14 +550,6 @@ func (self *MGOManager) BuildCondKey(cnd *sqlc.Cnd, key string, buf *bytes.Buffe
 
 // SaveWithContext 带上下文超时的保存数据方法
 func (self *MGOManager) SaveWithContext(ctx context.Context, data ...sqlc.Object) error {
-	// 基础参数验证
-	if len(data) == 0 {
-		return self.Error("[Mongo.Save] data is nil")
-	}
-	if len(data) > 2000 {
-		return self.Error("[Mongo.Save] data length > 2000")
-	}
-
 	// 解析正确的context用于数据库操作
 	ctx = self.resolveContext(ctx)
 
@@ -614,14 +608,6 @@ func (self *MGOManager) SaveWithContext(ctx context.Context, data ...sqlc.Object
 
 // UpdateWithContext 带上下文超时的更新数据方法
 func (self *MGOManager) UpdateWithContext(ctx context.Context, data ...sqlc.Object) error {
-	// 基础参数验证
-	if len(data) == 0 {
-		return self.Error("[Mongo.Update] data is nil")
-	}
-	if len(data) > 2000 {
-		return self.Error("[Mongo.Update] data length > 2000")
-	}
-
 	// 解析正确的context用于数据库操作
 	ctx = self.resolveContext(ctx)
 
@@ -715,14 +701,6 @@ func (self *MGOManager) UpdateByCndWithContext(ctx context.Context, cnd *sqlc.Cn
 
 // DeleteWithContext 带上下文超时的删除数据方法
 func (self *MGOManager) DeleteWithContext(ctx context.Context, data ...sqlc.Object) error {
-	// 基础参数验证
-	if len(data) == 0 {
-		return self.Error("[Mongo.Delete] data is nil")
-	}
-	if len(data) > 2000 {
-		return self.Error("[Mongo.Delete] data length > 2000")
-	}
-
 	// 解析正确的context用于数据库操作
 	ctx = self.resolveContext(ctx)
 
