@@ -820,10 +820,7 @@ func handleUint8Slice(ptr uintptr, bsonValue bson.RawValue, elem *FieldElem) err
 	if bsonValue.Type == bson.TypeArray {
 		arr := bsonValue.Array()
 		values, err := parseBsonArray(arr, func(v bson.RawValue) (uint8, error) {
-			if int32Val, ok := v.Int32OK(); ok && int32Val >= 0 && int32Val <= 255 {
-				return uint8(int32Val), nil
-			}
-			return 0, fmt.Errorf("invalid uint8 value (out of range 0-255)")
+			return getUint8Value(v)
 		})
 		if err != nil {
 			return fmt.Errorf("field %s: parse array failed: %w", elem.FieldName, err)
@@ -1391,7 +1388,7 @@ func setMap(obj interface{}, elem *FieldElem, bsonValue bson.RawValue) error {
 		fieldVal.Set(reflect.ValueOf(m))
 
 	} else if fieldTypeStr == "map[string]int" {
-		// map[string]int - 处理数值类型
+		// map[string]int - 只接受整数类型，避免精度丢失
 		m := make(map[string]int)
 		for _, elem := range elements {
 			key := elem.Key()
@@ -1400,16 +1397,14 @@ func setMap(obj interface{}, elem *FieldElem, bsonValue bson.RawValue) error {
 				m[key] = int(int64Val)
 			} else if int32Val, ok := value.Int32OK(); ok {
 				m[key] = int(int32Val)
-			} else if floatVal, ok := value.DoubleOK(); ok {
-				m[key] = int(floatVal)
 			} else {
-				return fmt.Errorf("map[string]int key %s: expected numeric value, got %s", key, value.Type)
+				return fmt.Errorf("map[string]int key %s: expected integer value (int32/int64), got %s", key, value.Type)
 			}
 		}
 		fieldVal.Set(reflect.ValueOf(m))
 
 	} else if fieldTypeStr == "map[string]int64" {
-		// map[string]int64 - 处理int64类型
+		// map[string]int64 - 只接受整数类型，避免精度丢失
 		m := make(map[string]int64)
 		for _, elem := range elements {
 			key := elem.Key()
@@ -1418,10 +1413,8 @@ func setMap(obj interface{}, elem *FieldElem, bsonValue bson.RawValue) error {
 				m[key] = int64Val
 			} else if int32Val, ok := value.Int32OK(); ok {
 				m[key] = int64(int32Val)
-			} else if floatVal, ok := value.DoubleOK(); ok {
-				m[key] = int64(floatVal)
 			} else {
-				return fmt.Errorf("map[string]int64 key %s: expected numeric value, got %s", key, value.Type)
+				return fmt.Errorf("map[string]int64 key %s: expected integer value (int32/int64), got %s", key, value.Type)
 			}
 		}
 		fieldVal.Set(reflect.ValueOf(m))
@@ -1442,7 +1435,7 @@ func parseMapValue(v bson.RawValue) (interface{}, error) {
 		}
 	case bson.TypeInt32:
 		if int32Val, ok := v.Int32OK(); ok {
-			return int32Val, nil
+			return int64(int32Val), nil
 		}
 	case bson.TypeInt64:
 		if int64Val, ok := v.Int64OK(); ok {
@@ -1450,7 +1443,7 @@ func parseMapValue(v bson.RawValue) (interface{}, error) {
 		}
 	case bson.TypeDouble:
 		if floatVal, ok := v.DoubleOK(); ok {
-			return floatVal, nil
+			return floatVal, nil // 保持float64类型，避免精度丢失
 		}
 	case bson.TypeBoolean:
 		if boolVal, ok := v.BooleanOK(); ok {
@@ -1546,33 +1539,59 @@ func getStringValue(v bson.RawValue) (string, error) {
 }
 
 func getIntValue(v bson.RawValue) (int, error) {
-	if int32Val, ok := v.Int32OK(); ok {
-		return int(int32Val), nil
-	}
-	if int64Val, ok := v.Int64OK(); ok {
-		return int(int64Val), nil
+	switch v.Type {
+	case bson.TypeInt64:
+		if int64Val, ok := v.Int64OK(); ok {
+			return int(int64Val), nil
+		}
+	case bson.TypeInt32:
+		if int32Val, ok := v.Int32OK(); ok {
+			return int(int32Val), nil
+		}
 	}
 	return 0, errors.New("not an int")
 }
 
 func getInt8Value(v bson.RawValue) (int8, error) {
-	if int32Val, ok := v.Int32OK(); ok {
-		if int32Val < math.MinInt8 || int32Val > math.MaxInt8 {
-			return 0, errors.New("int8 value out of range")
+	var int64Val int64
+	switch v.Type {
+	case bson.TypeInt64:
+		if val, ok := v.Int64OK(); ok {
+			int64Val = val
 		}
-		return int8(int32Val), nil
+	case bson.TypeInt32:
+		if val, ok := v.Int32OK(); ok {
+			int64Val = int64(val)
+		}
+	default:
+		return 0, errors.New("not an int8")
 	}
-	return 0, errors.New("not an int8")
+
+	if int64Val < math.MinInt8 || int64Val > math.MaxInt8 {
+		return 0, errors.New("int8 value out of range")
+	}
+	return int8(int64Val), nil
 }
 
 func getInt16Value(v bson.RawValue) (int16, error) {
-	if int32Val, ok := v.Int32OK(); ok {
-		if int32Val < math.MinInt16 || int32Val > math.MaxInt16 {
-			return 0, errors.New("int16 value out of range")
+	var int64Val int64
+	switch v.Type {
+	case bson.TypeInt64:
+		if val, ok := v.Int64OK(); ok {
+			int64Val = val
 		}
-		return int16(int32Val), nil
+	case bson.TypeInt32:
+		if val, ok := v.Int32OK(); ok {
+			int64Val = int64(val)
+		}
+	default:
+		return 0, errors.New("not an int16")
 	}
-	return 0, errors.New("not an int16")
+
+	if int64Val < math.MinInt16 || int64Val > math.MaxInt16 {
+		return 0, errors.New("int16 value out of range")
+	}
+	return int16(int64Val), nil
 }
 
 func getInt32Value(v bson.RawValue) (int32, error) {
@@ -1590,40 +1609,87 @@ func getInt64Value(v bson.RawValue) (int64, error) {
 }
 
 func getUintValue(v bson.RawValue) (uint, error) {
-	if int64Val, ok := v.Int64OK(); ok && int64Val >= 0 {
-		return uint(int64Val), nil
+	var uint64Val uint64
+	switch v.Type {
+	case bson.TypeInt64:
+		if val, ok := v.Int64OK(); ok && val >= 0 {
+			uint64Val = uint64(val)
+		}
+	case bson.TypeInt32:
+		if val, ok := v.Int32OK(); ok && val >= 0 {
+			uint64Val = uint64(val)
+		}
+	default:
+		return 0, errors.New("not a uint")
 	}
-	return 0, errors.New("not a uint")
+
+	if uint64Val > math.MaxUint {
+		return 0, errors.New("uint value out of range")
+	}
+	return uint(uint64Val), nil
 }
 
 func getUint8Value(v bson.RawValue) (uint8, error) {
-	if int32Val, ok := v.Int32OK(); ok && int32Val >= 0 {
-		if int32Val > math.MaxUint8 {
-			return 0, errors.New("uint8 value out of range")
+	var uint64Val uint64
+	switch v.Type {
+	case bson.TypeInt64:
+		if val, ok := v.Int64OK(); ok && val >= 0 {
+			uint64Val = uint64(val)
 		}
-		return uint8(int32Val), nil
+	case bson.TypeInt32:
+		if val, ok := v.Int32OK(); ok && val >= 0 {
+			uint64Val = uint64(val)
+		}
+	default:
+		return 0, errors.New("not a uint8")
 	}
-	return 0, errors.New("not a uint8")
+
+	if uint64Val > math.MaxUint8 {
+		return 0, errors.New("uint8 value out of range")
+	}
+	return uint8(uint64Val), nil
 }
 
 func getUint16Value(v bson.RawValue) (uint16, error) {
-	if int32Val, ok := v.Int32OK(); ok && int32Val >= 0 {
-		if int32Val > math.MaxUint16 {
-			return 0, errors.New("uint16 value out of range")
+	var uint64Val uint64
+	switch v.Type {
+	case bson.TypeInt64:
+		if val, ok := v.Int64OK(); ok && val >= 0 {
+			uint64Val = uint64(val)
 		}
-		return uint16(int32Val), nil
+	case bson.TypeInt32:
+		if val, ok := v.Int32OK(); ok && val >= 0 {
+			uint64Val = uint64(val)
+		}
+	default:
+		return 0, errors.New("not a uint16")
 	}
-	return 0, errors.New("not a uint16")
+
+	if uint64Val > math.MaxUint16 {
+		return 0, errors.New("uint16 value out of range")
+	}
+	return uint16(uint64Val), nil
 }
 
 func getUint32Value(v bson.RawValue) (uint32, error) {
-	if int64Val, ok := v.Int64OK(); ok && int64Val >= 0 {
-		if int64Val > math.MaxUint32 {
-			return 0, errors.New("uint32 value out of range")
+	var uint64Val uint64
+	switch v.Type {
+	case bson.TypeInt64:
+		if val, ok := v.Int64OK(); ok && val >= 0 {
+			uint64Val = uint64(val)
 		}
-		return uint32(int64Val), nil
+	case bson.TypeInt32:
+		if val, ok := v.Int32OK(); ok && val >= 0 {
+			uint64Val = uint64(val)
+		}
+	default:
+		return 0, errors.New("not a uint32")
 	}
-	return 0, errors.New("not a uint32")
+
+	if uint64Val > math.MaxUint32 {
+		return 0, errors.New("uint32 value out of range")
+	}
+	return uint32(uint64Val), nil
 }
 
 func getUint64Value(v bson.RawValue) (uint64, error) {
