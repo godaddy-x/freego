@@ -87,6 +87,9 @@ type MGOManager struct {
 	PackContext *PackContext
 }
 
+// Get 创建并初始化一个新的MGOManager实例
+// 支持通过选项参数自定义配置，如数据库连接、缓存等
+// 返回初始化后的管理器实例或错误信息
 func (self *MGOManager) Get(option ...Option) (*MGOManager, error) {
 	if err := self.GetDB(option...); err != nil {
 		return nil, err
@@ -154,6 +157,15 @@ func UseTransactionWithContext(ctx context.Context, fn func(mgo *MGOManager) err
 }
 
 // 获取mongo的数据库连接
+// GetDatabase 根据表名获取对应的MongoDB集合
+// 参数:
+//   - tb: 表名/集合名
+//
+// 返回:
+//   - *mongo.Collection: MongoDB集合对象
+//   - error: 获取失败时的错误信息
+//
+// 注意: 内部会处理数据库连接和集合缓存
 func (self *MGOManager) GetDatabase(tb string) (*mongo.Collection, error) {
 	collection := self.Session.Database(self.Database).Collection(tb)
 	if collection == nil {
@@ -162,6 +174,14 @@ func (self *MGOManager) GetDatabase(tb string) (*mongo.Collection, error) {
 	return collection, nil
 }
 
+// GetDB 初始化或获取数据库连接
+// 参数:
+//   - options: 可选的配置选项，用于自定义连接参数
+//
+// 返回:
+//   - error: 连接失败时的错误信息
+//
+// 功能: 建立与MongoDB的连接，初始化连接池等
 func (self *MGOManager) GetDB(options ...Option) error {
 	dsName := DIC.MASTER
 	var option Option
@@ -203,6 +223,11 @@ func (self *MGOManager) GetDB(options ...Option) error {
 	return nil
 }
 
+// GetSessionContext 获取当前会话上下文
+// 返回:
+//   - context.Context: 当前的会话上下文，用于事务和超时控制
+//
+// 功能: 返回当前MGOManager实例关联的上下文对象
 func (self *MGOManager) GetSessionContext() context.Context {
 	if self.PackContext.SessionContext == nil {
 		return self.PackContext.Context
@@ -212,6 +237,18 @@ func (self *MGOManager) GetSessionContext() context.Context {
 
 // resolveContext 解析并返回正确的context用于数据库操作
 // 优先级：事务中sessionContext > 用户传入ctx > 默认context
+// resolveContext 解析并返回合适的上下文对象
+// 参数:
+//   - userCtx: 用户提供的上下文
+//
+// 返回:
+//   - context.Context: 解析后的上下文（用户上下文或默认上下文）
+//
+// 功能:
+//   - 如果用户提供上下文则使用用户上下文
+//   - 否则返回默认的会话上下文
+//
+// 注意: 这是内部方法，用于统一上下文处理逻辑
 func (self *MGOManager) resolveContext(userCtx context.Context) context.Context {
 	if self.PackContext.SessionContext != nil {
 		// 在事务中，必须使用sessionContext确保事务正确性
@@ -224,6 +261,14 @@ func (self *MGOManager) resolveContext(userCtx context.Context) context.Context 
 	return self.PackContext.Context
 }
 
+// InitConfig 初始化MongoDB配置
+// 参数:
+//   - input: MongoDB配置参数数组，支持多套配置
+//
+// 返回:
+//   - error: 配置初始化失败时的错误信息
+//
+// 功能: 设置数据库连接参数、认证信息、连接池配置等
 func (self *MGOManager) InitConfig(input ...MGOConfig) error {
 	return self.buildByConfig(nil, input...)
 }
@@ -392,6 +437,13 @@ func (self *MGOManager) buildByConfig(manager cache.Cache, input ...MGOConfig) e
 	return nil
 }
 
+// initSlowLog 初始化慢查询日志记录器
+// 功能:
+//   - 创建专门的慢查询日志记录器
+//   - 设置慢查询日志的输出格式和级别
+//   - 支持独立的慢查询日志文件输出
+//
+// 注意: 这是内部初始化方法，无需外部调用
 func (self *MGOManager) initSlowLog() {
 	if self.SlowQuery == 0 || len(self.SlowLogPath) == 0 {
 		return
@@ -411,11 +463,35 @@ func (self *MGOManager) initSlowLog() {
 	}
 }
 
+// getSlowLog 获取慢查询日志记录器实例
+// 返回:
+//   - *zap.Logger: 慢查询专用日志记录器
+//
+// 功能:
+//   - 返回已初始化的慢查询日志记录器
+//   - 如果未初始化则自动创建
+//   - 支持独立的慢查询日志输出和格式化
+//
+// 注意: 返回nil表示慢查询日志功能未启用
 func (self *MGOManager) getSlowLog() *zap.Logger {
 	return mgoSlowlog
 }
 
 // validateDataParams 统一的数据参数验证方法
+// validateDataParams 验证数据操作参数的有效性
+// 参数:
+//   - data: 要验证的对象数组
+//   - operation: 操作名称，用于错误信息
+//
+// 返回:
+//   - error: 验证失败时的错误信息
+//
+// 功能:
+//   - 检查对象数组是否为空
+//   - 验证对象是否正确实现了sqlc.Object接口
+//   - 检查对象是否已注册到模型驱动器中
+//
+// 注意: 这是一个内部验证方法，确保数据操作的安全性
 func (self *MGOManager) validateDataParams(data []sqlc.Object, operation string) error {
 	if len(data) == 0 {
 		return self.Error(fmt.Sprintf("[Mongo.%s] data is nil", operation))
@@ -426,6 +502,19 @@ func (self *MGOManager) validateDataParams(data []sqlc.Object, operation string)
 	return nil
 }
 
+// Save 保存一个或多个对象到数据库
+// 参数:
+//   - data: 要保存的对象数组，支持批量保存
+//
+// 返回:
+//   - error: 保存失败时的错误信息
+//
+// 功能:
+//   - 自动生成ID（Int64、String、ObjectID类型）
+//   - 使用零反射编码方式进行对象序列化
+//   - 支持事务和批量插入优化
+//
+// 注意: 会自动调用参数验证，确保数据有效性
 func (self *MGOManager) Save(data ...sqlc.Object) error {
 	// 统一参数验证
 	if err := self.validateDataParams(data, "Save"); err != nil {
@@ -436,6 +525,21 @@ func (self *MGOManager) Save(data ...sqlc.Object) error {
 	return self.SaveWithContext(nil, data...)
 }
 
+// Update 更新一个或多个对象到数据库
+// 参数:
+//   - data: 要更新的对象数组
+//
+// 返回:
+//   - error: 更新失败时的错误信息
+//
+// 功能:
+//   - 根据对象主键进行全量更新（ReplaceOne）
+//   - 使用零反射编码方式进行对象序列化
+//   - 支持批量更新操作
+//
+// 注意:
+//   - 对象必须包含有效的ID字段
+//   - 会完全替换原有文档（类似UPSERT操作）
 func (self *MGOManager) Update(data ...sqlc.Object) error {
 	// 统一参数验证
 	if err := self.validateDataParams(data, "Update"); err != nil {
@@ -446,6 +550,15 @@ func (self *MGOManager) Update(data ...sqlc.Object) error {
 	return self.UpdateWithContext(nil, data...)
 }
 
+// UpdateByCnd 根据条件批量更新文档
+// 参数:
+//   - cnd: 条件构造器，包含查询条件和更新内容
+//
+// 返回:
+//   - int64: 被更新的文档数量
+//   - error: 更新失败时的错误信息
+//
+// 功能: 调用UpdateByCndWithContext使用默认上下文进行批量更新
 func (self *MGOManager) UpdateByCnd(cnd *sqlc.Cnd) (int64, error) {
 	// 基础参数验证
 	if cnd.Model == nil {
@@ -466,6 +579,16 @@ func (self *MGOManager) Delete(data ...sqlc.Object) error {
 	return self.DeleteWithContext(nil, data...)
 }
 
+// DeleteById 根据ID列表批量删除文档
+// 参数:
+//   - object: 模型对象，用于确定集合名和ID类型
+//   - data: 要删除的ID列表
+//
+// 返回:
+//   - int64: 被删除的文档数量
+//   - error: 删除失败时的错误信息
+//
+// 功能: 调用DeleteByIdWithContext使用默认上下文进行按ID批量删除
 func (self *MGOManager) DeleteById(object sqlc.Object, data ...interface{}) (int64, error) {
 	// 基础参数验证
 	if object == nil {
@@ -492,6 +615,15 @@ func (self *MGOManager) DeleteByCnd(cnd *sqlc.Cnd) (int64, error) {
 	return self.DeleteByCndWithContext(nil, cnd)
 }
 
+// Count 统计符合条件的文档数量
+// 参数:
+//   - cnd: 查询条件构造器
+//
+// 返回:
+//   - int64: 文档数量
+//   - error: 统计失败时的错误信息
+//
+// 功能: 调用CountWithContext使用默认上下文进行文档计数
 func (self *MGOManager) Count(cnd *sqlc.Cnd) (int64, error) {
 	// 基础参数验证
 	if cnd.Model == nil {
@@ -502,6 +634,15 @@ func (self *MGOManager) Count(cnd *sqlc.Cnd) (int64, error) {
 	return self.CountWithContext(nil, cnd)
 }
 
+// Exists 检查是否存在符合条件的文档
+// 参数:
+//   - cnd: 查询条件构造器
+//
+// 返回:
+//   - bool: true表示存在，false表示不存在
+//   - error: 检查失败时的错误信息
+//
+// 功能: 调用ExistsWithContext使用默认上下文进行存在性检查
 func (self *MGOManager) Exists(cnd *sqlc.Cnd) (bool, error) {
 	// 基础参数验证
 	if cnd.Model == nil {
@@ -512,6 +653,20 @@ func (self *MGOManager) Exists(cnd *sqlc.Cnd) (bool, error) {
 	return self.ExistsWithContext(nil, cnd)
 }
 
+// FindOne 根据条件查询单个文档
+// 参数:
+//   - cnd: 查询条件构造器，包含筛选、分页、排序等条件
+//   - data: 用于存储查询结果的对象指针
+//
+// 返回:
+//   - error: 查询失败时的错误信息（未找到记录不认为是错误）
+//
+// 功能:
+//   - 支持复杂的查询条件构造
+//   - 使用零反射解码方式进行对象反序列化
+//   - 自动处理查询选项和索引优化
+//
+// 注意: 如果未找到匹配的记录，data保持不变，不返回错误
 func (self *MGOManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
 	// 基础参数验证
 	if data == nil {
@@ -523,15 +678,49 @@ func (self *MGOManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
 }
 
 // FindOneComplex 按复杂条件查询单条数据
+// 参数:
+//   - cnd: 复杂查询条件构造器
+//   - data: 用于存储查询结果的对象指针
+//
+// 返回:
+//   - error: 查询失败时的错误信息
+//
+// 功能: 调用FindOneWithContext进行复杂条件查询（兼容性方法）
 func (self *MGOManager) FindOneComplex(cnd *sqlc.Cnd, data sqlc.Object) error {
 	return self.FindOneComplexWithContext(nil, cnd, data)
 }
 
+// FindList 根据条件查询多个文档列表
+// 参数:
+//   - cnd: 查询条件构造器，包含筛选、分页、排序等条件
+//   - data: 用于存储查询结果的切片指针（如[]*User）
+//
+// 返回:
+//   - error: 查询失败时的错误信息
+//
+// 功能:
+//   - 支持复杂的查询条件、分页、排序
+//   - 使用零反射解码方式进行批量对象反序列化
+//   - 自动处理游标管理和内存优化
+//   - 支持快速分页（FastPage）功能
+//
+// 注意:
+//   - data必须是可赋值的切片指针
+//   - 内部会自动关闭游标，无需手动处理
 func (self *MGOManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
 	// 直接调用统一的 WithContext 版本，使用默认上下文
 	return self.FindListWithContext(nil, cnd, data)
 }
 
+// FindListComplex 按复杂条件查询数据列表
+// 参数:
+//   - cnd: 复杂查询条件构造器
+//   - data: 用于存储查询结果的切片指针
+//
+// 返回:
+//   - error: 查询失败时的错误信息
+//
+// 功能: 调用FindListWithContext进行复杂条件查询（兼容性方法）
 func (self *MGOManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
 	return self.FindListComplexWithContext(nil, cnd, data)
 }
@@ -549,6 +738,24 @@ func (self *MGOManager) BuildCondKey(cnd *sqlc.Cnd, key string, buf *bytes.Buffe
 // 带Context超时的CRUD方法扩展
 
 // SaveWithContext 带上下文超时的保存数据方法
+// SaveWithContext 带上下文超时的保存数据方法
+// 参数:
+//   - ctx: 上下文，用于控制超时和取消操作
+//   - data: 要保存的对象数组，支持批量保存
+//
+// 返回:
+//   - error: 保存失败时的错误信息
+//
+// 功能:
+//   - 支持上下文超时控制
+//   - 自动生成ID（Int64、String、ObjectID类型）
+//   - 使用零反射编码方式进行对象序列化
+//   - 批量插入优化，减少网络往返
+//   - 完整的执行时间监控和日志记录
+//
+// 注意:
+//   - 会自动调用参数验证，确保数据有效性
+//   - 支持事务上下文传递
 func (self *MGOManager) SaveWithContext(ctx context.Context, data ...sqlc.Object) error {
 	// 解析正确的context用于数据库操作
 	ctx = self.resolveContext(ctx)
@@ -619,6 +826,25 @@ func (self *MGOManager) SaveWithContext(ctx context.Context, data ...sqlc.Object
 }
 
 // UpdateWithContext 带上下文超时的更新数据方法
+// UpdateWithContext 带上下文超时的更新数据方法
+// 参数:
+//   - ctx: 上下文，用于控制超时和取消操作
+//   - data: 要更新的对象数组
+//
+// 返回:
+//   - error: 更新失败时的错误信息
+//
+// 功能:
+//   - 支持上下文超时控制
+//   - 根据对象主键进行全量更新（ReplaceOne）
+//   - 使用零反射编码方式进行对象序列化
+//   - 支持批量更新操作
+//   - 完整的执行时间监控和日志记录
+//
+// 注意:
+//   - 对象必须包含有效的ID字段
+//   - 会完全替换原有文档（类似UPSERT操作）
+//   - 适用于需要更新整个对象的情况
 func (self *MGOManager) UpdateWithContext(ctx context.Context, data ...sqlc.Object) error {
 	// 解析正确的context用于数据库操作
 	ctx = self.resolveContext(ctx)
@@ -681,6 +907,25 @@ func (self *MGOManager) UpdateWithContext(ctx context.Context, data ...sqlc.Obje
 }
 
 // UpdateByCndWithContext 带上下文超时的按条件更新数据方法
+// UpdateByCndWithContext 带上下文超时的条件批量更新方法
+// 参数:
+//   - ctx: 上下文，用于控制超时和取消操作
+//   - cnd: 条件构造器，包含查询条件和更新内容
+//
+// 返回:
+//   - int64: 被更新的文档数量
+//   - error: 更新失败时的错误信息
+//
+// 功能:
+//   - 支持上下文超时控制
+//   - 根据复杂条件批量更新文档
+//   - 支持$set、$unset等MongoDB更新操作符
+//   - 完整的执行时间监控和日志记录
+//
+// 注意:
+//   - 使用UpdateMany进行批量更新
+//   - 更新内容通过cnd.Upsets字段指定
+//   - 返回的计数表示实际被修改的文档数量
 func (self *MGOManager) UpdateByCndWithContext(ctx context.Context, cnd *sqlc.Cnd) (int64, error) {
 	// 基础参数验证
 	if cnd.Model == nil {
@@ -719,6 +964,23 @@ func (self *MGOManager) UpdateByCndWithContext(ctx context.Context, cnd *sqlc.Cn
 }
 
 // DeleteWithContext 带上下文超时的删除数据方法
+// 参数:
+//   - ctx: 上下文，用于控制超时和取消操作
+//   - data: 要删除的对象数组
+//
+// 返回:
+//   - error: 删除失败时的错误信息
+//
+// 功能:
+//   - 支持上下文超时控制
+//   - 根据对象主键批量删除（使用$in查询）
+//   - 支持大数据量删除优化
+//   - 完整的执行时间监控和日志记录
+//
+// 注意:
+//   - 建议每次删除的数据量不超过1000个，以获得最佳性能
+//   - 对象必须包含有效的ID字段
+//   - 删除操作不可逆，请谨慎使用
 func (self *MGOManager) DeleteWithContext(ctx context.Context, data ...sqlc.Object) error {
 	// 解析正确的context用于数据库操作
 	ctx = self.resolveContext(ctx)
@@ -781,6 +1043,26 @@ func (self *MGOManager) DeleteWithContext(ctx context.Context, data ...sqlc.Obje
 }
 
 // DeleteByIdWithContext 带上下文超时的按ID删除数据方法
+// DeleteByIdWithContext 带上下文超时的按ID批量删除方法
+// 参数:
+//   - ctx: 上下文，用于控制超时和取消操作
+//   - object: 模型对象，用于确定集合名和ID类型
+//   - data: 要删除的ID列表，支持多种ID类型（int64、string、ObjectID）
+//
+// 返回:
+//   - int64: 被删除的文档数量
+//   - error: 删除失败时的错误信息
+//
+// 功能:
+//   - 支持上下文超时控制
+//   - 支持多种主键类型（Int64、String、ObjectID）
+//   - 使用$in查询进行批量删除优化
+//   - 完整的执行时间监控和日志记录
+//
+// 注意:
+//   - ID列表长度不能超过2000个
+//   - 支持混合类型的ID批量删除
+//   - 删除操作不可逆，请谨慎使用
 func (self *MGOManager) DeleteByIdWithContext(ctx context.Context, object sqlc.Object, data ...interface{}) (int64, error) {
 	// 基础参数验证
 	if object == nil {
@@ -814,10 +1096,7 @@ func (self *MGOManager) DeleteByIdWithContext(ctx context.Context, object sqlc.O
 		return 0, self.Error(err)
 	}
 
-	// 优化：大数据量时只记录统计信息
-	if zlog.IsDebug() {
-		defer zlog.Debug("[Mongo.DeleteById]", utils.UnixMilli(), zlog.Int("count", len(data)))
-	}
+	defer self.writeLog("[Mongo.DeleteById]", utils.UnixMilli(), nil, nil)
 
 	// 执行批量删除
 	res, err := db.DeleteMany(ctx, bson.M{"_id": bson.M{"$in": data}})
@@ -829,6 +1108,25 @@ func (self *MGOManager) DeleteByIdWithContext(ctx context.Context, object sqlc.O
 }
 
 // DeleteByCndWithContext 带上下文超时的按条件删除数据方法
+// DeleteByCndWithContext 带上下文超时的条件批量删除方法
+// 参数:
+//   - ctx: 上下文，用于控制超时和取消操作
+//   - cnd: 条件构造器，包含删除条件
+//
+// 返回:
+//   - int64: 被删除的文档数量
+//   - error: 删除失败时的错误信息
+//
+// 功能:
+//   - 支持上下文超时控制
+//   - 根据复杂条件批量删除文档
+//   - 支持DeleteMany操作进行高效批量删除
+//   - 完整的执行时间监控和日志记录
+//
+// 注意:
+//   - 使用DeleteMany进行批量删除
+//   - 删除条件通过cnd查询条件指定
+//   - 删除操作不可逆，请谨慎使用
 func (self *MGOManager) DeleteByCndWithContext(ctx context.Context, cnd *sqlc.Cnd) (int64, error) {
 	// 基础参数验证
 	if cnd.Model == nil {
@@ -846,7 +1144,7 @@ func (self *MGOManager) DeleteByCndWithContext(ctx context.Context, cnd *sqlc.Cn
 	if match == nil || len(match) == 0 {
 		return 0, self.Error("pipe match is nil")
 	}
-	defer self.writeLog("[Mongo.DeleteByCnd]", utils.UnixMilli(), map[string]interface{}{"match": match}, nil)
+	defer self.writeLog("[Mongo.DeleteByCnd]", utils.UnixMilli(), match, nil)
 	res, err := db.DeleteMany(ctx, match)
 	if err != nil {
 		return 0, self.Error("[Mongo.DeleteByCnd] delete failed: ", err)
@@ -857,6 +1155,25 @@ func (self *MGOManager) DeleteByCndWithContext(ctx context.Context, cnd *sqlc.Cn
 }
 
 // FindOneWithContext 带上下文超时的查询单条数据方法
+// FindOneWithContext 带上下文超时的单条数据查询方法
+// 参数:
+//   - ctx: 上下文，用于控制超时和取消操作
+//   - cnd: 查询条件构造器，包含筛选、分页、排序等条件
+//   - data: 用于存储查询结果的对象指针
+//
+// 返回:
+//   - error: 查询失败时的错误信息（未找到记录不认为是错误）
+//
+// 功能:
+//   - 支持上下文超时控制
+//   - 支持复杂的查询条件构造
+//   - 使用零反射解码方式进行对象反序列化
+//   - 自动处理查询选项和索引优化
+//   - 完整的执行时间监控和慢查询日志
+//
+// 注意:
+//   - 如果未找到匹配的记录，data保持不变，不返回错误
+//   - 适用于需要精确匹配单个文档的场景
 func (self *MGOManager) FindOneWithContext(ctx context.Context, cnd *sqlc.Cnd, data sqlc.Object) error {
 	// 基础参数验证
 	if data == nil {
@@ -890,6 +1207,27 @@ func (self *MGOManager) FindOneWithContext(ctx context.Context, cnd *sqlc.Cnd, d
 }
 
 // FindListWithContext 带上下文超时的查询数据列表方法
+// FindListWithContext 带上下文超时的列表数据查询方法
+// 参数:
+//   - ctx: 上下文，用于控制超时和取消操作
+//   - cnd: 查询条件构造器，包含筛选、分页、排序等条件
+//   - data: 用于存储查询结果的切片指针（如[]*User）
+//
+// 返回:
+//   - error: 查询失败时的错误信息
+//
+// 功能:
+//   - 支持上下文超时控制
+//   - 支持复杂的查询条件、分页、排序
+//   - 使用零反射解码方式进行批量对象反序列化
+//   - 自动处理游标管理和内存优化
+//   - 支持快速分页（FastPage）功能
+//   - 完整的执行时间监控和慢查询日志
+//
+// 注意:
+//   - data必须是可赋值的切片指针
+//   - 内部会自动关闭游标，无需手动处理
+//   - 适用于批量数据查询和分页场景
 func (self *MGOManager) FindListWithContext(ctx context.Context, cnd *sqlc.Cnd, data interface{}) error {
 	// 基础参数验证
 	if data == nil {
@@ -986,6 +1324,24 @@ func (self *MGOManager) FindListWithContext(ctx context.Context, cnd *sqlc.Cnd, 
 }
 
 // CountWithContext 带上下文超时的统计数据方法
+// CountWithContext 带上下文超时的文档计数方法
+// 参数:
+//   - ctx: 上下文，用于控制超时和取消操作
+//   - cnd: 查询条件构造器，用于指定计数条件
+//
+// 返回:
+//   - int64: 匹配条件的文档数量
+//   - error: 计数失败时的错误信息
+//
+// 功能:
+//   - 支持上下文超时控制
+//   - 支持复杂的查询条件
+//   - 自动选择最优的计数方式（精确计数或估算计数）
+//   - 完整的执行时间监控和日志记录
+//
+// 注意:
+//   - 无查询条件时使用估算计数（更快但可能不精确）
+//   - 有查询条件时使用精确计数（较慢但准确）
 func (self *MGOManager) CountWithContext(ctx context.Context, cnd *sqlc.Cnd) (int64, error) {
 	// 基础参数验证
 	if cnd.Model == nil {
@@ -1030,6 +1386,24 @@ func (self *MGOManager) CountWithContext(ctx context.Context, cnd *sqlc.Cnd) (in
 }
 
 // ExistsWithContext 带上下文超时的检测是否存在方法
+// ExistsWithContext 带上下文超时的文档存在性检查方法
+// 参数:
+//   - ctx: 上下文，用于控制超时和取消操作
+//   - cnd: 查询条件构造器，用于指定检查条件
+//
+// 返回:
+//   - bool: true表示至少存在一个匹配的文档，false表示不存在
+//   - error: 检查失败时的错误信息
+//
+// 功能:
+//   - 支持上下文超时控制
+//   - 支持复杂的查询条件
+//   - 使用高效的CountDocuments(limit=1)进行存在性检查
+//   - 完整的执行时间监控和日志记录
+//
+// 注意:
+//   - 内部使用limit=1优化，提高检查效率
+//   - 适用于需要判断数据是否存在的业务场景
 func (self *MGOManager) ExistsWithContext(ctx context.Context, cnd *sqlc.Cnd) (bool, error) {
 	// 基础参数验证
 	if cnd.Model == nil {
@@ -1058,21 +1432,45 @@ func (self *MGOManager) ExistsWithContext(ctx context.Context, cnd *sqlc.Cnd) (b
 }
 
 // FindOneComplexWithContext 带上下文超时的复杂条件查询单条数据方法
+// 参数:
+//   - ctx: 上下文，用于控制超时和取消操作
+//   - cnd: 复杂查询条件构造器
+//   - data: 用于存储查询结果的对象指针
+//
+// 返回:
+//   - error: 查询失败时的错误信息
+//
+// 功能: 调用FindOneWithContext进行复杂条件查询，保持API兼容性
 func (self *MGOManager) FindOneComplexWithContext(ctx context.Context, cnd *sqlc.Cnd, data sqlc.Object) error {
 	return self.FindOneWithContext(ctx, cnd, data)
 }
 
 // FindListComplexWithContext 带上下文超时的复杂条件查询数据列表方法
+// 参数:
+//   - ctx: 上下文，用于控制超时和取消操作
+//   - cnd: 复杂查询条件构造器
+//   - data: 用于存储查询结果的切片指针
+//
+// 返回:
+//   - error: 查询失败时的错误信息
+//
+// 功能: 调用FindListWithContext进行复杂条件查询，保持API兼容性
 func (self *MGOManager) FindListComplexWithContext(ctx context.Context, cnd *sqlc.Cnd, data interface{}) error {
 	return self.FindListWithContext(ctx, cnd, data)
 }
 
-// BuildPaginationWithContext 带上下文超时的构建分页条件方法 (MongoDB不需要分页，直接返回原数据)
-func (self *MGOManager) BuildPaginationWithContext(ctx context.Context, cnd *sqlc.Cnd, sqlBytes []byte, values []interface{}) ([]byte, error) {
-	// MongoDB 不需要SQL风格的分页，直接返回原字节数组
-	return sqlBytes, nil
-}
-
+// Close 关闭MongoDB连接和资源
+// 返回:
+//   - error: 关闭失败时的错误信息
+//
+// 功能:
+//   - 断开与MongoDB的连接
+//   - 清理连接池和相关资源
+//   - 关闭所有相关的网络连接
+//
+// 注意:
+//   - 调用后MGOManager实例将无法再使用
+//   - 建议在应用程序关闭时调用此方法
 func (self *MGOManager) Close() error {
 	if self.PackContext != nil && self.PackContext.Context != nil && self.PackContext.CancelFunc != nil {
 		self.PackContext.CancelFunc()
@@ -1363,6 +1761,22 @@ func buildMongoLimit(cnd *sqlc.Cnd) (int64, int64) {
 	return (pageNo - 1) * pageSize, pageSize
 }
 
+// writeLog 记录数据库操作的执行时间和详细信息
+// 参数:
+//   - title: 操作标题，用于标识操作类型
+//   - start: 操作开始时间戳（毫秒）
+//   - pipe: 查询管道或条件信息
+//   - opts: 查询选项信息
+//
+// 功能:
+//   - 计算并记录操作执行时间
+//   - 对慢查询进行特殊标记和记录
+//   - 在调试模式下记录详细的查询信息
+//   - 支持慢查询阈值配置（SlowQuery字段）
+//
+// 注意:
+//   - 这是defer调用的方法，不会阻塞主要业务逻辑
+//   - 自动处理日志级别的判断和输出
 func (self *MGOManager) writeLog(title string, start int64, pipe, opts interface{}) {
 	cost := utils.UnixMilli() - start
 	if self.SlowQuery > 0 && cost > self.SlowQuery {
