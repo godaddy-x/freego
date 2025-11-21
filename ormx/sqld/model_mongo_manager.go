@@ -37,10 +37,18 @@ func encodeObjectToBson(data sqlc.Object) (bson.M, error) {
 			continue // 跳过无法访问的字段
 		}
 
-		// 使用FieldBsonName作为BSON字段名，如果为空则使用FieldJsonName
+		// 使用FieldBsonName作为BSON字段名，如果为空则使用FieldJsonName，最后回退到字段名
 		fieldName := elem.FieldBsonName
 		if fieldName == "" {
 			fieldName = elem.FieldJsonName
+		}
+		if fieldName == "" {
+			fieldName = elem.FieldName // 最后回退到字段名本身
+		}
+
+		// 特殊处理：主键字段强制映射到 _id
+		if elem.Primary {
+			fieldName = "_id"
 		}
 
 		// 特殊处理：[]uint8（支持Binary、Array）和primitive.ObjectID - 与decode中的顺序保持一致
@@ -729,10 +737,18 @@ func decodeBsonToObject(data sqlc.Object, raw bson.Raw) error {
 		if elem.Ignore {
 			continue
 		}
-		// 使用FieldBsonName来查找BSON字段，如果为空则使用FieldJsonName
+		// 使用FieldBsonName来查找BSON字段，如果为空则使用FieldJsonName，最后回退到字段名
 		fieldName := elem.FieldBsonName
 		if fieldName == "" {
 			fieldName = elem.FieldJsonName
+		}
+		if fieldName == "" {
+			fieldName = elem.FieldName // 最后回退到字段名本身
+		}
+
+		// 特殊处理：主键字段从 _id 字段读取
+		if elem.Primary {
+			fieldName = "_id"
 		}
 		if bsonValue := raw.Lookup(fieldName); !bsonValue.IsZero() {
 			setMongoValue(data, elem, bsonValue)

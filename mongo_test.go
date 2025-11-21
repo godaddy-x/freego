@@ -387,7 +387,181 @@ func (o *TestWallet) NewIndex() []sqlc.Index {
 	return []sqlc.Index{}
 }
 
-// TestAllTypes 包含所有支持类型的测试结构体
+// TestAllTypesNoBsonTag 测试去掉bson标签后是否仍然能正常工作
+type TestAllTypesNoBsonTag struct {
+	// 基础类型 - 只使用json标签
+	Id      int64   `json:"id"`
+	String  string  `json:"string"`
+	Int64   int64   `json:"int64"`
+	Int32   int32   `json:"int32"`
+	Int16   int16   `json:"int16"`
+	Int8    int8    `json:"int8"`
+	Int     int     `json:"int"`
+	Uint64  uint64  `json:"uint64"`
+	Uint32  uint32  `json:"uint32"`
+	Uint16  uint16  `json:"uint16"`
+	Uint8   uint8   `json:"uint8"`
+	Uint    uint    `json:"uint"`
+	Float64 float64 `json:"float64"`
+	Float32 float32 `json:"float32"`
+	Bool    bool    `json:"bool"`
+
+	// 数组类型
+	StringArr  []string  `json:"stringArr"`
+	IntArr     []int     `json:"intArr"`
+	Int64Arr   []int64   `json:"int64Arr"`
+	Int32Arr   []int32   `json:"int32Arr"`
+	Int16Arr   []int16   `json:"int16Arr"`
+	Int8Arr    []int8    `json:"int8Arr"`
+	UintArr    []uint    `json:"uintArr"`
+	Uint64Arr  []uint64  `json:"uint64Arr"`
+	Uint32Arr  []uint32  `json:"uint32Arr"`
+	Uint16Arr  []uint16  `json:"uint16Arr"`
+	Uint8Arr   []uint8   `json:"uint8Arr"`
+	Float64Arr []float64 `json:"float64Arr"`
+	Float32Arr []float32 `json:"float32Arr"`
+	BoolArr    []bool    `json:"boolArr"`
+
+	// 特殊类型
+	ObjectID primitive.ObjectID `json:"objectID"`
+	Binary   []byte             `json:"binary"`
+	Time     time.Time          `json:"time"`
+
+	// Map类型 - 重要类型支持测试
+	StringMap    map[string]string      `json:"stringMap"`
+	IntMap       map[string]int         `json:"intMap"`
+	Int64Map     map[string]int64       `json:"int64Map"`
+	InterfaceMap map[string]interface{} `json:"interfaceMap"`
+
+	// Interface类型 - 测试动态类型支持
+	Interface interface{} `json:"interface"`
+}
+
+func (o *TestAllTypesNoBsonTag) GetTable() string {
+	return "test_all_types_no_bson"
+}
+
+func (o *TestAllTypesNoBsonTag) NewObject() sqlc.Object {
+	return &TestAllTypesNoBsonTag{}
+}
+
+func (o *TestAllTypesNoBsonTag) AppendObject(data interface{}, target sqlc.Object) {
+	*data.(*[]*TestAllTypesNoBsonTag) = append(*data.(*[]*TestAllTypesNoBsonTag), target.(*TestAllTypesNoBsonTag))
+}
+
+func (o *TestAllTypesNoBsonTag) NewIndex() []sqlc.Index {
+	return []sqlc.Index{}
+}
+
+// TestAllTypesNoBsonTag 测试去掉bson标签后是否仍然能正常工作
+func TestMongoNoBsonTag(t *testing.T) {
+	if err := initMongoForTest(); err != nil {
+		t.Fatalf("MongoDB初始化失败: %v", err)
+	}
+
+	// 注册测试模型
+	if err := sqld.ModelDriver(&TestAllTypesNoBsonTag{}); err != nil && !strings.Contains(err.Error(), "exists") {
+		t.Fatalf("注册TestAllTypesNoBsonTag模型失败: %v", err)
+	}
+	t.Logf("模型注册成功，开始测试bson标签fallback")
+
+	mgoManager := &sqld.MGOManager{}
+	err := mgoManager.GetDB()
+	if err != nil {
+		t.Fatalf("获取MongoDB管理器失败: %v", err)
+	}
+	defer mgoManager.Close()
+
+	// 创建测试数据
+	testData := &TestAllTypesNoBsonTag{
+		Id:     time.Now().Unix(),
+		String: "no bson tag test",
+		Int64:  123456789,
+		Int32:  98765,
+		Int:    54321,
+		Bool:   true,
+
+		StringArr: []string{"a", "b", "c"},
+		IntArr:    []int{1, 2, 3},
+
+		ObjectID: primitive.NewObjectID(),
+		Binary:   []byte{1, 2, 3},
+		Time:     time.Now(),
+
+		StringMap: map[string]string{"key": "value"},
+		IntMap:    map[string]int{"score": 100},
+	}
+
+	// 保存数据
+	err = mgoManager.Save(testData)
+	if err != nil {
+		t.Fatalf("保存数据失败: %v", err)
+	}
+	t.Logf("保存的数据: Id=%d, String=%s, Int64=%d", testData.Id, testData.String, testData.Int64)
+
+	// 获取数据库连接
+	db, err := mgoManager.GetDatabase("test_all_types_no_bson")
+	if err != nil {
+		t.Fatalf("获取数据库失败: %v", err)
+	}
+
+	// 检查保存后的文档
+	var savedDoc bson.M
+	err = db.FindOne(context.Background(), bson.M{"_id": testData.Id}).Decode(&savedDoc)
+	if err != nil {
+		t.Logf("查询保存的文档失败: %v", err)
+	} else {
+		t.Logf("保存的文档内容: %+v", savedDoc)
+	}
+
+	// 查询数据 - 使用FindOneWithContext来测试我们的自定义解码
+	result := &TestAllTypesNoBsonTag{}
+	err = mgoManager.FindOne(sqlc.M(result).Eq("id", testData.Id), result)
+	if err != nil {
+		t.Fatalf("FindOne失败: %v", err)
+	}
+	if err != nil {
+		t.Fatalf("原生查询失败: %v", err)
+	}
+	if err != nil {
+		t.Fatalf("查询数据失败: %v", err)
+	}
+	t.Logf("查询的结果: Id=%d, String='%s', Int64=%d", result.Id, result.String, result.Int64)
+
+	// 验证数据
+	if result.String != testData.String {
+		t.Errorf("String字段不匹配: 期望 %s, 实际 %s", testData.String, result.String)
+	}
+	if result.Int64 != testData.Int64 {
+		t.Errorf("Int64字段不匹配: 期望 %d, 实际 %d", testData.Int64, result.Int64)
+	}
+	if result.Int != testData.Int {
+		t.Errorf("Int字段不匹配: 期望 %d, 实际 %d", testData.Int, result.Int)
+	}
+	if result.Bool != testData.Bool {
+		t.Errorf("Bool字段不匹配: 期望 %v, 实际 %v", testData.Bool, result.Bool)
+	}
+
+	// 验证数组
+	if len(result.StringArr) != len(testData.StringArr) {
+		t.Errorf("StringArr长度不匹配")
+	}
+	if len(result.IntArr) != len(testData.IntArr) {
+		t.Errorf("IntArr长度不匹配")
+	}
+
+	// 验证Map
+	if result.StringMap["key"] != testData.StringMap["key"] {
+		t.Errorf("StringMap不匹配")
+	}
+	if result.IntMap["score"] != testData.IntMap["score"] {
+		t.Errorf("IntMap不匹配")
+	}
+
+	t.Logf("✅ 去掉bson标签后功能正常！自定义解码系统支持json标签fallback")
+}
+
+// TestAllTypes 包含所有支持类型的测试结构体（保留bson标签以确保兼容性）
 type TestAllTypes struct {
 	// 基础类型
 	Id      int64   `json:"id" bson:"_id"`
