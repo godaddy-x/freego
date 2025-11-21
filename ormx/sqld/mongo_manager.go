@@ -802,10 +802,10 @@ func (self *MGOManager) SaveWithContext(ctx context.Context, data ...sqlc.Object
 		}
 	}
 
-	// 使用encodeObjectToBson编码每个对象
+	// 使用EncodeObjectToBson编码每个对象
 	docs := make([]interface{}, len(data))
 	for i, v := range data {
-		doc, err := encodeObjectToBson(v)
+		doc, err := EncodeObjectToBson(v)
 		if err != nil {
 			return self.Error("[Mongo.Save] encode failed: ", err)
 		}
@@ -889,8 +889,8 @@ func (self *MGOManager) UpdateWithContext(ctx context.Context, data ...sqlc.Obje
 			return self.Error("only Int64 and string and ObjectID type IDs are supported")
 		}
 
-		// 使用encodeObjectToBson编码对象
-		doc, err := encodeObjectToBson(v)
+		// 使用EncodeObjectToBson编码对象
+		doc, err := EncodeObjectToBson(v)
 		if err != nil {
 			return self.Error("[Mongo.Update] encode failed: ", err)
 		}
@@ -1200,7 +1200,7 @@ func (self *MGOManager) FindOneWithContext(ctx context.Context, cnd *sqlc.Cnd, d
 	}
 
 	// 使用公共方法解码BSON到对象
-	if err := decodeBsonToObject(data, raw); err != nil {
+	if err := DecodeBsonToObject(data, raw); err != nil {
 		return self.Error(err)
 	}
 	return nil
@@ -1308,7 +1308,7 @@ func (self *MGOManager) FindListWithContext(ctx context.Context, cnd *sqlc.Cnd, 
 		model := cnd.Model.NewObject()
 
 		// 使用无反射解码
-		if err := decodeBsonToObject(model, cur.Current); err != nil {
+		if err := DecodeBsonToObject(model, cur.Current); err != nil {
 			return self.Error("[Mongo.FindList] decode failed: ", err)
 		}
 

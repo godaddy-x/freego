@@ -18,8 +18,21 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
-// encodeObjectToBson 将对象编码为BSON文档（无反射保存）
-func encodeObjectToBson(data sqlc.Object) (bson.M, error) {
+// EncodeObjectToBson 将对象编码为BSON文档（无反射保存）
+// 将Go结构体对象转换为MongoDB BSON文档，支持所有基础类型、数组、Map和嵌套结构
+//
+// 参数:
+//   - data: 实现了sqlc.Object接口的数据对象
+//
+// 返回值:
+//   - bson.M: 转换后的BSON文档，key为字段名，value为对应的值
+//   - error: 编码过程中的错误信息
+//
+// 注意:
+//   - 只保存非零值（除ObjectID字段外总是保存）
+//   - 主键字段自动映射到"_id"
+//   - 支持字段标签优先级：bson > json > 字段名
+func EncodeObjectToBson(data sqlc.Object) (bson.M, error) {
 	obv, ok := modelDrivers[data.GetTable()]
 	if !ok {
 		return nil, fmt.Errorf("[Mongo.Encode] registration object type not found [%s]", data.GetTable())
@@ -95,10 +108,6 @@ func encodeObjectToBson(data sqlc.Object) (bson.M, error) {
 				value, err = getInterfaceValueFromObject(ptr, elem)
 			case reflect.Struct:
 				value, err = getStructValueFromObject(ptr, elem)
-				// 调试：打印Struct字段的值
-				if elem.FieldName == "ObjectID" {
-					fmt.Printf("DEBUG: encode ObjectID field, value: %v, err: %v\n", value, err)
-				}
 			case reflect.Slice:
 				value, err = getSliceValueFromObject(ptr, elem)
 			default:
@@ -121,6 +130,20 @@ func encodeObjectToBson(data sqlc.Object) (bson.M, error) {
 }
 
 // processValueForBson 处理值以确保可以序列化为BSON
+// 递归处理复杂数据类型，将Go类型转换为BSON兼容格式
+//
+// 参数:
+//   - value: 待处理的Go值
+//
+// 返回值:
+//   - interface{}: 处理后的BSON兼容值
+//   - error: 处理过程中的错误
+//
+// 支持的类型转换:
+//   - 指针: 自动解引用
+//   - 数组/切片: 递归处理每个元素
+//   - Map: 转换key为字符串，递归处理value
+//   - 接口: 递归处理实际值
 func processValueForBson(value interface{}) (interface{}, error) {
 	if value == nil {
 		return nil, nil
@@ -191,7 +214,10 @@ func processValueForBson(value interface{}) (interface{}, error) {
 }
 
 // 从对象中读取字段值的辅助函数（用于无反射编码）
+// 以下函数通过内存偏移量直接读取结构体字段值，避免反射开销
 
+// getStringValueFromObject 从对象中获取字符串字段值
+// 只有非空字符串才会被保存到BSON文档
 func getStringValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
 	val := utils.GetString(ptr)
 	if val != "" {
@@ -200,6 +226,7 @@ func getStringValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error)
 	return nil, nil // 返回nil表示零值，不添加到文档中
 }
 
+// getInt64ValueFromObject 从对象中获取int64字段值
 func getInt64ValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
 	val := utils.GetInt64(ptr)
 	if val != 0 {
@@ -208,6 +235,7 @@ func getInt64ValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) 
 	return nil, nil
 }
 
+// getIntValueFromObject 从对象中获取int字段值
 func getIntValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
 	val := utils.GetInt(ptr)
 	if val != 0 {
@@ -216,6 +244,7 @@ func getIntValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
 	return nil, nil
 }
 
+// getInt8ValueFromObject 从对象中获取int8字段值
 func getInt8ValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
 	val := utils.GetInt8(ptr)
 	if val != 0 {
@@ -224,6 +253,7 @@ func getInt8ValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
 	return nil, nil
 }
 
+// getInt16ValueFromObject 从对象中获取int16字段值
 func getInt16ValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
 	val := utils.GetInt16(ptr)
 	if val != 0 {
@@ -232,6 +262,7 @@ func getInt16ValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) 
 	return nil, nil
 }
 
+// getInt32ValueFromObject 从对象中获取int32字段值
 func getInt32ValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
 	val := utils.GetInt32(ptr)
 	if val != 0 {
@@ -240,6 +271,7 @@ func getInt32ValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) 
 	return nil, nil
 }
 
+// getUintValueFromObject 从对象中获取uint字段值
 func getUintValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
 	val := utils.GetUint(ptr)
 	if val != 0 {
@@ -248,6 +280,7 @@ func getUintValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
 	return nil, nil
 }
 
+// getUint8ValueFromObject 从对象中获取uint8字段值
 func getUint8ValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
 	val := utils.GetUint8(ptr)
 	if val != 0 {
@@ -256,6 +289,7 @@ func getUint8ValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) 
 	return nil, nil
 }
 
+// getUint16ValueFromObject 从对象中获取uint16字段值
 func getUint16ValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
 	val := utils.GetUint16(ptr)
 	if val != 0 {
@@ -264,6 +298,7 @@ func getUint16ValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error)
 	return nil, nil
 }
 
+// getUint32ValueFromObject 从对象中获取uint32字段值
 func getUint32ValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
 	val := utils.GetUint32(ptr)
 	if val != 0 {
@@ -272,6 +307,7 @@ func getUint32ValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error)
 	return nil, nil
 }
 
+// getUint64ValueFromObject 从对象中获取uint64字段值
 func getUint64ValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
 	val := utils.GetUint64(ptr)
 	if val != 0 {
@@ -280,6 +316,7 @@ func getUint64ValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error)
 	return nil, nil
 }
 
+// getFloat32ValueFromObject 从对象中获取float32字段值
 func getFloat32ValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
 	val := utils.GetFloat32(ptr)
 	if val != 0.0 {
@@ -288,6 +325,7 @@ func getFloat32ValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error
 	return nil, nil
 }
 
+// getFloat64ValueFromObject 从对象中获取float64字段值
 func getFloat64ValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
 	val := utils.GetFloat64(ptr)
 	if val != 0.0 {
@@ -296,6 +334,7 @@ func getFloat64ValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error
 	return nil, nil
 }
 
+// getBoolValueFromObject 从对象中获取bool字段值
 func getBoolValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
 	val := utils.GetBool(ptr)
 	if val {
@@ -304,6 +343,7 @@ func getBoolValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
 	return nil, nil
 }
 
+// getUint8SliceValueFromObject 从对象中获取[]uint8字段值
 func getUint8SliceValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
 	val := utils.GetUint8Arr(ptr)
 	if len(val) > 0 {
@@ -312,12 +352,25 @@ func getUint8SliceValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, er
 	return nil, nil
 }
 
+// getObjectIDValueFromObject 从对象中获取ObjectID字段值
+// ObjectID总是保存，即使是零值（因为它是重要的标识符）
 func getObjectIDValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
 	val := utils.GetObjectID(ptr)
-	// ObjectID总是保存，即使是零值（因为它是重要的标识符）
 	return val, nil
 }
 
+// getMapValueFromObject 从对象中获取Map字段值并转换为BSON格式
+// 支持多种map[string]Value类型，将Go map转换为MongoDB文档
+//
+// 支持的Map类型:
+//   - map[string]interface{}: 递归处理嵌套值
+//   - map[string]string: 直接转换字符串值
+//   - map[string]int: 只保存非零整数值
+//   - map[string]int64: 只保存非零整数值
+//
+// 注意:
+//   - 空map不保存
+//   - 对于map[string]interface{}，零值会被过滤
 func getMapValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
 	fieldTypeStr := strings.TrimSpace(elem.FieldType)
 
@@ -446,8 +499,9 @@ func getMapValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
 	}
 }
 
+// getInterfaceValueFromObject 从对象中获取interface{}字段值
+// 递归处理interface{}中存储的任何类型的值
 func getInterfaceValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
-	// 对于interface{}类型，直接获取值
 	interfacePtr := (*interface{})(unsafe.Pointer(ptr))
 	if interfacePtr == nil {
 		return nil, nil
@@ -458,10 +512,11 @@ func getInterfaceValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, err
 		return nil, nil
 	}
 
-	// 处理interface{}中的值
 	return processValueForBson(value)
 }
 
+// getStructValueFromObject 从对象中获取结构体字段值
+// 支持特殊结构体类型：time.Time, primitive.ObjectID, decimal.Decimal
 func getStructValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
 	fieldTypeStr := strings.TrimSpace(elem.FieldType)
 
@@ -486,6 +541,19 @@ func getStructValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error)
 	}
 }
 
+// getSliceValueFromObject 从对象中获取切片字段值并转换为BSON数组格式
+// 支持各种类型的切片，将Go切片转换为MongoDB数组
+//
+// 支持的切片类型:
+//   - []string, []int, []int8, []int16, []int32, []int64
+//   - []uint, []uint8, []uint16, []uint32, []uint64
+//   - []float32, []float64, []bool
+//   - []primitive.ObjectID, []time.Time
+//   - []interface{}, [][]uint8
+//
+// 注意:
+//   - 空切片不保存
+//   - []uint8有特殊处理（Binary类型）
 func getSliceValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
 	fieldTypeStr := strings.TrimSpace(elem.FieldType)
 
@@ -562,6 +630,17 @@ func getSliceValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) 
 	}
 }
 
+// getTypedSliceValue 通用切片值获取函数
+// 通过converter函数处理切片中的每个元素，支持类型转换
+//
+// 参数:
+//   - ptr: 字段内存地址
+//   - elem: 字段元素信息
+//   - converter: 元素转换函数
+//
+// 返回值:
+//   - interface{}: 转换后的切片，元素类型为interface{}
+//   - error: 处理过程中的错误
 func getTypedSliceValue(ptr uintptr, elem *FieldElem, converter func(interface{}) interface{}) (interface{}, error) {
 	// 对于不同的slice类型，我们需要根据实际类型来处理
 	switch elem.FieldType {
@@ -726,8 +805,21 @@ func getTypedSliceValue(ptr uintptr, elem *FieldElem, converter func(interface{}
 	}
 }
 
-// decodeBsonToObject 将BSON文档解码填充到对象中（无反射模式）
-func decodeBsonToObject(data sqlc.Object, raw bson.Raw) error {
+// DecodeBsonToObject 将BSON文档解码填充到对象中（无反射模式）
+// 从MongoDB BSON文档反序列化为Go结构体，无需使用反射
+//
+// 参数:
+//   - data: 实现了sqlc.Object接口的目标对象
+//   - raw: MongoDB返回的原始BSON文档
+//
+// 返回值:
+//   - error: 解码过程中的错误信息
+//
+// 特性:
+//   - 支持所有基础类型和复杂类型
+//   - 主键字段自动从"_id"读取
+//   - 错误信息包含具体的字段名
+func DecodeBsonToObject(data sqlc.Object, raw bson.Raw) error {
 	obv, ok := modelDrivers[data.GetTable()]
 	if !ok {
 		return fmt.Errorf("[Mongo.Decode] registration object type not found [%s]", data.GetTable())
@@ -751,13 +843,32 @@ func decodeBsonToObject(data sqlc.Object, raw bson.Raw) error {
 			fieldName = "_id"
 		}
 		if bsonValue := raw.Lookup(fieldName); !bsonValue.IsZero() {
-			setMongoValue(data, elem, bsonValue)
+			if err := setMongoValue(data, elem, bsonValue); err != nil {
+				return fmt.Errorf("field %s decode failed: %w", elem.FieldName, err)
+			}
 		}
 	}
 	return nil
 }
 
 // setMongoValue 将BSON值赋值给对象字段（完善错误处理与类型兼容）
+// 根据字段类型将BSON值转换为对应的Go类型并赋值
+//
+// 参数:
+//   - obj: 目标对象指针
+//   - elem: 字段元素信息
+//   - bsonValue: BSON原始值
+//
+// 返回值:
+//   - error: 类型转换或赋值过程中的错误
+//
+// 支持的类型:
+//   - 基础类型: string, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64
+//   - 浮点类型: float32, float64
+//   - 布尔类型: bool
+//   - 二进制类型: []uint8
+//   - 对象类型: primitive.ObjectID
+//   - 复合类型: array, struct, ptr, slice, map, interface
 func setMongoValue(obj interface{}, elem *FieldElem, bsonValue bson.RawValue) error {
 	if obj == nil {
 		return errors.New("target object is nil")
@@ -826,7 +937,10 @@ func setMongoValue(obj interface{}, elem *FieldElem, bsonValue bson.RawValue) er
 	}
 }
 
-// 处理[]uint8类型（支持Binary和Array）
+// handleUint8Slice 处理[]uint8类型（支持Binary和Array）
+// []uint8字段的特殊处理，支持两种BSON格式:
+//   - Binary: 直接使用二进制数据
+//   - Array: 数组中的每个元素转换为uint8
 func handleUint8Slice(ptr uintptr, bsonValue bson.RawValue, elem *FieldElem) error {
 	if _, binary, ok := bsonValue.BinaryOK(); ok {
 		utils.SetUint8Arr(ptr, binary)
@@ -849,6 +963,7 @@ func handleUint8Slice(ptr uintptr, bsonValue bson.RawValue, elem *FieldElem) err
 }
 
 // handleObjectID 处理primitive.ObjectID字段
+// 将BSON ObjectID类型转换为Go的primitive.ObjectID
 func handleObjectID(ptr uintptr, bsonValue bson.RawValue, elem *FieldElem) error {
 	if oid, ok := bsonValue.ObjectIDOK(); ok {
 		utils.SetObjectID(ptr, oid)
@@ -857,96 +972,160 @@ func handleObjectID(ptr uintptr, bsonValue bson.RawValue, elem *FieldElem) error
 	return fmt.Errorf("field %s: ObjectID requires ObjectID type, got %s", elem.FieldName, bsonValue.Type)
 }
 
-// 设置字符串字段（支持字符串和数字转字符串）
+// setString 设置字符串字段（支持字符串和数字转字符串）
+// 支持多种BSON类型转换为字符串:
+//   - String: 直接使用
+//   - Int64: 转换为十进制字符串
+//   - Double: 转换为浮点数字符串
 func setString(ptr uintptr, bsonValue bson.RawValue, elem *FieldElem) error {
-	if str, ok := bsonValue.StringValueOK(); ok {
-		utils.SetString(ptr, str)
-		return nil
-	}
-	// 支持数字转字符串（如123 -> "123"）
-	if int64Val, ok := bsonValue.Int64OK(); ok {
-		utils.SetString(ptr, strconv.FormatInt(int64Val, 10))
-		return nil
-	}
-	if floatVal, ok := bsonValue.DoubleOK(); ok {
-		utils.SetString(ptr, strconv.FormatFloat(floatVal, 'f', -1, 64))
-		return nil
+	switch bsonValue.Type {
+	case bson.TypeString:
+		if str, ok := bsonValue.StringValueOK(); ok {
+			utils.SetString(ptr, str)
+			return nil
+		}
+	case bson.TypeInt64:
+		// 支持数字转字符串（如123 -> "123"）
+		if int64Val, ok := bsonValue.Int64OK(); ok {
+			utils.SetString(ptr, strconv.FormatInt(int64Val, 10))
+			return nil
+		}
+	case bson.TypeDouble:
+		if floatVal, ok := bsonValue.DoubleOK(); ok {
+			utils.SetString(ptr, strconv.FormatFloat(floatVal, 'f', -1, 64))
+			return nil
+		}
 	}
 	return fmt.Errorf("field %s: string requires String/Int64/Double type, got %s", elem.FieldName, bsonValue.Type)
 }
 
-// 设置int64字段
+// setInt64 设置int64字段
+// 只接受BSON Int64类型的值
 func setInt64(ptr uintptr, bsonValue bson.RawValue, elem *FieldElem) error {
-	if int64Val, ok := bsonValue.Int64OK(); ok {
-		utils.SetInt64(ptr, int64Val)
-		return nil
+	if bsonValue.Type == bson.TypeInt64 {
+		if int64Val, ok := bsonValue.Int64OK(); ok {
+			utils.SetInt64(ptr, int64Val)
+			return nil
+		}
 	}
 	return fmt.Errorf("field %s: int64 requires Int64 type, got %s", elem.FieldName, bsonValue.Type)
 }
 
-// 设置int字段
+// setInt 设置int字段
+// 支持Int32和Int64类型，自动转换为int
 func setInt(ptr uintptr, bsonValue bson.RawValue, elem *FieldElem) error {
-	if int32Val, ok := bsonValue.Int32OK(); ok {
-		utils.SetInt(ptr, int(int32Val))
-		return nil
-	}
-	if int64Val, ok := bsonValue.Int64OK(); ok {
-		utils.SetInt(ptr, int(int64Val))
-		return nil
+	switch bsonValue.Type {
+	case bson.TypeInt32:
+		if int32Val, ok := bsonValue.Int32OK(); ok {
+			utils.SetInt(ptr, int(int32Val))
+			return nil
+		}
+	case bson.TypeInt64:
+		if int64Val, ok := bsonValue.Int64OK(); ok {
+			utils.SetInt(ptr, int(int64Val))
+			return nil
+		}
 	}
 	return fmt.Errorf("field %s: int requires Int32/Int64 type, got %s", elem.FieldName, bsonValue.Type)
 }
 
-// 设置int8字段
+// setInt8 设置int8字段（包含范围检查）
+// 支持Int32和Int64类型，自动转换并检查范围
+// 范围: -128 到 127
 func setInt8(ptr uintptr, bsonValue bson.RawValue, elem *FieldElem) error {
-	if int32Val, ok := bsonValue.Int32OK(); ok {
-		utils.SetInt8(ptr, int8(int32Val))
-		return nil
+	switch bsonValue.Type {
+	case bson.TypeInt32:
+		if int32Val, ok := bsonValue.Int32OK(); ok {
+			if int32Val < math.MinInt8 || int32Val > math.MaxInt8 {
+				return fmt.Errorf("field %s: int8 value out of range", elem.FieldName)
+			}
+			utils.SetInt8(ptr, int8(int32Val))
+			return nil
+		}
+	case bson.TypeInt64:
+		if int64Val, ok := bsonValue.Int64OK(); ok {
+			if int64Val < math.MinInt8 || int64Val > math.MaxInt8 {
+				return fmt.Errorf("field %s: int8 value out of range", elem.FieldName)
+			}
+			utils.SetInt8(ptr, int8(int64Val))
+			return nil
+		}
 	}
-	return fmt.Errorf("field %s: int8 requires Int32 type, got %s", elem.FieldName, bsonValue.Type)
+	return fmt.Errorf("field %s: int8 requires Int32/Int64 type, got %s", elem.FieldName, bsonValue.Type)
 }
 
-// 设置int16字段
+// setInt16 设置int16字段（包含范围检查）
+// 支持Int32和Int64类型，自动转换并检查范围
+// 范围: -32768 到 32767
 func setInt16(ptr uintptr, bsonValue bson.RawValue, elem *FieldElem) error {
-	if int32Val, ok := bsonValue.Int32OK(); ok {
-		utils.SetInt16(ptr, int16(int32Val))
-		return nil
+	switch bsonValue.Type {
+	case bson.TypeInt32:
+		if int32Val, ok := bsonValue.Int32OK(); ok {
+			if int32Val < math.MinInt16 || int32Val > math.MaxInt16 {
+				return fmt.Errorf("field %s: int16 value out of range", elem.FieldName)
+			}
+			utils.SetInt16(ptr, int16(int32Val))
+			return nil
+		}
+	case bson.TypeInt64:
+		if int64Val, ok := bsonValue.Int64OK(); ok {
+			if int64Val < math.MinInt16 || int64Val > math.MaxInt16 {
+				return fmt.Errorf("field %s: int16 value out of range", elem.FieldName)
+			}
+			utils.SetInt16(ptr, int16(int64Val))
+			return nil
+		}
 	}
-	return fmt.Errorf("field %s: int16 requires Int32 type, got %s", elem.FieldName, bsonValue.Type)
+	return fmt.Errorf("field %s: int16 requires Int32/Int64 type, got %s", elem.FieldName, bsonValue.Type)
 }
 
 // 设置int32字段
 func setInt32(ptr uintptr, bsonValue bson.RawValue, elem *FieldElem) error {
-	if int32Val, ok := bsonValue.Int32OK(); ok {
-		utils.SetInt32(ptr, int32Val)
-		return nil
+	if bsonValue.Type == bson.TypeInt32 {
+		if int32Val, ok := bsonValue.Int32OK(); ok {
+			utils.SetInt32(ptr, int32Val)
+			return nil
+		}
 	}
 	return fmt.Errorf("field %s: int32 requires Int32 type, got %s", elem.FieldName, bsonValue.Type)
 }
 
-// 设置uint字段
+// setUint 设置uint字段（包含非负检查）
+// 支持Int32和Int64类型，要求值非负
 func setUint(ptr uintptr, bsonValue bson.RawValue, elem *FieldElem) error {
-	if int64Val, ok := bsonValue.Int64OK(); ok && int64Val >= 0 {
-		utils.SetUint(ptr, uint(int64Val))
-		return nil
+	switch bsonValue.Type {
+	case bson.TypeInt64:
+		if int64Val, ok := bsonValue.Int64OK(); ok && int64Val >= 0 {
+			utils.SetUint(ptr, uint(int64Val))
+			return nil
+		}
+	case bson.TypeInt32:
+		if int32Val, ok := bsonValue.Int32OK(); ok && int32Val >= 0 {
+			utils.SetUint(ptr, uint(int32Val))
+			return nil
+		}
 	}
-	return fmt.Errorf("field %s: uint requires non-negative Int64 type, got %s", elem.FieldName, bsonValue.Type)
+	return fmt.Errorf("field %s: uint requires non-negative Int32/Int64 type, got %s", elem.FieldName, bsonValue.Type)
 }
 
 // 设置bool字段
 func setBool(ptr uintptr, bsonValue bson.RawValue, elem *FieldElem) error {
-	if boolVal, ok := bsonValue.BooleanOK(); ok {
-		utils.SetBool(ptr, boolVal)
-		return nil
+	if bsonValue.Type == bson.TypeBoolean {
+		if boolVal, ok := bsonValue.BooleanOK(); ok {
+			utils.SetBool(ptr, boolVal)
+			return nil
+		}
 	}
 	return fmt.Errorf("field %s: bool requires Boolean type, got %s", elem.FieldName, bsonValue.Type)
 }
 
 // 设置float64字段
 func setFloat64(ptr uintptr, bsonValue bson.RawValue, elem *FieldElem) error {
-	if floatVal, ok := bsonValue.DoubleOK(); ok {
-		utils.SetFloat64(ptr, floatVal)
-		return nil
+	if bsonValue.Type == bson.TypeDouble {
+		if floatVal, ok := bsonValue.DoubleOK(); ok {
+			utils.SetFloat64(ptr, floatVal)
+			return nil
+		}
 	}
 	return fmt.Errorf("field %s: float64 requires Double type, got %s", elem.FieldName, bsonValue.Type)
 }
@@ -955,64 +1134,113 @@ func setFloat64(ptr uintptr, bsonValue bson.RawValue, elem *FieldElem) error {
 
 // 设置uint8字段
 
-// 设置uint8字段（非负校验+范围校验）
+// setUint8 设置uint8字段（非负校验+范围校验）
+// 支持Int32和Int64类型，要求值非负且在范围之内
+// 范围: 0 到 255
 func setUint8(ptr uintptr, bsonValue bson.RawValue, elem *FieldElem) error {
-	if int32Val, ok := bsonValue.Int32OK(); ok && int32Val >= 0 {
-		if int32Val > math.MaxUint8 {
-			return fmt.Errorf("field %s: value %d overflows uint8", elem.FieldName, int32Val)
+	switch bsonValue.Type {
+	case bson.TypeInt32:
+		if int32Val, ok := bsonValue.Int32OK(); ok && int32Val >= 0 {
+			if int32Val > math.MaxUint8 {
+				return fmt.Errorf("field %s: value %d overflows uint8", elem.FieldName, int32Val)
+			}
+			utils.SetUint8(ptr, uint8(int32Val))
+			return nil
 		}
-		utils.SetUint8(ptr, uint8(int32Val))
-		return nil
+	case bson.TypeInt64:
+		if int64Val, ok := bsonValue.Int64OK(); ok && int64Val >= 0 {
+			if int64Val > math.MaxUint8 {
+				return fmt.Errorf("field %s: value %d overflows uint8", elem.FieldName, int64Val)
+			}
+			utils.SetUint8(ptr, uint8(int64Val))
+			return nil
+		}
 	}
-	return fmt.Errorf("field %s: uint8 requires non-negative Int32 type, got %s", elem.FieldName, bsonValue.Type)
+	return fmt.Errorf("field %s: uint8 requires non-negative Int32/Int64 type, got %s", elem.FieldName, bsonValue.Type)
 }
 
-// 设置uint16字段（非负校验+范围校验）
+// setUint16 设置uint16字段（非负校验+范围校验）
+// 支持Int32和Int64类型，要求值非负且在范围之内
+// 范围: 0 到 65535
 func setUint16(ptr uintptr, bsonValue bson.RawValue, elem *FieldElem) error {
-	if int32Val, ok := bsonValue.Int32OK(); ok && int32Val >= 0 {
-		if int32Val > math.MaxUint16 {
-			return fmt.Errorf("field %s: value %d overflows uint16", elem.FieldName, int32Val)
+	switch bsonValue.Type {
+	case bson.TypeInt32:
+		if int32Val, ok := bsonValue.Int32OK(); ok && int32Val >= 0 {
+			if int32Val > math.MaxUint16 {
+				return fmt.Errorf("field %s: value %d overflows uint16", elem.FieldName, int32Val)
+			}
+			utils.SetUint16(ptr, uint16(int32Val))
+			return nil
 		}
-		utils.SetUint16(ptr, uint16(int32Val))
-		return nil
+	case bson.TypeInt64:
+		if int64Val, ok := bsonValue.Int64OK(); ok && int64Val >= 0 {
+			if int64Val > math.MaxUint16 {
+				return fmt.Errorf("field %s: value %d overflows uint16", elem.FieldName, int64Val)
+			}
+			utils.SetUint16(ptr, uint16(int64Val))
+			return nil
+		}
 	}
-	return fmt.Errorf("field %s: uint16 requires non-negative Int32 type, got %s", elem.FieldName, bsonValue.Type)
+	return fmt.Errorf("field %s: uint16 requires non-negative Int32/Int64 type, got %s", elem.FieldName, bsonValue.Type)
 }
 
-// 设置uint32字段（非负校验+范围校验）
+// setUint32 设置uint32字段（非负校验+范围校验）
+// 支持Int32和Int64类型，要求值非负且在范围之内
+// 范围: 0 到 4294967295
 func setUint32(ptr uintptr, bsonValue bson.RawValue, elem *FieldElem) error {
-	if int64Val, ok := bsonValue.Int64OK(); ok && int64Val >= 0 {
-		if int64Val > math.MaxUint32 {
-			return fmt.Errorf("field %s: value %d overflows uint32", elem.FieldName, int64Val)
+	switch bsonValue.Type {
+	case bson.TypeInt64:
+		if int64Val, ok := bsonValue.Int64OK(); ok && int64Val >= 0 {
+			if int64Val > math.MaxUint32 {
+				return fmt.Errorf("field %s: value %d overflows uint32", elem.FieldName, int64Val)
+			}
+			utils.SetUint32(ptr, uint32(int64Val))
+			return nil
 		}
-		utils.SetUint32(ptr, uint32(int64Val))
-		return nil
+	case bson.TypeInt32:
+		if int32Val, ok := bsonValue.Int32OK(); ok && int32Val >= 0 {
+			utils.SetUint32(ptr, uint32(int32Val))
+			return nil
+		}
 	}
-	return fmt.Errorf("field %s: uint32 requires non-negative Int64 type, got %s", elem.FieldName, bsonValue.Type)
+	return fmt.Errorf("field %s: uint32 requires non-negative Int32/Int64 type, got %s", elem.FieldName, bsonValue.Type)
 }
 
 // 设置uint64字段
 func setUint64(ptr uintptr, bsonValue bson.RawValue, elem *FieldElem) error {
-	if int64Val, ok := bsonValue.Int64OK(); ok && int64Val >= 0 {
-		utils.SetUint64(ptr, uint64(int64Val))
-		return nil
+	switch bsonValue.Type {
+	case bson.TypeInt64:
+		if int64Val, ok := bsonValue.Int64OK(); ok && int64Val >= 0 {
+			utils.SetUint64(ptr, uint64(int64Val))
+			return nil
+		}
+	case bson.TypeInt32:
+		if int32Val, ok := bsonValue.Int32OK(); ok && int32Val >= 0 {
+			utils.SetUint64(ptr, uint64(int32Val))
+			return nil
+		}
 	}
-	return fmt.Errorf("field %s: uint64 requires non-negative Int64 type, got %s", elem.FieldName, bsonValue.Type)
+	return fmt.Errorf("field %s: uint64 requires non-negative Int32/Int64 type, got %s", elem.FieldName, bsonValue.Type)
 }
 
-// 设置float32字段（范围校验）
+// setFloat32 设置float32字段（范围校验）
+// 从BSON Double类型转换为float32，包含范围检查
+// 范围: -3.4028235e+38 到 3.4028235e+38
 func setFloat32(ptr uintptr, bsonValue bson.RawValue, elem *FieldElem) error {
-	if floatVal, ok := bsonValue.DoubleOK(); ok {
-		if floatVal < -3.4028235e+38 || floatVal > math.MaxFloat32 {
-			return fmt.Errorf("field %s: value %f overflows float32", elem.FieldName, floatVal)
+	if bsonValue.Type == bson.TypeDouble {
+		if floatVal, ok := bsonValue.DoubleOK(); ok {
+			if floatVal < -3.4028235e+38 || floatVal > math.MaxFloat32 {
+				return fmt.Errorf("field %s: value %f overflows float32", elem.FieldName, floatVal)
+			}
+			utils.SetFloat32(ptr, float32(floatVal))
+			return nil
 		}
-		utils.SetFloat32(ptr, float32(floatVal))
-		return nil
 	}
 	return fmt.Errorf("field %s: float32 requires Double type, got %s", elem.FieldName, bsonValue.Type)
 }
 
-// 设置数组类型字段（仅处理primitive.ObjectID数组）
+// setArray 设置数组类型字段（仅处理primitive.ObjectID数组）
+// 目前只支持primitive.ObjectID类型的数组
 func setArray(obj interface{}, elem *FieldElem, bsonValue bson.RawValue) error {
 	if elem.FieldType != "primitive.ObjectID" {
 		return fmt.Errorf("field %s: unsupported array type %s", elem.FieldName, elem.FieldType)
@@ -1030,7 +1258,11 @@ func setArray(obj interface{}, elem *FieldElem, bsonValue bson.RawValue) error {
 	return fmt.Errorf("field %s: ObjectID requires ObjectID type, got %s", elem.FieldName, bsonValue.Type)
 }
 
-// 设置结构体类型字段（时间、primitive类型、decimal等）
+// setStruct 设置结构体类型字段（时间、primitive类型、decimal等）
+// 处理各种特殊的结构体类型:
+//   - time.Time: 时间类型
+//   - primitive.*: MongoDB驱动类型
+//   - decimal.Decimal: 高精度小数
 func setStruct(obj interface{}, elem *FieldElem, bsonValue bson.RawValue) error {
 	fieldVal, err := getValidField(obj, elem)
 	if err != nil {
@@ -1149,7 +1381,11 @@ func setStruct(obj interface{}, elem *FieldElem, bsonValue bson.RawValue) error 
 	}
 }
 
-// 设置time.Time字段（支持DateTime、ISO字符串、时间戳）
+// setTime 设置time.Time字段（支持DateTime、ISO字符串、时间戳）
+// 支持多种时间格式:
+//   - DateTime: MongoDB原生时间类型
+//   - String: ISO 8601格式字符串
+//   - Int64: 时间戳（自动判断秒/毫秒）
 func setTime(fieldVal reflect.Value, bsonValue bson.RawValue, elem *FieldElem) error {
 	switch bsonValue.Type {
 	case bson.TypeDateTime:
@@ -1183,7 +1419,11 @@ func setTime(fieldVal reflect.Value, bsonValue bson.RawValue, elem *FieldElem) e
 	return fmt.Errorf("field %s: time.Time requires DateTime/String/Int64 type, got %s", elem.FieldName, bsonValue.Type)
 }
 
-// 设置decimal.Decimal字段（完善错误处理）
+// setDecimal 设置decimal.Decimal字段（完善错误处理）
+// 支持多种BSON类型转换为decimal:
+//   - String: 字符串表示的数字
+//   - Double: 浮点数
+//   - Int64: 整数
 func setDecimal(fieldVal reflect.Value, bsonValue bson.RawValue, elem *FieldElem) error {
 	var dec decimal.Decimal
 	var err error
@@ -1221,7 +1461,8 @@ func setDecimal(fieldVal reflect.Value, bsonValue bson.RawValue, elem *FieldElem
 	return nil
 }
 
-// 设置指针类型字段（通用化处理，避免重复代码）
+// setPtr 设置指针类型字段（通用化处理，避免重复代码）
+// 自动处理指针类型，支持nil指针的初始化
 func setPtr(obj interface{}, elem *FieldElem, bsonValue bson.RawValue) error {
 	fieldVal, err := getValidField(obj, elem)
 	if err != nil {
@@ -1247,7 +1488,8 @@ func setPtr(obj interface{}, elem *FieldElem, bsonValue bson.RawValue) error {
 	return setMongoValue(subObj, subElem, bsonValue)
 }
 
-// 设置切片类型字段（完善嵌套处理与错误传递）
+// setSlice 设置切片类型字段（完善嵌套处理与错误传递）
+// 将BSON数组转换为Go切片，支持所有基础类型和复杂类型
 func setSlice(obj interface{}, elem *FieldElem, bsonValue bson.RawValue) error {
 	if bsonValue.Type != bson.TypeArray {
 		return fmt.Errorf("field %s: slice requires Array type, got %s", elem.FieldName, bsonValue.Type)
@@ -1341,7 +1583,16 @@ func setSlice(obj interface{}, elem *FieldElem, bsonValue bson.RawValue) error {
 	}
 }
 
-// 通用切片解析并赋值到字段
+// parseSliceToField 通用切片解析并赋值到字段
+// 泛型函数，将BSON数组元素转换为指定类型的Go切片
+//
+// 参数:
+//   - elements: BSON数组元素
+//   - fieldVal: 目标字段的reflect.Value
+//   - converter: 类型转换函数
+//
+// 返回值:
+//   - error: 转换过程中的错误
 func parseSliceToField[T any](elements []bson.RawElement, fieldVal reflect.Value, converter func(bson.RawValue) (T, error)) error {
 	values := make([]T, 0, len(elements))
 	for i, elem := range elements {
@@ -1355,7 +1606,8 @@ func parseSliceToField[T any](elements []bson.RawElement, fieldVal reflect.Value
 	return nil
 }
 
-// 设置map类型字段（支持嵌套文档递归解析）
+// setMap 设置map类型字段（支持嵌套文档递归解析）
+// 将BSON文档转换为Go map，支持多种map[string]Value类型
 func setMap(obj interface{}, elem *FieldElem, bsonValue bson.RawValue) error {
 	if bsonValue.Type != bson.TypeEmbeddedDocument {
 		return fmt.Errorf("field %s: map requires EmbeddedDocument type, got %s", elem.FieldName, bsonValue.Type)
@@ -1442,7 +1694,13 @@ func setMap(obj interface{}, elem *FieldElem, bsonValue bson.RawValue) error {
 	return nil
 }
 
-// 解析map中的值（支持嵌套）
+// parseMapValue 解析map中的值（支持嵌套）
+// 将BSON值转换为Go interface{}，支持递归解析嵌套结构
+//
+// 支持的BSON类型:
+//   - 基础类型: string, int32, int64, double, boolean
+//   - 二进制类型: objectId, binary
+//   - 复合类型: embeddedDocument, array
 func parseMapValue(v bson.RawValue) (interface{}, error) {
 	switch v.Type {
 	case bson.TypeString:
@@ -1483,7 +1741,8 @@ func parseMapValue(v bson.RawValue) (interface{}, error) {
 	return nil, fmt.Errorf("unsupported map value type %s", v.Type)
 }
 
-// 解析嵌套文档为map[string]interface{}
+// parseEmbeddedDocument 解析嵌套文档为map[string]interface{}
+// 递归解析BSON文档为Go map
 func parseEmbeddedDocument(doc bson.Raw) (map[string]interface{}, error) {
 	elements, err := doc.Elements()
 	if err != nil {
@@ -1500,7 +1759,8 @@ func parseEmbeddedDocument(doc bson.Raw) (map[string]interface{}, error) {
 	return m, nil
 }
 
-// 解析数组为[]interface{}
+// parseArrayToInterface 解析数组为[]interface{}
+// 递归解析BSON数组为Go切片
 func parseArrayToInterface(arr bson.Raw) ([]interface{}, error) {
 	elements, err := arr.Elements()
 	if err != nil {
@@ -1517,7 +1777,8 @@ func parseArrayToInterface(arr bson.Raw) ([]interface{}, error) {
 	return slice, nil
 }
 
-// 设置interface{}类型字段
+// setInterface 设置interface{}类型字段
+// 将任意BSON值转换为interface{}存储
 func setInterface(obj interface{}, elem *FieldElem, bsonValue bson.RawValue) error {
 	fieldVal, err := getValidField(obj, elem)
 	if err != nil {
@@ -1532,7 +1793,8 @@ func setInterface(obj interface{}, elem *FieldElem, bsonValue bson.RawValue) err
 	return nil
 }
 
-// 获取有效的反射字段（带安全校验）
+// getValidField 获取有效的反射字段（带安全校验）
+// 使用反射安全地获取结构体字段，确保字段存在且可设置
 func getValidField(obj interface{}, elem *FieldElem) (reflect.Value, error) {
 	// 使用FieldByName获取字段值
 	structVal := reflect.ValueOf(obj).Elem()
@@ -1547,6 +1809,9 @@ func getValidField(obj interface{}, elem *FieldElem) (reflect.Value, error) {
 }
 
 // 以下为辅助函数（获取各种类型的BSON值）
+// 这些函数将BSON值转换为对应的Go类型，包含类型检查和范围验证
+
+// getStringValue 获取字符串类型的BSON值
 func getStringValue(v bson.RawValue) (string, error) {
 	if str, ok := v.StringValueOK(); ok {
 		return str, nil
@@ -1554,6 +1819,7 @@ func getStringValue(v bson.RawValue) (string, error) {
 	return "", errors.New("not a string")
 }
 
+// getIntValue 获取int类型的BSON值
 func getIntValue(v bson.RawValue) (int, error) {
 	switch v.Type {
 	case bson.TypeInt64:
@@ -1568,6 +1834,7 @@ func getIntValue(v bson.RawValue) (int, error) {
 	return 0, errors.New("not an int")
 }
 
+// getInt8Value 获取int8类型的BSON值（包含范围检查）
 func getInt8Value(v bson.RawValue) (int8, error) {
 	var int64Val int64
 	switch v.Type {
@@ -1584,7 +1851,7 @@ func getInt8Value(v bson.RawValue) (int8, error) {
 	}
 
 	if int64Val < math.MinInt8 || int64Val > math.MaxInt8 {
-		return 0, errors.New("int8 value out of range")
+		return 0, fmt.Errorf("int8 value %d out of range [%d, %d]", int64Val, math.MinInt8, math.MaxInt8)
 	}
 	return int8(int64Val), nil
 }
@@ -1605,7 +1872,7 @@ func getInt16Value(v bson.RawValue) (int16, error) {
 	}
 
 	if int64Val < math.MinInt16 || int64Val > math.MaxInt16 {
-		return 0, errors.New("int16 value out of range")
+		return 0, fmt.Errorf("int16 value %d out of range [%d, %d]", int64Val, math.MinInt16, math.MaxInt16)
 	}
 	return int16(int64Val), nil
 }
@@ -1640,11 +1907,12 @@ func getUintValue(v bson.RawValue) (uint, error) {
 	}
 
 	if uint64Val > math.MaxUint {
-		return 0, errors.New("uint value out of range")
+		return 0, fmt.Errorf("uint value %d out of range [0, %d]", uint64Val, uint64(math.MaxUint))
 	}
 	return uint(uint64Val), nil
 }
 
+// getUint8Value 获取uint8类型的BSON值（包含范围检查）
 func getUint8Value(v bson.RawValue) (uint8, error) {
 	var uint64Val uint64
 	switch v.Type {
@@ -1661,7 +1929,7 @@ func getUint8Value(v bson.RawValue) (uint8, error) {
 	}
 
 	if uint64Val > math.MaxUint8 {
-		return 0, errors.New("uint8 value out of range")
+		return 0, fmt.Errorf("uint8 value %d out of range [0, %d]", uint64Val, math.MaxUint8)
 	}
 	return uint8(uint64Val), nil
 }
@@ -1682,7 +1950,7 @@ func getUint16Value(v bson.RawValue) (uint16, error) {
 	}
 
 	if uint64Val > math.MaxUint16 {
-		return 0, errors.New("uint16 value out of range")
+		return 0, fmt.Errorf("uint16 value %d out of range [0, %d]", uint64Val, math.MaxUint16)
 	}
 	return uint16(uint64Val), nil
 }
@@ -1703,7 +1971,7 @@ func getUint32Value(v bson.RawValue) (uint32, error) {
 	}
 
 	if uint64Val > math.MaxUint32 {
-		return 0, errors.New("uint32 value out of range")
+		return 0, fmt.Errorf("uint32 value %d out of range [0, %d]", uint64Val, math.MaxUint32)
 	}
 	return uint32(uint64Val), nil
 }
@@ -1718,7 +1986,7 @@ func getUint64Value(v bson.RawValue) (uint64, error) {
 func getFloat32Value(v bson.RawValue) (float32, error) {
 	if floatVal, ok := v.DoubleOK(); ok {
 		if floatVal < -3.4028235e+38 || floatVal > math.MaxFloat32 {
-			return 0, errors.New("float32 value out of range")
+			return 0, fmt.Errorf("float32 value %f out of range [%f, %f]", floatVal, -3.4028235e+38, math.MaxFloat32)
 		}
 		return float32(floatVal), nil
 	}
@@ -1758,6 +2026,7 @@ func getUint8SliceValue(v bson.RawValue) ([]uint8, error) {
 	return nil, errors.New("not a []uint8")
 }
 
+// getTimeValue 获取time.Time类型的BSON值
 func getTimeValue(v bson.RawValue) (time.Time, error) {
 	switch v.Type {
 	case bson.TypeDateTime:
@@ -1776,7 +2045,7 @@ func getTimeValue(v bson.RawValue) (time.Time, error) {
 			return time.Unix(ts, 0), nil
 		}
 	}
-	return time.Time{}, errors.New("not a time.Time")
+	return time.Time{}, fmt.Errorf("time.Time requires DateTime/String/Int64 type, got %s", v.Type)
 }
 
 func getInterfaceValue(v bson.RawValue) (interface{}, error) {
@@ -1784,6 +2053,15 @@ func getInterfaceValue(v bson.RawValue) (interface{}, error) {
 }
 
 // parseBsonArray 泛型解析BSON数组（严格处理错误）
+// 将BSON数组转换为Go切片，使用converter函数处理每个元素
+//
+// 参数:
+//   - arr: BSON数组
+//   - converter: 元素转换函数
+//
+// 返回值:
+//   - []T: 转换后的Go切片
+//   - error: 转换过程中的错误（包含元素索引）
 func parseBsonArray[T any](arr bson.Raw, converter func(bson.RawValue) (T, error)) ([]T, error) {
 	elements, err := arr.Elements()
 	if err != nil {

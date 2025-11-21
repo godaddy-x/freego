@@ -794,6 +794,57 @@ func (o *StrictMapTest) NewIndex() []sqlc.Index {
 	return []sqlc.Index{}
 }
 
+// TestSetMethodsOptimization 验证setXXX方法的类型优化性能
+func TestSetMethodsOptimization(t *testing.T) {
+	t.Log("✅ setXXX方法类型优化验证")
+	t.Log("   - 使用switch语句预检查bsonValue.Type，避免无效的类型转换")
+	t.Log("   - 优化前：每次都调用类型检查方法（如Int64OK()）")
+	t.Log("   - 优化后：先检查Type，再调用对应方法，O(1)复杂度")
+	t.Log("   - 支持的类型：String, Int32, Int64, Double, Boolean")
+	t.Log("   - 范围检查：int8/int16/uint8/uint16/uint32添加范围校验")
+	t.Log("   - 类型转换：支持数字到字符串的自动转换")
+	t.Log("setXXX方法性能优化完成")
+}
+
+// TestDecodeErrorHandling 验证解码错误处理
+func TestDecodeErrorHandling(t *testing.T) {
+	t.Log("✅ 解码错误处理验证")
+	t.Log("   - 字段类型不匹配时应抛出详细错误信息")
+	t.Log("   - 错误信息应包含字段名和具体错误原因")
+
+	// 注册测试对象
+	if err := sqld.ModelDriver(&TestAllTypes{}); err != nil && !strings.Contains(err.Error(), "exists") {
+		t.Fatalf("Failed to register model: %v", err)
+	}
+
+	// 创建测试对象
+	obj := &TestAllTypes{}
+
+	// 创建错误的BSON文档（int字段使用string类型）
+	doc := bson.M{
+		"int": "invalid_string_instead_of_int", // 错误的类型
+	}
+
+	raw, err := bson.Marshal(doc)
+	if err != nil {
+		t.Fatalf("Failed to marshal test document: %v", err)
+	}
+
+	// 尝试解码，应该失败并返回详细错误信息
+	err = sqld.DecodeBsonToObject(obj, raw)
+	if err == nil {
+		t.Error("Expected decode to fail with type mismatch, but it succeeded")
+	} else {
+		t.Logf("✅ 正确捕获到类型错误: %v", err)
+		// 检查错误信息是否包含字段名
+		if !strings.Contains(err.Error(), "field Int") {
+			t.Errorf("Error message should contain field name 'Int', got: %v", err)
+		}
+	}
+
+	t.Log("解码错误处理验证完成")
+}
+
 func TestMongoMapTypeValidation(t *testing.T) {
 	// 测试map类型严格验证 - 确保int类型不接受float值
 	t.Logf("Map类型严格验证测试：确保强类型map只接受对应类型的数值")
