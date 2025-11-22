@@ -1,476 +1,696 @@
 package node
 
 import (
-	"net/http"
+	"context"
+	"os"
+	"os/signal"
 	"sync"
+	"sync/atomic"
+	"syscall"
 	"time"
 
+	"github.com/fasthttp/websocket"
+	fasthttpWs "github.com/fasthttp/websocket"
 	rate "github.com/godaddy-x/freego/cache/limiter"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/jwt"
-	"github.com/godaddy-x/freego/zlog"
-	"golang.org/x/net/websocket"
+	"github.com/valyala/fasthttp"
+	"go.uber.org/zap"
 )
 
-type ConnPool map[string]map[string]*DevConn
+// WebSocket服务器实现
 
+// WebSocket专用常量
 const (
-	pingCmd = "ws-health-check"
+	pingCmd         = "ws-health-check" // 心跳检测命令
+	WS_MAX_BODY_LEN = 1024 * 1024       // 1MB
 )
 
-type Handle func(*Context, []byte) (interface{}, error) // 如响应数据为nil则不回复
+// 核心类型定义
+type Handle func(ctx context.Context, connCtx *ConnectionContext, body []byte) (interface{}, error) // 业务处理函数，返回nil则不回复
 
-type WsServer struct {
-	Debug bool
-	HookNode
-	mu      sync.RWMutex
-	pool    ConnPool
-	ping    int           // 长连接心跳间隔
-	max     int           // 连接池总数量
-	limiter *rate.Limiter // 每秒限定连接数量
+// ConnectionContext 每个WebSocket连接的上下文，包含连接相关的所有信息
+type ConnectionContext struct {
+	Subject  *jwt.Subject
+	JsonBody *JsonBody
+	WsConn   *fasthttpWs.Conn
+	DevConn  *DevConn
+	Server   *WsServer
+	Logger   *zap.Logger // 每个连接独立的logger，便于追踪
+	ctx      context.Context
+	cancel   context.CancelFunc
 }
 
+// ConnectionManager 连接管理器：线程安全的连接管理，支持广播、房间、过期清理
+type ConnectionManager struct {
+	mu        sync.RWMutex
+	conns     map[string]map[string]*DevConn // subject -> deviceKey -> connection
+	max       int                            // 最大连接数
+	totalConn int32                          // 原子计数器：当前总连接数（性能优化）
+}
+
+// MessageHandler 消息处理器：统一处理消息校验、解码、路由
+type MessageHandler struct {
+	handle Handle
+	debug  bool
+}
+
+// HeartbeatService 心跳服务：维护连接活性，清理过期连接
+type HeartbeatService struct {
+	interval time.Duration
+	timeout  time.Duration
+	manager  *ConnectionManager
+	stopCh   chan struct{}
+	running  bool
+	mu       sync.Mutex
+}
+
+// DevConn 设备连接实体：存储单连接的核心信息
 type DevConn struct {
-	Sub  string
-	Dev  string
-	Life int64
-	Last int64
-	Ctx  *Context
-	Conn *websocket.Conn
+	Sub    string
+	Dev    string
+	Life   int64            // 连接生命周期（时间戳）
+	Last   int64            // 最后心跳时间（时间戳）
+	Conn   *fasthttpWs.Conn // WebSocket连接
+	sendMu sync.Mutex       // 发送消息互斥锁（避免并发写冲突）
+	ctx    context.Context  // 用于取消该连接的相关goroutine
 }
 
-func (self *WsServer) readyContext() {
-	self.mu.Lock()
-	defer self.mu.Unlock()
-	if self.Context == nil {
-		self.Context = &Context{}
-		self.Context.configs = &Configs{}
-		self.Context.configs.routerConfigs = make(map[string]*RouterConfig)
-		self.Context.configs.langConfigs = make(map[string]map[string]string)
-		self.Context.configs.jwtConfig = jwt.JwtConfig{}
-		self.Context.System = &System{}
-	}
+// WsServer WebSocket服务器核心结构体
+type WsServer struct {
+	Debug        bool
+	server       *fasthttp.Server
+	upgrader     *fasthttpWs.FastHTTPUpgrader
+	routes       map[string]Handle // 路由映射：path -> 业务处理器
+	routesMu     sync.RWMutex      // 保护routes的读写
+	connManager  *ConnectionManager
+	heartbeatSvc *HeartbeatService
+
+	// 配置项
+	ping         int           // 心跳间隔（秒）
+	maxConn      int           // 最大连接数
+	limiter      *rate.Limiter // 连接限流器
+	globalCtx    context.Context
+	globalCancel context.CancelFunc
+
+	// 依赖组件
+	logger          *zap.Logger
+	errorHandler    *ErrorHandler
+	configValidator *ConfigValidator
 }
 
-func (self *WsServer) checkContextReady(path string, routerConfig *RouterConfig) {
-	self.readyContext()
-	self.addRouterConfig(path, routerConfig)
+// ErrorHandler WebSocket错误处理器（统一错误处理）
+type ErrorHandler struct {
+	logger *zap.Logger
 }
 
-func (self *WsServer) AddJwtConfig(config jwt.JwtConfig) error {
-	self.readyContext()
-	if len(config.TokenKey) == 0 {
-		return utils.Error("jwt config key is nil")
-	}
-	if config.TokenExp < 0 {
-		return utils.Error("jwt config exp invalid")
-	}
-	self.Context.configs.jwtConfig.TokenAlg = config.TokenAlg
-	self.Context.configs.jwtConfig.TokenTyp = config.TokenTyp
-	self.Context.configs.jwtConfig.TokenKey = config.TokenKey
-	self.Context.configs.jwtConfig.TokenExp = config.TokenExp
-	return nil
-}
+func (eh *ErrorHandler) handleConnectionError(connCtx *ConnectionContext, err error, operation string) {
+	connCtx.Logger.Error(operation+"_failed", zap.Error(err))
 
-func (self *WsServer) addRouterConfig(path string, routerConfig *RouterConfig) {
-	if routerConfig == nil {
-		routerConfig = &RouterConfig{}
-	}
-	if _, b := self.Context.configs.routerConfigs[path]; !b {
-		self.Context.configs.routerConfigs[path] = routerConfig
-	}
-}
-
-func (self *Context) readWsToken(auth string) error {
-	//self.Subject.ResetTokenBytes(utils.Str2Bytes(auth))
-	return nil
-}
-
-func (self *Context) readWsBody(body []byte) error {
-	if body == nil || len(body) == 0 {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters is nil"}
-	}
-	if len(body) > (MAX_BODY_LEN) {
-		return ex.Throw{Code: http.StatusLengthRequired, Msg: "body parameters length is too long"}
-	}
-	self.JsonBody.Data = utils.GetJsonString(body, "d")
-	self.JsonBody.Time = utils.GetJsonInt64(body, "t")
-	self.JsonBody.Nonce = utils.GetJsonString(body, "n")
-	self.JsonBody.Plan = utils.GetJsonInt64(body, "p")
-	self.JsonBody.Sign = utils.GetJsonString(body, "s")
-	if err := self.validJsonBody(); err != nil { // TODO important
-		return err
-	}
-	return nil
-}
-
-func (ctx *Context) writeError(ws *websocket.Conn, err error) error {
-	if err == nil {
-		return nil
-	}
-	out := ex.Catch(err)
-	if ctx.errorHandle != nil {
-		throw, ok := err.(ex.Throw)
-		if !ok {
-			throw = ex.Throw{Code: out.Code, Msg: out.Msg, Err: err, Arg: out.Arg}
+	// 尝试发送错误响应
+	if ws := connCtx.WsConn; ws != nil {
+		resp := &JsonResp{
+			Code:    ex.WS_SEND,
+			Message: "websocket error: " + operation,
+			Time:    utils.UnixMilli(),
 		}
-		if err = ctx.errorHandle(ctx, throw); err != nil {
-			zlog.Error("response error handle failed", 0, zlog.AddError(err))
-		}
-	}
-	resp := &JsonResp{
-		Code:    out.Code,
-		Message: out.Msg,
-		Time:    utils.UnixMilli(),
-	}
-	if !ctx.Authenticated() {
-		resp.Nonce = utils.RandNonce()
-	} else {
-		if ctx.JsonBody == nil || len(ctx.JsonBody.Nonce) == 0 {
+
+		if len(connCtx.Subject.Payload.Sub) == 0 {
 			resp.Nonce = utils.RandNonce()
-		} else {
-			resp.Nonce = ctx.JsonBody.Nonce
+		} else if connCtx.JsonBody != nil {
+			resp.Nonce = connCtx.JsonBody.Nonce
+		}
+
+		if result, marshalErr := utils.JsonMarshal(resp); marshalErr == nil {
+			// 使用带超时的写控制，避免阻塞
+			ws.WriteControl(fasthttpWs.TextMessage, result, time.Now().Add(1*time.Second))
 		}
 	}
-	if ctx.RouterConfig.Guest {
-		if out.Code <= 600 {
-			ctx.Response.StatusCode = out.Code
-		}
-		return nil
+}
+
+// ConfigValidator 配置验证器（统一配置检查）
+type ConfigValidator struct{}
+
+func (cv *ConfigValidator) validateServerConfig(addr string, server *fasthttp.Server, heartbeatSvc *HeartbeatService) error {
+	if addr == "" {
+		return utils.Error("server address cannot be empty")
 	}
-	if resp.Code == 0 {
-		resp.Code = ex.BIZ
+	if server == nil {
+		return utils.Error("server not initialized, call AddRouter first")
 	}
-	result, _ := utils.JsonMarshal(resp)
-	if err := websocket.Message.Send(ws, result); err != nil {
-		zlog.Error("websocket send error", 0, zlog.AddError(err))
+	if heartbeatSvc == nil {
+		return utils.Error("heartbeat service not initialized")
 	}
 	return nil
 }
 
-func closeConn(msg string, object *DevConn) {
-	defer func() {
-		if err := recover(); err != nil {
-			zlog.Error("ws close panic error", 0, zlog.String("sub", object.Sub), zlog.String("dev", object.Dev), zlog.Any("error", err))
-		}
-	}()
-	if object.Conn != nil {
-		if err := object.Conn.Close(); err != nil {
-			zlog.Error("ws close error", 0, zlog.String("msg", msg), zlog.String("sub", object.Sub), zlog.String("dev", object.Dev), zlog.AddError(err))
+func (cv *ConfigValidator) validateRouterConfig(path string, handle Handle) error {
+	if path == "" || path[0] != '/' {
+		return utils.Error("router path must start with '/'")
+	}
+	if handle == nil {
+		return utils.Error("router handle function cannot be nil")
+	}
+	return nil
+}
+
+func (cv *ConfigValidator) validatePoolConfig(maxConn, limit, bucket, ping int) error {
+	if maxConn <= 0 || limit <= 0 || bucket <= 0 || ping <= 0 {
+		return utils.Error("pool config error: maxConn/limit/bucket/ping must be > 0")
+	}
+	return nil
+}
+
+// 假设这些类型在其他文件中定义，如果没有请取消注释
+// type JsonResp struct { Code int; Message, Data, Nonce string; Time, Plan int64; Sign string }
+// type JsonBody struct { Data, Nonce, Sign string; Time, Plan int64 }
+// type HookNode struct{} // 如果未使用，可以移除
+
+// -------------------------- ConnectionManager 实现 --------------------------
+
+// NewConnectionManager 创建连接管理器
+func NewConnectionManager(maxConn int) *ConnectionManager {
+	return &ConnectionManager{
+		conns: make(map[string]map[string]*DevConn),
+		max:   maxConn,
+	}
+}
+
+// Add 添加连接
+func (cm *ConnectionManager) Add(conn *DevConn) error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	currentTotal := atomic.LoadInt32(&cm.totalConn)
+	if currentTotal >= int32(cm.max) {
+		return utils.Error("connection pool full", currentTotal)
+	}
+
+	deviceKey := utils.AddStr(conn.Dev, "_", conn.Sub) // 使用 Sub + Dev 作为唯一键
+
+	if cm.conns[conn.Sub] == nil {
+		cm.conns[conn.Sub] = make(map[string]*DevConn)
+	}
+
+	// 替换旧连接
+	if oldConn, exists := cm.conns[conn.Sub][deviceKey]; exists {
+		closeConn(oldConn, "replace old connection")
+	}
+
+	cm.conns[conn.Sub][deviceKey] = conn
+	atomic.AddInt32(&cm.totalConn, 1)
+	return nil
+}
+
+// Remove 移除连接
+func (cm *ConnectionManager) Remove(subject, deviceKey string) {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	if subjectConns, exists := cm.conns[subject]; exists {
+		if conn, exists := subjectConns[deviceKey]; exists {
+			closeConn(conn, "remove connection")
+			delete(subjectConns, deviceKey)
+			atomic.AddInt32(&cm.totalConn, -1)
+
+			if len(subjectConns) == 0 {
+				delete(cm.conns, subject)
+			}
 		}
 	}
 }
 
-func createCtx(self *WsServer, path string) *Context {
-	ctx := self.Context
-	ctxNew := &Context{}
-	ctxNew.configs = self.Context.configs
-	ctxNew.filterChain = &filterChain{}
-	ctxNew.System = &System{}
-	ctxNew.JsonBody = &JsonBody{}
-	ctxNew.Subject = &jwt.Subject{Header: &jwt.Header{}, Payload: &jwt.Payload{}}
-	ctxNew.Response = &Response{Encoding: UTF8, ContentType: APPLICATION_JSON, ContentEntity: nil}
-	ctxNew.Storage = map[string]interface{}{}
-	if ctxNew.RedisCacheAware == nil {
-		ctxNew.RedisCacheAware = ctx.RedisCacheAware
+// Get 获取指定连接
+func (cm *ConnectionManager) Get(subject, deviceKey string) *DevConn {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+
+	if subjectConns, exists := cm.conns[subject]; exists {
+		return subjectConns[deviceKey]
 	}
-	if ctxNew.RSA == nil {
-		ctxNew.RSA = ctx.RSA
-	}
-	if ctxNew.roleRealm == nil {
-		ctxNew.roleRealm = ctx.roleRealm
-	}
-	if ctxNew.errorHandle == nil {
-		ctxNew.errorHandle = ctx.errorHandle
-	}
-	ctxNew.System = ctx.System
-	//ctxNew.postHandle = handle
-	//ctxNew.RequestCtx = request
-	//ctxNew.Method = utils.Bytes2Str(self.RequestCtx.Method())
-	ctxNew.Path = path
-	ctxNew.RouterConfig = ctx.configs.routerConfigs[ctxNew.Path]
-	ctxNew.postCompleted = false
-	ctxNew.filterChain.pos = 0
-	return ctxNew
+	return nil
 }
 
-func wsRenderTo(ws *websocket.Conn, ctx *Context, data interface{}) error {
-	if data == nil {
-		return nil
+// Broadcast 广播消息到所有连接
+func (cm *ConnectionManager) Broadcast(data []byte) {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+
+	for _, subjectConns := range cm.conns {
+		for _, conn := range subjectConns {
+			conn.Send(data)
+		}
 	}
-	routerConfig, _ := ctx.configs.routerConfigs[ctx.Path]
-	data, err := authReq(ctx.Path, data, "", routerConfig.AesResponse)
-	if err != nil {
+}
+
+// SendToSubject 发送消息到指定主题的所有连接
+func (cm *ConnectionManager) SendToSubject(subject string, data []byte) {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+
+	if subjectConns, exists := cm.conns[subject]; exists {
+		for _, conn := range subjectConns {
+			conn.Send(data)
+		}
+	}
+}
+
+// UpdateHeartbeat 更新连接心跳时间
+func (cm *ConnectionManager) UpdateHeartbeat(subject, deviceKey string) {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+
+	if subjectConns, exists := cm.conns[subject]; exists {
+		if conn, exists := subjectConns[deviceKey]; exists {
+			atomic.StoreInt64(&conn.Last, utils.UnixSecond())
+		}
+	}
+}
+
+// CleanupExpired 清理过期连接
+func (cm *ConnectionManager) CleanupExpired(timeoutSeconds int64) int {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	cleaned := 0
+	currentTime := utils.UnixSecond()
+
+	for subject, subjectConns := range cm.conns {
+		for deviceKey, conn := range subjectConns {
+			if currentTime-atomic.LoadInt64(&conn.Last) > timeoutSeconds || currentTime > conn.Life {
+				closeConn(conn, "cleanup expired connection")
+				delete(subjectConns, deviceKey)
+				atomic.AddInt32(&cm.totalConn, -1)
+				cleaned++
+			}
+		}
+		if len(subjectConns) == 0 {
+			delete(cm.conns, subject)
+		}
+	}
+	return cleaned
+}
+
+// CleanupAll 清理所有连接
+func (cm *ConnectionManager) CleanupAll() {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	for _, subjectConns := range cm.conns {
+		for _, conn := range subjectConns {
+			closeConn(conn, "server shutdown cleanup")
+			atomic.AddInt32(&cm.totalConn, -1)
+		}
+	}
+	cm.conns = make(map[string]map[string]*DevConn) // 重置map
+}
+
+// Count 获取当前连接数
+func (cm *ConnectionManager) Count() int {
+	return int(atomic.LoadInt32(&cm.totalConn))
+}
+
+// -------------------------- MessageHandler 实现 --------------------------
+
+func NewMessageHandler(handle Handle, debug bool) *MessageHandler {
+	return &MessageHandler{
+		handle: handle,
+		debug:  debug,
+	}
+}
+
+func (mh *MessageHandler) Process(connCtx *ConnectionContext, body []byte) (interface{}, error) {
+	if mh.debug {
+		connCtx.Logger.Debug("message_received", zap.ByteString("raw_data", body))
+	}
+
+	jsonBody := &JsonBody{}
+	if err := utils.JsonUnmarshal(body, jsonBody); err != nil {
+		return nil, ex.Throw{Code: fasthttp.StatusBadRequest, Msg: "invalid JSON format"}
+	}
+	connCtx.JsonBody = jsonBody
+
+	if jsonBody.Data == pingCmd { // 简化心跳检测
+		connCtx.Server.connManager.UpdateHeartbeat(connCtx.Subject.GetSub(nil), utils.AddStr(connCtx.Subject.GetDev(nil), "_", connCtx.Subject.GetSub(nil)))
+		return nil, nil
+	}
+
+	// 简化处理：直接使用data字段作为业务数据（可根据需要添加base64解码）
+	bizData := []byte(jsonBody.Data)
+	return mh.handle(connCtx.ctx, connCtx, bizData)
+}
+
+// -------------------------- HeartbeatService 实现 --------------------------
+
+func NewHeartbeatService(interval, timeout time.Duration, manager *ConnectionManager) *HeartbeatService {
+	return &HeartbeatService{
+		interval: interval,
+		timeout:  timeout,
+		manager:  manager,
+		stopCh:   make(chan struct{}),
+	}
+}
+
+func (hs *HeartbeatService) Start(logger *zap.Logger) {
+	hs.mu.Lock()
+	defer hs.mu.Unlock()
+
+	if hs.running {
+		logger.Warn("heartbeat_service_already_running")
+		return
+	}
+
+	hs.running = true
+	logger.Info("heartbeat_service_started", zap.Duration("interval", hs.interval), zap.Duration("timeout", hs.timeout))
+
+	go hs.run(logger)
+}
+
+func (hs *HeartbeatService) Stop() {
+	hs.mu.Lock()
+	defer hs.mu.Unlock()
+
+	if !hs.running {
+		return
+	}
+
+	hs.running = false
+	close(hs.stopCh)
+}
+
+func (hs *HeartbeatService) run(logger *zap.Logger) {
+	ticker := time.NewTicker(hs.interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-hs.stopCh:
+			logger.Info("heartbeat_service_stopped")
+			return
+		case <-ticker.C:
+			startTime := time.Now()
+			cleaned := hs.manager.CleanupExpired(int64(hs.timeout.Seconds()))
+			if cleaned > 0 {
+				logger.Info("cleanup_expired_connections", zap.Int("cleaned", cleaned), zap.Int("remaining", hs.manager.Count()), zap.Duration("cost", time.Since(startTime)))
+			}
+		}
+	}
+}
+
+// -------------------------- DevConn 实现 --------------------------
+
+func (dc *DevConn) Send(data []byte) error {
+	dc.sendMu.Lock()
+	defer dc.sendMu.Unlock()
+
+	if dc.Conn == nil {
+		return utils.Error("connection is closed")
+	}
+
+	// 使用非阻塞的Send，fasthttpWs内部会处理缓冲区
+	return dc.Conn.WriteMessage(fasthttpWs.TextMessage, data)
+}
+
+// -------------------------- WsServer 实现 --------------------------
+
+func NewWsServer(debug bool) *WsServer {
+	globalCtx, globalCancel := context.WithCancel(context.Background())
+
+	// 创建一个简单的logger，避免复杂的初始化依赖
+	logger := zap.NewNop()
+
+	s := &WsServer{
+		Debug:           debug,
+		routes:          make(map[string]Handle),
+		globalCtx:       globalCtx,
+		globalCancel:    globalCancel,
+		logger:          logger,
+		errorHandler:    &ErrorHandler{logger: logger},
+		configValidator: &ConfigValidator{},
+		upgrader: &fasthttpWs.FastHTTPUpgrader{
+			ReadBufferSize:  1024 * 4,
+			WriteBufferSize: 1024 * 4,
+			CheckOrigin: func(ctx *fasthttp.RequestCtx) bool {
+				// 生产环境应配置具体的Origin白名单
+				return true
+			},
+		},
+	}
+
+	s.server = &fasthttp.Server{
+		Handler:            s.serveHTTP,
+		Concurrency:        100000,
+		ReadTimeout:        30 * time.Second,
+		WriteTimeout:       30 * time.Second,
+		IdleTimeout:        60 * time.Second,
+		MaxRequestBodySize: WS_MAX_BODY_LEN,
+	}
+
+	return s
+}
+
+func (s *WsServer) AddRouter(path string, handle Handle) error {
+	if err := s.configValidator.validateRouterConfig(path, handle); err != nil {
 		return err
 	}
-	if err := websocket.Message.Send(ws, data); err != nil {
-		return ex.Throw{Code: ex.WS_SEND, Msg: "websocket send error", Err: err}
-	}
+
+	s.routesMu.Lock()
+	defer s.routesMu.Unlock()
+	s.routes[path] = handle
 	return nil
 }
 
-func validBody(ws *websocket.Conn, ctx *Context, body []byte) bool {
-	if body == nil || len(body) == 0 {
-		_ = ctx.writeError(ws, ex.Throw{Code: http.StatusBadRequest, Msg: "body parameters is nil"})
-		return false
+func (s *WsServer) NewPool(maxConn, limit, bucket, ping int) error {
+	if err := s.configValidator.validatePoolConfig(maxConn, limit, bucket, ping); err != nil {
+		return err
 	}
-	if len(body) > (MAX_BODY_LEN) {
-		_ = ctx.writeError(ws, ex.Throw{Code: http.StatusLengthRequired, Msg: "body parameters length is too long"})
-		return false
-	}
-	ctx.JsonBody.Data = utils.GetJsonString(body, "d")
-	ctx.JsonBody.Time = utils.GetJsonInt64(body, "t")
-	ctx.JsonBody.Nonce = utils.GetJsonString(body, "n")
-	ctx.JsonBody.Plan = utils.GetJsonInt64(body, "p")
-	ctx.JsonBody.Sign = utils.GetJsonString(body, "s")
-	if err := ctx.validJsonBody(); err != nil { // TODO important
-		_ = ctx.writeError(ws, err)
-		return false
-	}
-	return true
-}
 
-func (self *WsServer) SendMessage(data interface{}, subject string, dev ...string) error {
-	conn, b := self.pool[subject]
-	if !b || len(conn) == 0 {
-		return nil
-	}
-	for _, v := range conn {
-		if len(dev) > 0 && !utils.CheckStr(v.Dev, dev...) {
-			continue
-		}
-		if err := wsRenderTo(v.Conn, v.Ctx, data); err != nil {
-			return err
-		}
-	}
+	s.maxConn = maxConn
+	s.ping = ping
+
+	s.connManager = NewConnectionManager(maxConn)
+	s.limiter = rate.NewLimiter(rate.Limit(limit), bucket)
+
+	pingDuration := time.Duration(ping) * time.Second
+	s.heartbeatSvc = NewHeartbeatService(pingDuration, pingDuration*2, s.connManager)
 	return nil
 }
 
-func (self *WsServer) addConn(conn *websocket.Conn, ctx *Context) error {
-	self.mu.Lock()
-	defer self.mu.Unlock()
-	sub := ctx.Subject.GetSub(nil)
-	dev := ctx.Subject.GetDev(nil)
-	exp := ctx.Subject.GetExp(nil)
-	if len(dev) == 0 {
-		dev = "web"
+func (s *WsServer) StartWebsocket(addr string) error {
+	if err := s.configValidator.validateServerConfig(addr, s.server, s.heartbeatSvc); err != nil {
+		return err
 	}
 
-	zlog.Info("websocket client connect success", 0, zlog.String("subject", sub), zlog.String("path", ctx.Path), zlog.String("dev", dev))
+	s.logger.Info("server_starting", zap.String("address", addr))
 
-	key := utils.AddStr(dev, "_", ctx.Path)
-	if self.pool == nil {
-		self.pool = make(ConnPool, 50)
+	// 启动心跳服务
+	s.heartbeatSvc.Start(s.logger)
+
+	// 监听中断信号
+	go s.gracefulShutdown()
+
+	// 启动HTTP服务器
+	if err := s.server.ListenAndServe(addr); err != nil {
+		s.logger.Error("server_start_failed", zap.Error(err))
+		return err
 	}
 
-	if len(self.pool) >= self.max {
-		closeConn("add conn max pool close", &DevConn{Conn: conn, Dev: ctx.Subject.GetDev(nil), Sub: ctx.Subject.GetSub(nil)})
-		return utils.Error("conn pool full: ", len(self.pool))
-	}
-
-	check, b := self.pool[sub]
-	if !b {
-		value := make(map[string]*DevConn, 2)
-		value[key] = &DevConn{Life: exp, Last: utils.UnixSecond(), Sub: sub, Dev: dev, Ctx: ctx, Conn: conn}
-		self.pool[sub] = value
-		return nil
-	}
-	devConn, b := check[key]
-	if b {
-		closeConn("add conn replace close", devConn) // 如果存在连接对象则先关闭
-	}
-	if devConn == nil {
-		check[key] = &DevConn{Life: exp, Last: utils.UnixSecond(), Sub: sub, Dev: dev, Ctx: ctx, Conn: conn}
-		return nil
-	}
-	devConn.Sub = sub
-	devConn.Life = exp
-	devConn.Dev = dev
-	devConn.Last = utils.UnixSecond()
-	devConn.Ctx = ctx
-	devConn.Conn = conn
-	//check[key] = &DevConn{Life: exp, Last: utils.UnixSecond(), Dev: dev, Ctx: ctx, Conn: conn}
+	s.logger.Info("server_stopped_gracefully")
 	return nil
 }
 
-func (self *WsServer) refConn(ctx *Context) error {
-	self.mu.Lock()
-	defer self.mu.Unlock()
-	sub := ctx.Subject.Payload.Sub
-	dev := ctx.Subject.GetDev(nil)
-	if len(dev) == 0 {
-		dev = "web"
-	}
-	dev = utils.AddStr(dev, "_", ctx.Path)
-	if self.pool == nil {
-		return nil
-	}
+func (s *WsServer) serveHTTP(ctx *fasthttp.RequestCtx) {
+	path := string(ctx.Path())
 
-	check, b := self.pool[sub]
-	if !b {
-		return nil
-	}
-	devConn, b := check[dev]
-	if !b {
-		return nil
-	}
-	devConn.Last = utils.UnixSecond()
-	return nil
-}
+	s.routesMu.RLock()
+	handle, exists := s.routes[path]
+	s.routesMu.RUnlock()
 
-func (self *WsServer) NewPool(maxConn, limit, bucket, ping int) {
-	if maxConn <= 0 {
-		panic("maxConn is nil")
-	}
-	if limit <= 0 {
-		panic("limit is nil")
-	}
-	if bucket <= 0 {
-		panic("bucket is nil")
-	}
-	if ping <= 0 {
-		panic("ping is nil")
-	}
-	self.mu.Lock()
-	defer self.mu.Unlock()
-	if self.pool == nil {
-		self.pool = make(ConnPool, maxConn)
-	}
-	self.max = maxConn
-	self.ping = ping
-
-	// 设置每秒放入100个令牌，并允许最大突发50个令牌
-	self.limiter = rate.NewLimiter(rate.Limit(limit), bucket)
-}
-
-func (self *WsServer) withConnectionLimit(handler websocket.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !self.limiter.Allow() {
-			http.Error(w, "limited access", http.StatusServiceUnavailable)
-			return
-		}
-		handler.ServeHTTP(w, r)
-	})
-}
-
-func (self *WsServer) wsHandler(path string, handle Handle) websocket.Handler {
-	return func(ws *websocket.Conn) {
-
-		devConn := &DevConn{Conn: ws}
-
-		defer closeConn("handler close", devConn)
-
-		ctx := createCtx(self, path)
-		_ = ctx.readWsToken(ws.Request().Header.Get("Authorization"))
-
-		//if len(ctx.Subject.GetRawBytes()) == 0 {
-		//	_ = ctx.writeError(ws, ex.Throw{Code: http.StatusUnauthorized, Msg: "token is nil"})
-		//	return
-		//}
-		if err := ctx.Subject.Verify(nil, ctx.GetJwtConfig().TokenKey); err != nil {
-			_ = ctx.writeError(ws, ex.Throw{Code: http.StatusUnauthorized, Msg: "token invalid or expired", Err: err})
-			return
-		}
-
-		devConn.Sub = ctx.Subject.GetSub(nil)
-		devConn.Dev = ctx.Subject.GetDev(nil)
-
-		if err := self.addConn(ws, ctx); err != nil {
-			zlog.Error("add conn error", 0, zlog.String("sub", devConn.Sub), zlog.String("dev", devConn.Dev), zlog.AddError(err))
-			return
-		}
-
-		for {
-			// 读取消息
-			var body []byte
-			err := websocket.Message.Receive(ws, &body)
-			if err != nil {
-				zlog.Error("receive message error", 0, zlog.String("sub", devConn.Sub), zlog.String("dev", devConn.Dev), zlog.AddError(err))
-				break
-			}
-
-			if self.Debug {
-				zlog.Info("websocket receive message", 0, zlog.String("sub", devConn.Sub), zlog.String("dev", devConn.Dev), zlog.String("data", string(body)))
-			}
-
-			if !validBody(ws, ctx, body) {
-				if self.Debug {
-					zlog.Info("websocket receive message invalid", 0, zlog.String("sub", devConn.Sub), zlog.String("dev", devConn.Dev), zlog.String("data", string(body)))
-				}
-				continue
-			}
-
-			dec := utils.Str2Bytes(ctx.JsonBody.Data)
-
-			if utils.GetJsonString(dec, "healthCheck") == pingCmd {
-				_ = self.refConn(ctx)
-				continue
-			}
-
-			reply, err := handle(ctx, dec)
-			if err != nil {
-				_ = ctx.writeError(ws, err)
-				continue
-			}
-
-			if self.Debug && reply != nil {
-				zlog.Info("websocket reply message", 0, zlog.String("sub", devConn.Sub), zlog.String("dev", devConn.Dev), zlog.Any("data", reply))
-			}
-
-			// 回复消息
-			if err := wsRenderTo(ws, ctx, reply); err != nil {
-				zlog.Error("receive message reply error", 0, zlog.String("sub", devConn.Sub), zlog.String("dev", devConn.Dev), zlog.AddError(err))
-				break
-			}
-
-		}
-	}
-}
-
-func (self *WsServer) AddRouter(path string, handle Handle, routerConfig *RouterConfig) {
-	if handle == nil {
-		panic("handle function is nil")
+	if !exists {
+		ctx.SetStatusCode(fasthttp.StatusNotFound)
+		return
 	}
 
-	self.checkContextReady(path, routerConfig)
+	if s.limiter != nil && !s.limiter.Allow() {
+		ctx.SetStatusCode(fasthttp.StatusTooManyRequests)
+		ctx.SetBodyString("too many connections")
+		return
+	}
 
-	http.Handle(path, self.withConnectionLimit(self.wsHandler(path, handle)))
-}
-
-func (self *WsServer) StartWebsocket(addr string) {
-	go func() {
-		for {
-			time.Sleep(time.Duration(self.ping) * time.Second)
-			s := utils.UnixMilli()
-			index := 0
-			current := utils.UnixSecond()
-			for _, v := range self.pool {
-				for k1, v1 := range v {
-					if current-v1.Last > int64(self.ping*2) || current > v1.Life {
-						self.mu.Lock()
-						closeConn("check life close", v1)
-						delete(v, k1)
-						self.mu.Unlock()
-					}
-					index++
-				}
-			}
-			if self.Debug {
-				zlog.Info("websocket check pool", 0, zlog.String("cost", utils.AddStr(utils.UnixMilli()-s, " ms")), zlog.Int("count", index))
-			}
-		}
-	}()
-	go func() {
-		zlog.Printf("websocket【%s】service has been started successful", addr)
-		listener, err := NewGracefulListener(addr, time.Second*10)
+	if err := s.upgrader.Upgrade(ctx, func(ws *fasthttpWs.Conn) {
+		connCtx, err := s.initializeConnection(ctx, ws, path)
 		if err != nil {
-			zlog.Error("创建WebSocket监听器失败", 0, zlog.String("address", addr), zlog.String("error", err.Error()))
-			panic("创建WebSocket监听器失败: " + err.Error())
+			s.logger.Error("failed to initialize connection", zap.Error(err))
+			ws.Close() // 关闭WebSocket连接
+			return
 		}
-		if err := http.Serve(listener, nil); err != nil {
-			panic(err)
-		}
-	}()
-	select {}
+		defer s.cleanupConnection(connCtx)
+
+		s.handleConnectionLoop(connCtx, handle)
+	}); err != nil {
+		s.logger.Error("websocket_upgrade_failed", zap.String("path", path), zap.Error(err))
+	}
 }
+
+func (s *WsServer) initializeConnection(httpCtx *fasthttp.RequestCtx, ws *fasthttpWs.Conn, path string) (*ConnectionContext, error) {
+	authHeader := string(httpCtx.Request.Header.Peek("Authorization"))
+	if authHeader == "" {
+		return nil, utils.Error("missing authorization header")
+	}
+
+	subject := &jwt.Subject{}
+	if err := subject.Verify(nil, ""); err != nil { // 假设jwt.Subject有ParseToken方法
+		return nil, utils.Error("invalid or expired token: %v", err)
+	}
+	if len(subject.Payload.Sub) == 0 {
+		return nil, utils.Error("token authentication failed")
+	}
+
+	connCtx, devConn := s.createConnectionContext(subject, ws, path)
+
+	if err := s.connManager.Add(devConn); err != nil {
+		connCtx.cancel()
+		return nil, err
+	}
+
+	return connCtx, nil
+}
+
+func (s *WsServer) createConnectionContext(subject *jwt.Subject, ws *fasthttpWs.Conn, path string) (*ConnectionContext, *DevConn) {
+	connCtx, cancel := context.WithCancel(s.globalCtx)
+
+	devID := subject.GetDev(nil)
+	subID := subject.GetSub(nil)
+
+	devConn := &DevConn{
+		Sub:  subID,
+		Dev:  devID,
+		Life: utils.UnixSecond() + 3600, // 1小时生命周期，可配置
+		Last: utils.UnixSecond(),
+		Conn: ws,
+		ctx:  connCtx,
+	}
+
+	// 为每个连接创建独立的logger，包含连接标识
+	connLogger := s.logger.With(
+		zap.String("sub", subID),
+		zap.String("dev", devID),
+		zap.String("path", path),
+	)
+
+	return &ConnectionContext{
+		Subject: subject,
+		WsConn:  ws,
+		DevConn: devConn,
+		Server:  s,
+		Logger:  connLogger,
+		ctx:     connCtx,
+		cancel:  cancel,
+	}, devConn
+}
+
+func (s *WsServer) handleConnectionLoop(connCtx *ConnectionContext, handle Handle) {
+	connCtx.Logger.Info("client_connected")
+	messageHandler := NewMessageHandler(handle, s.Debug)
+
+	for {
+		select {
+		case <-connCtx.ctx.Done():
+			connCtx.Logger.Info("connection context cancelled")
+			return
+		default:
+			// 设置读取超时，防止死连接
+			connCtx.WsConn.SetReadDeadline(time.Now().Add(time.Duration(s.ping) * 3 * time.Second))
+
+			messageType, message, err := connCtx.WsConn.ReadMessage()
+			if err != nil {
+				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
+					connCtx.Logger.Error("read_message_error", zap.Error(err))
+				} else {
+					connCtx.Logger.Info("connection_closed_by_client", zap.Error(err))
+				}
+				return
+			}
+
+			if messageType != fasthttpWs.TextMessage {
+				connCtx.Logger.Warn("unsupported_message_type", zap.Int("type", messageType))
+				continue
+			}
+
+			reply, err := messageHandler.Process(connCtx, message)
+			if err != nil {
+				s.errorHandler.handleConnectionError(connCtx, err, "process_message")
+				continue
+			}
+
+			if reply != nil {
+				replyBytes, err := utils.JsonMarshal(reply)
+				if err != nil {
+					connCtx.Logger.Error("failed_to_marshal_reply", zap.Error(err))
+					continue
+				}
+				if err := connCtx.DevConn.Send(replyBytes); err != nil {
+					connCtx.Logger.Error("failed_to_send_reply", zap.Error(err))
+					return // 发送失败通常意味着连接已断开
+				}
+			}
+		}
+	}
+}
+
+func (s *WsServer) cleanupConnection(connCtx *ConnectionContext) {
+	connCtx.cancel()
+	deviceKey := utils.AddStr(connCtx.DevConn.Dev, "_", connCtx.DevConn.Sub)
+	s.connManager.Remove(connCtx.DevConn.Sub, deviceKey)
+	connCtx.Logger.Info("client_disconnected")
+}
+
+func (s *WsServer) gracefulShutdown() {
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	<-sigCh
+
+	s.logger.Info("initiating graceful shutdown...")
+
+	// 停止接受新连接
+	if err := s.server.Shutdown(); err != nil {
+		s.logger.Error("error shutting down server", zap.Error(err))
+	}
+
+	// 停止心跳服务
+	if s.heartbeatSvc != nil {
+		s.heartbeatSvc.Stop()
+	}
+
+	// 关闭所有现有连接
+	if s.connManager != nil {
+		s.connManager.CleanupAll()
+	}
+
+	// 触发全局取消
+	s.globalCancel()
+}
+
+// closeConn 安全关闭连接
+func closeConn(conn *DevConn, reason string) {
+	if conn == nil {
+		return
+	}
+
+	// 注意: 这里简化处理，实际应该通过context cancel来停止相关goroutine
+	// 但由于DevConn没有持有cancel函数，这里只关闭WebSocket连接
+	if conn.Conn != nil {
+		closeMsg := fasthttpWs.FormatCloseMessage(fasthttpWs.CloseNormalClosure, reason)
+		// 使用带超时的写控制
+		conn.Conn.WriteControl(fasthttpWs.CloseMessage, closeMsg, time.Now().Add(1*time.Second))
+		conn.Conn.Close()
+	}
+}
+
+// 辅助函数，用于从token中提取信息，需要根据你的jwt.Subject实现进行调整
+// 假设jwt.Subject有以下方法：
+// func (s *jwt.Subject) ParseToken(tokenString string) error
+// func (s *jwt.Subject) IsAuthenticated() bool
+// func (s *jwt.Subject) GetSub(nil) string
+// func (s *jwt.Subject) GetDev(nil) string

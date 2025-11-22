@@ -8,9 +8,10 @@ require (
 	github.com/andybalholm/cascadia v1.3.1
 	github.com/bsm/redislock v0.9.4
 	github.com/buaazp/fasthttprouter v0.1.1
+	github.com/fasthttp/websocket v1.5.12
 	github.com/go-sql-driver/mysql v1.6.0
 	github.com/godaddy-x/eccrypto v1.1.12
-	github.com/google/uuid v1.3.0
+	github.com/google/uuid v1.6.0
 	github.com/hashicorp/consul/api v1.13.1
 	github.com/mailru/easyjson v0.9.1
 	github.com/patrickmn/go-cache v2.1.0+incompatible
@@ -59,6 +60,7 @@ require (
 	github.com/montanaflynn/stats v0.7.1 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
+	github.com/savsgio/gotils v0.0.0-20240704082632-aef3928b8a38 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/xdg-go/pbkdf2 v1.0.0 // indirect
 	github.com/xdg-go/scram v1.1.2 // indirect
