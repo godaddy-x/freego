@@ -29,6 +29,7 @@ import (
 // WebSocket专用常量
 const (
 	pingCmd         = "ws-health-check" // 心跳检测命令
+	DefaultWsRoute  = "/ws"             // 默认WebSocket路由路径
 	WS_MAX_BODY_LEN = 1024 * 1024       // 1MB
 )
 
@@ -122,11 +123,11 @@ type HeartbeatService struct {
 type DevConn struct {
 	Sub    string
 	Dev    string
-	Life   int64            // 连接生命周期（时间戳）
-	Last   int64            // 最后心跳时间（时间戳）
-	Conn   *fasthttpWs.Conn // WebSocket连接
-	sendMu sync.Mutex       // 发送消息互斥锁（避免并发写冲突）
-	ctx    context.Context  // 用于取消该连接的相关goroutine
+	Last   int64              // 最后心跳时间（时间戳）
+	Conn   *fasthttpWs.Conn   // WebSocket连接
+	sendMu sync.Mutex         // 发送消息互斥锁（避免并发写冲突）
+	ctx    context.Context    // 用于取消该连接的相关goroutine
+	cancel context.CancelFunc // 上下文取消函数，用于终止相关goroutine
 }
 
 // RouteInfo WebSocket路由信息结构体
@@ -147,6 +148,7 @@ type WsServer struct {
 	ping         int           // 心跳间隔（秒）
 	maxConn      int           // 最大连接数
 	limiter      *rate.Limiter // 连接限流器
+	idleTimeout  time.Duration // 连接空闲超时时间
 	globalCtx    context.Context
 	globalCancel context.CancelFunc
 
@@ -188,8 +190,12 @@ func (eh *ErrorHandler) handleConnectionError(connCtx *ConnectionContext, err er
 		}
 
 		if result, marshalErr := utils.JsonMarshal(resp); marshalErr == nil {
-			// 使用带超时的写控制，避免阻塞
-			ws.WriteControl(fasthttpWs.TextMessage, result, time.Now().Add(1*time.Second))
+			// 捕获 WriteControl 错误，仅在 debug 级别记录，避免连接关闭时的无效错误日志
+			if err := ws.WriteControl(fasthttpWs.TextMessage, result, time.Now().Add(1*time.Second)); err != nil {
+				if zlog.IsDebug() {
+					zlog.Debug("failed to send error response to closed connection", 0, zlog.AddError(err))
+				}
+			}
 		}
 	}
 }
@@ -265,8 +271,8 @@ func (cm *ConnectionManager) Add(conn *DevConn) error {
 		if cm.conns[conn.Sub] == nil {
 			cm.conns[conn.Sub] = make(map[string]*DevConn)
 		}
-		if oldConn, exists := cm.conns[conn.Sub][uniqueKey]; exists {
-			closeConn(oldConn, "replace old connection (subject unique)")
+		if _, exists := cm.conns[conn.Sub][uniqueKey]; exists {
+			cm.removeConnection(conn.Sub, uniqueKey) // 直接调用内部无锁方法，避免重复加锁
 		}
 		cm.conns[conn.Sub][uniqueKey] = conn
 	} else {
@@ -276,8 +282,8 @@ func (cm *ConnectionManager) Add(conn *DevConn) error {
 			cm.conns[conn.Sub] = make(map[string]*DevConn)
 		}
 		// 替换旧连接
-		if oldConn, exists := cm.conns[conn.Sub][uniqueKey]; exists {
-			closeConn(oldConn, "replace old connection")
+		if _, exists := cm.conns[conn.Sub][uniqueKey]; exists {
+			cm.removeConnection(conn.Sub, uniqueKey) // 直接调用内部无锁方法，避免重复加锁
 		}
 		cm.conns[conn.Sub][uniqueKey] = conn
 	}
@@ -339,6 +345,21 @@ func (cm *ConnectionManager) SendToSubject(subject string, data []byte) {
 	}
 }
 
+// removeConnection 内部方法：移除连接（不获取锁，调用方需要处理锁）
+func (cm *ConnectionManager) removeConnection(subject, deviceKey string) {
+	if subjectConns, exists := cm.conns[subject]; exists {
+		if conn, exists := subjectConns[deviceKey]; exists {
+			closeConn(conn, "remove connection")
+			delete(subjectConns, deviceKey)
+			atomic.AddInt32(&cm.totalConn, -1)
+
+			if len(subjectConns) == 0 {
+				delete(cm.conns, subject)
+			}
+		}
+	}
+}
+
 // CleanupExpired 清理过期连接
 func (cm *ConnectionManager) CleanupExpired(timeoutSeconds int64) int {
 	cm.mu.Lock()
@@ -347,19 +368,29 @@ func (cm *ConnectionManager) CleanupExpired(timeoutSeconds int64) int {
 	cleaned := 0
 	currentTime := utils.UnixSecond()
 
+	// 收集需要清理的连接
+	var toRemove []struct {
+		subject   string
+		deviceKey string
+	}
+
 	for subject, subjectConns := range cm.conns {
 		for deviceKey, conn := range subjectConns {
-			if currentTime-atomic.LoadInt64(&conn.Last) > timeoutSeconds || currentTime > conn.Life {
-				closeConn(conn, "cleanup expired connection")
-				delete(subjectConns, deviceKey)
-				atomic.AddInt32(&cm.totalConn, -1)
-				cleaned++
+			if currentTime-atomic.LoadInt64(&conn.Last) > timeoutSeconds {
+				toRemove = append(toRemove, struct {
+					subject   string
+					deviceKey string
+				}{subject, deviceKey})
 			}
 		}
-		if len(subjectConns) == 0 {
-			delete(cm.conns, subject)
-		}
 	}
+
+	// 执行清理
+	for _, item := range toRemove {
+		cm.removeConnection(item.subject, item.deviceKey)
+		cleaned++
+	}
+
 	return cleaned
 }
 
@@ -368,13 +399,28 @@ func (cm *ConnectionManager) CleanupAll() {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
-	for _, subjectConns := range cm.conns {
-		for _, conn := range subjectConns {
-			closeConn(conn, "server shutdown cleanup")
-			atomic.AddInt32(&cm.totalConn, -1)
+	// 收集所有连接信息
+	var toRemove []struct {
+		subject   string
+		deviceKey string
+	}
+
+	for subject, subjectConns := range cm.conns {
+		for deviceKey := range subjectConns {
+			toRemove = append(toRemove, struct {
+				subject   string
+				deviceKey string
+			}{subject, deviceKey})
 		}
 	}
-	cm.conns = make(map[string]map[string]*DevConn) // 重置map
+
+	// 执行清理
+	for _, item := range toRemove {
+		cm.removeConnection(item.subject, item.deviceKey)
+	}
+
+	// 确保计数器清零
+	atomic.StoreInt32(&cm.totalConn, 0)
 }
 
 // Count 获取当前连接数
@@ -633,6 +679,7 @@ func NewWsServer(connUniquenessMode ConnectionUniquenessMode) *WsServer {
 		globalCtx:          globalCtx,
 		globalCancel:       globalCancel,
 		connUniquenessMode: connUniquenessMode,
+		idleTimeout:        3600 * time.Second, // 默认1小时空闲超时
 		errorHandler:       &ErrorHandler{},
 		configValidator:    &ConfigValidator{},
 		upgrader: &fasthttpWs.FastHTTPUpgrader{
@@ -646,7 +693,7 @@ func NewWsServer(connUniquenessMode ConnectionUniquenessMode) *WsServer {
 	}
 
 	// 自动添加默认的连接路由处理器
-	err := s.AddRouter("/ws", func(ctx context.Context, connCtx *ConnectionContext, body []byte) (interface{}, error) {
+	err := s.AddRouter(DefaultWsRoute, func(ctx context.Context, connCtx *ConnectionContext, body []byte) (interface{}, error) {
 		// 默认处理器：简单回显接收到的数据
 		return body, nil
 	}, &RouterConfig{})
@@ -696,8 +743,13 @@ func (s *WsServer) NewPool(maxConn, limit, bucket, ping int) error {
 	s.limiter = rate.NewLimiter(rate.Limit(limit), bucket)
 
 	pingDuration := time.Duration(ping) * time.Second
-	s.heartbeatSvc = NewHeartbeatService(pingDuration, pingDuration*2, s.connManager)
+	s.heartbeatSvc = NewHeartbeatService(pingDuration, s.idleTimeout, s.connManager)
 	return nil
+}
+
+// SetIdleTimeout 设置连接空闲超时时间
+func (s *WsServer) SetIdleTimeout(timeout time.Duration) {
+	s.idleTimeout = timeout
 }
 
 func (s *WsServer) StartWebsocket(addr string) error {
@@ -772,17 +824,14 @@ func (s *WsServer) serveHTTP(ctx *fasthttp.RequestCtx) {
 			zlog.String("user_agent", string(ctx.UserAgent())))
 	}
 
-	// 获取默认处理器（用于消息级别路由的统一入口）
-	var defaultHandle Handle
-	for _, routeInfo := range s.routes {
-		defaultHandle = routeInfo.Handle
-		break
-	}
-	if defaultHandle == nil {
-		zlog.Error("NO_ROUTES_CONFIGURED", 0)
+	// 获取默认处理器（直接从默认路由获取，避免遍历）
+	routeInfo, exists := s.routes[DefaultWsRoute]
+	if !exists || routeInfo.Handle == nil {
+		zlog.Error("NO_DEFAULT_ROUTE_CONFIGURED", 0, zlog.String("expected_route", DefaultWsRoute))
 		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
 		return
 	}
+	defaultHandle := routeInfo.Handle
 
 	zlog.Info("WEBSOCKET_UPGRADE_ATTEMPT", 0,
 		zlog.String("path", path))
@@ -877,12 +926,12 @@ func (s *WsServer) createConnectionContext(subject *jwt.Subject, ws *fasthttpWs.
 	subID := subject.GetSub(nil)
 
 	devConn := &DevConn{
-		Sub:  subID,
-		Dev:  devID,
-		Life: utils.UnixSecond() + 3600, // 1小时生命周期，可配置
-		Last: utils.UnixSecond(),
-		Conn: ws,
-		ctx:  connCtx,
+		Sub:    subID,
+		Dev:    devID,
+		Last:   utils.UnixSecond(),
+		Conn:   ws,
+		ctx:    connCtx,
+		cancel: cancel, // 保存取消函数，用于终止相关goroutine
 	}
 
 	return &ConnectionContext{
@@ -1033,13 +1082,15 @@ func (s *WsServer) gracefulShutdown() {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	<-sigCh
 
-	if zlog.IsDebug() {
-		zlog.Debug("initiating graceful shutdown...", 0)
-	}
+	zlog.Info("initiating graceful shutdown...", 0)
 
-	// 停止接受新连接
-	if err := s.server.Shutdown(); err != nil {
-		zlog.Error("error shutting down server", 0, zlog.AddError(err))
+	// 统一使用带上下文的 ShutdownWithContext，设置 5 秒超时
+	if s.server != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := s.server.ShutdownWithContext(ctx); err != nil {
+			zlog.Error("error shutting down server", 0, zlog.AddError(err))
+		}
 	}
 
 	// 停止心跳服务
@@ -1125,8 +1176,12 @@ func closeConn(conn *DevConn, reason string) {
 		return
 	}
 
-	// 注意: 这里简化处理，实际应该通过context cancel来停止相关goroutine
-	// 但由于DevConn没有持有cancel函数，这里只关闭WebSocket连接
+	// 先取消上下文，终止相关goroutine
+	if conn.cancel != nil {
+		conn.cancel()
+	}
+
+	// 再关闭WebSocket连接
 	if conn.Conn != nil {
 		closeMsg := fasthttpWs.FormatCloseMessage(fasthttpWs.CloseNormalClosure, reason)
 		// 使用带超时的写控制
@@ -1134,10 +1189,3 @@ func closeConn(conn *DevConn, reason string) {
 		conn.Conn.Close()
 	}
 }
-
-// 辅助函数，用于从token中提取信息，需要根据你的jwt.Subject实现进行调整
-// 假设jwt.Subject有以下方法：
-// func (s *jwt.Subject) ParseToken(tokenString string) error
-// func (s *jwt.Subject) IsAuthenticated() bool
-// func (s *jwt.Subject) GetSub(nil) string
-// func (s *jwt.Subject) GetDev(nil) string

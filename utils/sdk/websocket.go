@@ -19,6 +19,11 @@ import (
 	"github.com/godaddy-x/freego/zlog"
 )
 
+// WebSocket客户端常量
+const (
+	DefaultWsRoute = "/ws" // 默认WebSocket路由路径
+)
+
 type SocketSDK struct {
 	Domain      string      // API域名 (如:api.example.com)
 	language    string      // 语言设置 (HTTP头)
@@ -838,7 +843,7 @@ func (s *SocketSDK) startReconnectProcess() {
 	s.reconnectMutex.Lock()
 	path := s.connectedPath
 	if path == "" {
-		path = "/ws" // 使用默认路径
+		path = DefaultWsRoute // 使用默认路径
 	}
 	s.reconnectMutex.Unlock()
 
@@ -865,7 +870,7 @@ func (s *SocketSDK) ForceReconnect() error {
 	s.lastReconnectTime = time.Time{}
 	path := s.connectedPath
 	if path == "" {
-		path = "/ws" // 使用默认路径
+		path = DefaultWsRoute // 使用默认路径
 	}
 	s.reconnectMutex.Unlock()
 
