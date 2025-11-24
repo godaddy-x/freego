@@ -2,6 +2,8 @@ package node
 
 import (
 	"context"
+	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"sync"
@@ -11,7 +13,9 @@ import (
 
 	"github.com/fasthttp/websocket"
 	fasthttpWs "github.com/fasthttp/websocket"
+	"github.com/godaddy-x/freego/cache"
 	rate "github.com/godaddy-x/freego/cache/limiter"
+	DIC "github.com/godaddy-x/freego/common"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/jwt"
@@ -32,14 +36,27 @@ type Handle func(ctx context.Context, connCtx *ConnectionContext, body []byte) (
 
 // ConnectionContext 每个WebSocket连接的上下文，包含连接相关的所有信息
 type ConnectionContext struct {
-	Subject  *jwt.Subject
-	JsonBody *JsonBody
-	WsConn   *fasthttpWs.Conn
-	DevConn  *DevConn
-	Server   *WsServer
-	Logger   *zap.Logger // 每个连接独立的logger，便于追踪
-	ctx      context.Context
-	cancel   context.CancelFunc
+	Subject      *jwt.Subject
+	JsonBody     *JsonBody
+	WsConn       *fasthttpWs.Conn
+	DevConn      *DevConn
+	Server       *WsServer
+	Logger       *zap.Logger   // 每个连接独立的logger，便于追踪
+	RouterConfig *RouterConfig // 路由配置
+	Path         string        // WebSocket连接的路径，用于签名验证
+	RawToken     []byte        // 原始JWT token字节，用于签名验证
+	ctx          context.Context
+	cancel       context.CancelFunc
+}
+
+// GetRawTokenBytes 获取原始JWT token字节
+func (cc *ConnectionContext) GetRawTokenBytes() []byte {
+	return cc.RawToken
+}
+
+// GetTokenSecret 获取WebSocket连接的token密钥
+func (cc *ConnectionContext) GetTokenSecret() []byte {
+	return cc.Subject.GetTokenSecret(utils.Bytes2Str(cc.GetRawTokenBytes()), cc.Server.jwtConfig.TokenKey)
 }
 
 // ConnectionManager 连接管理器：线程安全的连接管理，支持广播、房间、过期清理
@@ -53,7 +70,6 @@ type ConnectionManager struct {
 // MessageHandler 消息处理器：统一处理消息校验、解码、路由
 type MessageHandler struct {
 	handle Handle
-	debug  bool
 }
 
 // HeartbeatService 心跳服务：维护连接活性，清理过期连接
@@ -77,13 +93,17 @@ type DevConn struct {
 	ctx    context.Context  // 用于取消该连接的相关goroutine
 }
 
+// RouteInfo WebSocket路由信息结构体
+type RouteInfo struct {
+	Handle       Handle        // 业务处理器
+	RouterConfig *RouterConfig // 路由配置
+}
+
 // WsServer WebSocket服务器核心结构体
 type WsServer struct {
-	Debug        bool
 	server       *fasthttp.Server
 	upgrader     *fasthttpWs.FastHTTPUpgrader
-	routes       map[string]Handle // 路由映射：path -> 业务处理器
-	routesMu     sync.RWMutex      // 保护routes的读写
+	routes       map[string]*RouteInfo // 路由映射：path -> 路由信息 (启动后只读)
 	connManager  *ConnectionManager
 	heartbeatSvc *HeartbeatService
 
@@ -98,6 +118,14 @@ type WsServer struct {
 	logger          *zap.Logger
 	errorHandler    *ErrorHandler
 	configValidator *ConfigValidator
+
+	// JWT配置
+	jwtConfig jwt.JwtConfig
+
+	// ECC和缓存配置（用于Plan 2）
+	// 8字节函数指针字段组 (5个字段，40字节)
+	RedisCacheAware func(ds ...string) (cache.Cache, error) // 8字节 - 函数指针
+	LocalCacheAware func(ds ...string) (cache.Cache, error) // 8字节 - 函数指针
 }
 
 // ErrorHandler WebSocket错误处理器（统一错误处理）
@@ -313,32 +341,135 @@ func (cm *ConnectionManager) Count() int {
 
 // -------------------------- MessageHandler 实现 --------------------------
 
-func NewMessageHandler(handle Handle, debug bool) *MessageHandler {
+func NewMessageHandler(handle Handle) *MessageHandler {
 	return &MessageHandler{
 		handle: handle,
-		debug:  debug,
 	}
 }
 
 func (mh *MessageHandler) Process(connCtx *ConnectionContext, body []byte) (interface{}, error) {
-	if mh.debug {
-		connCtx.Logger.Debug("message_received", zap.ByteString("raw_data", body))
-	}
+	// 打印客户端发送的原始消息内容（用于调试）
+	connCtx.Logger.Info("CLIENT_MESSAGE_RECEIVED",
+		zap.String("raw_message", string(body)),
+		zap.Int("message_length", len(body)),
+		zap.String("client_ip", connCtx.WsConn.RemoteAddr().String()))
 
+	connCtx.Logger.Debug("message_received", zap.ByteString("raw_data", body))
+
+	// 解析WebSocket消息体
 	jsonBody := &JsonBody{}
 	if err := utils.JsonUnmarshal(body, jsonBody); err != nil {
+		connCtx.Logger.Error("websocket message json unmarshal failed", zap.Error(err), zap.ByteString("raw_body", body))
 		return nil, ex.Throw{Code: fasthttp.StatusBadRequest, Msg: "invalid JSON format"}
 	}
 	connCtx.JsonBody = jsonBody
+	connCtx.Logger.Debug("parsed json body", zap.String("data", jsonBody.Data), zap.Int64("plan", jsonBody.Plan))
 
-	if jsonBody.Data == pingCmd { // 简化心跳检测
+	// 心跳检测
+	if jsonBody.Data == pingCmd {
 		connCtx.Server.connManager.UpdateHeartbeat(connCtx.Subject.GetSub(nil), utils.AddStr(connCtx.Subject.GetDev(nil), "_", connCtx.Subject.GetSub(nil)))
 		return nil, nil
 	}
 
-	// 简化处理：直接使用data字段作为业务数据（可根据需要添加base64解码）
-	bizData := []byte(jsonBody.Data)
+	// 验证消息体（按照HTTP协议标准）
+	if err := mh.validWebSocketBody(connCtx); err != nil {
+		connCtx.Logger.Error("websocket message validation failed", zap.Error(err))
+		return nil, err
+	}
+
+	// 解密业务数据
+	bizData, err := mh.decryptWebSocketData(connCtx)
+	if err != nil {
+		connCtx.Logger.Error("websocket data decryption failed", zap.Error(err))
+		return nil, err
+	}
+
 	return mh.handle(connCtx.ctx, connCtx, bizData)
+}
+
+// validWebSocketBody 验证WebSocket消息体（参考HTTP协议）
+func (mh *MessageHandler) validWebSocketBody(connCtx *ConnectionContext) error {
+	body := connCtx.JsonBody
+	d := body.Data
+	if len(d) == 0 {
+		return ex.Throw{Code: fasthttp.StatusBadRequest, Msg: "websocket data is nil"}
+	}
+
+	// 只支持Plan 0和1，不再支持Plan 2
+	if !utils.CheckInt64(body.Plan, 0, 1) {
+		return ex.Throw{Code: fasthttp.StatusBadRequest, Msg: "websocket plan invalid"}
+	}
+
+	if !utils.CheckLen(body.Nonce, 8, 32) {
+		return ex.Throw{Code: fasthttp.StatusBadRequest, Msg: "websocket nonce invalid"}
+	}
+	if body.Time <= 0 {
+		return ex.Throw{Code: fasthttp.StatusBadRequest, Msg: "websocket time must be > 0"}
+	}
+	if utils.MathAbs(utils.UnixSecond()-body.Time) > jwt.FIVE_MINUTES {
+		return ex.Throw{Code: fasthttp.StatusBadRequest, Msg: "websocket time invalid"}
+	}
+
+	// 检查是否需要AES加密
+	if connCtx.RouterConfig != nil && connCtx.RouterConfig.AesRequest && body.Plan != 1 {
+		return ex.Throw{Code: fasthttp.StatusBadRequest, Msg: "websocket parameters must use encryption"}
+	}
+
+	if !utils.CheckStrLen(body.Sign, 32, 64) {
+		return ex.Throw{Code: fasthttp.StatusBadRequest, Msg: "websocket signature length invalid"}
+	}
+
+	// 对于Plan 0/1，必须要有token
+	if len(connCtx.GetRawTokenBytes()) == 0 {
+		return ex.Throw{Code: fasthttp.StatusBadRequest, Msg: "websocket header token is nil"}
+	}
+
+	var sharedKey []byte
+
+	// Plan 0/1使用token secret
+	sharedKey = connCtx.GetTokenSecret()
+	if len(sharedKey) == 0 {
+		return ex.Throw{Code: fasthttp.StatusBadRequest, Msg: "websocket secret is nil"}
+	}
+
+	// 构建签名字符串
+	signStr := utils.AddStr(connCtx.Path, d, body.Nonce, body.Time, body.Plan) // 使用实际的WebSocket路径
+	sign := utils.HMAC_SHA256_BASE(utils.Str2Bytes(signStr), sharedKey)
+	if utils.Base64Encode(sign) != body.Sign {
+		return ex.Throw{Code: fasthttp.StatusUnauthorized, Msg: "websocket signature verify invalid"}
+	}
+
+	return nil
+}
+
+// decryptWebSocketData 解密WebSocket数据（参考HTTP协议）
+func (mh *MessageHandler) decryptWebSocketData(connCtx *ConnectionContext) ([]byte, error) {
+	body := connCtx.JsonBody
+	d := body.Data
+
+	switch body.Plan {
+	case 0: // 明文
+		rawData := utils.Base64Decode(d)
+		if len(rawData) == 0 {
+			return nil, ex.Throw{Code: fasthttp.StatusBadRequest, Msg: "websocket base64 parsing failed"}
+		}
+		return rawData, nil
+	case 1: // AES-GCM加密
+		secret := connCtx.GetTokenSecret()
+		if len(secret) == 0 {
+			return nil, ex.Throw{Code: fasthttp.StatusBadRequest, Msg: "websocket aes secret is nil"}
+		}
+		defer DIC.ClearData(secret)
+		// 使用与HTTP相同的GCM解密方式
+		iv := utils.Str2Bytes(utils.AddStr(body.Time, body.Nonce, body.Plan, connCtx.Path))
+		rawData, err := utils.AesGCMDecryptBase(d, secret[:32], iv)
+		if err != nil {
+			return nil, ex.Throw{Code: fasthttp.StatusBadRequest, Msg: "websocket aes decrypt failed", Err: err}
+		}
+		return rawData, nil
+	default:
+		return nil, ex.Throw{Code: fasthttp.StatusBadRequest, Msg: "websocket unsupported plan"}
+	}
 }
 
 // -------------------------- HeartbeatService 实现 --------------------------
@@ -414,15 +545,14 @@ func (dc *DevConn) Send(data []byte) error {
 
 // -------------------------- WsServer 实现 --------------------------
 
-func NewWsServer(debug bool) *WsServer {
+func NewWsServer() *WsServer {
 	globalCtx, globalCancel := context.WithCancel(context.Background())
 
-	// 创建一个简单的logger，避免复杂的初始化依赖
+	// 使用空logger，等待调用者通过AddLogger设置
 	logger := zap.NewNop()
 
 	s := &WsServer{
-		Debug:           debug,
-		routes:          make(map[string]Handle),
+		routes:          make(map[string]*RouteInfo),
 		globalCtx:       globalCtx,
 		globalCancel:    globalCancel,
 		logger:          logger,
@@ -450,14 +580,20 @@ func NewWsServer(debug bool) *WsServer {
 	return s
 }
 
-func (s *WsServer) AddRouter(path string, handle Handle) error {
+func (s *WsServer) AddRouter(path string, handle Handle, routerConfig *RouterConfig) error {
 	if err := s.configValidator.validateRouterConfig(path, handle); err != nil {
 		return err
 	}
 
-	s.routesMu.Lock()
-	defer s.routesMu.Unlock()
-	s.routes[path] = handle
+	// 如果没有提供RouterConfig，使用默认配置
+	if routerConfig == nil {
+		routerConfig = &RouterConfig{}
+	}
+
+	s.routes[path] = &RouteInfo{
+		Handle:       handle,
+		RouterConfig: routerConfig,
+	}
 	return nil
 }
 
@@ -502,15 +638,26 @@ func (s *WsServer) StartWebsocket(addr string) error {
 
 func (s *WsServer) serveHTTP(ctx *fasthttp.RequestCtx) {
 	path := string(ctx.Path())
+	method := string(ctx.Method())
 
-	s.routesMu.RLock()
-	handle, exists := s.routes[path]
-	s.routesMu.RUnlock()
+	s.logger.Info("HTTP_REQUEST_RECEIVED",
+		zap.String("method", method),
+		zap.String("path", path),
+		zap.String("client_ip", ctx.RemoteIP().String()),
+		zap.String("user_agent", string(ctx.UserAgent())))
 
+	routeInfo, exists := s.routes[path]
 	if !exists {
+		s.logger.Warn("ROUTE_NOT_FOUND",
+			zap.String("path", path),
+			zap.Int("available_routes", len(s.routes)))
 		ctx.SetStatusCode(fasthttp.StatusNotFound)
 		return
 	}
+
+	// 非游客模式，继续WebSocket升级流程
+	s.logger.Info("WEBSOCKET_UPGRADE_ATTEMPT",
+		zap.String("path", path))
 
 	if s.limiter != nil && !s.limiter.Allow() {
 		ctx.SetStatusCode(fasthttp.StatusTooManyRequests)
@@ -519,7 +666,7 @@ func (s *WsServer) serveHTTP(ctx *fasthttp.RequestCtx) {
 	}
 
 	if err := s.upgrader.Upgrade(ctx, func(ws *fasthttpWs.Conn) {
-		connCtx, err := s.initializeConnection(ctx, ws, path)
+		connCtx, err := s.initializeConnection(ctx, ws, path, routeInfo.RouterConfig)
 		if err != nil {
 			s.logger.Error("failed to initialize connection", zap.Error(err))
 			ws.Close() // 关闭WebSocket连接
@@ -527,27 +674,42 @@ func (s *WsServer) serveHTTP(ctx *fasthttp.RequestCtx) {
 		}
 		defer s.cleanupConnection(connCtx)
 
-		s.handleConnectionLoop(connCtx, handle)
+		s.handleConnectionLoop(connCtx, routeInfo.Handle)
 	}); err != nil {
 		s.logger.Error("websocket_upgrade_failed", zap.String("path", path), zap.Error(err))
 	}
 }
 
-func (s *WsServer) initializeConnection(httpCtx *fasthttp.RequestCtx, ws *fasthttpWs.Conn, path string) (*ConnectionContext, error) {
-	authHeader := string(httpCtx.Request.Header.Peek("Authorization"))
-	if authHeader == "" {
+func (s *WsServer) initializeConnection(httpCtx *fasthttp.RequestCtx, ws *fasthttpWs.Conn, path string, routerConfig *RouterConfig) (*ConnectionContext, error) {
+	authHeader := httpCtx.Request.Header.Peek("Authorization")
+	s.logger.Info("WEBSOCKET_UPGRADE_ATTEMPT",
+		zap.String("path", path),
+		zap.String("client_ip", httpCtx.RemoteIP().String()),
+		zap.String("auth_header_present", fmt.Sprintf("%t", len(authHeader) != 0)))
+
+	// 检查认证头（非游客模式需要认证）
+	if len(authHeader) == 0 {
+		s.logger.Error("MISSING_AUTH_HEADER", zap.String("client_ip", httpCtx.RemoteIP().String()))
 		return nil, utils.Error("missing authorization header")
 	}
 
+	// 认证模式：验证JWT token
 	subject := &jwt.Subject{}
-	if err := subject.Verify(nil, ""); err != nil { // 假设jwt.Subject有ParseToken方法
-		return nil, utils.Error("invalid or expired token: %v", err)
-	}
-	if len(subject.Payload.Sub) == 0 {
-		return nil, utils.Error("token authentication failed")
+	if len(authHeader) == 0 {
+		return nil, utils.Error("empty authorization header")
 	}
 
-	connCtx, devConn := s.createConnectionContext(subject, ws, path)
+	// 验证token (使用配置的JWT密钥)
+	if err := subject.Verify(authHeader, s.jwtConfig.TokenKey); err != nil {
+		return nil, utils.Error("invalid or expired token: %v", err)
+	}
+
+	// 检查token是否有效
+	if !subject.CheckReady() {
+		return nil, utils.Error("token not ready")
+	}
+
+	connCtx, devConn := s.createConnectionContext(subject, ws, path, routerConfig, authHeader)
 
 	if err := s.connManager.Add(devConn); err != nil {
 		connCtx.cancel()
@@ -557,7 +719,7 @@ func (s *WsServer) initializeConnection(httpCtx *fasthttp.RequestCtx, ws *fastht
 	return connCtx, nil
 }
 
-func (s *WsServer) createConnectionContext(subject *jwt.Subject, ws *fasthttpWs.Conn, path string) (*ConnectionContext, *DevConn) {
+func (s *WsServer) createConnectionContext(subject *jwt.Subject, ws *fasthttpWs.Conn, path string, routerConfig *RouterConfig, rawToken []byte) (*ConnectionContext, *DevConn) {
 	connCtx, cancel := context.WithCancel(s.globalCtx)
 
 	devID := subject.GetDev(nil)
@@ -580,19 +742,29 @@ func (s *WsServer) createConnectionContext(subject *jwt.Subject, ws *fasthttpWs.
 	)
 
 	return &ConnectionContext{
-		Subject: subject,
-		WsConn:  ws,
-		DevConn: devConn,
-		Server:  s,
-		Logger:  connLogger,
-		ctx:     connCtx,
-		cancel:  cancel,
+		Subject:      subject,
+		WsConn:       ws,
+		DevConn:      devConn,
+		Server:       s,
+		Logger:       connLogger,
+		RouterConfig: routerConfig, // 使用传入的路由配置
+		Path:         path,         // 设置WebSocket连接路径
+		RawToken:     rawToken,     // 设置原始token字节
+		ctx:          connCtx,
+		cancel:       cancel,
 	}, devConn
 }
 
 func (s *WsServer) handleConnectionLoop(connCtx *ConnectionContext, handle Handle) {
+	connCtx.Logger.Info("CLIENT_CONNECTED",
+		zap.String("client_address", connCtx.WsConn.RemoteAddr().String()),
+		zap.String("connection_path", connCtx.Path),
+		zap.String("user_id", connCtx.Subject.GetSub(nil)),
+		zap.String("device_id", connCtx.Subject.GetDev(nil)))
+
 	connCtx.Logger.Info("client_connected")
-	messageHandler := NewMessageHandler(handle, s.Debug)
+	connCtx.Logger.Info("STARTING_MESSAGE_LOOP", zap.String("client", connCtx.WsConn.RemoteAddr().String()))
+	messageHandler := NewMessageHandler(handle)
 
 	for {
 		select {
@@ -603,8 +775,13 @@ func (s *WsServer) handleConnectionLoop(connCtx *ConnectionContext, handle Handl
 			// 设置读取超时，防止死连接
 			connCtx.WsConn.SetReadDeadline(time.Now().Add(time.Duration(s.ping) * 3 * time.Second))
 
+			connCtx.Logger.Info("WAITING_FOR_MESSAGE", zap.String("client", connCtx.WsConn.RemoteAddr().String()))
+
 			messageType, message, err := connCtx.WsConn.ReadMessage()
 			if err != nil {
+				connCtx.Logger.Error("READ_MESSAGE_FAILED",
+					zap.Error(err),
+					zap.String("client", connCtx.WsConn.RemoteAddr().String()))
 				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
 					connCtx.Logger.Error("read_message_error", zap.Error(err))
 				} else {
@@ -613,10 +790,19 @@ func (s *WsServer) handleConnectionLoop(connCtx *ConnectionContext, handle Handl
 				return
 			}
 
+			connCtx.Logger.Info("MESSAGE_RECEIVED",
+				zap.Int("message_type", messageType),
+				zap.Int("message_length", len(message)),
+				zap.String("client", connCtx.WsConn.RemoteAddr().String()))
+
 			if messageType != fasthttpWs.TextMessage {
 				connCtx.Logger.Warn("unsupported_message_type", zap.Int("type", messageType))
 				continue
 			}
+
+			connCtx.Logger.Info("CALLING_MESSAGE_HANDLER_PROCESS",
+				zap.String("raw_message", string(message)),
+				zap.String("client", connCtx.WsConn.RemoteAddr().String()))
 
 			reply, err := messageHandler.Process(connCtx, message)
 			if err != nil {
@@ -670,6 +856,79 @@ func (s *WsServer) gracefulShutdown() {
 
 	// 触发全局取消
 	s.globalCancel()
+}
+
+// GetCacheObject 获取缓存对象
+func (self *WsServer) GetCacheObject() (cache.Cache, error) {
+	var err error
+	var c cache.Cache
+	if self.RedisCacheAware != nil {
+		c, err = self.RedisCacheAware()
+		if err != nil {
+			return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "redis cache get error", Err: err}
+		}
+	} else if self.LocalCacheAware != nil {
+		c, err = self.LocalCacheAware()
+		if err != nil {
+			return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "local cache get error", Err: err}
+		}
+	} else {
+		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "cache object not setting"}
+	}
+	return c, nil
+}
+
+// AddRedisCache 增加redis缓存实例
+func (self *WsServer) AddRedisCache(cacheAware CacheAware) {
+	if cacheAware != nil && self.RedisCacheAware == nil {
+		self.RedisCacheAware = cacheAware
+	}
+}
+
+// AddLocalCache 增加本地缓存实例
+func (self *WsServer) AddLocalCache(cacheAware CacheAware) {
+	if self.LocalCacheAware == nil {
+		if cacheAware == nil {
+			cacheAware = func(ds ...string) (cache.Cache, error) {
+				return defaultCacheObject, nil
+			}
+		}
+		self.LocalCacheAware = cacheAware
+	}
+}
+
+// AddJwtConfig 添加JWT配置
+func (self *WsServer) AddJwtConfig(config jwt.JwtConfig) error {
+	if len(config.TokenKey) == 0 {
+		return utils.Error("jwt config key is nil")
+	}
+	if config.TokenExp < 0 {
+		return utils.Error("jwt config exp invalid")
+	}
+	self.jwtConfig.TokenAlg = config.TokenAlg
+	self.jwtConfig.TokenTyp = config.TokenTyp
+	self.jwtConfig.TokenKey = config.TokenKey
+	self.jwtConfig.TokenExp = config.TokenExp
+	return nil
+}
+
+// AddLogger 设置WebSocket服务器的日志实例
+// 用于替换默认的空logger，提供自定义日志配置
+//
+// 参数:
+//   - logger: zap.Logger实例，用于记录WebSocket服务器日志
+//
+// 用途:
+//   - 自定义日志级别、输出格式、输出目标等
+//   - 与应用的其他日志系统集成
+//   - 支持结构化日志记录
+//
+// 注意:
+//   - 应该在StartWebsocket之前调用
+//   - 如果不调用，将使用默认的空logger
+func (s *WsServer) AddLogger(logger *zap.Logger) {
+	s.logger = logger
+	s.errorHandler.logger = logger // 同步更新errorHandler的logger
 }
 
 // closeConn 安全关闭连接

@@ -20,16 +20,11 @@ const (
 	access_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxOTg5NTgzMzQ1MTA4OTEwMDgxIiwiYXVkIjoiIiwiaXNzIjoiIiwiZGV2IjoiQVBQIiwianRpIjoiV292R29Lb0NRZUorYUY0cFVRR2VJQT09IiwiZXh0IjoiIiwiaWF0IjowLCJleHAiOjE3NjQzOTgyMDh9.89JrFfOqT3gcAf++S1LM9L0gUMAkhRlLLAOKQzfnZtc="
 	token_secret = "qFbtP73t3hzhChX2wa1o+D/ebwgppSwkq6MAwyz1ApvNjpYowD4dyZQM2Cjct8J2VFuwIB1VYP77m+KBCoruMw=="
 	token_expire = 1764398208
-
-	// 服务端公钥
-	serverPub = "BO6XQ+PD66TMDmQXSEHl2xQarWE0HboB4LazrznThhr6Go5SvpjXJqiSe2fX+sup5OQDOLPkLdI1gh48jOmAq+k="
-	// 客户端私钥
-	clientPrk = "rnX5ykQivfbLHtcbPR68CP636usTNC03u8OD1KeoDPg="
 )
 
-var httpSDK = NewSDK(true)
+var httpSDK = NewSDK()
 
-func NewSDK(debug bool) *sdk.HttpSDK {
+func NewSDK() *sdk.HttpSDK {
 	newObject := &sdk.HttpSDK{
 		Domain:    domain,
 		KeyPath:   "/key",
@@ -103,7 +98,7 @@ func BenchmarkPBKDF2(b *testing.B) {
 // BenchmarkHttpSDK_PostByAuth 认证请求性能基准测试
 // 测量PostByAuth方法在并发场景下的性能表现和吞吐量
 func BenchmarkHttpSDK_PostByAuth(b *testing.B) {
-	httpSDK := NewSDK(false)
+	httpSDK := NewSDK()
 
 	// 设置认证
 	httpSDK.AuthToken(sdk.AuthToken{Token: access_token, Secret: token_secret, Expired: token_expire})
@@ -126,7 +121,7 @@ func BenchmarkHttpSDK_PostByAuth(b *testing.B) {
 // 测试动态ECDH在并发执行下的性能表现和稳定性
 func BenchmarkHttpSDK_PostByECC(b *testing.B) {
 	// 每个goroutine创建独立的SDK实例，避免并发冲突
-	goroutineSDK := NewSDK(false)
+	goroutineSDK := NewSDK()
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 

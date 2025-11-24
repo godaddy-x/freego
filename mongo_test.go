@@ -329,12 +329,12 @@ func TestMongoSavePerformance(t *testing.T) {
 			Addrs:    []string{"127.0.0.1:27017"},
 		}
 
-		manager := &sqld.MGOManager{}
-		err := manager.InitConfig(config)
-		if err != nil {
-			t.Logf("性能测试跳过(需要MongoDB服务): %v", err)
-			return
-		}
+			manager := &sqld.MGOManager{}
+			err := manager.InitConfig(config)
+			if err != nil {
+				t.Logf("性能测试跳过(需要MongoDB服务): %v", err)
+				return
+			}
 		defer manager.Close()
 
 		// 这里可以添加实际的模型测试

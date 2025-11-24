@@ -47,7 +47,6 @@ type HttpSDK struct {
 	AuthDomain  string          // 认证域名 (可选，用于/key和/login接口)
 	KeyPath     string          // 公钥获取路径 (默认: /key)
 	LoginPath   string          // 登录路径 (默认: /login)
-	publicKey   string          // 预设公钥 (避免重复请求/key)
 	language    string          // 语言设置 (HTTP头)
 	timeout     int64           // 请求超时时间(秒)
 	authObject  interface{}     // 登录认证对象 (用户名+密码等)
@@ -66,18 +65,6 @@ type HttpSDK struct {
 // 注意: 请使用指针对象以避免数据拷贝
 func (s *HttpSDK) AuthObject(object interface{}) {
 	s.authObject = object
-}
-
-// SetPublicKey 设置预获取的公钥，避免重复调用/key接口
-// 在高频请求场景下，可以预先获取服务端公钥并设置此处
-// 避免每次ECC请求都重新获取公钥，提高性能
-//
-// 参数:
-//   - key: 服务端ECC公钥(Base64编码)
-//
-// 性能影响: 设置后可减少一次HTTP请求
-func (s *HttpSDK) SetPublicKey(key string) {
-	s.publicKey = key
 }
 
 // AuthToken 设置JWT认证令牌

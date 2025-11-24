@@ -471,12 +471,9 @@ func NextSID() string {
 	return snowflake_node.Generate().String()
 }
 
-func GetUUID(replace ...bool) string {
-	uid, err := uuid.NewUUID()
-	if err != nil {
-		log.Println("uuid failed:", err)
-	}
-	if len(replace) > 0 {
+func GetUUID(noHyphens bool) string {
+	uid := uuid.New() // 注意这里没有返回error
+	if noHyphens {
 		return strings.ReplaceAll(uid.String(), "-", "")
 	}
 	return uid.String()
