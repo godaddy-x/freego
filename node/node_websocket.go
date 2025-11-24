@@ -33,6 +33,20 @@ const (
 	WS_MAX_BODY_LEN = 1024 * 1024       // 1MB
 )
 
+// ConnectionUniquenessMode 连接唯一性模式
+// 用于控制WebSocket连接的唯一性策略
+type ConnectionUniquenessMode int
+
+const (
+	// SubjectUnique 仅Subject唯一，一个用户只能有一个连接
+	// 适用于单设备应用场景，如移动端App
+	SubjectUnique ConnectionUniquenessMode = iota
+
+	// SubjectDeviceUnique Subject+Device唯一，一个用户可以在多个设备上连接
+	// 适用于多设备场景，如Web、App、PC同时在线
+	SubjectDeviceUnique
+)
+
 // 核心类型定义
 type Handle func(ctx context.Context, connCtx *ConnectionContext, body []byte) (interface{}, error) // 业务处理函数，返回nil则不回复
 
@@ -66,6 +80,7 @@ type ConnectionManager struct {
 	conns     map[string]map[string]*DevConn // subject -> deviceKey -> connection
 	max       int                            // 最大连接数
 	totalConn int32                          // 原子计数器：当前总连接数（性能优化）
+	mode      ConnectionUniquenessMode       // 连接唯一性模式
 }
 
 // MessageHandler 消息处理器：统一处理消息校验、解码、路由
@@ -115,6 +130,9 @@ type WsServer struct {
 	limiter      *rate.Limiter // 连接限流器
 	globalCtx    context.Context
 	globalCancel context.CancelFunc
+
+	// 连接唯一性模式
+	connUniquenessMode ConnectionUniquenessMode
 
 	errorHandler    *ErrorHandler
 	configValidator *ConfigValidator
@@ -198,14 +216,19 @@ func (cv *ConfigValidator) validatePoolConfig(maxConn, limit, bucket, ping int) 
 // -------------------------- ConnectionManager 实现 --------------------------
 
 // NewConnectionManager 创建连接管理器
-func NewConnectionManager(maxConn int) *ConnectionManager {
+func NewConnectionManager(maxConn int, mode ConnectionUniquenessMode) *ConnectionManager {
 	return &ConnectionManager{
 		conns: make(map[string]map[string]*DevConn),
 		max:   maxConn,
+		mode:  mode,
 	}
 }
 
 // Add 添加连接
+// 根据连接唯一性模式决定连接的处理策略：
+// - SubjectUnique: 替换同subject的所有连接，只保留一个
+// - SubjectDeviceUnique: 替换同subject+device的连接，允许多设备同时在线
+// 设备键格式：subject_device (如: user123_web, user123_app)
 func (cm *ConnectionManager) Add(conn *DevConn) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
@@ -215,18 +238,31 @@ func (cm *ConnectionManager) Add(conn *DevConn) error {
 		return utils.Error("connection pool full", currentTotal)
 	}
 
-	deviceKey := utils.AddStr(conn.Dev, "_", conn.Sub) // 使用 Sub + Dev 作为唯一键
-
-	if cm.conns[conn.Sub] == nil {
-		cm.conns[conn.Sub] = make(map[string]*DevConn)
+	var uniqueKey string
+	if cm.mode == SubjectUnique {
+		// Subject唯一模式：使用subject作为唯一键
+		uniqueKey = conn.Sub
+		// 检查是否已有连接，如果有则替换
+		if cm.conns[conn.Sub] == nil {
+			cm.conns[conn.Sub] = make(map[string]*DevConn)
+		}
+		if oldConn, exists := cm.conns[conn.Sub][uniqueKey]; exists {
+			closeConn(oldConn, "replace old connection (subject unique)")
+		}
+		cm.conns[conn.Sub][uniqueKey] = conn
+	} else {
+		// Subject+Device唯一模式：使用subject+device作为唯一键
+		uniqueKey = utils.AddStr(conn.Sub, "_", conn.Dev)
+		if cm.conns[conn.Sub] == nil {
+			cm.conns[conn.Sub] = make(map[string]*DevConn)
+		}
+		// 替换旧连接
+		if oldConn, exists := cm.conns[conn.Sub][uniqueKey]; exists {
+			closeConn(oldConn, "replace old connection")
+		}
+		cm.conns[conn.Sub][uniqueKey] = conn
 	}
 
-	// 替换旧连接
-	if oldConn, exists := cm.conns[conn.Sub][deviceKey]; exists {
-		closeConn(oldConn, "replace old connection")
-	}
-
-	cm.conns[conn.Sub][deviceKey] = conn
 	atomic.AddInt32(&cm.totalConn, 1)
 	return nil
 }
@@ -359,7 +395,7 @@ func (mh *MessageHandler) Process(connCtx *ConnectionContext, body []byte) (cryp
 
 	// 心跳检测
 	if jsonBody.Data == pingCmd {
-		connCtx.Server.connManager.UpdateHeartbeat(connCtx.Subject.GetSub(nil), utils.AddStr(connCtx.Subject.GetDev(nil), "_", connCtx.Subject.GetSub(nil)))
+		connCtx.Server.connManager.UpdateHeartbeat(connCtx.Subject.GetSub(nil), utils.AddStr(connCtx.Subject.GetSub(nil), "_", connCtx.Subject.GetDev(nil)))
 		return nil, nil, nil
 	}
 
@@ -557,15 +593,20 @@ func (dc *DevConn) Send(data []byte) error {
 
 // -------------------------- WsServer 实现 --------------------------
 
-func NewWsServer() *WsServer {
+// NewWsServer 创建WebSocket服务器
+// connUniquenessMode: 连接唯一性模式
+//   - SubjectUnique: 一个用户只能有一个连接（适用于单设备应用）
+//   - SubjectDeviceUnique: 一个用户可以在多个设备上连接（适用于多设备场景）
+func NewWsServer(connUniquenessMode ConnectionUniquenessMode) *WsServer {
 	globalCtx, globalCancel := context.WithCancel(context.Background())
 
 	s := &WsServer{
-		routes:          make(map[string]*RouteInfo),
-		globalCtx:       globalCtx,
-		globalCancel:    globalCancel,
-		errorHandler:    &ErrorHandler{},
-		configValidator: &ConfigValidator{},
+		routes:             make(map[string]*RouteInfo),
+		globalCtx:          globalCtx,
+		globalCancel:       globalCancel,
+		connUniquenessMode: connUniquenessMode,
+		errorHandler:       &ErrorHandler{},
+		configValidator:    &ConfigValidator{},
 		upgrader: &fasthttpWs.FastHTTPUpgrader{
 			ReadBufferSize:  1024 * 4,
 			WriteBufferSize: 1024 * 4,
@@ -613,7 +654,7 @@ func (s *WsServer) NewPool(maxConn, limit, bucket, ping int) error {
 	s.maxConn = maxConn
 	s.ping = ping
 
-	s.connManager = NewConnectionManager(maxConn)
+	s.connManager = NewConnectionManager(maxConn, s.connUniquenessMode)
 	s.limiter = rate.NewLimiter(rate.Limit(limit), bucket)
 
 	pingDuration := time.Duration(ping) * time.Second
@@ -901,7 +942,7 @@ func (s *WsServer) handleConnectionLoop(connCtx *ConnectionContext, handle Handl
 
 func (s *WsServer) cleanupConnection(connCtx *ConnectionContext) {
 	connCtx.cancel()
-	deviceKey := utils.AddStr(connCtx.DevConn.Dev, "_", connCtx.DevConn.Sub)
+	deviceKey := utils.AddStr(connCtx.DevConn.Sub, "_", connCtx.DevConn.Dev)
 	s.connManager.Remove(connCtx.DevConn.Sub, deviceKey)
 	zlog.Info("client_disconnected", 0, zlog.String("subject", deviceKey))
 }

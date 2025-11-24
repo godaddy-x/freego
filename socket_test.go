@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"time"
+
 	"github.com/godaddy-x/freego/utils/crypto"
 	"github.com/godaddy-x/freego/utils/jwt"
-	"time"
+	"github.com/godaddy-x/freego/zlog"
 
 	"testing"
 
@@ -50,12 +52,15 @@ func TestWebSocketGetUser(t *testing.T) {
 
 // TestWebSocketStartServer 启动服务
 func TestWebSocketStartServer(t *testing.T) {
+
+	zlog.InitDefaultLog(&zlog.ZapConfig{Layout: 0, Location: time.Local, Level: zlog.DEBUG, Console: true}) // 测试环境使用空logger，避免输出干扰
+
 	if testing.Short() {
 		t.Skip("Skipping WebSocket ECC test in short mode")
 	}
 
 	// 1. 创建WebSocket服务器实例
-	server := node.NewWsServer()
+	server := node.NewWsServer(node.SubjectDeviceUnique)
 
 	server.AddJwtConfig(jwt.JwtConfig{
 		TokenTyp: jwt.JWT,
@@ -67,9 +72,6 @@ func TestWebSocketStartServer(t *testing.T) {
 	// 增加双向验签的ECDSA
 	cipher, _ := crypto.CreateS256ECDSAWithBase64(serverPrk, clientPub)
 	server.AddCipher(cipher)
-
-	// 1.5. 设置日志实例
-	//logger := zlog.InitDefaultLog(&zlog.ZapConfig{Layout: 0, Location: time.Local, Level: zlog.DEBUG, Console: true}) // 测试环境使用空logger，避免输出干扰
 
 	// 3. 配置连接池
 	err := server.NewPool(100, 10, 5, 30)
