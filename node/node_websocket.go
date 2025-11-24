@@ -504,9 +504,7 @@ func (hs *HeartbeatService) Start() {
 	}
 
 	hs.running = true
-	if zlog.IsDebug() {
-		zlog.Debug("heartbeat_service_started", 0, zlog.String("interval", hs.interval.String()), zlog.String("timeout", hs.timeout.String()))
-	}
+	zlog.Info("heartbeat_service_started", 0, zlog.String("interval", hs.interval.String()), zlog.String("timeout", hs.timeout.String()))
 
 	go hs.run()
 }
@@ -905,9 +903,7 @@ func (s *WsServer) cleanupConnection(connCtx *ConnectionContext) {
 	connCtx.cancel()
 	deviceKey := utils.AddStr(connCtx.DevConn.Dev, "_", connCtx.DevConn.Sub)
 	s.connManager.Remove(connCtx.DevConn.Sub, deviceKey)
-	if zlog.IsDebug() {
-		zlog.Debug("client_disconnected", 0)
-	}
+	zlog.Info("client_disconnected", 0, zlog.String("subject", deviceKey))
 }
 
 func (s *WsServer) gracefulShutdown() {
