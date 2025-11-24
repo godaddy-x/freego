@@ -17,7 +17,6 @@ import (
 	"github.com/godaddy-x/freego/node"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/zlog"
-	"github.com/valyala/fasthttp"
 )
 
 type SocketSDK struct {
@@ -53,6 +52,9 @@ type SocketSDK struct {
 
 	// 新增：同步响应映射表 (msgId -> chan interface{})
 	responseMap sync.Map // 存储等待响应的通道
+
+	// 通道关闭保护
+	channelOnceMap sync.Map // msgId -> sync.Once
 }
 
 func (s *SocketSDK) AuthObject(object interface{}) {
@@ -95,169 +97,6 @@ func (s *SocketSDK) valid() bool {
 		return false
 	}
 	return true
-}
-
-func (s *SocketSDK) PostByAuth(path string, requestObj, responseObj interface{}, encrypted bool) error {
-	if len(path) == 0 || requestObj == nil || responseObj == nil {
-		return ex.Throw{Msg: "params invalid"}
-	}
-	if !s.valid() {
-		return ex.Throw{Msg: "token empty or token expired"}
-	}
-	if len(s.authToken.Token) == 0 || len(s.authToken.Secret) == 0 {
-		return ex.Throw{Msg: "token or secret can't be empty"}
-	}
-	jsonBody := &node.JsonBody{
-		Time:  utils.UnixSecond(),
-		Nonce: utils.RandNonce(),
-		Plan:  0,
-	}
-	var jsonData []byte
-	var err error
-	if v, b := requestObj.(*AuthToken); b {
-		jsonData, err = utils.JsonMarshal(v)
-		if err != nil {
-			return ex.Throw{Msg: "request data JsonMarshal invalid"}
-		}
-		jsonBody.Data = utils.Bytes2Str(jsonData)
-	} else {
-		jsonData, err = utils.JsonMarshal(requestObj)
-		if err != nil {
-			return ex.Throw{Msg: "request data JsonMarshal invalid"}
-		}
-		jsonBody.Data = utils.Bytes2Str(jsonData)
-	}
-	// 清理JSON序列化数据
-	defer DIC.ClearData(jsonData)
-	// 解码token secret用于加密和签名
-	tokenSecret := utils.Base64Decode(s.authToken.Secret)
-	defer DIC.ClearData(tokenSecret) // 清除临时解码的token secret
-
-	if encrypted {
-		jsonBody.Plan = 1
-		d, err := utils.AesGCMEncryptBase(utils.Str2Bytes(jsonBody.Data), tokenSecret[:32], utils.Str2Bytes(utils.AddStr(jsonBody.Time, jsonBody.Nonce, jsonBody.Plan, path)))
-		if err != nil {
-			return ex.Throw{Msg: "request data AES encrypt failed"}
-		}
-		jsonBody.Data = d
-		if zlog.IsDebug() {
-			zlog.Debug(fmt.Sprintf("request data encrypted: %s", jsonBody.Data), 0)
-		}
-		// 注意：不能在这里清理d，因为jsonBody.Data仍然引用着它
-	} else {
-		jsonBody.Data = utils.Base64Encode(jsonBody.Data)
-		if zlog.IsDebug() {
-			zlog.Debug(fmt.Sprintf("request data base64: %s", jsonBody.Data), 0)
-		}
-	}
-	jsonBody.Sign = utils.Base64Encode(utils.HMAC_SHA256_BASE(utils.Str2Bytes(utils.AddStr(path, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan)), tokenSecret))
-
-	// 添加ECDSA签名
-	if err := s.addECDSASign(jsonBody); err != nil {
-		return err
-	}
-
-	bytesData, err := utils.JsonMarshal(jsonBody)
-	if err != nil {
-		return ex.Throw{Msg: "jsonBody data JsonMarshal invalid"}
-	}
-	// 清理序列化后的请求数据
-	defer DIC.ClearData(bytesData)
-	if zlog.IsDebug() {
-		zlog.Debug("request data: ", 0)
-		zlog.Debug(utils.Bytes2Str(bytesData), 0)
-	}
-	request := fasthttp.AcquireRequest()
-	request.Header.SetContentType("application/json;charset=UTF-8")
-	request.Header.Set("Authorization", s.authToken.Token)
-	request.Header.Set("Language", s.language)
-	request.Header.SetMethod("POST")
-	request.SetRequestURI(s.getURI(path))
-	request.SetBody(bytesData)
-	defer fasthttp.ReleaseRequest(request)
-	response := fasthttp.AcquireResponse()
-	defer fasthttp.ReleaseResponse(response)
-	timeout := 120 * time.Second
-	if s.timeout > 0 {
-		timeout = time.Duration(s.timeout) * time.Second
-	}
-	if err := fasthttp.DoTimeout(request, response, timeout); err != nil {
-		return ex.Throw{Msg: "post request failed: " + err.Error()}
-	}
-	respBytes := response.Body()
-	// 清理原始响应数据
-	defer DIC.ClearData(respBytes)
-	if zlog.IsDebug() {
-		zlog.Debug("response data: ", 0)
-		zlog.Debug(utils.Bytes2Str(respBytes), 0)
-	}
-	respData := &node.JsonResp{}
-	if err := utils.JsonUnmarshal(respBytes, respData); err != nil {
-		return ex.Throw{Msg: "response data parse failed: " + err.Error()}
-	}
-	if respData.Code != 200 {
-		if respData.Code > 0 {
-			return ex.Throw{Code: respData.Code, Msg: respData.Message}
-		}
-		return ex.Throw{Msg: respData.Message}
-	}
-
-	// 服务器可以自主选择返回的Plan（0或1），只要在有效范围内即可
-	if !utils.CheckInt64(respData.Plan, 0, 1) {
-		return ex.Throw{Msg: "response plan invalid, must be 0 or 1, got: " + utils.AnyToStr(respData.Plan)}
-	}
-
-	// 验证响应时也需要解码token secret
-	respTokenSecret := utils.Base64Decode(s.authToken.Secret)
-	defer DIC.ClearData(respTokenSecret) // 清除响应验证时解码的token secret
-
-	validSign := utils.HMAC_SHA256_BASE(utils.Str2Bytes(utils.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan)), respTokenSecret)
-	// 清理签名验证数据
-	defer DIC.ClearData(validSign)
-	if utils.Base64Encode(validSign) != respData.Sign {
-		return ex.Throw{Msg: "post response sign verify invalid"}
-	}
-	if zlog.IsDebug() {
-		zlog.Debug(fmt.Sprintf("response sign verify: %t", utils.Base64Encode(validSign) == respData.Sign), 0)
-	}
-
-	// 验证ECDSA签名
-	if err := s.verifyECDSASign(validSign, respData); err != nil {
-		return err
-	}
-	var dec []byte
-	if respData.Plan == 0 {
-		dec = utils.Base64Decode(respData.Data)
-		if zlog.IsDebug() {
-			zlog.Debug(fmt.Sprintf("response data base64: %s", string(dec)), 0)
-		}
-	} else if respData.Plan == 1 {
-		dec, err = utils.AesGCMDecryptBase(respData.Data, respTokenSecret[:32], utils.Str2Bytes(utils.AddStr(respData.Time, respData.Nonce, respData.Plan, path)))
-		if err != nil {
-			return ex.Throw{Msg: "post response data AES decrypt failed"}
-		}
-		if zlog.IsDebug() {
-			zlog.Debug(fmt.Sprintf("response data decrypted: %s", utils.Bytes2Str(dec)), 0)
-		}
-	}
-
-	// 清理解密后的响应数据
-	defer DIC.ClearData(dec)
-
-	// 验证解密后的数据是否为空
-	if len(dec) == 0 {
-		return ex.Throw{Msg: "response data is empty"}
-	}
-	if v, b := responseObj.(*AuthToken); b {
-		if err := utils.JsonUnmarshal(dec, v); err != nil {
-			return ex.Throw{Msg: "response data JsonUnmarshal invalid"}
-		}
-	} else {
-		if err := utils.JsonUnmarshal(dec, responseObj); err != nil {
-			return ex.Throw{Msg: "response data JsonUnmarshal invalid"}
-		}
-	}
-	return nil
 }
 
 func (s *SocketSDK) addECDSASign(jsonBody *node.JsonBody) error {
@@ -356,6 +195,7 @@ func (s *SocketSDK) connectWebSocketInternal(path string, isInitial bool) error 
 	header := make(map[string][]string)
 	header["Authorization"] = []string{s.authToken.Token}
 	header["Language"] = []string{s.language}
+	header["X-WebSocket-Route"] = []string{path}
 
 	if zlog.IsDebug() {
 		if isInitial {
@@ -413,7 +253,7 @@ func (s *SocketSDK) connectWebSocketInternal(path string, isInitial bool) error 
 func (s *SocketSDK) prepareWebSocketMessage(path string, data interface{}, plan int64) (*node.JsonBody, []byte, error) {
 	jsonBody := &node.JsonBody{
 		Time:  utils.UnixSecond(),
-		Nonce: utils.RandNonce(),
+		Nonce: utils.GetUUID(true),
 		Plan:  plan,
 	}
 
@@ -572,6 +412,7 @@ func (s *SocketSDK) SendWebSocketMessage(path string, requestObj, responseObj in
 	if encryptRequest {
 		plan = 1
 	}
+	// 使用传入的业务路径进行签名，确保与服务端路径一致
 	jsonBody, bytesData, err := s.prepareWebSocketMessage(path, requestObj, plan)
 	if err != nil {
 		return err
@@ -582,11 +423,16 @@ func (s *SocketSDK) SendWebSocketMessage(path string, requestObj, responseObj in
 	var respChan chan *node.JsonResp
 	if waitResponse {
 		respChan = make(chan *node.JsonResp, 1) // 缓冲1，避免阻塞
+		var once sync.Once
+		s.channelOnceMap.Store(jsonBody.Nonce, &once)
 		s.responseMap.Store(jsonBody.Nonce, respChan)
 		// 超时后清理映射和通道
 		defer func() {
 			s.responseMap.Delete(jsonBody.Nonce)
-			close(respChan)
+			s.channelOnceMap.Delete(jsonBody.Nonce)
+			once.Do(func() {
+				close(respChan)
+			})
 		}()
 	}
 
@@ -867,8 +713,32 @@ func (s *SocketSDK) disconnectWebSocketInternal(triggerReconnect bool) {
 	s.responseMap.Range(func(key, value interface{}) bool {
 		s.responseMap.Delete(key)
 		if ch, ok := value.(chan *node.JsonResp); ok {
-			close(ch)
+			// 使用 sync.Once 确保只关闭一次
+			if onceVal, exists := s.channelOnceMap.Load(key); exists {
+				if once, ok := onceVal.(*sync.Once); ok {
+					once.Do(func() {
+						close(ch)
+					})
+				} else {
+					// fallback：如果没有找到 once，直接关闭（兼容旧代码）
+					defer func() {
+						if r := recover(); r != nil {
+							// 忽略 channel 已经关闭的 panic
+						}
+					}()
+					close(ch)
+				}
+			} else {
+				// fallback：如果没有找到 once，直接关闭（兼容旧代码）
+				defer func() {
+					if r := recover(); r != nil {
+						// 忽略 channel 已经关闭的 panic
+					}
+				}()
+				close(ch)
+			}
 		}
+		s.channelOnceMap.Delete(key)
 		return true
 	})
 	s.connMutex.Lock()

@@ -35,21 +35,6 @@ func NewSocketSDK() *sdk.SocketSDK {
 	return newObject
 }
 
-func TestWebSocketGetUser(t *testing.T) {
-
-	ws := NewSocketSDK()
-	fmt.Printf("连接地址: %s\n", ws.Domain)
-
-	requestObj := sdk.AuthToken{Token: "基准测试请求"}
-	responseData := sdk.AuthToken{}
-
-	if err := ws.PostByAuth("/getUser", &requestObj, &responseData, false); err != nil {
-		fmt.Println(err)
-		return
-	}
-
-}
-
 // TestWebSocketStartServer 启动服务
 func TestWebSocketStartServer(t *testing.T) {
 
@@ -87,6 +72,18 @@ func TestWebSocketStartServer(t *testing.T) {
 		t.Fatalf("Failed to add ECC key router: %v", err)
 	}
 
+	err = server.AddRouter("/ws/user", func(ctx context.Context, connCtx *node.ConnectionContext, body []byte) (interface{}, error) {
+		fmt.Println("test", connCtx.GetUserID())
+		ret := &sdk.AuthToken{
+			Token:  "鲨鱼宝宝获取websocket",
+			Secret: connCtx.GetUserIDString(),
+		}
+		return ret, nil
+	}, &node.RouterConfig{})
+	if err != nil {
+		t.Fatalf("Failed to add ECC key router: %v", err)
+	}
+
 	// 5. 在goroutine中启动服务器
 	serverAddr := "localhost:8088"
 
@@ -117,12 +114,22 @@ func TestWebSocketSDKUsage(t *testing.T) {
 	}
 	wsSdk.AuthToken(authToken)
 
+	var err error
+
 	// 5. 尝试连接WebSocket（预期失败，因为没有真实服务器）
 	fmt.Println("5. 尝试连接WebSocket（预期成功）...")
-	err := wsSdk.ConnectWebSocket("/ws")
+	err = wsSdk.ConnectWebSocket("/ws")
 	if err == nil {
 		t.Error("连接成功")
 	}
+
+	requestObject := map[string]interface{}{"test": "张三"}
+	responseObject := &sdk.AuthToken{}
+	err = wsSdk.SendWebSocketMessage("/ws/user", requestObject, responseObject, true, true, 5)
+	if err != nil {
+		t.Error("连接失败：", err)
+	}
+	fmt.Println(responseObject)
 
 	// 验证连接状态
 	if wsSdk.IsWebSocketConnected() {

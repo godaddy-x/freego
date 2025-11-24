@@ -325,7 +325,7 @@ func RunServer(consulDs string, authenticate bool, objects ...*GRPC) {
 			continue
 		}
 		registration := new(consulapi.AgentServiceRegistration)
-		registration.ID = utils.GetUUID(false)
+		registration.ID = utils.GetUUID(true)
 		registration.Tags = object.Tags
 		registration.Name = object.Service
 		registration.Address = address

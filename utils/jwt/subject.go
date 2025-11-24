@@ -51,7 +51,7 @@ func (self *Subject) Create(sub string) *Subject {
 	self.Payload = &Payload{
 		Sub: sub,
 		Exp: utils.UnixSecond() + TWO_WEEK,
-		Jti: utils.GetUUID(false),
+		Jti: utils.GetUUID(true),
 	}
 	return self
 }

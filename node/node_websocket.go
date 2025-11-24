@@ -22,7 +22,6 @@ import (
 	"github.com/godaddy-x/freego/utils/crypto"
 	"github.com/godaddy-x/freego/utils/jwt"
 	"github.com/valyala/fasthttp"
-	"go.uber.org/zap"
 )
 
 // WebSocket服务器实现
@@ -58,7 +57,8 @@ type ConnectionContext struct {
 	DevConn      *DevConn
 	Server       *WsServer
 	RouterConfig *RouterConfig // 路由配置
-	Path         string        // WebSocket连接的路径，用于签名验证
+	Path         string        // WebSocket连接的路径
+	RoutePath    string        // 从header获取的路由标识，用于签名验证
 	RawToken     []byte        // 原始JWT token字节，用于签名验证
 	ctx          context.Context
 	cancel       context.CancelFunc
@@ -67,6 +67,26 @@ type ConnectionContext struct {
 // GetRawTokenBytes 获取原始JWT token字节
 func (cc *ConnectionContext) GetRawTokenBytes() []byte {
 	return cc.RawToken
+}
+
+// GetUserID 获取用户ID int64类型
+func (cc *ConnectionContext) GetUserID() int64 {
+	if cc.Subject == nil || cc.Subject.Payload == nil || len(cc.Subject.Payload.Sub) == 0 {
+		return 0
+	}
+	userID, err := utils.StrToInt64(cc.Subject.Payload.Sub)
+	if err != nil {
+		return 0
+	}
+	return userID
+}
+
+// GetUserIDString 获取用户ID string类型
+func (cc *ConnectionContext) GetUserIDString() string {
+	if cc.Subject == nil || cc.Subject.Payload == nil || len(cc.Subject.Payload.Sub) == 0 {
+		return ""
+	}
+	return cc.Subject.Payload.Sub
 }
 
 // GetTokenSecret 获取WebSocket连接的token密钥
@@ -152,7 +172,7 @@ type ErrorHandler struct {
 }
 
 func (eh *ErrorHandler) handleConnectionError(connCtx *ConnectionContext, err error, operation string) {
-	zlog.Error(operation+"_failed", 0, zap.Error(err))
+	zlog.Error(operation+"_failed", 0, zlog.AddError(err))
 
 	// 尝试发送错误响应
 	if ws := connCtx.WsConn; ws != nil {
@@ -163,7 +183,7 @@ func (eh *ErrorHandler) handleConnectionError(connCtx *ConnectionContext, err er
 		}
 
 		if len(connCtx.Subject.Payload.Sub) == 0 {
-			resp.Nonce = utils.RandNonce()
+			resp.Nonce = utils.GetUUID(true)
 		} else if connCtx.JsonBody != nil {
 			resp.Nonce = connCtx.JsonBody.Nonce
 		}
@@ -409,9 +429,10 @@ func (mh *MessageHandler) Process(connCtx *ConnectionContext, body []byte) (cryp
 	// 解密业务数据
 	bizData, err := mh.decryptWebSocketData(connCtx)
 	if err != nil {
-		zlog.Error("websocket data decryption failed", 0, zap.Error(err))
+		zlog.Error("websocket data decryption failed", 0, zlog.AddError(err))
 		return nil, nil, err
 	}
+
 	result, err := mh.handle(connCtx.ctx, connCtx, bizData)
 	return cipher, result, err
 }
@@ -474,7 +495,8 @@ func (mh *MessageHandler) validWebSocketBody(connCtx *ConnectionContext) (crypto
 	}
 
 	// 构建签名字符串
-	signStr := utils.AddStr(connCtx.Path, d, body.Nonce, body.Time, body.Plan) // 使用实际的WebSocket路径
+	// 使用从header获取的路由标识进行签名验证，支持通过header指定路由
+	signStr := utils.AddStr(connCtx.RoutePath, d, body.Nonce, body.Time, body.Plan)
 	sign := utils.HMAC_SHA256_BASE(utils.Str2Bytes(signStr), sharedKey)
 	expectedSign := utils.Base64Encode(sign)
 	if expectedSign != body.Sign {
@@ -702,17 +724,26 @@ func (s *WsServer) serveHTTP(ctx *fasthttp.RequestCtx) {
 			zlog.String("user_agent", string(ctx.UserAgent())))
 	}
 
-	routeInfo, exists := s.routes[path]
+	// 从header获取路由标识，如果没有则使用URL路径
+	routeHeader := ctx.Request.Header.Peek("X-WebSocket-Route")
+	routePath := string(routeHeader)
+	if routePath == "" {
+		routePath = path
+	}
+
+	routeInfo, exists := s.routes[routePath]
 	if !exists {
 		zlog.Warn("ROUTE_NOT_FOUND", 0,
 			zlog.String("path", path),
+			zlog.String("route_path", routePath),
 			zlog.Int("available_routes", len(s.routes)))
 		ctx.SetStatusCode(fasthttp.StatusNotFound)
 		return
 	}
 
 	zlog.Info("WEBSOCKET_UPGRADE_ATTEMPT", 0,
-		zlog.String("path", path))
+		zlog.String("path", path),
+		zlog.String("route_path", routePath))
 
 	if s.limiter != nil && !s.limiter.Allow() {
 		ctx.SetStatusCode(fasthttp.StatusTooManyRequests)
@@ -721,7 +752,7 @@ func (s *WsServer) serveHTTP(ctx *fasthttp.RequestCtx) {
 	}
 
 	if err := s.upgrader.Upgrade(ctx, func(ws *fasthttpWs.Conn) {
-		connCtx, err := s.initializeConnection(ctx, ws, path, routeInfo.RouterConfig)
+		connCtx, err := s.initializeConnection(ctx, ws, routePath, routeInfo.RouterConfig)
 		if err != nil {
 			zlog.Error("failed to initialize connection", 0, zlog.AddError(err))
 			ws.Close() // 关闭WebSocket连接
@@ -748,6 +779,20 @@ func (s *WsServer) initializeConnection(httpCtx *fasthttp.RequestCtx, ws *fastht
 	if len(authHeader) == 0 {
 		zlog.Error("MISSING_AUTH_HEADER", 0, zlog.String("client_ip", httpCtx.RemoteIP().String()))
 		return nil, utils.Error("missing authorization header")
+	}
+
+	// 从header获取路由标识，用于签名验证和路由分发
+	routeHeader := httpCtx.Request.Header.Peek("X-WebSocket-Route")
+	routePath := string(routeHeader)
+	if routePath == "" {
+		// 如果没有指定路由header，则使用连接路径作为默认路由
+		routePath = path
+	}
+	if zlog.IsDebug() {
+		zlog.Debug("WEBSOCKET_ROUTE_DETECTED", 0,
+			zlog.String("connection_path", path),
+			zlog.String("route_path", routePath),
+			zlog.Bool("custom_route", routePath != path))
 	}
 
 	// 认证模式：验证JWT token
@@ -779,7 +824,7 @@ func (s *WsServer) initializeConnection(httpCtx *fasthttp.RequestCtx, ws *fastht
 		return nil, utils.Error("token not ready")
 	}
 
-	connCtx, devConn := s.createConnectionContext(subject, ws, path, routerConfig, authHeader)
+	connCtx, devConn := s.createConnectionContext(subject, ws, path, routePath, routerConfig, authHeader)
 
 	if err := s.connManager.Add(devConn); err != nil {
 		connCtx.cancel()
@@ -789,7 +834,7 @@ func (s *WsServer) initializeConnection(httpCtx *fasthttp.RequestCtx, ws *fastht
 	return connCtx, nil
 }
 
-func (s *WsServer) createConnectionContext(subject *jwt.Subject, ws *fasthttpWs.Conn, path string, routerConfig *RouterConfig, rawToken []byte) (*ConnectionContext, *DevConn) {
+func (s *WsServer) createConnectionContext(subject *jwt.Subject, ws *fasthttpWs.Conn, path string, routePath string, routerConfig *RouterConfig, rawToken []byte) (*ConnectionContext, *DevConn) {
 	connCtx, cancel := context.WithCancel(s.globalCtx)
 
 	devID := subject.GetDev(nil)
@@ -811,6 +856,7 @@ func (s *WsServer) createConnectionContext(subject *jwt.Subject, ws *fasthttpWs.
 		Server:       s,
 		RouterConfig: routerConfig, // 使用传入的路由配置
 		Path:         path,         // 设置WebSocket连接路径
+		RoutePath:    routePath,    // 设置路由标识路径，用于签名验证
 		RawToken:     rawToken,     // 设置原始token字节
 		ctx:          connCtx,
 		cancel:       cancel,
