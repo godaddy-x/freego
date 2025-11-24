@@ -2,7 +2,6 @@ package node
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
@@ -10,6 +9,8 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+
+	"github.com/godaddy-x/freego/zlog"
 
 	"github.com/fasthttp/websocket"
 	fasthttpWs "github.com/fasthttp/websocket"
@@ -42,7 +43,6 @@ type ConnectionContext struct {
 	WsConn       *fasthttpWs.Conn
 	DevConn      *DevConn
 	Server       *WsServer
-	Logger       *zap.Logger   // 每个连接独立的logger，便于追踪
 	RouterConfig *RouterConfig // 路由配置
 	Path         string        // WebSocket连接的路径，用于签名验证
 	RawToken     []byte        // 原始JWT token字节，用于签名验证
@@ -116,8 +116,6 @@ type WsServer struct {
 	globalCtx    context.Context
 	globalCancel context.CancelFunc
 
-	// 依赖组件
-	logger          *zap.Logger
 	errorHandler    *ErrorHandler
 	configValidator *ConfigValidator
 
@@ -133,11 +131,10 @@ type WsServer struct {
 
 // ErrorHandler WebSocket错误处理器（统一错误处理）
 type ErrorHandler struct {
-	logger *zap.Logger
 }
 
 func (eh *ErrorHandler) handleConnectionError(connCtx *ConnectionContext, err error, operation string) {
-	connCtx.Logger.Error(operation+"_failed", zap.Error(err))
+	zlog.Error(operation+"_failed", 0, zap.Error(err))
 
 	// 尝试发送错误响应
 	if ws := connCtx.WsConn; ws != nil {
@@ -352,16 +349,10 @@ func NewMessageHandler(rsa []crypto.Cipher, handle Handle) *MessageHandler {
 }
 
 func (mh *MessageHandler) Process(connCtx *ConnectionContext, body []byte) (crypto.Cipher, interface{}, error) {
-	// 打印客户端发送的原始消息内容（用于调试）
-	connCtx.Logger.Info("CLIENT_MESSAGE_RECEIVED",
-		zap.String("raw_message", string(body)),
-		zap.Int("message_length", len(body)),
-		zap.String("client_ip", connCtx.WsConn.RemoteAddr().String()))
-
 	// 解析WebSocket消息体
 	jsonBody := &JsonBody{}
 	if err := utils.JsonUnmarshal(body, jsonBody); err != nil {
-		connCtx.Logger.Error("websocket message json unmarshal failed", zap.Error(err), zap.ByteString("raw_body", body))
+		zlog.Error("websocket message json unmarshal failed", 0, zlog.ByteString("raw_body", body), zlog.AddError(err))
 		return nil, nil, ex.Throw{Code: fasthttp.StatusBadRequest, Msg: "invalid JSON format"}
 	}
 	connCtx.JsonBody = jsonBody
@@ -375,14 +366,14 @@ func (mh *MessageHandler) Process(connCtx *ConnectionContext, body []byte) (cryp
 	// 验证消息体（按照HTTP协议标准）
 	cipher, err := mh.validWebSocketBody(connCtx)
 	if err != nil {
-		connCtx.Logger.Error("websocket message validation failed", zap.Error(err))
+		zlog.Error("websocket message validation failed", 0, zlog.AddError(err))
 		return nil, nil, err
 	}
 
 	// 解密业务数据
 	bizData, err := mh.decryptWebSocketData(connCtx)
 	if err != nil {
-		connCtx.Logger.Error("websocket data decryption failed", zap.Error(err))
+		zlog.Error("websocket data decryption failed", 0, zap.Error(err))
 		return nil, nil, err
 	}
 	result, err := mh.handle(connCtx.ctx, connCtx, bizData)
@@ -503,19 +494,21 @@ func NewHeartbeatService(interval, timeout time.Duration, manager *ConnectionMan
 	}
 }
 
-func (hs *HeartbeatService) Start(logger *zap.Logger) {
+func (hs *HeartbeatService) Start() {
 	hs.mu.Lock()
 	defer hs.mu.Unlock()
 
 	if hs.running {
-		logger.Warn("heartbeat_service_already_running")
+		zlog.Warn("heartbeat_service_already_running", 0)
 		return
 	}
 
 	hs.running = true
-	logger.Info("heartbeat_service_started", zap.Duration("interval", hs.interval), zap.Duration("timeout", hs.timeout))
+	if zlog.IsDebug() {
+		zlog.Debug("heartbeat_service_started", 0, zlog.String("interval", hs.interval.String()), zlog.String("timeout", hs.timeout.String()))
+	}
 
-	go hs.run(logger)
+	go hs.run()
 }
 
 func (hs *HeartbeatService) Stop() {
@@ -530,20 +523,21 @@ func (hs *HeartbeatService) Stop() {
 	close(hs.stopCh)
 }
 
-func (hs *HeartbeatService) run(logger *zap.Logger) {
+func (hs *HeartbeatService) run() {
 	ticker := time.NewTicker(hs.interval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-hs.stopCh:
-			logger.Info("heartbeat_service_stopped")
+			if zlog.IsDebug() {
+				zlog.Debug("heartbeat_service_stopped", 0)
+			}
 			return
 		case <-ticker.C:
-			startTime := time.Now()
 			cleaned := hs.manager.CleanupExpired(int64(hs.timeout.Seconds()))
 			if cleaned > 0 {
-				logger.Info("cleanup_expired_connections", zap.Int("cleaned", cleaned), zap.Int("remaining", hs.manager.Count()), zap.Duration("cost", time.Since(startTime)))
+				zlog.Info("cleanup_expired_connections", 0, zlog.Int("cleaned", cleaned), zlog.Int("remaining", hs.manager.Count()))
 			}
 		}
 	}
@@ -568,15 +562,11 @@ func (dc *DevConn) Send(data []byte) error {
 func NewWsServer() *WsServer {
 	globalCtx, globalCancel := context.WithCancel(context.Background())
 
-	// 使用空logger，等待调用者通过AddLogger设置
-	logger := zap.NewNop()
-
 	s := &WsServer{
 		routes:          make(map[string]*RouteInfo),
 		globalCtx:       globalCtx,
 		globalCancel:    globalCancel,
-		logger:          logger,
-		errorHandler:    &ErrorHandler{logger: logger},
+		errorHandler:    &ErrorHandler{},
 		configValidator: &ConfigValidator{},
 		upgrader: &fasthttpWs.FastHTTPUpgrader{
 			ReadBufferSize:  1024 * 4,
@@ -638,10 +628,10 @@ func (s *WsServer) StartWebsocket(addr string) error {
 		return err
 	}
 
-	s.logger.Info("server_starting", zap.String("address", addr))
+	zlog.Info("server_starting", 0, zlog.String("address", addr))
 
 	// 启动心跳服务
-	s.heartbeatSvc.Start(s.logger)
+	s.heartbeatSvc.Start()
 
 	// 监听中断信号
 	go s.gracefulShutdown()
@@ -653,11 +643,11 @@ func (s *WsServer) StartWebsocket(addr string) error {
 
 	// 启动HTTP服务器
 	if err := s.server.ListenAndServe(addr); err != nil {
-		s.logger.Error("server_start_failed", zap.Error(err))
+		zlog.Error("server_start_failed", 0, zlog.AddError(err))
 		return err
 	}
 
-	s.logger.Info("server_stopped_gracefully")
+	zlog.Info("server_stopped_gracefully", 0)
 	return nil
 }
 
@@ -665,23 +655,25 @@ func (s *WsServer) serveHTTP(ctx *fasthttp.RequestCtx) {
 	path := string(ctx.Path())
 	method := string(ctx.Method())
 
-	s.logger.Info("HTTP_REQUEST_RECEIVED",
-		zap.String("method", method),
-		zap.String("path", path),
-		zap.String("client_ip", ctx.RemoteIP().String()),
-		zap.String("user_agent", string(ctx.UserAgent())))
+	if zlog.IsDebug() {
+		zlog.Debug("HTTP_REQUEST_RECEIVED", 0,
+			zlog.String("method", method),
+			zlog.String("path", path),
+			zlog.String("client_ip", ctx.RemoteIP().String()),
+			zlog.String("user_agent", string(ctx.UserAgent())))
+	}
 
 	routeInfo, exists := s.routes[path]
 	if !exists {
-		s.logger.Warn("ROUTE_NOT_FOUND",
-			zap.String("path", path),
-			zap.Int("available_routes", len(s.routes)))
+		zlog.Warn("ROUTE_NOT_FOUND", 0,
+			zlog.String("path", path),
+			zlog.Int("available_routes", len(s.routes)))
 		ctx.SetStatusCode(fasthttp.StatusNotFound)
 		return
 	}
 
-	s.logger.Info("WEBSOCKET_UPGRADE_ATTEMPT",
-		zap.String("path", path))
+	zlog.Info("WEBSOCKET_UPGRADE_ATTEMPT", 0,
+		zlog.String("path", path))
 
 	if s.limiter != nil && !s.limiter.Allow() {
 		ctx.SetStatusCode(fasthttp.StatusTooManyRequests)
@@ -692,7 +684,7 @@ func (s *WsServer) serveHTTP(ctx *fasthttp.RequestCtx) {
 	if err := s.upgrader.Upgrade(ctx, func(ws *fasthttpWs.Conn) {
 		connCtx, err := s.initializeConnection(ctx, ws, path, routeInfo.RouterConfig)
 		if err != nil {
-			s.logger.Error("failed to initialize connection", zap.Error(err))
+			zlog.Error("failed to initialize connection", 0, zlog.AddError(err))
 			ws.Close() // 关闭WebSocket连接
 			return
 		}
@@ -700,20 +692,22 @@ func (s *WsServer) serveHTTP(ctx *fasthttp.RequestCtx) {
 
 		s.handleConnectionLoop(connCtx, routeInfo.Handle)
 	}); err != nil {
-		s.logger.Error("websocket_upgrade_failed", zap.String("path", path), zap.Error(err))
+		zlog.Error("websocket_upgrade_failed", 0, zlog.String("path", path), zlog.AddError(err))
 	}
 }
 
 func (s *WsServer) initializeConnection(httpCtx *fasthttp.RequestCtx, ws *fasthttpWs.Conn, path string, routerConfig *RouterConfig) (*ConnectionContext, error) {
 	authHeader := httpCtx.Request.Header.Peek("Authorization")
-	s.logger.Info("WEBSOCKET_UPGRADE_ATTEMPT",
-		zap.String("path", path),
-		zap.String("client_ip", httpCtx.RemoteIP().String()),
-		zap.String("auth_header_present", fmt.Sprintf("%t", len(authHeader) != 0)))
+	if zlog.IsDebug() {
+		zlog.Debug("WEBSOCKET_UPGRADE_ATTEMPT", 0,
+			zlog.String("path", path),
+			zlog.String("client_ip", httpCtx.RemoteIP().String()),
+			zlog.Bool("auth_header_present", len(authHeader) > 0))
+	}
 
 	// 检查认证头（非游客模式需要认证）
 	if len(authHeader) == 0 {
-		s.logger.Error("MISSING_AUTH_HEADER", zap.String("client_ip", httpCtx.RemoteIP().String()))
+		zlog.Error("MISSING_AUTH_HEADER", 0, zlog.String("client_ip", httpCtx.RemoteIP().String()))
 		return nil, utils.Error("missing authorization header")
 	}
 
@@ -771,19 +765,11 @@ func (s *WsServer) createConnectionContext(subject *jwt.Subject, ws *fasthttpWs.
 		ctx:  connCtx,
 	}
 
-	// 为每个连接创建独立的logger，包含连接标识
-	connLogger := s.logger.With(
-		zap.String("sub", subID),
-		zap.String("dev", devID),
-		zap.String("path", path),
-	)
-
 	return &ConnectionContext{
 		Subject:      subject,
 		WsConn:       ws,
 		DevConn:      devConn,
 		Server:       s,
-		Logger:       connLogger,
 		RouterConfig: routerConfig, // 使用传入的路由配置
 		Path:         path,         // 设置WebSocket连接路径
 		RawToken:     rawToken,     // 设置原始token字节
@@ -793,53 +779,52 @@ func (s *WsServer) createConnectionContext(subject *jwt.Subject, ws *fasthttpWs.
 }
 
 func (s *WsServer) handleConnectionLoop(connCtx *ConnectionContext, handle Handle) {
-	connCtx.Logger.Info("CLIENT_CONNECTED",
-		zap.String("client_address", connCtx.WsConn.RemoteAddr().String()),
-		zap.String("connection_path", connCtx.Path),
-		zap.String("user_id", connCtx.Subject.GetSub(nil)),
-		zap.String("device_id", connCtx.Subject.GetDev(nil)))
+	zlog.Info("CLIENT_CONNECTED", 0,
+		zlog.String("client_address", connCtx.WsConn.RemoteAddr().String()),
+		zlog.String("user_id", connCtx.Subject.GetSub(nil)),
+		zlog.String("device_id", connCtx.Subject.GetDev(nil)))
 
-	connCtx.Logger.Info("client_connected")
-	connCtx.Logger.Info("STARTING_MESSAGE_LOOP", zap.String("client", connCtx.WsConn.RemoteAddr().String()))
+	if zlog.IsDebug() {
+		zlog.Debug("STARTING_MESSAGE_LOOP", 0, zlog.String("client", connCtx.WsConn.RemoteAddr().String()))
+	}
 	messageHandler := NewMessageHandler(s.RSA, handle)
 
 	for {
 		select {
 		case <-connCtx.ctx.Done():
-			connCtx.Logger.Info("connection context cancelled")
+			if zlog.IsDebug() {
+				zlog.Debug("connection context cancelled", 0)
+			}
 			return
 		default:
 			// 设置读取超时，防止死连接
 			connCtx.WsConn.SetReadDeadline(time.Now().Add(time.Duration(s.ping) * 3 * time.Second))
 
-			connCtx.Logger.Info("WAITING_FOR_MESSAGE", zap.String("client", connCtx.WsConn.RemoteAddr().String()))
-
 			messageType, message, err := connCtx.WsConn.ReadMessage()
 			if err != nil {
-				connCtx.Logger.Error("READ_MESSAGE_FAILED",
-					zap.Error(err),
-					zap.String("client", connCtx.WsConn.RemoteAddr().String()))
+				zlog.Error("READ_MESSAGE_FAILED", 0,
+					zlog.AddError(err),
+					zlog.String("client", connCtx.WsConn.RemoteAddr().String()))
 				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
-					connCtx.Logger.Error("read_message_error", zap.Error(err))
+					zlog.Error("read_message_error", 0, zlog.AddError(err))
 				} else {
-					connCtx.Logger.Info("connection_closed_by_client", zap.Error(err))
+					zlog.Info("connection_closed_by_client", 0, zlog.AddError(err))
 				}
 				return
 			}
 
-			connCtx.Logger.Info("MESSAGE_RECEIVED",
-				zap.Int("message_type", messageType),
-				zap.Int("message_length", len(message)),
-				zap.String("client", connCtx.WsConn.RemoteAddr().String()))
-
-			if messageType != fasthttpWs.TextMessage {
-				connCtx.Logger.Warn("unsupported_message_type", zap.Int("type", messageType))
-				continue
+			if zlog.IsDebug() {
+				zlog.Debug("MESSAGE_RECEIVED", 0,
+					zlog.Int("message_type", messageType),
+					zlog.Int("message_length", len(message)),
+					zlog.String("raw_message", string(message)),
+					zlog.String("client", connCtx.WsConn.RemoteAddr().String()))
 			}
 
-			connCtx.Logger.Info("CALLING_MESSAGE_HANDLER_PROCESS",
-				zap.String("raw_message", string(message)),
-				zap.String("client", connCtx.WsConn.RemoteAddr().String()))
+			if messageType != fasthttpWs.TextMessage {
+				zlog.Warn("unsupported_message_type", 0, zlog.Int("type", messageType))
+				continue
+			}
 
 			cipher, reply, err := messageHandler.Process(connCtx, message)
 			if err != nil {
@@ -861,7 +846,7 @@ func (s *WsServer) handleConnectionLoop(connCtx *ConnectionContext, handle Handl
 				// 序列化响应数据
 				respData, err := utils.JsonMarshal(reply)
 				if err != nil {
-					connCtx.Logger.Error("failed_to_marshal_reply_data", zap.Error(err))
+					zlog.Error("failed_to_marshal_reply_data", 0, zlog.AddError(err))
 					continue
 				}
 
@@ -870,7 +855,7 @@ func (s *WsServer) handleConnectionLoop(connCtx *ConnectionContext, handle Handl
 					// AES加密响应数据
 					secret := connCtx.GetTokenSecret()
 					if len(secret) == 0 {
-						connCtx.Logger.Error("response_aes_secret_missing")
+						zlog.Error("response_aes_secret_missing", 0)
 						continue
 					}
 					defer DIC.ClearData(secret)
@@ -878,7 +863,7 @@ func (s *WsServer) handleConnectionLoop(connCtx *ConnectionContext, handle Handl
 					encryptedData, err := utils.AesGCMEncryptBase(respData, secret[:32],
 						utils.Str2Bytes(utils.AddStr(jsonResp.Time, jsonResp.Nonce, jsonResp.Plan, connCtx.Path)))
 					if err != nil {
-						connCtx.Logger.Error("response_data_encrypt_failed", zap.Error(err))
+						zlog.Error("response_data_encrypt_failed", 0, zlog.AddError(err))
 						continue
 					}
 					jsonResp.Data = encryptedData
@@ -892,9 +877,9 @@ func (s *WsServer) handleConnectionLoop(connCtx *ConnectionContext, handle Handl
 				jsonResp.Sign = utils.Base64Encode(sign)
 
 				if cipher != nil {
-					result, err := cipher.(crypto.Cipher).Sign(sign)
+					result, err := cipher.Sign(sign)
 					if err != nil {
-						connCtx.Logger.Error("failed_to_ecdsa_sign_data", zap.Error(err))
+						zlog.Error("failed_to_ecdsa_sign_data", 0, zlog.AddError(err))
 						return
 					}
 					jsonResp.Valid = utils.Base64Encode(result)
@@ -903,12 +888,12 @@ func (s *WsServer) handleConnectionLoop(connCtx *ConnectionContext, handle Handl
 				// 发送JsonResp格式的响应
 				replyBytes, err := utils.JsonMarshal(jsonResp)
 				if err != nil {
-					connCtx.Logger.Error("failed_to_marshal_jsonresp", zap.Error(err))
+					zlog.Error("failed_to_marshal_jsonresp", 0, zlog.AddError(err))
 					continue
 				}
 
 				if err := connCtx.DevConn.Send(replyBytes); err != nil {
-					connCtx.Logger.Error("failed_to_send_reply", zap.Error(err))
+					zlog.Error("failed_to_send_reply", 0, zlog.AddError(err))
 					return // 发送失败通常意味着连接已断开
 				}
 			}
@@ -920,7 +905,9 @@ func (s *WsServer) cleanupConnection(connCtx *ConnectionContext) {
 	connCtx.cancel()
 	deviceKey := utils.AddStr(connCtx.DevConn.Dev, "_", connCtx.DevConn.Sub)
 	s.connManager.Remove(connCtx.DevConn.Sub, deviceKey)
-	connCtx.Logger.Info("client_disconnected")
+	if zlog.IsDebug() {
+		zlog.Debug("client_disconnected", 0)
+	}
 }
 
 func (s *WsServer) gracefulShutdown() {
@@ -928,11 +915,13 @@ func (s *WsServer) gracefulShutdown() {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	<-sigCh
 
-	s.logger.Info("initiating graceful shutdown...")
+	if zlog.IsDebug() {
+		zlog.Debug("initiating graceful shutdown...", 0)
+	}
 
 	// 停止接受新连接
 	if err := s.server.Shutdown(); err != nil {
-		s.logger.Error("error shutting down server", zap.Error(err))
+		zlog.Error("error shutting down server", 0, zlog.AddError(err))
 	}
 
 	// 停止心跳服务
@@ -1010,25 +999,6 @@ func (self *WsServer) AddJwtConfig(config jwt.JwtConfig) error {
 	self.jwtConfig.TokenKey = config.TokenKey
 	self.jwtConfig.TokenExp = config.TokenExp
 	return nil
-}
-
-// AddLogger 设置WebSocket服务器的日志实例
-// 用于替换默认的空logger，提供自定义日志配置
-//
-// 参数:
-//   - logger: zap.Logger实例，用于记录WebSocket服务器日志
-//
-// 用途:
-//   - 自定义日志级别、输出格式、输出目标等
-//   - 与应用的其他日志系统集成
-//   - 支持结构化日志记录
-//
-// 注意:
-//   - 应该在StartWebsocket之前调用
-//   - 如果不调用，将使用默认的空logger
-func (s *WsServer) AddLogger(logger *zap.Logger) {
-	s.logger = logger
-	s.errorHandler.logger = logger // 同步更新errorHandler的logger
 }
 
 // closeConn 安全关闭连接

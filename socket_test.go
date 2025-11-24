@@ -12,7 +12,6 @@ import (
 	"github.com/godaddy-x/freego/node"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/sdk"
-	"github.com/godaddy-x/freego/zlog"
 )
 
 const (
@@ -70,8 +69,7 @@ func TestWebSocketStartServer(t *testing.T) {
 	server.AddCipher(cipher)
 
 	// 1.5. 设置日志实例
-	logger := zlog.InitDefaultLog(&zlog.ZapConfig{Layout: 0, Location: time.Local, Level: zlog.DEBUG, Console: true}) // 测试环境使用空logger，避免输出干扰
-	server.AddLogger(logger)
+	//logger := zlog.InitDefaultLog(&zlog.ZapConfig{Layout: 0, Location: time.Local, Level: zlog.DEBUG, Console: true}) // 测试环境使用空logger，避免输出干扰
 
 	// 3. 配置连接池
 	err := server.NewPool(100, 10, 5, 30)
