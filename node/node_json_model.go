@@ -43,6 +43,7 @@ type JsonResp struct {
 	Nonce   string `json:"n"` // 16字节 (8+8) - string字段
 	Sign    string `json:"s"` // 16字节 (8+8) - string字段
 	Valid   string `json:"e"` // 16字节 (8+8) - string字段
+	Router  string `json:"r"` // 16字节 (8+8) - 路由字段，用于消息订阅
 
 	// 8字节字段组 (3个字段：1个int+2个int64，24字节)
 	Code int   `json:"c"` // 8字节 - int字段

@@ -24,6 +24,19 @@ const (
 	DefaultWsRoute = "/ws" // 默认WebSocket路由路径
 )
 
+// MessageHandler 消息处理器接口
+type MessageHandler interface {
+	HandleMessage(message *node.JsonResp) error
+}
+
+// Subscription 订阅信息
+type Subscription struct {
+	ID      string
+	Router  string
+	Handler MessageHandler
+	active  bool
+}
+
 type SocketSDK struct {
 	Domain      string      // API域名 (如:api.example.com)
 	language    string      // 语言设置 (HTTP头)
@@ -57,6 +70,10 @@ type SocketSDK struct {
 
 	// 新增：同步响应映射表 (msgId -> chan interface{})
 	responseMap sync.Map // 存储等待响应的通道
+
+	// 消息订阅相关
+	subscriptions sync.Map // 路由 -> 订阅信息
+	subMutex      sync.RWMutex
 }
 
 func (s *SocketSDK) AuthObject(object interface{}) {
@@ -670,27 +687,65 @@ func (s *SocketSDK) websocketMessageListener() {
 			res := &node.JsonResp{}
 			if err := utils.JsonUnmarshal(body, res); err != nil {
 				zlog.Error(fmt.Sprintf("WebSocket read data parse error: %v", err), 0, zlog.String("body", string(body)))
-			}
-
-			if len(res.Nonce) == 0 {
 				continue
 			}
 
-			// 从映射中原子性地获取并删除响应通道
-			respChanVal, loaded := s.responseMap.LoadAndDelete(res.Nonce)
-			if loaded {
-				respChan, ok := respChanVal.(chan *node.JsonResp)
-				if ok {
-					// 使用 select 来安全地发送，避免向已关闭的 channel 发送
-					select {
-					case respChan <- res:
-						// 成功发送
-					case <-time.After(100 * time.Millisecond):
-						// 超时，channel 可能已被关闭
-						if zlog.IsDebug() {
-							zlog.Debug("response channel timeout, may be closed", 0, zlog.String("nonce", res.Nonce))
+			// 处理响应消息（有nonce的同步响应）
+			if len(res.Nonce) > 0 {
+				respChanVal, loaded := s.responseMap.LoadAndDelete(res.Nonce)
+				if loaded {
+					respChan, ok := respChanVal.(chan *node.JsonResp)
+					if ok {
+						// 使用 select 来安全地发送，避免向已关闭的 channel 发送
+						select {
+						case respChan <- res:
+							// 成功发送
+						case <-time.After(100 * time.Millisecond):
+							// 超时，channel 可能已被关闭
+							if zlog.IsDebug() {
+								zlog.Debug("response channel timeout, may be closed", 0, zlog.String("nonce", res.Nonce))
+							}
 						}
 					}
+				}
+				continue // 响应消息已处理，跳过订阅处理
+			}
+
+			// 处理订阅消息（无nonce的推送消息）
+			if res.Router != "" {
+				s.subMutex.RLock()
+				subVal, exists := s.subscriptions.Load(res.Router)
+				s.subMutex.RUnlock()
+
+				if exists {
+					if subscription, ok := subVal.(*Subscription); ok && subscription.active {
+						// 异步处理订阅消息，避免阻塞消息监听
+						go func(sub *Subscription, msg *node.JsonResp) {
+							defer func() {
+								if r := recover(); r != nil {
+									zlog.Error("subscription handler panic", 0,
+										zlog.String("router", sub.Router),
+										zlog.String("subscription_id", sub.ID),
+										zlog.Any("panic", r))
+								}
+							}()
+
+							if err := sub.Handler.HandleMessage(msg); err != nil {
+								zlog.Error("subscription handler error", 0,
+									zlog.String("router", sub.Router),
+									zlog.String("subscription_id", sub.ID),
+									zlog.AddError(err))
+							}
+						}(subscription, res)
+					}
+				} else {
+					if zlog.IsDebug() {
+						zlog.Debug("no subscription handler found for router", 0, zlog.String("router", res.Router))
+					}
+				}
+			} else {
+				if zlog.IsDebug() {
+					zlog.Debug("received message without router or nonce", 0, zlog.String("data", res.Data))
 				}
 			}
 
@@ -955,3 +1010,103 @@ func (s *SocketSDK) GetReconnectStatus() (enabled bool, attempts int, maxAttempt
 
 	return
 }
+
+// SubscribeMessage 订阅指定路由的消息
+func (s *SocketSDK) SubscribeMessage(router string, handler MessageHandler) (subscriptionID string, err error) {
+	subscriptionID = utils.GetUUID(true)
+
+	subscription := &Subscription{
+		ID:      subscriptionID,
+		Router:  router,
+		Handler: handler,
+		active:  true,
+	}
+
+	s.subMutex.Lock()
+	s.subscriptions.Store(router, subscription)
+	s.subMutex.Unlock()
+
+	if zlog.IsDebug() {
+		zlog.Debug("message subscription created", 0,
+			zlog.String("subscription_id", subscriptionID),
+			zlog.String("router", router))
+	}
+
+	return subscriptionID, nil
+}
+
+// UnsubscribeMessage 取消消息订阅
+func (s *SocketSDK) UnsubscribeMessage(router string) error {
+	s.subMutex.Lock()
+	defer s.subMutex.Unlock()
+
+	if sub, exists := s.subscriptions.Load(router); exists {
+		if subscription, ok := sub.(*Subscription); ok {
+			subscription.active = false
+		}
+		s.subscriptions.Delete(router)
+
+		if zlog.IsDebug() {
+			zlog.Debug("message subscription removed", 0, zlog.String("router", router))
+		}
+
+		return nil
+	}
+
+	return utils.Error("subscription not found for router: " + router)
+}
+
+// GetSubscriptions 获取所有活跃的订阅
+func (s *SocketSDK) GetSubscriptions() map[string]*Subscription {
+	result := make(map[string]*Subscription)
+
+	s.subMutex.RLock()
+	defer s.subMutex.RUnlock()
+
+	s.subscriptions.Range(func(key, value interface{}) bool {
+		if router, ok := key.(string); ok {
+			if subscription, ok := value.(*Subscription); ok && subscription.active {
+				result[router] = subscription
+			}
+		}
+		return true
+	})
+
+	return result
+}
+
+// 示例：如何使用消息订阅功能
+//
+// // 1. 连接WebSocket
+// wsSdk := NewSocketSDK()
+// err := wsSdk.ConnectWebSocket("/ws")
+// if err != nil {
+//     log.Fatal(err)
+// }
+//
+// // 2. 定义消息处理器
+// type ChatMessageHandler struct{}
+// func (h *ChatMessageHandler) HandleMessage(message *node.JsonResp) error {
+//     fmt.Printf("收到聊天消息: %s\n", message.Data)
+//     return nil
+// }
+//
+// // 3. 订阅消息
+// subscriptionID, err := wsSdk.SubscribeMessage("/ws/chat", &ChatMessageHandler{})
+// if err != nil {
+//     log.Fatal(err)
+// }
+//
+// // 4. 发送订阅请求到服务器（这取决于服务器的实现）
+// // 例如：发送一个订阅聊天消息的请求
+// request := map[string]interface{}{"action": "subscribe", "channel": "general"}
+// response, err := wsSdk.SendWebSocketMessage("/ws/chat", request, &node.JsonResp{}, true, true, 5)
+//
+// // 5. 持续接收推送消息
+// // 消息会自动分发到 ChatMessageHandler.HandleMessage
+//
+// // 6. 取消订阅（可选）
+// err = wsSdk.UnsubscribeMessage("/ws/chat")
+//
+// // 7. 断开连接
+// wsSdk.DisconnectWebSocket()

@@ -246,6 +246,12 @@ func easyjson19e19bc5DecodeGithubComGodaddyXFreegoNode2(in *jlexer.Lexer, out *J
 			} else {
 				out.Valid = string(in.String())
 			}
+		case "r":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Router = string(in.String())
+			}
 		case "c":
 			if in.IsNull() {
 				in.Skip()
@@ -302,6 +308,11 @@ func easyjson19e19bc5EncodeGithubComGodaddyXFreegoNode2(out *jwriter.Writer, in 
 		const prefix string = ",\"e\":"
 		out.RawString(prefix)
 		out.String(string(in.Valid))
+	}
+	{
+		const prefix string = ",\"r\":"
+		out.RawString(prefix)
+		out.String(string(in.Router))
 	}
 	{
 		const prefix string = ",\"c\":"
