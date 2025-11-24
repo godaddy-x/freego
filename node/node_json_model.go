@@ -21,10 +21,11 @@ type PrivateKey struct {
 //easyjson:json
 type JsonBody struct {
 	// 16字节字段组 (3个string字段，48字节)
-	Data  string `json:"d"` // 16字节 (8+8) - string字段
-	Nonce string `json:"n"` // 16字节 (8+8) - string字段
-	Sign  string `json:"s"` // 16字节 (8+8) - string字段
-	Valid string `json:"e"` // 16字节 (8+8) - string字段
+	Data   string `json:"d"` // 16字节 (8+8) - string字段
+	Nonce  string `json:"n"` // 16字节 (8+8) - string字段
+	Sign   string `json:"s"` // 16字节 (8+8) - string字段
+	Valid  string `json:"e"` // 16字节 (8+8) - string字段
+	Router string `json:"r"` // 16字节 (8+8) - string字段
 
 	// 8字节字段组 (2个int64字段，16字节)
 	Time int64 `json:"t"` // 8字节 - int64字段

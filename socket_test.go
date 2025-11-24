@@ -116,23 +116,32 @@ func TestWebSocketSDKUsage(t *testing.T) {
 
 	var err error
 
-	// 5. 尝试连接WebSocket（预期失败，因为没有真实服务器）
+	// 5. 尝试连接WebSocket（预期成功，因为服务器已启动）
 	fmt.Println("5. 尝试连接WebSocket（预期成功）...")
 	err = wsSdk.ConnectWebSocket("/ws")
-	if err == nil {
-		t.Error("连接成功")
+	if err != nil {
+		t.Error("连接失败：", err)
+		return
 	}
 
+	// 6. 发送WebSocket消息
+	fmt.Println("6. 发送WebSocket消息...")
 	requestObject := map[string]interface{}{"test": "张三"}
 	responseObject := &sdk.AuthToken{}
 	err = wsSdk.SendWebSocketMessage("/ws/user", requestObject, responseObject, true, true, 5)
 	if err != nil {
-		t.Error("连接失败：", err)
+		t.Errorf("发送消息失败：%v", err)
+		// 打印详细错误信息
+		t.Logf("错误详情: %v", err)
+		return
 	}
-	fmt.Println(responseObject)
+	fmt.Println("响应结果:", responseObject)
+
+	// 添加延迟等待响应
+	time.Sleep(1 * time.Second)
 
 	// 验证连接状态
-	if wsSdk.IsWebSocketConnected() {
+	if !wsSdk.IsWebSocketConnected() {
 		t.Error("连接状态应该是true")
 	}
 

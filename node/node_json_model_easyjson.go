@@ -376,11 +376,17 @@ func easyjson19e19bc5DecodeGithubComGodaddyXFreegoNode3(in *jlexer.Lexer, out *J
 			} else {
 				out.Sign = string(in.String())
 			}
-		case "v":
+		case "e":
 			if in.IsNull() {
 				in.Skip()
 			} else {
 				out.Valid = string(in.String())
+			}
+		case "r":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Router = string(in.String())
 			}
 		case "t":
 			if in.IsNull() {
@@ -424,9 +430,14 @@ func easyjson19e19bc5EncodeGithubComGodaddyXFreegoNode3(out *jwriter.Writer, in 
 		out.String(string(in.Sign))
 	}
 	{
-		const prefix string = ",\"v\":"
+		const prefix string = ",\"e\":"
 		out.RawString(prefix)
 		out.String(string(in.Valid))
+	}
+	{
+		const prefix string = ",\"r\":"
+		out.RawString(prefix)
+		out.String(string(in.Router))
 	}
 	{
 		const prefix string = ",\"t\":"

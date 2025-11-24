@@ -58,7 +58,6 @@ type ConnectionContext struct {
 	Server       *WsServer
 	RouterConfig *RouterConfig // 路由配置
 	Path         string        // WebSocket连接的路径
-	RoutePath    string        // 从header获取的路由标识，用于签名验证
 	RawToken     []byte        // 原始JWT token字节，用于签名验证
 	ctx          context.Context
 	cancel       context.CancelFunc
@@ -433,7 +432,20 @@ func (mh *MessageHandler) Process(connCtx *ConnectionContext, body []byte) (cryp
 		return nil, nil, err
 	}
 
-	result, err := mh.handle(connCtx.ctx, connCtx, bizData)
+	// 根据消息中的路由选择处理器
+	handle := mh.handle // 默认处理器
+	if jsonBody.Router != "" {
+		if routeInfo, exists := connCtx.Server.routes[jsonBody.Router]; exists {
+			handle = routeInfo.Handle
+			if zlog.IsDebug() {
+				zlog.Debug("using route-specific handler", 0, zlog.String("router", jsonBody.Router))
+			}
+		} else {
+			zlog.Warn("no handler found for router, using default", 0, zlog.String("router", jsonBody.Router))
+		}
+	}
+
+	result, err := handle(connCtx.ctx, connCtx, bizData)
 	return cipher, result, err
 }
 
@@ -496,7 +508,7 @@ func (mh *MessageHandler) validWebSocketBody(connCtx *ConnectionContext) (crypto
 
 	// 构建签名字符串
 	// 使用从header获取的路由标识进行签名验证，支持通过header指定路由
-	signStr := utils.AddStr(connCtx.RoutePath, d, body.Nonce, body.Time, body.Plan)
+	signStr := utils.AddStr(body.Router, d, body.Nonce, body.Time, body.Plan)
 	sign := utils.HMAC_SHA256_BASE(utils.Str2Bytes(signStr), sharedKey)
 	expectedSign := utils.Base64Encode(sign)
 	if expectedSign != body.Sign {
@@ -529,8 +541,7 @@ func (mh *MessageHandler) decryptWebSocketData(connCtx *ConnectionContext) ([]by
 			return nil, ex.Throw{Code: fasthttp.StatusBadRequest, Msg: "websocket aes secret is nil"}
 		}
 		defer DIC.ClearData(secret)
-		// 使用与HTTP相同的GCM解密方式
-		iv := utils.Str2Bytes(utils.AddStr(body.Time, body.Nonce, body.Plan, connCtx.Path))
+		iv := utils.Str2Bytes(utils.AddStr(body.Time, body.Nonce, body.Plan, body.Router))
 		rawData, err := utils.AesGCMDecryptBase(d, secret[:32], iv)
 		if err != nil {
 			return nil, ex.Throw{Code: fasthttp.StatusBadRequest, Msg: "websocket aes decrypt failed", Err: err}
@@ -724,26 +735,20 @@ func (s *WsServer) serveHTTP(ctx *fasthttp.RequestCtx) {
 			zlog.String("user_agent", string(ctx.UserAgent())))
 	}
 
-	// 从header获取路由标识，如果没有则使用URL路径
-	routeHeader := ctx.Request.Header.Peek("X-WebSocket-Route")
-	routePath := string(routeHeader)
-	if routePath == "" {
-		routePath = path
+	// 获取默认处理器（用于消息级别路由的统一入口）
+	var defaultHandle Handle
+	for _, routeInfo := range s.routes {
+		defaultHandle = routeInfo.Handle
+		break
 	}
-
-	routeInfo, exists := s.routes[routePath]
-	if !exists {
-		zlog.Warn("ROUTE_NOT_FOUND", 0,
-			zlog.String("path", path),
-			zlog.String("route_path", routePath),
-			zlog.Int("available_routes", len(s.routes)))
-		ctx.SetStatusCode(fasthttp.StatusNotFound)
+	if defaultHandle == nil {
+		zlog.Error("NO_ROUTES_CONFIGURED", 0)
+		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
 		return
 	}
 
 	zlog.Info("WEBSOCKET_UPGRADE_ATTEMPT", 0,
-		zlog.String("path", path),
-		zlog.String("route_path", routePath))
+		zlog.String("path", path))
 
 	if s.limiter != nil && !s.limiter.Allow() {
 		ctx.SetStatusCode(fasthttp.StatusTooManyRequests)
@@ -752,7 +757,9 @@ func (s *WsServer) serveHTTP(ctx *fasthttp.RequestCtx) {
 	}
 
 	if err := s.upgrader.Upgrade(ctx, func(ws *fasthttpWs.Conn) {
-		connCtx, err := s.initializeConnection(ctx, ws, routePath, routeInfo.RouterConfig)
+		// 使用默认配置，因为路由现在在消息级别确定
+		defaultConfig := &RouterConfig{}
+		connCtx, err := s.initializeConnection(ctx, ws, path, defaultConfig)
 		if err != nil {
 			zlog.Error("failed to initialize connection", 0, zlog.AddError(err))
 			ws.Close() // 关闭WebSocket连接
@@ -760,7 +767,8 @@ func (s *WsServer) serveHTTP(ctx *fasthttp.RequestCtx) {
 		}
 		defer s.cleanupConnection(connCtx)
 
-		s.handleConnectionLoop(connCtx, routeInfo.Handle)
+		// 使用统一的处理器，实际路由在消息处理时根据Router字段确定
+		s.handleConnectionLoop(connCtx, defaultHandle)
 	}); err != nil {
 		zlog.Error("websocket_upgrade_failed", 0, zlog.String("path", path), zlog.AddError(err))
 	}
@@ -781,18 +789,9 @@ func (s *WsServer) initializeConnection(httpCtx *fasthttp.RequestCtx, ws *fastht
 		return nil, utils.Error("missing authorization header")
 	}
 
-	// 从header获取路由标识，用于签名验证和路由分发
-	routeHeader := httpCtx.Request.Header.Peek("X-WebSocket-Route")
-	routePath := string(routeHeader)
-	if routePath == "" {
-		// 如果没有指定路由header，则使用连接路径作为默认路由
-		routePath = path
-	}
 	if zlog.IsDebug() {
-		zlog.Debug("WEBSOCKET_ROUTE_DETECTED", 0,
-			zlog.String("connection_path", path),
-			zlog.String("route_path", routePath),
-			zlog.Bool("custom_route", routePath != path))
+		zlog.Debug("WEBSOCKET_CONNECTION_INIT", 0,
+			zlog.String("connection_path", path))
 	}
 
 	// 认证模式：验证JWT token
@@ -824,7 +823,7 @@ func (s *WsServer) initializeConnection(httpCtx *fasthttp.RequestCtx, ws *fastht
 		return nil, utils.Error("token not ready")
 	}
 
-	connCtx, devConn := s.createConnectionContext(subject, ws, path, routePath, routerConfig, authHeader)
+	connCtx, devConn := s.createConnectionContext(subject, ws, path, routerConfig, authHeader)
 
 	if err := s.connManager.Add(devConn); err != nil {
 		connCtx.cancel()
@@ -834,7 +833,7 @@ func (s *WsServer) initializeConnection(httpCtx *fasthttp.RequestCtx, ws *fastht
 	return connCtx, nil
 }
 
-func (s *WsServer) createConnectionContext(subject *jwt.Subject, ws *fasthttpWs.Conn, path string, routePath string, routerConfig *RouterConfig, rawToken []byte) (*ConnectionContext, *DevConn) {
+func (s *WsServer) createConnectionContext(subject *jwt.Subject, ws *fasthttpWs.Conn, path string, routerConfig *RouterConfig, rawToken []byte) (*ConnectionContext, *DevConn) {
 	connCtx, cancel := context.WithCancel(s.globalCtx)
 
 	devID := subject.GetDev(nil)
@@ -856,7 +855,6 @@ func (s *WsServer) createConnectionContext(subject *jwt.Subject, ws *fasthttpWs.
 		Server:       s,
 		RouterConfig: routerConfig, // 使用传入的路由配置
 		Path:         path,         // 设置WebSocket连接路径
-		RoutePath:    routePath,    // 设置路由标识路径，用于签名验证
 		RawToken:     rawToken,     // 设置原始token字节
 		ctx:          connCtx,
 		cancel:       cancel,
@@ -946,7 +944,7 @@ func (s *WsServer) handleConnectionLoop(connCtx *ConnectionContext, handle Handl
 					defer DIC.ClearData(secret)
 
 					encryptedData, err := utils.AesGCMEncryptBase(respData, secret[:32],
-						utils.Str2Bytes(utils.AddStr(jsonResp.Time, jsonResp.Nonce, jsonResp.Plan, connCtx.Path)))
+						utils.Str2Bytes(utils.AddStr(jsonResp.Time, jsonResp.Nonce, jsonResp.Plan, connCtx.JsonBody.Router)))
 					if err != nil {
 						zlog.Error("response_data_encrypt_failed", 0, zlog.AddError(err))
 						continue
@@ -957,7 +955,7 @@ func (s *WsServer) handleConnectionLoop(connCtx *ConnectionContext, handle Handl
 				}
 
 				// 生成响应签名
-				signStr := utils.AddStr(connCtx.Path, jsonResp.Data, jsonResp.Nonce, jsonResp.Time, jsonResp.Plan)
+				signStr := utils.AddStr(connCtx.JsonBody.Router, jsonResp.Data, jsonResp.Nonce, jsonResp.Time, jsonResp.Plan)
 				sign := utils.HMAC_SHA256_BASE(utils.Str2Bytes(signStr), connCtx.GetTokenSecret())
 				jsonResp.Sign = utils.Base64Encode(sign)
 

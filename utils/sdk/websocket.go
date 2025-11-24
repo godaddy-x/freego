@@ -195,7 +195,6 @@ func (s *SocketSDK) connectWebSocketInternal(path string, isInitial bool) error 
 	header := make(map[string][]string)
 	header["Authorization"] = []string{s.authToken.Token}
 	header["Language"] = []string{s.language}
-	header["X-WebSocket-Route"] = []string{path}
 
 	if zlog.IsDebug() {
 		if isInitial {
@@ -250,11 +249,12 @@ func (s *SocketSDK) connectWebSocketInternal(path string, isInitial bool) error 
 	return nil
 }
 
-func (s *SocketSDK) prepareWebSocketMessage(path string, data interface{}, plan int64) (*node.JsonBody, []byte, error) {
+func (s *SocketSDK) prepareWebSocketMessage(router string, data interface{}, plan int64) (*node.JsonBody, []byte, error) {
 	jsonBody := &node.JsonBody{
-		Time:  utils.UnixSecond(),
-		Nonce: utils.GetUUID(true),
-		Plan:  plan,
+		Time:   utils.UnixSecond(),
+		Nonce:  utils.GetUUID(true),
+		Plan:   plan,
+		Router: router,
 	}
 
 	// 序列化数据
@@ -271,7 +271,7 @@ func (s *SocketSDK) prepareWebSocketMessage(path string, data interface{}, plan 
 	// 根据plan决定是否加密
 	if plan == 1 {
 		encryptedData, err := utils.AesGCMEncryptBase(jsonData, tokenSecret[:32],
-			utils.Str2Bytes(utils.AddStr(jsonBody.Time, jsonBody.Nonce, jsonBody.Plan, path)))
+			utils.Str2Bytes(utils.AddStr(jsonBody.Time, jsonBody.Nonce, jsonBody.Plan, router)))
 		if err != nil {
 			return nil, nil, ex.Throw{Msg: "data encrypt failed"}
 		}
@@ -288,7 +288,7 @@ func (s *SocketSDK) prepareWebSocketMessage(path string, data interface{}, plan 
 
 	// 生成签名
 	signData := utils.HMAC_SHA256_BASE(
-		utils.Str2Bytes(utils.AddStr(path, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan)),
+		utils.Str2Bytes(utils.AddStr(router, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan)),
 		tokenSecret)
 	jsonBody.Sign = utils.Base64Encode(signData)
 	defer DIC.ClearData(signData)
@@ -391,7 +391,7 @@ func (s *SocketSDK) sendWebSocketAuthHandshake(conn *websocket.Conn, path string
 	return nil
 }
 
-func (s *SocketSDK) SendWebSocketMessage(path string, requestObj, responseObj interface{}, waitResponse, encryptRequest bool, timeout int64) error {
+func (s *SocketSDK) SendWebSocketMessage(router string, requestObj, responseObj interface{}, waitResponse, encryptRequest bool, timeout int64) error {
 	s.connMutex.Lock()
 	if !s.isConnected || s.conn == nil {
 		s.connMutex.Unlock()
@@ -412,8 +412,8 @@ func (s *SocketSDK) SendWebSocketMessage(path string, requestObj, responseObj in
 	if encryptRequest {
 		plan = 1
 	}
-	// 使用传入的业务路径进行签名，确保与服务端路径一致
-	jsonBody, bytesData, err := s.prepareWebSocketMessage(path, requestObj, plan)
+	// 使用指定的路由路径进行签名和路由分发
+	jsonBody, bytesData, err := s.prepareWebSocketMessage(router, requestObj, plan)
 	if err != nil {
 		return err
 	}
@@ -447,7 +447,7 @@ func (s *SocketSDK) SendWebSocketMessage(path string, requestObj, responseObj in
 	}
 
 	if zlog.IsDebug() {
-		zlog.Debug(fmt.Sprintf("WebSocket message sent to path: %s, msgID: %s", path, jsonBody.Nonce), 0)
+		zlog.Debug(fmt.Sprintf("WebSocket message sent to path: %s, msgID: %s", router, jsonBody.Nonce), 0)
 	}
 
 	// 如果不需要等待响应，直接返回
@@ -464,7 +464,7 @@ func (s *SocketSDK) SendWebSocketMessage(path string, requestObj, responseObj in
 	select {
 	case resp := <-respChan: // 获得同步响应的数据，检查响应签名和进行解密，解析成目标对象
 		// 验证和解密响应数据
-		if err := s.verifyWebSocketResponseFromJsonResp(path, responseObj, resp); err != nil {
+		if err := s.verifyWebSocketResponseFromJsonResp(router, responseObj, resp); err != nil {
 			return err
 		}
 		return nil
