@@ -35,16 +35,20 @@ func NewSocketSDK() *sdk.SocketSDK {
 	return newObject
 }
 
-// TestWebSocketStartServer 启动服务
-func TestWebSocketStartServer(t *testing.T) {
+// TestWebSocketSDKUsage 测试完整的SDK使用流程（包含服务器管理）
+func TestWebSocketSDKUsage(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping WebSocket SDK usage test in short mode")
+	}
 
 	zlog.InitDefaultLog(&zlog.ZapConfig{Layout: 0, Location: time.Local, Level: zlog.DEBUG, Console: true}) // 测试环境使用空logger，避免输出干扰
 
-	if testing.Short() {
-		t.Skip("Skipping WebSocket ECC test in short mode")
-	}
+	fmt.Println("=== WebSocket SDK 完整使用流程测试 ===")
 
-	// 1. 创建WebSocket服务器实例
+	// 0. 启动测试服务器
+	fmt.Println("0. 启动测试服务器...")
+
+	// 创建WebSocket服务器实例
 	server := node.NewWsServer(node.SubjectDeviceUnique)
 
 	server.AddJwtConfig(jwt.JwtConfig{
@@ -58,20 +62,13 @@ func TestWebSocketStartServer(t *testing.T) {
 	cipher, _ := crypto.CreateS256ECDSAWithBase64(serverPrk, clientPub)
 	server.AddCipher(cipher)
 
-	// 3. 配置连接池
+	// 配置连接池
 	err := server.NewPool(100, 10, 5, 30)
 	if err != nil {
 		t.Fatalf("Failed to initialize connection pool: %v", err)
 	}
 
-	// 4. 添加ECC路由处理器
-	err = server.AddRouter("/ws", func(ctx context.Context, connCtx *node.ConnectionContext, body []byte) (interface{}, error) {
-		return body, nil
-	}, &node.RouterConfig{})
-	if err != nil {
-		t.Fatalf("Failed to add ECC key router: %v", err)
-	}
-
+	// 添加业务路由处理器
 	err = server.AddRouter("/ws/user", func(ctx context.Context, connCtx *node.ConnectionContext, body []byte) (interface{}, error) {
 		fmt.Println("test", connCtx.GetUserID())
 		ret := &sdk.AuthToken{
@@ -81,7 +78,7 @@ func TestWebSocketStartServer(t *testing.T) {
 		return ret, nil
 	}, &node.RouterConfig{})
 	if err != nil {
-		t.Fatalf("Failed to add ECC key router: %v", err)
+		t.Fatalf("Failed to add router: %v", err)
 	}
 
 	err = server.AddRouter("/ws/user2", func(ctx context.Context, connCtx *node.ConnectionContext, body []byte) (interface{}, error) {
@@ -93,25 +90,37 @@ func TestWebSocketStartServer(t *testing.T) {
 		return ret, nil
 	}, &node.RouterConfig{})
 	if err != nil {
-		t.Fatalf("Failed to add ECC key router: %v", err)
+		t.Fatalf("Failed to add router: %v", err)
 	}
 
-	// 5. 在goroutine中启动服务器
+	// 在goroutine中启动服务器
 	serverAddr := "localhost:8088"
+	serverDoneCh := make(chan bool, 1)
 
-	if err := server.StartWebsocket(serverAddr); err != nil {
-		t.Errorf("Server start failed: %v", err)
-	}
+	go func() {
+		defer func() { serverDoneCh <- true }()
+		if err := server.StartWebsocket(serverAddr); err != nil {
+			t.Errorf("Server start failed: %v", err)
+		}
+	}()
 
-}
+	// 等待服务器启动
+	time.Sleep(200 * time.Millisecond)
 
-// TestWebSocketSDKUsage 测试完整的SDK使用流程（基于用户提供的实例）
-func TestWebSocketSDKUsage(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping WebSocket SDK usage test in short mode")
-	}
-
-	fmt.Println("=== WebSocket SDK 完整使用流程测试 ===")
+	// 使用 defer 确保服务器被停止
+	defer func() {
+		fmt.Println("正在停止测试服务器...")
+		if err := server.StopWebsocket(); err != nil {
+			t.Logf("Server stop failed: %v", err)
+		}
+		// 等待服务器完全停止
+		select {
+		case <-serverDoneCh:
+			fmt.Println("测试服务器已停止")
+		case <-time.After(5 * time.Second):
+			t.Logf("服务器停止超时")
+		}
+	}()
 
 	// 1. 初始化SDK
 	fmt.Println("1. 初始化SDK...")
@@ -125,8 +134,6 @@ func TestWebSocketSDKUsage(t *testing.T) {
 		Expired: token_expire,
 	}
 	wsSdk.AuthToken(authToken)
-
-	var err error
 
 	// 5. 尝试连接WebSocket（预期成功，因为服务器已启动）
 	fmt.Println("5. 尝试连接WebSocket（预期成功）...")

@@ -339,18 +339,6 @@ func (cm *ConnectionManager) SendToSubject(subject string, data []byte) {
 	}
 }
 
-// UpdateHeartbeat 更新连接心跳时间
-func (cm *ConnectionManager) UpdateHeartbeat(subject, deviceKey string) {
-	cm.mu.RLock()
-	defer cm.mu.RUnlock()
-
-	if subjectConns, exists := cm.conns[subject]; exists {
-		if conn, exists := subjectConns[deviceKey]; exists {
-			atomic.StoreInt64(&conn.Last, utils.UnixSecond())
-		}
-	}
-}
-
 // CleanupExpired 清理过期连接
 func (cm *ConnectionManager) CleanupExpired(timeoutSeconds int64) int {
 	cm.mu.Lock()
@@ -412,17 +400,24 @@ func (mh *MessageHandler) Process(connCtx *ConnectionContext, body []byte) (cryp
 	}
 	connCtx.JsonBody = jsonBody
 
-	// 心跳检测
-	if jsonBody.Data == pingCmd {
-		connCtx.Server.connManager.UpdateHeartbeat(connCtx.Subject.GetSub(nil), utils.AddStr(connCtx.Subject.GetSub(nil), "_", connCtx.Subject.GetDev(nil)))
-		return nil, nil, nil
-	}
-
 	// 验证消息体（按照HTTP协议标准）
 	cipher, err := mh.validWebSocketBody(connCtx)
 	if err != nil {
 		zlog.Error("websocket message validation failed", 0, zlog.AddError(err))
 		return nil, nil, err
+	}
+
+	// 检查是否是新的结构化心跳包
+	if jsonBody.Router == "/ws/ping" {
+		// 是心跳包，直接更新当前连接的心跳时间
+		atomic.StoreInt64(&connCtx.DevConn.Last, utils.UnixSecond())
+		if zlog.IsDebug() {
+			zlog.Debug("heartbeat_received_and_updated", 0,
+				zlog.String("subject", connCtx.Subject.GetSub(nil)),
+				zlog.String("device", connCtx.Subject.GetDev(nil)),
+				zlog.String("connection_path", connCtx.Path))
+		}
+		return nil, nil, nil
 	}
 
 	// 解密业务数据
@@ -650,6 +645,16 @@ func NewWsServer(connUniquenessMode ConnectionUniquenessMode) *WsServer {
 		},
 	}
 
+	// 自动添加默认的连接路由处理器
+	err := s.AddRouter("/ws", func(ctx context.Context, connCtx *ConnectionContext, body []byte) (interface{}, error) {
+		// 默认处理器：简单回显接收到的数据
+		return body, nil
+	}, &RouterConfig{})
+	if err != nil {
+		// 这不应该发生，但如果发生，记录错误
+		zlog.Error("failed_to_add_default_ws_router", 0, zlog.AddError(err))
+	}
+
 	s.server = &fasthttp.Server{
 		Handler:            s.serveHTTP,
 		Concurrency:        100000,
@@ -720,6 +725,38 @@ func (s *WsServer) StartWebsocket(addr string) error {
 	}
 
 	zlog.Info("server_stopped_gracefully", 0)
+	return nil
+}
+
+// StopWebsocket 停止WebSocket服务器
+func (s *WsServer) StopWebsocket() error {
+	if zlog.IsDebug() {
+		zlog.Debug("stopping websocket server...", 0)
+	}
+
+	// 停止心跳服务
+	if s.heartbeatSvc != nil {
+		s.heartbeatSvc.Stop()
+	}
+
+	// 取消全局上下文
+	if s.globalCancel != nil {
+		s.globalCancel()
+	}
+
+	// 停止HTTP服务器
+	if s.server != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := s.server.ShutdownWithContext(ctx); err != nil {
+			zlog.Error("error shutting down server", 0, zlog.AddError(err))
+			return err
+		}
+	}
+
+	// 连接管理器的清理会在上下文取消时自动处理
+
+	zlog.Info("websocket server stopped", 0)
 	return nil
 }
 

@@ -602,15 +602,8 @@ func (s *SocketSDK) websocketHeartbeat() {
 		case <-ticker.C:
 			s.connMutex.Lock()
 			if s.isConnected && s.conn != nil {
-				// 使用统一的格式构建心跳包
-				heartbeatData := map[string]interface{}{
-					"type":      "heartbeat",
-					"time":      utils.UnixSecond(),
-					"timestamp": time.Now().UnixNano(),
-				}
-
 				// 使用 prepareWebSocketMessage 构建标准格式的消息
-				_, bytesData, err := s.prepareWebSocketMessage(s.connectedPath, heartbeatData, 0) // Plan=0表示明文，使用默认路径
+				_, bytesData, err := s.prepareWebSocketMessage("/ws/ping", "ping", 0) // Plan=0表示明文，使用默认路径
 				if err != nil {
 					if zlog.IsDebug() {
 						zlog.Debug("heartbeat prepare failed", 0)
@@ -709,9 +702,7 @@ func (s *SocketSDK) handlePushMessage(message map[string]interface{}) {
 }
 
 func (s *SocketSDK) DisconnectWebSocket() {
-	s.connMutex.Lock()
-	defer s.connMutex.Unlock()
-	s.disconnectWebSocketNoReconnect() // 主动断开，不触发重连
+	s.disconnectWebSocketNoReconnect() // 主动断开，不触发重连（内部会处理锁）
 }
 
 func (s *SocketSDK) disconnectWebSocket() {
