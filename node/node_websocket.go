@@ -18,6 +18,7 @@ import (
 	DIC "github.com/godaddy-x/freego/common"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/utils"
+	"github.com/godaddy-x/freego/utils/crypto"
 	"github.com/godaddy-x/freego/utils/jwt"
 	"github.com/valyala/fasthttp"
 	"go.uber.org/zap"
@@ -69,6 +70,7 @@ type ConnectionManager struct {
 
 // MessageHandler 消息处理器：统一处理消息校验、解码、路由
 type MessageHandler struct {
+	rsa    []crypto.Cipher
 	handle Handle
 }
 
@@ -124,6 +126,7 @@ type WsServer struct {
 
 	// ECC和缓存配置（用于Plan 2）
 	// 8字节函数指针字段组 (5个字段，40字节)
+	RSA             []crypto.Cipher                         // 8字节 - RSA/ECDSA加密解密对象列表
 	RedisCacheAware func(ds ...string) (cache.Cache, error) // 8字节 - 函数指针
 	LocalCacheAware func(ds ...string) (cache.Cache, error) // 8字节 - 函数指针
 }
@@ -341,87 +344,98 @@ func (cm *ConnectionManager) Count() int {
 
 // -------------------------- MessageHandler 实现 --------------------------
 
-func NewMessageHandler(handle Handle) *MessageHandler {
+func NewMessageHandler(rsa []crypto.Cipher, handle Handle) *MessageHandler {
 	return &MessageHandler{
+		rsa:    rsa,
 		handle: handle,
 	}
 }
 
-func (mh *MessageHandler) Process(connCtx *ConnectionContext, body []byte) (interface{}, error) {
+func (mh *MessageHandler) Process(connCtx *ConnectionContext, body []byte) (crypto.Cipher, interface{}, error) {
 	// 打印客户端发送的原始消息内容（用于调试）
 	connCtx.Logger.Info("CLIENT_MESSAGE_RECEIVED",
 		zap.String("raw_message", string(body)),
 		zap.Int("message_length", len(body)),
 		zap.String("client_ip", connCtx.WsConn.RemoteAddr().String()))
 
-	connCtx.Logger.Debug("message_received", zap.ByteString("raw_data", body))
-
 	// 解析WebSocket消息体
 	jsonBody := &JsonBody{}
 	if err := utils.JsonUnmarshal(body, jsonBody); err != nil {
 		connCtx.Logger.Error("websocket message json unmarshal failed", zap.Error(err), zap.ByteString("raw_body", body))
-		return nil, ex.Throw{Code: fasthttp.StatusBadRequest, Msg: "invalid JSON format"}
+		return nil, nil, ex.Throw{Code: fasthttp.StatusBadRequest, Msg: "invalid JSON format"}
 	}
 	connCtx.JsonBody = jsonBody
-	connCtx.Logger.Debug("parsed json body", zap.String("data", jsonBody.Data), zap.Int64("plan", jsonBody.Plan))
 
 	// 心跳检测
 	if jsonBody.Data == pingCmd {
 		connCtx.Server.connManager.UpdateHeartbeat(connCtx.Subject.GetSub(nil), utils.AddStr(connCtx.Subject.GetDev(nil), "_", connCtx.Subject.GetSub(nil)))
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	// 验证消息体（按照HTTP协议标准）
-	if err := mh.validWebSocketBody(connCtx); err != nil {
+	cipher, err := mh.validWebSocketBody(connCtx)
+	if err != nil {
 		connCtx.Logger.Error("websocket message validation failed", zap.Error(err))
-		return nil, err
+		return nil, nil, err
 	}
 
 	// 解密业务数据
 	bizData, err := mh.decryptWebSocketData(connCtx)
 	if err != nil {
 		connCtx.Logger.Error("websocket data decryption failed", zap.Error(err))
-		return nil, err
+		return nil, nil, err
 	}
+	result, err := mh.handle(connCtx.ctx, connCtx, bizData)
+	return cipher, result, err
+}
 
-	return mh.handle(connCtx.ctx, connCtx, bizData)
+func (self *MessageHandler) CheckECDSASign(msg, sign []byte) (crypto.Cipher, error) {
+	if len(self.rsa) == 0 {
+		return nil, nil
+	}
+	for _, cip := range self.rsa {
+		if err := cip.Verify(msg, sign); err == nil {
+			return cip, nil
+		}
+	}
+	return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request signature valid invalid"}
 }
 
 // validWebSocketBody 验证WebSocket消息体（参考HTTP协议）
-func (mh *MessageHandler) validWebSocketBody(connCtx *ConnectionContext) error {
+func (mh *MessageHandler) validWebSocketBody(connCtx *ConnectionContext) (crypto.Cipher, error) {
 	body := connCtx.JsonBody
 	d := body.Data
 	if len(d) == 0 {
-		return ex.Throw{Code: fasthttp.StatusBadRequest, Msg: "websocket data is nil"}
+		return nil, ex.Throw{Code: fasthttp.StatusBadRequest, Msg: "websocket data is nil"}
 	}
 
 	// 只支持Plan 0和1，不再支持Plan 2
 	if !utils.CheckInt64(body.Plan, 0, 1) {
-		return ex.Throw{Code: fasthttp.StatusBadRequest, Msg: "websocket plan invalid"}
+		return nil, ex.Throw{Code: fasthttp.StatusBadRequest, Msg: "websocket plan invalid"}
 	}
 
 	if !utils.CheckLen(body.Nonce, 8, 32) {
-		return ex.Throw{Code: fasthttp.StatusBadRequest, Msg: "websocket nonce invalid"}
+		return nil, ex.Throw{Code: fasthttp.StatusBadRequest, Msg: "websocket nonce invalid"}
 	}
 	if body.Time <= 0 {
-		return ex.Throw{Code: fasthttp.StatusBadRequest, Msg: "websocket time must be > 0"}
+		return nil, ex.Throw{Code: fasthttp.StatusBadRequest, Msg: "websocket time must be > 0"}
 	}
 	if utils.MathAbs(utils.UnixSecond()-body.Time) > jwt.FIVE_MINUTES {
-		return ex.Throw{Code: fasthttp.StatusBadRequest, Msg: "websocket time invalid"}
+		return nil, ex.Throw{Code: fasthttp.StatusBadRequest, Msg: "websocket time invalid"}
 	}
 
 	// 检查是否需要AES加密
 	if connCtx.RouterConfig != nil && connCtx.RouterConfig.AesRequest && body.Plan != 1 {
-		return ex.Throw{Code: fasthttp.StatusBadRequest, Msg: "websocket parameters must use encryption"}
+		return nil, ex.Throw{Code: fasthttp.StatusBadRequest, Msg: "websocket parameters must use encryption"}
 	}
 
 	if !utils.CheckStrLen(body.Sign, 32, 64) {
-		return ex.Throw{Code: fasthttp.StatusBadRequest, Msg: "websocket signature length invalid"}
+		return nil, ex.Throw{Code: fasthttp.StatusBadRequest, Msg: "websocket signature length invalid"}
 	}
 
 	// 对于Plan 0/1，必须要有token
 	if len(connCtx.GetRawTokenBytes()) == 0 {
-		return ex.Throw{Code: fasthttp.StatusBadRequest, Msg: "websocket header token is nil"}
+		return nil, ex.Throw{Code: fasthttp.StatusBadRequest, Msg: "websocket header token is nil"}
 	}
 
 	var sharedKey []byte
@@ -429,17 +443,23 @@ func (mh *MessageHandler) validWebSocketBody(connCtx *ConnectionContext) error {
 	// Plan 0/1使用token secret
 	sharedKey = connCtx.GetTokenSecret()
 	if len(sharedKey) == 0 {
-		return ex.Throw{Code: fasthttp.StatusBadRequest, Msg: "websocket secret is nil"}
+		return nil, ex.Throw{Code: fasthttp.StatusBadRequest, Msg: "websocket secret is nil"}
 	}
 
 	// 构建签名字符串
 	signStr := utils.AddStr(connCtx.Path, d, body.Nonce, body.Time, body.Plan) // 使用实际的WebSocket路径
 	sign := utils.HMAC_SHA256_BASE(utils.Str2Bytes(signStr), sharedKey)
-	if utils.Base64Encode(sign) != body.Sign {
-		return ex.Throw{Code: fasthttp.StatusUnauthorized, Msg: "websocket signature verify invalid"}
+	expectedSign := utils.Base64Encode(sign)
+	if expectedSign != body.Sign {
+		return nil, ex.Throw{Code: fasthttp.StatusUnauthorized, Msg: "websocket signature verify invalid"}
 	}
 
-	return nil
+	cipher, err := mh.CheckECDSASign(sign, utils.Base64Decode(body.Valid))
+	if err != nil {
+		return nil, err
+	}
+
+	return cipher, nil
 }
 
 // decryptWebSocketData 解密WebSocket数据（参考HTTP协议）
@@ -626,6 +646,11 @@ func (s *WsServer) StartWebsocket(addr string) error {
 	// 监听中断信号
 	go s.gracefulShutdown()
 
+	// 如无设定本地缓存，则使用默认缓存
+	if s.LocalCacheAware == nil {
+		s.AddLocalCache(nil)
+	}
+
 	// 启动HTTP服务器
 	if err := s.server.ListenAndServe(addr); err != nil {
 		s.logger.Error("server_start_failed", zap.Error(err))
@@ -655,7 +680,6 @@ func (s *WsServer) serveHTTP(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	// 非游客模式，继续WebSocket升级流程
 	s.logger.Info("WEBSOCKET_UPGRADE_ATTEMPT",
 		zap.String("path", path))
 
@@ -694,7 +718,20 @@ func (s *WsServer) initializeConnection(httpCtx *fasthttp.RequestCtx, ws *fastht
 	}
 
 	// 认证模式：验证JWT token
-	subject := &jwt.Subject{}
+	subject := &jwt.Subject{Payload: &jwt.Payload{}}
+
+	var c cache.Cache
+	var err error
+	// 设置Subject的cache字段，与HTTP流程保持一致
+	if s.LocalCacheAware != nil {
+		c, err = s.LocalCacheAware()
+		if err != nil {
+			return nil, utils.Error("missing cache object: ", err.Error())
+		}
+	}
+
+	subject.SetCache(c)
+
 	if len(authHeader) == 0 {
 		return nil, utils.Error("empty authorization header")
 	}
@@ -764,7 +801,7 @@ func (s *WsServer) handleConnectionLoop(connCtx *ConnectionContext, handle Handl
 
 	connCtx.Logger.Info("client_connected")
 	connCtx.Logger.Info("STARTING_MESSAGE_LOOP", zap.String("client", connCtx.WsConn.RemoteAddr().String()))
-	messageHandler := NewMessageHandler(handle)
+	messageHandler := NewMessageHandler(s.RSA, handle)
 
 	for {
 		select {
@@ -804,18 +841,72 @@ func (s *WsServer) handleConnectionLoop(connCtx *ConnectionContext, handle Handl
 				zap.String("raw_message", string(message)),
 				zap.String("client", connCtx.WsConn.RemoteAddr().String()))
 
-			reply, err := messageHandler.Process(connCtx, message)
+			cipher, reply, err := messageHandler.Process(connCtx, message)
 			if err != nil {
 				s.errorHandler.handleConnectionError(connCtx, err, "process_message")
 				continue
 			}
 
 			if reply != nil {
-				replyBytes, err := utils.JsonMarshal(reply)
+				// 构造JsonResp格式的响应，与HTTP流程保持一致
+				jsonResp := &JsonResp{
+					Code:    200,
+					Message: "success",
+					Data:    "",
+					Nonce:   connCtx.JsonBody.Nonce, // 使用请求的nonce
+					Time:    utils.UnixSecond(),
+					Plan:    connCtx.JsonBody.Plan, // 使用请求的plan
+				}
+
+				// 序列化响应数据
+				respData, err := utils.JsonMarshal(reply)
 				if err != nil {
-					connCtx.Logger.Error("failed_to_marshal_reply", zap.Error(err))
+					connCtx.Logger.Error("failed_to_marshal_reply_data", zap.Error(err))
 					continue
 				}
+
+				// 根据plan决定是否加密
+				if connCtx.JsonBody.Plan == 1 {
+					// AES加密响应数据
+					secret := connCtx.GetTokenSecret()
+					if len(secret) == 0 {
+						connCtx.Logger.Error("response_aes_secret_missing")
+						continue
+					}
+					defer DIC.ClearData(secret)
+
+					encryptedData, err := utils.AesGCMEncryptBase(respData, secret[:32],
+						utils.Str2Bytes(utils.AddStr(jsonResp.Time, jsonResp.Nonce, jsonResp.Plan, connCtx.Path)))
+					if err != nil {
+						connCtx.Logger.Error("response_data_encrypt_failed", zap.Error(err))
+						continue
+					}
+					jsonResp.Data = encryptedData
+				} else {
+					jsonResp.Data = utils.Base64Encode(utils.Bytes2Str(respData))
+				}
+
+				// 生成响应签名
+				signStr := utils.AddStr(connCtx.Path, jsonResp.Data, jsonResp.Nonce, jsonResp.Time, jsonResp.Plan)
+				sign := utils.HMAC_SHA256_BASE(utils.Str2Bytes(signStr), connCtx.GetTokenSecret())
+				jsonResp.Sign = utils.Base64Encode(sign)
+
+				if cipher != nil {
+					result, err := cipher.(crypto.Cipher).Sign(sign)
+					if err != nil {
+						connCtx.Logger.Error("failed_to_ecdsa_sign_data", zap.Error(err))
+						return
+					}
+					jsonResp.Valid = utils.Base64Encode(result)
+				}
+
+				// 发送JsonResp格式的响应
+				replyBytes, err := utils.JsonMarshal(jsonResp)
+				if err != nil {
+					connCtx.Logger.Error("failed_to_marshal_jsonresp", zap.Error(err))
+					continue
+				}
+
 				if err := connCtx.DevConn.Send(replyBytes); err != nil {
 					connCtx.Logger.Error("failed_to_send_reply", zap.Error(err))
 					return // 发送失败通常意味着连接已断开
@@ -895,6 +986,15 @@ func (self *WsServer) AddLocalCache(cacheAware CacheAware) {
 		}
 		self.LocalCacheAware = cacheAware
 	}
+}
+
+// AddCipher 增加RSA/ECDSA加密解密对象
+func (self *WsServer) AddCipher(cipher crypto.Cipher) error {
+	if cipher == nil {
+		return utils.Error("cipher is nil")
+	}
+	self.RSA = append(self.RSA, cipher)
+	return nil
 }
 
 // AddJwtConfig 添加JWT配置

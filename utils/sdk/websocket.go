@@ -335,9 +335,6 @@ func (s *SocketSDK) connectWebSocketInternal(path string, isInitial bool) error 
 		s.triggerTokenExpiredCallback()
 		return ex.Throw{Msg: "token empty or token expired"}
 	}
-	if len(s.authToken.Token) == 0 || len(s.authToken.Secret) == 0 {
-		return ex.Throw{Msg: "token or secret can't be empty"}
-	}
 
 	// --- 修复：取消旧ctx，创建新ctx（无论是否初始连接）---
 	if s.cancel != nil {
@@ -497,18 +494,58 @@ func (s *SocketSDK) sendWebSocketAuthHandshake(conn *websocket.Conn, path string
 	}
 
 	// 解析响应
-	var response node.JsonResp
-	if err := utils.JsonUnmarshal(responseBytes, &response); err != nil {
+	response := &node.JsonResp{}
+	if err := utils.JsonUnmarshal(responseBytes, response); err != nil {
 		return ex.Throw{Msg: "handshake response parse failed: " + err.Error()}
 	}
 
-	// 检查响应
+	// 检查响应状态
 	if response.Code != 200 {
 		return ex.Throw{Msg: fmt.Sprintf("handshake failed: %s", response.Message)}
 	}
 
+	// 验证响应签名（与HTTP流程保持一致的安全性）
+	tokenSecret := utils.Base64Decode(s.authToken.Secret)
+	defer DIC.ClearData(tokenSecret)
+
+	// 构建签名字符串（使用握手路径）
+	signStr := utils.AddStr(path, response.Data, response.Nonce, response.Time, response.Plan)
+	validSign := utils.HMAC_SHA256_BASE(utils.Str2Bytes(signStr), tokenSecret)
+	expectedSign := utils.Base64Encode(validSign)
+	defer DIC.ClearData(validSign)
+
+	// 验证HMAC签名
+	if response.Sign != expectedSign {
+		return ex.Throw{Msg: "handshake response signature verification failed"}
+	}
+
+	// 验证ECDSA签名（如果配置了ECDSA对象）
+	if err := s.verifyECDSASign(validSign, response); err != nil {
+		return err
+	}
+
+	// 验证响应数据（握手成功通常返回简单的确认信息）
+	var decryptedData []byte
+	if response.Plan == 1 {
+		// AES解密
+		decryptedData, err = utils.AesGCMDecryptBase(response.Data, tokenSecret[:32],
+			utils.Str2Bytes(utils.AddStr(response.Time, response.Nonce, response.Plan, path)))
+		if err != nil {
+			return ex.Throw{Msg: "handshake response data decrypt failed"}
+		}
+	} else {
+		// Base64解码
+		decryptedData = utils.Base64Decode(response.Data)
+	}
+	defer DIC.ClearData(decryptedData)
+
+	// 验证解密后的数据不为空
+	if len(decryptedData) == 0 {
+		return ex.Throw{Msg: "handshake response data is empty"}
+	}
+
 	if zlog.IsDebug() {
-		zlog.Debug("WebSocket authentication handshake completed", 0)
+		zlog.Debug("WebSocket authentication handshake completed with signature verification", 0)
 	}
 
 	return nil
