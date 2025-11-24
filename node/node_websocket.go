@@ -136,6 +136,28 @@ type RouteInfo struct {
 	RouterConfig *RouterConfig // 路由配置
 }
 
+// WebSocketMetrics WebSocket监控指标
+type WebSocketMetrics struct {
+	// 连接相关指标
+	connectionsTotal  int64 // 总连接数
+	connectionsActive int64 // 当前活跃连接数
+	connectionsPeak   int64 // 峰值连接数
+
+	// 消息处理指标
+	messagesTotal   int64 // 总消息数
+	messagesSuccess int64 // 成功处理消息数
+	messagesError   int64 // 错误消息数
+
+	// 心跳相关指标
+	heartbeatsTotal   int64 // 总心跳数
+	heartbeatsSuccess int64 // 成功心跳数
+	heartbeatsFailed  int64 // 失败心跳数
+
+	// 性能指标
+	uptimeSeconds int64     // 运行时间（秒）
+	startTime     time.Time // 启动时间
+}
+
 // WsServer WebSocket服务器核心结构体
 type WsServer struct {
 	server       *fasthttp.Server
@@ -154,6 +176,9 @@ type WsServer struct {
 
 	// 连接唯一性模式
 	connUniquenessMode ConnectionUniquenessMode
+
+	// 监控指标
+	metrics *WebSocketMetrics
 
 	errorHandler    *ErrorHandler
 	configValidator *ConfigValidator
@@ -360,15 +385,30 @@ func (cm *ConnectionManager) removeConnection(subject, deviceKey string) {
 	}
 }
 
-// CleanupExpired 清理过期连接
-func (cm *ConnectionManager) CleanupExpired(timeoutSeconds int64) int {
+// RemoveWithCallback 移除连接并执行回调（用于指标记录）
+func (cm *ConnectionManager) RemoveWithCallback(subject, deviceKey string, callback func()) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
+	if subjectConns, exists := cm.conns[subject]; exists {
+		if _, exists := subjectConns[deviceKey]; exists {
+			cm.removeConnection(subject, deviceKey)
+
+			// 执行回调（通常用于指标记录）
+			if callback != nil {
+				callback()
+			}
+		}
+	}
+}
+
+// CleanupExpired 清理过期连接
+func (cm *ConnectionManager) CleanupExpired(timeoutSeconds int64) int {
 	cleaned := 0
 	currentTime := utils.UnixSecond()
 
-	// 收集需要清理的连接
+	// 收集需要清理的连接（无锁操作，提高并发性）
+	cm.mu.RLock()
 	var toRemove []struct {
 		subject   string
 		deviceKey string
@@ -384,10 +424,11 @@ func (cm *ConnectionManager) CleanupExpired(timeoutSeconds int64) int {
 			}
 		}
 	}
+	cm.mu.RUnlock()
 
-	// 执行清理
+	// 执行清理（使用标准接口，保持设计一致性）
 	for _, item := range toRemove {
-		cm.removeConnection(item.subject, item.deviceKey)
+		cm.RemoveWithCallback(item.subject, item.deviceKey, nil)
 		cleaned++
 	}
 
@@ -396,10 +437,8 @@ func (cm *ConnectionManager) CleanupExpired(timeoutSeconds int64) int {
 
 // CleanupAll 清理所有连接
 func (cm *ConnectionManager) CleanupAll() {
-	cm.mu.Lock()
-	defer cm.mu.Unlock()
-
-	// 收集所有连接信息
+	// 收集所有连接信息（使用读锁，提高并发性）
+	cm.mu.RLock()
 	var toRemove []struct {
 		subject   string
 		deviceKey string
@@ -413,10 +452,11 @@ func (cm *ConnectionManager) CleanupAll() {
 			}{subject, deviceKey})
 		}
 	}
+	cm.mu.RUnlock()
 
-	// 执行清理
+	// 执行清理（使用标准接口，保持设计一致性）
 	for _, item := range toRemove {
-		cm.removeConnection(item.subject, item.deviceKey)
+		cm.RemoveWithCallback(item.subject, item.deviceKey, nil)
 	}
 
 	// 确保计数器清零
@@ -446,10 +486,17 @@ func (mh *MessageHandler) Process(connCtx *ConnectionContext, body []byte) (cryp
 	}
 	connCtx.JsonBody = jsonBody
 
+	// 检查是否是心跳包（用于失败时的指标记录）
+	isHeartbeat := jsonBody.Router == "/ws/ping"
+
 	// 验证消息体（按照HTTP协议标准）
 	cipher, err := mh.validWebSocketBody(connCtx)
 	if err != nil {
 		zlog.Error("websocket message validation failed", 0, zlog.AddError(err))
+		// 如果是心跳包验证失败，记录失败指标
+		if isHeartbeat {
+			connCtx.Server.recordHeartbeat(false)
+		}
 		return nil, nil, err
 	}
 
@@ -457,6 +504,10 @@ func (mh *MessageHandler) Process(connCtx *ConnectionContext, body []byte) (cryp
 	if jsonBody.Router == "/ws/ping" {
 		// 是心跳包，直接更新当前连接的心跳时间
 		atomic.StoreInt64(&connCtx.DevConn.Last, utils.UnixSecond())
+
+		// 记录心跳成功指标（心跳包通过验证后基本不会失败）
+		connCtx.Server.recordHeartbeat(true)
+
 		if zlog.IsDebug() {
 			zlog.Debug("heartbeat_received_and_updated", 0,
 				zlog.String("subject", connCtx.Subject.GetSub(nil)),
@@ -682,6 +733,7 @@ func NewWsServer(connUniquenessMode ConnectionUniquenessMode) *WsServer {
 		idleTimeout:        3600 * time.Second, // 默认1小时空闲超时
 		errorHandler:       &ErrorHandler{},
 		configValidator:    &ConfigValidator{},
+		metrics:            &WebSocketMetrics{startTime: time.Now()},
 		upgrader: &fasthttpWs.FastHTTPUpgrader{
 			ReadBufferSize:  1024 * 4,
 			WriteBufferSize: 1024 * 4,
@@ -762,6 +814,9 @@ func (s *WsServer) StartWebsocket(addr string) error {
 	// 启动心跳服务
 	s.heartbeatSvc.Start()
 
+	// 启动指标记录定时器（每分钟记录一次）
+	go s.startMetricsLogger()
+
 	// 监听中断信号
 	go s.gracefulShutdown()
 
@@ -778,6 +833,107 @@ func (s *WsServer) StartWebsocket(addr string) error {
 
 	zlog.Info("server_stopped_gracefully", 0)
 	return nil
+}
+
+// GetMetrics 获取监控指标快照
+func (s *WsServer) GetMetrics() *WebSocketMetrics {
+	// 创建指标快照，避免并发访问问题
+	metrics := &WebSocketMetrics{
+		connectionsTotal:  s.metrics.connectionsTotal,
+		connectionsActive: atomic.LoadInt64(&s.metrics.connectionsActive),
+		connectionsPeak:   atomic.LoadInt64(&s.metrics.connectionsPeak),
+		messagesTotal:     atomic.LoadInt64(&s.metrics.messagesTotal),
+		messagesSuccess:   atomic.LoadInt64(&s.metrics.messagesSuccess),
+		messagesError:     atomic.LoadInt64(&s.metrics.messagesError),
+		heartbeatsTotal:   atomic.LoadInt64(&s.metrics.heartbeatsTotal),
+		heartbeatsSuccess: atomic.LoadInt64(&s.metrics.heartbeatsSuccess),
+		heartbeatsFailed:  atomic.LoadInt64(&s.metrics.heartbeatsFailed),
+		uptimeSeconds:     int64(time.Since(s.metrics.startTime).Seconds()),
+		startTime:         s.metrics.startTime,
+	}
+	return metrics
+}
+
+// recordConnectionAdded 记录连接增加指标
+func (s *WsServer) recordConnectionAdded() {
+	atomic.AddInt64(&s.metrics.connectionsTotal, 1)
+	active := atomic.AddInt64(&s.metrics.connectionsActive, 1)
+
+	// 更新峰值
+	for {
+		peak := atomic.LoadInt64(&s.metrics.connectionsPeak)
+		if active <= peak || atomic.CompareAndSwapInt64(&s.metrics.connectionsPeak, peak, active) {
+			break
+		}
+	}
+}
+
+// recordConnectionRemoved 记录连接移除指标
+func (s *WsServer) recordConnectionRemoved() {
+	atomic.AddInt64(&s.metrics.connectionsActive, -1)
+}
+
+// recordMessageProcessed 记录消息处理指标
+func (s *WsServer) recordMessageProcessed(success bool) {
+	atomic.AddInt64(&s.metrics.messagesTotal, 1)
+	if success {
+		atomic.AddInt64(&s.metrics.messagesSuccess, 1)
+	} else {
+		atomic.AddInt64(&s.metrics.messagesError, 1)
+	}
+}
+
+// recordHeartbeat 记录心跳指标
+func (s *WsServer) recordHeartbeat(success bool) {
+	atomic.AddInt64(&s.metrics.heartbeatsTotal, 1)
+	if success {
+		atomic.AddInt64(&s.metrics.heartbeatsSuccess, 1)
+	} else {
+		atomic.AddInt64(&s.metrics.heartbeatsFailed, 1)
+	}
+}
+
+// startMetricsLogger 启动指标记录定时器
+func (s *WsServer) startMetricsLogger() {
+	ticker := time.NewTicker(60 * time.Second) // 每60秒记录一次指标
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-s.globalCtx.Done():
+			return
+		case <-ticker.C:
+			s.LogMetrics()
+		}
+	}
+}
+
+// LogMetrics 记录当前监控指标到日志
+func (s *WsServer) LogMetrics() {
+	metrics := s.GetMetrics()
+
+	// 计算一些派生指标
+	var messageSuccessRate, heartbeatSuccessRate float64
+	if metrics.messagesTotal > 0 {
+		messageSuccessRate = float64(metrics.messagesSuccess) / float64(metrics.messagesTotal) * 100
+	}
+	if metrics.heartbeatsTotal > 0 {
+		heartbeatSuccessRate = float64(metrics.heartbeatsSuccess) / float64(metrics.heartbeatsTotal) * 100
+	}
+
+	zlog.Info("websocket_server_metrics", 0,
+		zlog.Int64("connections_total", metrics.connectionsTotal),
+		zlog.Int64("connections_active", metrics.connectionsActive),
+		zlog.Int64("connections_peak", metrics.connectionsPeak),
+		zlog.Int64("messages_total", metrics.messagesTotal),
+		zlog.Int64("messages_success", metrics.messagesSuccess),
+		zlog.Int64("messages_error", metrics.messagesError),
+		zlog.Float64("message_success_rate", messageSuccessRate),
+		zlog.Int64("heartbeats_total", metrics.heartbeatsTotal),
+		zlog.Int64("heartbeats_success", metrics.heartbeatsSuccess),
+		zlog.Int64("heartbeats_failed", metrics.heartbeatsFailed),
+		zlog.Float64("heartbeat_success_rate", heartbeatSuccessRate),
+		zlog.Int64("uptime_seconds", metrics.uptimeSeconds))
 }
 
 // StopWebsocket 停止WebSocket服务器
@@ -948,6 +1104,11 @@ func (s *WsServer) createConnectionContext(subject *jwt.Subject, ws *fasthttpWs.
 }
 
 func (s *WsServer) handleConnectionLoop(connCtx *ConnectionContext, handle Handle) {
+	// 记录连接建立指标
+	s.recordConnectionAdded()
+	// 确保在函数退出时（无论何种原因）记录连接移除指标
+	defer s.recordConnectionRemoved()
+
 	zlog.Info("CLIENT_CONNECTED", 0,
 		zlog.String("client_address", connCtx.WsConn.RemoteAddr().String()),
 		zlog.String("user_id", connCtx.Subject.GetSub(nil)),
@@ -997,9 +1158,14 @@ func (s *WsServer) handleConnectionLoop(connCtx *ConnectionContext, handle Handl
 
 			cipher, reply, err := messageHandler.Process(connCtx, message)
 			if err != nil {
+				// 记录消息处理失败指标
+				s.recordMessageProcessed(false)
 				s.errorHandler.handleConnectionError(connCtx, err, "process_message")
 				continue
 			}
+
+			// 记录消息处理成功指标
+			s.recordMessageProcessed(true)
 
 			if reply != nil {
 				// 构造JsonResp格式的响应，与HTTP流程保持一致
