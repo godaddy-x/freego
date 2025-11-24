@@ -413,18 +413,17 @@ func (s *SocketSDK) connectWebSocketInternal(path string, isInitial bool) error 
 	return nil
 }
 
-func (s *SocketSDK) sendWebSocketAuthHandshake(conn *websocket.Conn, path string) error {
+func (s *SocketSDK) prepareWebSocketMessage(path string, data interface{}, plan int64) (*node.JsonBody, []byte, error) {
 	jsonBody := &node.JsonBody{
 		Time:  utils.UnixSecond(),
 		Nonce: utils.RandNonce(),
-		Plan:  1,                // WebSocket默认使用加密模式
-		Data:  "auth_handshake", // 握手数据
+		Plan:  plan,
 	}
 
-	// 序列化握手数据
-	jsonData, err := utils.JsonMarshal(jsonBody)
+	// 序列化数据
+	jsonData, err := utils.JsonMarshal(data)
 	if err != nil {
-		return ex.Throw{Msg: "handshake data marshal failed"}
+		return nil, nil, ex.Throw{Msg: "data marshal failed"}
 	}
 	defer DIC.ClearData(jsonData)
 
@@ -432,60 +431,80 @@ func (s *SocketSDK) sendWebSocketAuthHandshake(conn *websocket.Conn, path string
 	tokenSecret := utils.Base64Decode(s.authToken.Secret)
 	defer DIC.ClearData(tokenSecret)
 
-	// 加密握手数据
-	encryptedData, err := utils.AesGCMEncryptBase(jsonData, tokenSecret[:32],
-		utils.Str2Bytes(utils.AddStr(jsonBody.Time, jsonBody.Nonce, jsonBody.Plan, path)))
-	if err != nil {
-		return ex.Throw{Msg: "handshake data encrypt failed"}
+	// 根据plan决定是否加密
+	if plan == 1 {
+		encryptedData, err := utils.AesGCMEncryptBase(jsonData, tokenSecret[:32],
+			utils.Str2Bytes(utils.AddStr(jsonBody.Time, jsonBody.Nonce, jsonBody.Plan, path)))
+		if err != nil {
+			return nil, nil, ex.Throw{Msg: "data encrypt failed"}
+		}
+		jsonBody.Data = encryptedData
+		if zlog.IsDebug() {
+			zlog.Debug(fmt.Sprintf("data encrypted: %s", jsonBody.Data), 0)
+		}
+	} else {
+		jsonBody.Data = utils.Base64Encode(utils.Bytes2Str(jsonData))
+		if zlog.IsDebug() {
+			zlog.Debug(fmt.Sprintf("data base64: %s", jsonBody.Data), 0)
+		}
 	}
 
 	// 生成签名
 	signData := utils.HMAC_SHA256_BASE(
-		utils.Str2Bytes(utils.AddStr(path, encryptedData, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan)),
+		utils.Str2Bytes(utils.AddStr(path, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan)),
 		tokenSecret)
-	signStr := utils.Base64Encode(signData)
+	jsonBody.Sign = utils.Base64Encode(signData)
 	defer DIC.ClearData(signData)
 
-	// 构造握手消息
-	handshakeMsg := map[string]interface{}{
-		"type":  "auth",
-		"path":  path,
-		"time":  jsonBody.Time,
-		"nonce": jsonBody.Nonce,
-		"plan":  jsonBody.Plan,
-		"data":  encryptedData,
-		"sign":  signStr,
-	}
-
 	// 添加ECDSA签名
-	if len(s.ecdsaObject) > 0 && s.ecdsaObject[0] != nil {
-		ecdsaSign, err := s.ecdsaObject[0].Sign(signData)
-		if err != nil {
-			return ex.Throw{Msg: "ECDSA sign failed: " + err.Error()}
-		}
-		handshakeMsg["valid"] = utils.Base64Encode(ecdsaSign)
-		DIC.ClearData(ecdsaSign)
+	if err := s.addECDSASign(jsonBody); err != nil {
+		return nil, nil, err
 	}
 
-	// 发送握手消息
-	if err := conn.WriteJSON(handshakeMsg); err != nil {
+	// 序列化最终的JsonBody
+	bytesData, err := utils.JsonMarshal(jsonBody)
+	if err != nil {
+		return nil, nil, ex.Throw{Msg: "jsonBody marshal failed"}
+	}
+
+	if zlog.IsDebug() {
+		zlog.Debug("prepared message data: ", 0)
+		zlog.Debug(utils.Bytes2Str(bytesData), 0)
+	}
+
+	return jsonBody, bytesData, nil
+}
+
+func (s *SocketSDK) sendWebSocketAuthHandshake(conn *websocket.Conn, path string) error {
+	// 使用通用方法准备握手数据
+	_, bytesData, err := s.prepareWebSocketMessage(path, "auth_handshake", 1)
+	if err != nil {
+		return err
+	}
+	defer DIC.ClearData(bytesData)
+
+	// 直接发送JsonBody格式的握手消息
+	conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	if err := conn.WriteMessage(websocket.TextMessage, bytesData); err != nil {
 		return ex.Throw{Msg: "handshake message send failed: " + err.Error()}
 	}
 
-	// 等待服务端响应 (简单的ACK)
-	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
-	var response map[string]interface{}
-	if err := conn.ReadJSON(&response); err != nil {
-		return ex.Throw{Msg: "handshake response read failed: " + err.Error()}
+	// 同步等待服务端握手响应（认证必须同步确认）
+	conn.SetReadDeadline(time.Now().Add(5 * time.Second)) // 缩短超时时间
+	_, responseBytes, err := conn.ReadMessage()
+	if err != nil {
+		return ex.Throw{Msg: "handshake response read failed (auth sync required): " + err.Error()}
+	}
+
+	// 解析响应
+	var response node.JsonResp
+	if err := utils.JsonUnmarshal(responseBytes, &response); err != nil {
+		return ex.Throw{Msg: "handshake response parse failed: " + err.Error()}
 	}
 
 	// 检查响应
-	if code, ok := response["code"].(float64); !ok || int(code) != 200 {
-		message := "unknown error"
-		if msg, ok := response["message"].(string); ok {
-			message = msg
-		}
-		return ex.Throw{Msg: fmt.Sprintf("handshake failed: %s", message)}
+	if response.Code != 200 {
+		return ex.Throw{Msg: fmt.Sprintf("handshake failed: %s", response.Message)}
 	}
 
 	if zlog.IsDebug() {
@@ -511,58 +530,16 @@ func (s *SocketSDK) SendWebSocketMessage(path string, requestObj, responseObj in
 		return ex.Throw{Msg: "token empty or token expired"}
 	}
 
-	jsonBody := &node.JsonBody{
-		Time:  utils.UnixSecond(),
-		Nonce: utils.GetUUID(false),
-		Plan:  0, // WebSocket默认使用加密模式
-	}
-
-	// 序列化请求数据
-	jsonData, err := utils.JsonMarshal(requestObj)
-	if err != nil {
-		return ex.Throw{Msg: "request data marshal failed"}
-	}
-	defer DIC.ClearData(jsonData)
-
-	// 解码token secret用于加密和签名
-	tokenSecret := utils.Base64Decode(s.authToken.Secret)
-	defer DIC.ClearData(tokenSecret)
-
+	// 使用通用方法准备消息数据
+	plan := int64(0)
 	if encryptRequest {
-		jsonBody.Plan = 1
-		d, err := utils.AesGCMEncryptBase(jsonData, tokenSecret[:32], utils.Str2Bytes(utils.AddStr(jsonBody.Time, jsonBody.Nonce, jsonBody.Plan, path)))
-		if err != nil {
-			return ex.Throw{Msg: "request data AES encrypt failed"}
-		}
-		jsonBody.Data = d
-		if zlog.IsDebug() {
-			zlog.Debug(fmt.Sprintf("request data encrypted: %s", jsonBody.Data), 0)
-		}
-		// 注意：不能在这里清理d，因为jsonBody.Data仍然引用着它
-	} else {
-		jsonBody.Data = utils.Base64Encode(utils.Bytes2Str(jsonData))
-		if zlog.IsDebug() {
-			zlog.Debug(fmt.Sprintf("request data base64: %s", jsonBody.Data), 0)
-		}
+		plan = 1
 	}
-	jsonBody.Sign = utils.Base64Encode(utils.HMAC_SHA256_BASE(utils.Str2Bytes(utils.AddStr(path, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan)), tokenSecret))
-
-	// 添加ECDSA签名
-	if err := s.addECDSASign(jsonBody); err != nil {
+	jsonBody, bytesData, err := s.prepareWebSocketMessage(path, requestObj, plan)
+	if err != nil {
 		return err
 	}
-
-	bytesData, err := utils.JsonMarshal(jsonBody)
-	if err != nil {
-		return ex.Throw{Msg: "jsonBody data JsonMarshal invalid"}
-	}
-	// 清理序列化后的请求数据
 	defer DIC.ClearData(bytesData)
-
-	if zlog.IsDebug() {
-		zlog.Debug("request data: ", 0)
-		zlog.Debug(utils.Bytes2Str(bytesData), 0)
-	}
 
 	// --- 修复：添加msgID用于同步响应匹配 ---
 	var respChan chan *node.JsonResp
