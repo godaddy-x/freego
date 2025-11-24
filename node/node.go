@@ -370,6 +370,9 @@ func (self *Context) validJsonBody() error {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request json body is nil"}
 	}
 	body := self.JsonBody
+	if len(body.Router) > 0 {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "request router invalid"}
+	}
 	d := body.Data
 	if len(d) == 0 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request data is nil"}
