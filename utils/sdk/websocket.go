@@ -52,9 +52,6 @@ type SocketSDK struct {
 
 	// 新增：同步响应映射表 (msgId -> chan interface{})
 	responseMap sync.Map // 存储等待响应的通道
-
-	// 通道关闭保护
-	channelOnceMap sync.Map // msgId -> sync.Once
 }
 
 func (s *SocketSDK) AuthObject(object interface{}) {
@@ -423,16 +420,13 @@ func (s *SocketSDK) SendWebSocketMessage(router string, requestObj, responseObj 
 	var respChan chan *node.JsonResp
 	if waitResponse {
 		respChan = make(chan *node.JsonResp, 1) // 缓冲1，避免阻塞
-		var once sync.Once
-		s.channelOnceMap.Store(jsonBody.Nonce, &once)
 		s.responseMap.Store(jsonBody.Nonce, respChan)
 		// 超时后清理映射和通道
 		defer func() {
-			s.responseMap.Delete(jsonBody.Nonce)
-			s.channelOnceMap.Delete(jsonBody.Nonce)
-			once.Do(func() {
+			// 原子删除，如果条目存在则关闭channel
+			if _, loaded := s.responseMap.LoadAndDelete(jsonBody.Nonce); loaded {
 				close(respChan)
-			})
+			}
 		}()
 	}
 
@@ -608,13 +602,25 @@ func (s *SocketSDK) websocketHeartbeat() {
 		case <-ticker.C:
 			s.connMutex.Lock()
 			if s.isConnected && s.conn != nil {
-				heartbeatMsg := map[string]interface{}{
+				// 使用统一的格式构建心跳包
+				heartbeatData := map[string]interface{}{
 					"type":      "heartbeat",
 					"time":      utils.UnixSecond(),
 					"timestamp": time.Now().UnixNano(),
 				}
+
+				// 使用 prepareWebSocketMessage 构建标准格式的消息
+				_, bytesData, err := s.prepareWebSocketMessage(s.connectedPath, heartbeatData, 0) // Plan=0表示明文，使用默认路径
+				if err != nil {
+					if zlog.IsDebug() {
+						zlog.Debug("heartbeat prepare failed", 0)
+					}
+					s.connMutex.Unlock()
+					continue // 心跳失败不触发重连，继续下一次心跳
+				}
+
 				s.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-				if err := s.conn.WriteJSON(heartbeatMsg); err != nil {
+				if err := s.conn.WriteMessage(websocket.TextMessage, bytesData); err != nil {
 					if zlog.IsDebug() {
 						zlog.Debug("heartbeat send failed, connection may be lost", 0)
 					}
@@ -672,15 +678,22 @@ func (s *SocketSDK) websocketMessageListener() {
 				continue
 			}
 
-			// 从映射中获取响应通道
-			respChanVal, exists := s.responseMap.Load(res.Nonce)
-			if exists {
+			// 从映射中原子性地获取并删除响应通道
+			respChanVal, loaded := s.responseMap.LoadAndDelete(res.Nonce)
+			if loaded {
 				respChan, ok := respChanVal.(chan *node.JsonResp)
 				if ok {
-					respChan <- res
+					// 使用 select 来安全地发送，避免向已关闭的 channel 发送
+					select {
+					case respChan <- res:
+						// 成功发送
+					case <-time.After(100 * time.Millisecond):
+						// 超时，channel 可能已被关闭
+						if zlog.IsDebug() {
+							zlog.Debug("response channel timeout, may be closed", 0, zlog.String("nonce", res.Nonce))
+						}
+					}
 				}
-				// 移除映射（避免重复处理）
-				s.responseMap.Delete(res.Nonce)
 			}
 
 		}
@@ -698,11 +711,15 @@ func (s *SocketSDK) handlePushMessage(message map[string]interface{}) {
 func (s *SocketSDK) DisconnectWebSocket() {
 	s.connMutex.Lock()
 	defer s.connMutex.Unlock()
-	s.disconnectWebSocket()
+	s.disconnectWebSocketNoReconnect() // 主动断开，不触发重连
 }
 
 func (s *SocketSDK) disconnectWebSocket() {
-	s.disconnectWebSocketInternal(true)
+	s.disconnectWebSocketInternal(true) // 连接丢失时触发重连
+}
+
+func (s *SocketSDK) disconnectWebSocketNoReconnect() {
+	s.disconnectWebSocketInternal(false) // 主动断开时不触发重连
 }
 
 func (s *SocketSDK) disconnectWebSocketInternal(triggerReconnect bool) {
@@ -713,32 +730,14 @@ func (s *SocketSDK) disconnectWebSocketInternal(triggerReconnect bool) {
 	s.responseMap.Range(func(key, value interface{}) bool {
 		s.responseMap.Delete(key)
 		if ch, ok := value.(chan *node.JsonResp); ok {
-			// 使用 sync.Once 确保只关闭一次
-			if onceVal, exists := s.channelOnceMap.Load(key); exists {
-				if once, ok := onceVal.(*sync.Once); ok {
-					once.Do(func() {
-						close(ch)
-					})
-				} else {
-					// fallback：如果没有找到 once，直接关闭（兼容旧代码）
-					defer func() {
-						if r := recover(); r != nil {
-							// 忽略 channel 已经关闭的 panic
-						}
-					}()
-					close(ch)
+			// 安全关闭channel，使用defer保护避免panic
+			defer func() {
+				if r := recover(); r != nil {
+					// 忽略 channel 已经关闭的 panic
 				}
-			} else {
-				// fallback：如果没有找到 once，直接关闭（兼容旧代码）
-				defer func() {
-					if r := recover(); r != nil {
-						// 忽略 channel 已经关闭的 panic
-					}
-				}()
-				close(ch)
-			}
+			}()
+			close(ch)
 		}
-		s.channelOnceMap.Delete(key)
 		return true
 	})
 	s.connMutex.Lock()
@@ -848,7 +847,7 @@ func (s *SocketSDK) startReconnectProcess() {
 	s.reconnectMutex.Lock()
 	path := s.connectedPath
 	if path == "" {
-		path = "/ws" // 默认路径
+		path = "/ws" // 使用默认路径
 	}
 	s.reconnectMutex.Unlock()
 
@@ -875,7 +874,7 @@ func (s *SocketSDK) ForceReconnect() error {
 	s.lastReconnectTime = time.Time{}
 	path := s.connectedPath
 	if path == "" {
-		path = "/ws" // 默认路径
+		path = "/ws" // 使用默认路径
 	}
 	s.reconnectMutex.Unlock()
 

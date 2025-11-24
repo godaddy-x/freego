@@ -84,6 +84,18 @@ func TestWebSocketStartServer(t *testing.T) {
 		t.Fatalf("Failed to add ECC key router: %v", err)
 	}
 
+	err = server.AddRouter("/ws/user2", func(ctx context.Context, connCtx *node.ConnectionContext, body []byte) (interface{}, error) {
+		fmt.Println("test", connCtx.GetUserID())
+		ret := &sdk.AuthToken{
+			Token:  "鲨鱼爸爸获取websocket",
+			Secret: connCtx.GetUserIDString(),
+		}
+		return ret, nil
+	}, &node.RouterConfig{})
+	if err != nil {
+		t.Fatalf("Failed to add ECC key router: %v", err)
+	}
+
 	// 5. 在goroutine中启动服务器
 	serverAddr := "localhost:8088"
 
@@ -135,7 +147,18 @@ func TestWebSocketSDKUsage(t *testing.T) {
 		t.Logf("错误详情: %v", err)
 		return
 	}
-	fmt.Println("响应结果:", responseObject)
+	fmt.Println("响应结果1:", responseObject)
+
+	requestObject = map[string]interface{}{"test": "张三"}
+	responseObject = &sdk.AuthToken{}
+	err = wsSdk.SendWebSocketMessage("/ws/user2", requestObject, responseObject, true, true, 5)
+	if err != nil {
+		t.Errorf("发送消息失败：%v", err)
+		// 打印详细错误信息
+		t.Logf("错误详情: %v", err)
+		return
+	}
+	fmt.Println("响应结果2:", responseObject)
 
 	// 添加延迟等待响应
 	time.Sleep(1 * time.Second)
