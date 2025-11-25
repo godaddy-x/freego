@@ -428,11 +428,13 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	// 使用标准PBKDF2密钥派生（HMAC-SHA512，1024次迭代） 输出32字节密钥（SHA-512）
 	sharedKey = pbkdf2.Key(sharedKey, utils.Base64Decode(public.Noc), 1024, 32, sha512.New)
 	defer DIC.ClearData(prkBytes, sharedKey) // 同时清除ECDH私钥和派生密钥
-	jsonBody := &node.JsonBody{
-		Time:  utils.UnixSecond(),
-		Nonce: utils.RandNonce(),
-		Plan:  int64(2),
-	}
+
+	jsonBody := node.GetJsonBody()
+	defer node.PutJsonBody(jsonBody)
+	jsonBody.Time = utils.UnixSecond()
+	jsonBody.Nonce = utils.RandNonce()
+	jsonBody.Plan = 2
+
 	var jsonData []byte
 	if v, b := requestObj.(*AuthToken); b {
 		jsonData, err = utils.JsonMarshal(v)
@@ -515,7 +517,8 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 		zlog.Debug("response data: ", 0)
 		zlog.Debug(utils.Bytes2Str(respBytes), 0)
 	}
-	respData := &node.JsonResp{}
+	respData := node.GetJsonResp()
+	defer node.PutJsonResp(respData)
 	if err := utils.JsonUnmarshal(respBytes, respData); err != nil {
 		return ex.Throw{Msg: "response data parse failed: " + err.Error()}
 	}
@@ -694,11 +697,11 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 	if len(s.authToken.Token) == 0 || len(s.authToken.Secret) == 0 {
 		return ex.Throw{Msg: "token or secret can't be empty"}
 	}
-	jsonBody := &node.JsonBody{
-		Time:  utils.UnixSecond(),
-		Nonce: utils.RandNonce(),
-		Plan:  0,
-	}
+	jsonBody := node.GetJsonBody()
+	defer node.PutJsonBody(jsonBody)
+	jsonBody.Time = utils.UnixSecond()
+	jsonBody.Nonce = utils.RandNonce()
+	jsonBody.Plan = 0
 	var jsonData []byte
 	var err error
 	if v, b := requestObj.(*AuthToken); b {
@@ -778,7 +781,8 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 		zlog.Debug("response data: ", 0)
 		zlog.Debug(utils.Bytes2Str(respBytes), 0)
 	}
-	respData := &node.JsonResp{}
+	respData := node.GetJsonResp()
+	defer node.PutJsonResp(respData)
 	if err := utils.JsonUnmarshal(respBytes, respData); err != nil {
 		return ex.Throw{Msg: "response data parse failed: " + err.Error()}
 	}
