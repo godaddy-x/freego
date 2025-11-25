@@ -201,11 +201,11 @@ func (eh *ErrorHandler) handleConnectionError(connCtx *ConnectionContext, err er
 
 	// 尝试发送错误响应
 	if ws := connCtx.WsConn; ws != nil {
-		resp := &JsonResp{
-			Code:    ex.WS_SEND,
-			Message: "websocket error: " + operation,
-			Time:    utils.UnixMilli(),
-		}
+		resp := GetJsonResp()
+		resp.Code = ex.WS_SEND
+		resp.Message = "websocket error: " + operation
+		resp.Time = utils.UnixSecond()
+		defer PutJsonResp(resp)
 
 		if len(connCtx.Subject.Payload.Sub) == 0 {
 			resp.Nonce = utils.GetUUID(true)
@@ -221,6 +221,7 @@ func (eh *ErrorHandler) handleConnectionError(connCtx *ConnectionContext, err er
 				}
 			}
 		}
+
 	}
 }
 
@@ -478,15 +479,14 @@ func NewMessageHandler(rsa []crypto.Cipher, handle Handle) *MessageHandler {
 
 func (mh *MessageHandler) Process(connCtx *ConnectionContext, body []byte) (crypto.Cipher, interface{}, error) {
 	// 解析WebSocket消息体
-	jsonBody := &JsonBody{}
-	if err := utils.JsonUnmarshal(body, jsonBody); err != nil {
+	if err := utils.JsonUnmarshal(body, connCtx.JsonBody); err != nil {
+		// 解析失败时释放对象回到池中
 		zlog.Error("websocket message json unmarshal failed", 0, zlog.ByteString("raw_body", body), zlog.AddError(err))
 		return nil, nil, ex.Throw{Code: fasthttp.StatusBadRequest, Msg: "invalid JSON format"}
 	}
-	connCtx.JsonBody = jsonBody
 
 	// 检查是否是心跳包（用于失败时的指标记录）
-	isHeartbeat := jsonBody.Router == "/ws/ping"
+	isHeartbeat := connCtx.JsonBody.Router == "/ws/ping"
 
 	// 验证消息体（按照HTTP协议标准）
 	cipher, err := mh.validWebSocketBody(connCtx)
@@ -500,7 +500,7 @@ func (mh *MessageHandler) Process(connCtx *ConnectionContext, body []byte) (cryp
 	}
 
 	// 检查是否是新的结构化心跳包
-	if jsonBody.Router == "/ws/ping" {
+	if connCtx.JsonBody.Router == "/ws/ping" {
 		// 是心跳包，直接更新当前连接的心跳时间
 		atomic.StoreInt64(&connCtx.DevConn.Last, utils.UnixSecond())
 
@@ -525,14 +525,14 @@ func (mh *MessageHandler) Process(connCtx *ConnectionContext, body []byte) (cryp
 
 	// 根据消息中的路由选择处理器
 	handle := mh.handle // 默认处理器
-	if jsonBody.Router != "" {
-		if routeInfo, exists := connCtx.Server.routes[jsonBody.Router]; exists {
+	if connCtx.JsonBody.Router != "" {
+		if routeInfo, exists := connCtx.Server.routes[connCtx.JsonBody.Router]; exists {
 			handle = routeInfo.Handle
 			if zlog.IsDebug() {
-				zlog.Debug("using route-specific handler", 0, zlog.String("router", jsonBody.Router))
+				zlog.Debug("using route-specific handler", 0, zlog.String("router", connCtx.JsonBody.Router))
 			}
 		} else {
-			zlog.Warn("no handler found for router, using default", 0, zlog.String("router", jsonBody.Router))
+			zlog.Warn("no handler found for router, using default", 0, zlog.String("router", connCtx.JsonBody.Router))
 		}
 	}
 
@@ -1160,88 +1160,109 @@ func (s *WsServer) handleConnectionLoop(connCtx *ConnectionContext, handle Handl
 				continue
 			}
 
-			cipher, reply, err := messageHandler.Process(connCtx, message)
-			if err != nil {
-				// 记录消息处理失败指标
-				s.recordMessageProcessed(false)
-				s.errorHandler.handleConnectionError(connCtx, err, "process_message")
-				continue
-			}
+			s.processMessage(messageHandler, connCtx, message)
 
-			// 记录消息处理成功指标
-			s.recordMessageProcessed(true)
-
-			if reply != nil {
-				// 构造JsonResp格式的响应，与HTTP流程保持一致
-				jsonResp := &JsonResp{
-					Code:    200,
-					Message: "success",
-					Data:    "",
-					Nonce:   connCtx.JsonBody.Nonce, // 使用请求的nonce
-					Time:    utils.UnixSecond(),
-					Plan:    connCtx.JsonBody.Plan, // 使用请求的plan
-				}
-
-				// 序列化响应数据
-				respData, err := utils.JsonMarshal(reply)
-				if err != nil {
-					zlog.Error("failed_to_marshal_reply_data", 0, zlog.AddError(err))
-					continue
-				}
-
-				// 根据plan决定是否加密
-				if connCtx.JsonBody.Plan == 1 {
-					// AES加密响应数据
-					secret := connCtx.GetTokenSecret()
-					if len(secret) == 0 {
-						zlog.Error("response_aes_secret_missing", 0)
-						continue
-					}
-					defer DIC.ClearData(secret)
-
-					encryptedData, err := utils.AesGCMEncryptBase(respData, secret[:32],
-						utils.Str2Bytes(utils.AddStr(jsonResp.Time, jsonResp.Nonce, jsonResp.Plan, connCtx.JsonBody.Router)))
-					if err != nil {
-						zlog.Error("response_data_encrypt_failed", 0, zlog.AddError(err))
-						continue
-					}
-					jsonResp.Data = encryptedData
-				} else {
-					jsonResp.Data = utils.Base64Encode(utils.Bytes2Str(respData))
-				}
-
-				// 生成响应签名
-				signStr := utils.AddStr(connCtx.JsonBody.Router, jsonResp.Data, jsonResp.Nonce, jsonResp.Time, jsonResp.Plan)
-				sign := utils.HMAC_SHA256_BASE(utils.Str2Bytes(signStr), connCtx.GetTokenSecret())
-				jsonResp.Sign = utils.Base64Encode(sign)
-
-				if cipher != nil {
-					result, err := cipher.Sign(sign)
-					if err != nil {
-						zlog.Error("failed_to_ecdsa_sign_data", 0, zlog.AddError(err))
-						return
-					}
-					jsonResp.Valid = utils.Base64Encode(result)
-				}
-
-				// 发送JsonResp格式的响应
-				replyBytes, err := utils.JsonMarshal(jsonResp)
-				if err != nil {
-					zlog.Error("failed_to_marshal_jsonresp", 0, zlog.AddError(err))
-					continue
-				}
-
-				if err := connCtx.DevConn.Send(replyBytes); err != nil {
-					zlog.Error("failed_to_send_reply", 0, zlog.AddError(err))
-					return // 发送失败通常意味着连接已断开
-				}
-			}
 		}
 	}
 }
 
+// processMessage 消息处理逻辑，包含释放JsonBody对象
+func (s *WsServer) processMessage(messageHandler *MessageHandler, connCtx *ConnectionContext, message []byte) {
+	jsonBody := GetJsonBody()
+	connCtx.JsonBody = jsonBody
+	defer PutJsonBody(jsonBody)
+	cipher, reply, err := messageHandler.Process(connCtx, message)
+	if err != nil {
+		// 记录消息处理失败指标
+		s.recordMessageProcessed(false)
+		s.errorHandler.handleConnectionError(connCtx, err, "process_message")
+		return
+	}
+
+	// 记录消息处理成功指标
+	s.recordMessageProcessed(true)
+
+	replyData(connCtx, cipher, reply)
+}
+
+// replyData 回复数据
+func replyData(connCtx *ConnectionContext, cipher crypto.Cipher, reply interface{}) {
+	if reply == nil {
+		return
+	}
+	// 构造JsonResp格式的响应，与HTTP流程保持一致
+	jsonResp := GetJsonResp()
+	jsonResp.Code = 200
+	jsonResp.Message = "success"
+	jsonResp.Data = ""
+	jsonResp.Nonce = connCtx.JsonBody.Nonce // 使用请求的nonce
+	jsonResp.Time = utils.UnixSecond()
+	jsonResp.Plan = connCtx.JsonBody.Plan // 使用请求的plan
+
+	// 发送完成后释放对象回到池中
+	defer PutJsonResp(jsonResp)
+
+	// 序列化响应数据
+	respData, err := utils.JsonMarshal(reply)
+	if err != nil {
+		zlog.Error("failed_to_marshal_reply_data", 0, zlog.AddError(err))
+		return
+	}
+
+	// 根据plan决定是否加密
+	if connCtx.JsonBody.Plan == 1 {
+		// AES加密响应数据
+		secret := connCtx.GetTokenSecret()
+		if len(secret) == 0 {
+			zlog.Error("response_aes_secret_missing", 0)
+			return
+		}
+		defer DIC.ClearData(secret)
+
+		encryptedData, err := utils.AesGCMEncryptBase(respData, secret[:32],
+			utils.Str2Bytes(utils.AddStr(jsonResp.Time, jsonResp.Nonce, jsonResp.Plan, connCtx.JsonBody.Router)))
+		if err != nil {
+			zlog.Error("response_data_encrypt_failed", 0, zlog.AddError(err))
+			return
+		}
+		jsonResp.Data = encryptedData
+	} else {
+		jsonResp.Data = utils.Base64Encode(utils.Bytes2Str(respData))
+	}
+
+	// 生成响应签名
+	signStr := utils.AddStr(connCtx.JsonBody.Router, jsonResp.Data, jsonResp.Nonce, jsonResp.Time, jsonResp.Plan)
+	sign := utils.HMAC_SHA256_BASE(utils.Str2Bytes(signStr), connCtx.GetTokenSecret())
+	jsonResp.Sign = utils.Base64Encode(sign)
+
+	if cipher != nil {
+		result, err := cipher.Sign(sign)
+		if err != nil {
+			zlog.Error("failed_to_ecdsa_sign_data", 0, zlog.AddError(err))
+			return
+		}
+		jsonResp.Valid = utils.Base64Encode(result)
+	}
+
+	// 发送JsonResp格式的响应
+	replyBytes, err := utils.JsonMarshal(jsonResp)
+	if err != nil {
+		zlog.Error("failed_to_marshal_jsonresp", 0, zlog.AddError(err))
+		return
+	}
+
+	if err := connCtx.DevConn.Send(replyBytes); err != nil {
+		zlog.Error("failed_to_send_reply", 0, zlog.AddError(err))
+		return // 发送失败通常意味着连接已断开
+	}
+
+}
+
 func (s *WsServer) cleanupConnection(connCtx *ConnectionContext) {
 	connCtx.cancel()
+
+	// 注意：JsonBody在processMessage中通过defer释放，这里不需要重复释放
+
 	deviceKey := utils.AddStr(connCtx.DevConn.Sub, "_", connCtx.DevConn.Dev)
 	s.connManager.Remove(connCtx.DevConn.Sub, deviceKey)
 	zlog.Info("client_disconnected", 0, zlog.String("subject", deviceKey))
