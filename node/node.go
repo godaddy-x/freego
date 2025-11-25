@@ -3,6 +3,7 @@ package node
 import (
 	"bytes"
 	"crypto/sha512"
+	"net"
 	"net/http"
 	"strings"
 	"unsafe"
@@ -534,18 +535,26 @@ func (self *Context) Handle() error {
 }
 
 func (self *Context) RemoteIP() string {
-	clientIP := string(self.RequestCtx.Request.Header.Peek("X-Forwarded-For"))
-	if index := strings.IndexByte(clientIP, ','); index >= 0 {
-		clientIP = clientIP[0:index]
+	// 1. 检查X-Forwarded-For头（需配置反向代理只传递真实IP）
+	xffHeader := strings.TrimSpace(utils.Bytes2Str(self.RequestCtx.Request.Header.Peek("X-Forwarded-For")))
+	if xffHeader != "" {
+		// X-Forwarded-For可能包含多个IP，用逗号分隔
+		ips := strings.Split(xffHeader, ",")
+		for _, ip := range ips {
+			ip = strings.TrimSpace(ip)
+			if ip != "" && net.ParseIP(ip) != nil {
+				return ip
+			}
+		}
 	}
-	clientIP = strings.TrimSpace(clientIP)
-	if len(clientIP) > 0 {
+
+	// 2. 检查X-Real-Ip头
+	clientIP := strings.TrimSpace(utils.Bytes2Str(self.RequestCtx.Request.Header.Peek("X-Real-Ip")))
+	if clientIP != "" && net.ParseIP(clientIP) != nil {
 		return clientIP
 	}
-	clientIP = strings.TrimSpace(utils.Bytes2Str(self.RequestCtx.Request.Header.Peek("X-Real-Ip")))
-	if len(clientIP) > 0 {
-		return clientIP
-	}
+
+	// 3. 回退到fasthttp的RemoteIP()
 	return self.RequestCtx.RemoteIP().String()
 }
 
