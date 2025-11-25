@@ -270,14 +270,7 @@ func (s *SocketSDK) connectWebSocketInternal(path string, isInitial bool) error 
 	return nil
 }
 
-func (s *SocketSDK) prepareWebSocketMessage(router string, data interface{}, plan int64) (*node.JsonBody, []byte, error) {
-	jsonBody := &node.JsonBody{
-		Time:   utils.UnixSecond(),
-		Nonce:  utils.GetUUID(true),
-		Plan:   plan,
-		Router: router,
-	}
-
+func (s *SocketSDK) prepareWebSocketMessage(jsonBody *node.JsonBody, data interface{}) (*node.JsonBody, []byte, error) {
 	// 序列化数据
 	jsonData, err := utils.JsonMarshal(data)
 	if err != nil {
@@ -290,9 +283,9 @@ func (s *SocketSDK) prepareWebSocketMessage(router string, data interface{}, pla
 	defer DIC.ClearData(tokenSecret)
 
 	// 根据plan决定是否加密
-	if plan == 1 {
+	if jsonBody.Plan == 1 {
 		encryptedData, err := utils.AesGCMEncryptBase(jsonData, tokenSecret[:32],
-			utils.Str2Bytes(utils.AddStr(jsonBody.Time, jsonBody.Nonce, jsonBody.Plan, router)))
+			utils.Str2Bytes(utils.AddStr(jsonBody.Time, jsonBody.Nonce, jsonBody.Plan, jsonBody.Router)))
 		if err != nil {
 			return nil, nil, ex.Throw{Msg: "data encrypt failed"}
 		}
@@ -309,7 +302,7 @@ func (s *SocketSDK) prepareWebSocketMessage(router string, data interface{}, pla
 
 	// 生成签名
 	signData := utils.HMAC_SHA256_BASE(
-		utils.Str2Bytes(utils.AddStr(router, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan)),
+		utils.Str2Bytes(utils.AddStr(jsonBody.Router, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan)),
 		tokenSecret)
 	jsonBody.Sign = utils.Base64Encode(signData)
 	defer DIC.ClearData(signData)
@@ -335,7 +328,13 @@ func (s *SocketSDK) prepareWebSocketMessage(router string, data interface{}, pla
 
 func (s *SocketSDK) sendWebSocketAuthHandshake(conn *websocket.Conn, path string) error {
 	// 使用通用方法准备握手数据
-	_, bytesData, err := s.prepareWebSocketMessage(path, "auth_handshake", 1)
+	jsonBody := node.GetJsonBody()
+	defer node.PutJsonBody(jsonBody)
+	jsonBody.Time = utils.UnixSecond()
+	jsonBody.Nonce = utils.GetUUID(true)
+	jsonBody.Plan = 1
+	jsonBody.Router = path
+	_, bytesData, err := s.prepareWebSocketMessage(jsonBody, "auth_handshake")
 	if err != nil {
 		return err
 	}
@@ -355,7 +354,8 @@ func (s *SocketSDK) sendWebSocketAuthHandshake(conn *websocket.Conn, path string
 	}
 
 	// 解析响应
-	response := &node.JsonResp{}
+	response := node.GetJsonResp()
+	defer node.PutJsonResp(response)
 	if err := utils.JsonUnmarshal(responseBytes, response); err != nil {
 		return ex.Throw{Msg: "handshake response parse failed: " + err.Error()}
 	}
@@ -429,12 +429,17 @@ func (s *SocketSDK) SendWebSocketMessage(router string, requestObj, responseObj 
 	}
 
 	// 使用通用方法准备消息数据
-	plan := int64(0)
+	jsonBody := node.GetJsonBody()
+	defer node.PutJsonBody(jsonBody)
+	jsonBody.Time = utils.UnixSecond()
+	jsonBody.Nonce = utils.GetUUID(true)
+	jsonBody.Plan = 0
 	if encryptRequest {
-		plan = 1
+		jsonBody.Plan = 1
 	}
+	jsonBody.Router = router
 	// 使用指定的路由路径进行签名和路由分发
-	jsonBody, bytesData, err := s.prepareWebSocketMessage(router, requestObj, plan)
+	jsonBody, bytesData, err := s.prepareWebSocketMessage(jsonBody, requestObj)
 	if err != nil {
 		return err
 	}
@@ -560,6 +565,7 @@ func (s *SocketSDK) verifyWebSocketResponse(path string, response map[string]int
 }
 
 func (s *SocketSDK) verifyWebSocketResponseFromJsonResp(path string, result interface{}, jsonResp *node.JsonResp) error {
+
 	if jsonResp.Code != 200 {
 		return ex.Throw{Msg: fmt.Sprintf("response error: %s", jsonResp.Message)}
 	}
@@ -627,8 +633,14 @@ func (s *SocketSDK) websocketHeartbeat() {
 			s.connMutex.Lock()
 			if s.isConnected && s.conn != nil {
 				// 使用 prepareWebSocketMessage 构建标准格式的消息
-				_, bytesData, err := s.prepareWebSocketMessage("/ws/ping", "ping", 0) // Plan=0表示明文，使用默认路径
+				jsonBody := node.GetJsonBody()
+				jsonBody.Time = utils.UnixSecond()
+				jsonBody.Nonce = utils.GetUUID(true)
+				jsonBody.Plan = 0
+				jsonBody.Router = "/ws/ping"
+				_, bytesData, err := s.prepareWebSocketMessage(jsonBody, "ping") // Plan=0表示明文，使用默认路径
 				if err != nil {
+					node.PutJsonBody(jsonBody)
 					if zlog.IsDebug() {
 						zlog.Debug("heartbeat prepare failed", 0)
 					}
@@ -638,6 +650,7 @@ func (s *SocketSDK) websocketHeartbeat() {
 
 				s.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 				if err := s.conn.WriteMessage(websocket.TextMessage, bytesData); err != nil {
+					node.PutJsonBody(jsonBody)
 					if zlog.IsDebug() {
 						zlog.Debug("heartbeat send failed, connection may be lost", 0)
 					}
@@ -645,11 +658,86 @@ func (s *SocketSDK) websocketHeartbeat() {
 					s.disconnectWebSocket() // 触发重连逻辑
 					return
 				}
+				node.PutJsonBody(jsonBody)
 				if zlog.IsDebug() {
 					zlog.Debug("heartbeat sent", 0)
 				}
 			}
 			s.connMutex.Unlock()
+		}
+	}
+}
+
+func (s *SocketSDK) websocketMessageListenerHandle(body []byte) {
+	// 使用对象池获取JsonResp对象，提高内存利用率
+	res := node.GetJsonResp()
+	defer node.PutJsonResp(res)
+
+	if err := utils.JsonUnmarshal(body, res); err != nil {
+		zlog.Error(fmt.Sprintf("WebSocket read data parse error: %v", err), 0, zlog.String("body", string(body)))
+		return
+	}
+
+	messageCopy := *res // 拷贝值
+
+	// 处理响应消息（有nonce的同步响应）
+	if len(res.Nonce) > 0 {
+		respChanVal, loaded := s.responseMap.LoadAndDelete(res.Nonce)
+		if loaded {
+			respChan, ok := respChanVal.(chan *node.JsonResp)
+			if ok {
+				// 使用 select 来安全地发送，避免向已关闭的 channel 发送
+				select {
+				case respChan <- &messageCopy:
+					// 异步处理订阅消息，避免阻塞消息监听
+				case <-time.After(100 * time.Millisecond):
+					// 超时，channel 可能已被关闭，立即释放对象
+					if zlog.IsDebug() {
+						zlog.Debug("response channel timeout, may be closed", 0, zlog.String("nonce", res.Nonce))
+					}
+				}
+			}
+		}
+		return // 响应消息已处理，跳过订阅处理
+	}
+
+	// 处理订阅消息（无nonce的推送消息）
+	if res.Router != "" {
+		// sync.Map 的 Load 操作是线程安全的，无需额外锁
+		subVal, exists := s.subscriptions.Load(res.Router)
+
+		if exists {
+			if subscription, ok := subVal.(*Subscription); ok && subscription.active {
+				// 异步处理订阅消息，避免阻塞消息监听
+
+				go func(sub *Subscription, msg node.JsonResp) {
+					defer func() {
+						if r := recover(); r != nil {
+							zlog.Error("subscription handler panic", 0,
+								zlog.String("router", sub.Router),
+								zlog.String("subscription_id", sub.ID),
+								zlog.Any("panic", r))
+						}
+					}()
+
+					// 将值传递给处理器，处理器可以安全地使用和存储
+					if err := sub.Handler.HandleMessage(&msg); err != nil {
+						zlog.Error("subscription handler error", 0,
+							zlog.String("router", sub.Router),
+							zlog.String("subscription_id", sub.ID),
+							zlog.AddError(err))
+					}
+				}(subscription, messageCopy)
+			}
+		} else {
+			// 没有订阅处理器，立即释放对象
+			if zlog.IsDebug() {
+				zlog.Debug("no subscription handler found for router", 0, zlog.String("router", res.Router))
+			}
+		}
+	} else {
+		if zlog.IsDebug() {
+			zlog.Debug("received message without router or nonce", 0, zlog.String("data", res.Data))
 		}
 	}
 }
@@ -686,69 +774,7 @@ func (s *SocketSDK) websocketMessageListener() {
 				return
 			}
 
-			res := &node.JsonResp{}
-			if err := utils.JsonUnmarshal(body, res); err != nil {
-				zlog.Error(fmt.Sprintf("WebSocket read data parse error: %v", err), 0, zlog.String("body", string(body)))
-				continue
-			}
-
-			// 处理响应消息（有nonce的同步响应）
-			if len(res.Nonce) > 0 {
-				respChanVal, loaded := s.responseMap.LoadAndDelete(res.Nonce)
-				if loaded {
-					respChan, ok := respChanVal.(chan *node.JsonResp)
-					if ok {
-						// 使用 select 来安全地发送，避免向已关闭的 channel 发送
-						select {
-						case respChan <- res:
-							// 成功发送
-						case <-time.After(100 * time.Millisecond):
-							// 超时，channel 可能已被关闭
-							if zlog.IsDebug() {
-								zlog.Debug("response channel timeout, may be closed", 0, zlog.String("nonce", res.Nonce))
-							}
-						}
-					}
-				}
-				continue // 响应消息已处理，跳过订阅处理
-			}
-
-			// 处理订阅消息（无nonce的推送消息）
-			if res.Router != "" {
-				// sync.Map 的 Load 操作是线程安全的，无需额外锁
-				subVal, exists := s.subscriptions.Load(res.Router)
-
-				if exists {
-					if subscription, ok := subVal.(*Subscription); ok && subscription.active {
-						// 异步处理订阅消息，避免阻塞消息监听
-						go func(sub *Subscription, msg *node.JsonResp) {
-							defer func() {
-								if r := recover(); r != nil {
-									zlog.Error("subscription handler panic", 0,
-										zlog.String("router", sub.Router),
-										zlog.String("subscription_id", sub.ID),
-										zlog.Any("panic", r))
-								}
-							}()
-
-							if err := sub.Handler.HandleMessage(msg); err != nil {
-								zlog.Error("subscription handler error", 0,
-									zlog.String("router", sub.Router),
-									zlog.String("subscription_id", sub.ID),
-									zlog.AddError(err))
-							}
-						}(subscription, res)
-					}
-				} else {
-					if zlog.IsDebug() {
-						zlog.Debug("no subscription handler found for router", 0, zlog.String("router", res.Router))
-					}
-				}
-			} else {
-				if zlog.IsDebug() {
-					zlog.Debug("received message without router or nonce", 0, zlog.String("data", res.Data))
-				}
-			}
+			s.websocketMessageListenerHandle(body)
 
 		}
 	}
