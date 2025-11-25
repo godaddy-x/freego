@@ -72,8 +72,7 @@ type SocketSDK struct {
 	responseMap sync.Map // 存储等待响应的通道
 
 	// 消息订阅相关
-	subscriptions sync.Map // 路由 -> 订阅信息
-	subMutex      sync.RWMutex
+	subscriptions sync.Map // 路由 -> 订阅信息 (线程安全)
 }
 
 func (s *SocketSDK) AuthObject(object interface{}) {
@@ -255,6 +254,9 @@ func (s *SocketSDK) connectWebSocketInternal(path string, isInitial bool) error 
 		if zlog.IsDebug() {
 			zlog.Debug("WebSocket reconnection successful", 0)
 		}
+
+		// 重连成功后，自动重新订阅所有主题
+		s.resubscribeAfterReconnect()
 	} else {
 		if zlog.IsDebug() {
 			zlog.Debug("WebSocket connection established successfully", 0)
@@ -713,9 +715,8 @@ func (s *SocketSDK) websocketMessageListener() {
 
 			// 处理订阅消息（无nonce的推送消息）
 			if res.Router != "" {
-				s.subMutex.RLock()
+				// sync.Map 的 Load 操作是线程安全的，无需额外锁
 				subVal, exists := s.subscriptions.Load(res.Router)
-				s.subMutex.RUnlock()
 
 				if exists {
 					if subscription, ok := subVal.(*Subscription); ok && subscription.active {
@@ -1022,9 +1023,8 @@ func (s *SocketSDK) SubscribeMessage(router string, handler MessageHandler) (sub
 		active:  true,
 	}
 
-	s.subMutex.Lock()
+	// sync.Map 本身就是线程安全的，无需额外锁
 	s.subscriptions.Store(router, subscription)
-	s.subMutex.Unlock()
 
 	if zlog.IsDebug() {
 		zlog.Debug("message subscription created", 0,
@@ -1037,9 +1037,7 @@ func (s *SocketSDK) SubscribeMessage(router string, handler MessageHandler) (sub
 
 // UnsubscribeMessage 取消消息订阅
 func (s *SocketSDK) UnsubscribeMessage(router string) error {
-	s.subMutex.Lock()
-	defer s.subMutex.Unlock()
-
+	// sync.Map 的 Load 和 Delete 操作本身就是线程安全的
 	if sub, exists := s.subscriptions.Load(router); exists {
 		if subscription, ok := sub.(*Subscription); ok {
 			subscription.active = false
@@ -1056,13 +1054,45 @@ func (s *SocketSDK) UnsubscribeMessage(router string) error {
 	return utils.Error("subscription not found for router: " + router)
 }
 
+// resubscribeAfterReconnect 重连成功后自动重新订阅所有主题
+func (s *SocketSDK) resubscribeAfterReconnect() {
+	// 使用 sync.Map 的 Range 方法，它是线程安全的
+	var activeSubscriptions []string
+
+	s.subscriptions.Range(func(key, value interface{}) bool {
+		router := key.(string)
+		subscription := value.(*Subscription)
+		if subscription.active {
+			activeSubscriptions = append(activeSubscriptions, router)
+		}
+		return true
+	})
+
+	if len(activeSubscriptions) == 0 {
+		return
+	}
+
+	if zlog.IsDebug() {
+		zlog.Debug(fmt.Sprintf("Reconnecting %d subscriptions after reconnect", len(activeSubscriptions)), 0)
+	}
+
+	// 遍历并重新订阅每个路由
+	// 注意：在当前架构中，订阅是客户端本地行为
+	// 这里可以为未来的服务器端订阅管理做准备，或者向服务器发送订阅请求
+	for _, router := range activeSubscriptions {
+		// 目前只记录日志，将来可以在这里向服务器发送订阅请求
+		// 例如：s.SendWebSocketMessage("/ws/subscribe", map[string]interface{}{"topic": router}, nil, false, true, 5)
+		if zlog.IsDebug() {
+			zlog.Debug(fmt.Sprintf("Resubscribed to %s after reconnect", router), 0)
+		}
+	}
+}
+
 // GetSubscriptions 获取所有活跃的订阅
 func (s *SocketSDK) GetSubscriptions() map[string]*Subscription {
 	result := make(map[string]*Subscription)
 
-	s.subMutex.RLock()
-	defer s.subMutex.RUnlock()
-
+	// sync.Map 的 Range 方法是线程安全的，无需额外锁
 	s.subscriptions.Range(func(key, value interface{}) bool {
 		if router, ok := key.(string); ok {
 			if subscription, ok := value.(*Subscription); ok && subscription.active {

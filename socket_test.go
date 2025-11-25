@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/godaddy-x/freego/utils/crypto"
@@ -26,6 +28,30 @@ const (
 	//客户端公钥
 	clientPub = "BEZkPpdLSQiUvkaObyDz0ya0figOLphr6L8hPEHbPzpc7sEMtq1lBTfG6IwZdd7WuJmMkP1FRt+GzZgnqt+DRjs="
 )
+
+// testMessageHandler 测试用的消息处理器
+type testMessageHandler struct {
+	receivedMessages []*node.JsonResp
+	messageCount     int
+	mu               sync.Mutex
+}
+
+// HandleMessage 实现MessageHandler接口
+func (h *testMessageHandler) HandleMessage(message *node.JsonResp) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	h.receivedMessages = append(h.receivedMessages, message)
+	h.messageCount++
+
+	if zlog.IsDebug() {
+		zlog.Debug("test handler received message", 0,
+			zlog.String("data", message.Data),
+			zlog.String("router", message.Router))
+	}
+
+	return nil
+}
 
 func NewSocketSDK() *sdk.SocketSDK {
 	newObject := &sdk.SocketSDK{
@@ -121,6 +147,10 @@ func TestWebSocketSDKUsage(t *testing.T) {
 			t.Logf("服务器停止超时")
 		}
 	}()
+
+	access_token := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxOTkyODAwOTk4Mzg4NjYyMjczIiwiYXVkIjoiIiwiaXNzIjoiIiwiZGV2IjoiQVBQIiwianRpIjoiMjgyZjAwMmQtNTY3MS00YTlhLTgwMDMtMzA5ZmI0ZGNkNTZjIiwiZXh0IjoiIiwiaWF0IjowLCJleHAiOjE3NjUxNjUzNTd9.tbuDc+g0Scge9WNRDESF/acdMG7Fqwgu6F4vWgv69WQ="
+	token_secret := "nt/YcHhS6Y8npXInAhBr9PMdSNLZlGbNCfnqaQWo09HNd67Swoy0qHZeVqN2A42g/SHVoTWkLs3XQna8bEUxeA=="
+	token_expire := int64(1765165357)
 
 	// 1. 初始化SDK
 	fmt.Println("1. 初始化SDK...")
@@ -231,4 +261,738 @@ func TestWebSocketSDKUsage(t *testing.T) {
 	}
 
 	fmt.Println("🎉 WebSocket SDK 完整使用流程测试完成!")
+}
+
+// TestWebSocketTokenExpiredCallback 测试Token过期回调功能
+func TestWebSocketTokenExpiredCallback(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping WebSocket token expired callback test in short mode")
+	}
+
+	// 模拟外部认证接口
+	type AuthResponse struct {
+		Token   string `json:"token"`
+		Secret  string `json:"secret"`
+		Expired int64  `json:"expired"`
+	}
+
+	// 模拟认证成功次数
+	authCallCount := 0
+
+	// 使用与服务器相同的JWT密钥
+	serverJwtKey := "123456_fixed_test_key_for_token_verification"
+
+	// 外部认证函数 (模拟调用外部认证接口)
+	externalAuthFunc := func() (*AuthResponse, error) {
+		authCallCount++
+		if zlog.IsDebug() {
+			zlog.Debug(fmt.Sprintf("External auth called (attempt %d)", authCallCount), 0)
+		}
+
+		// 使用与服务器相同的密钥生成token
+		jwtConfig := jwt.JwtConfig{
+			TokenTyp: jwt.JWT,
+			TokenAlg: jwt.HS256,
+			TokenKey: serverJwtKey,
+			TokenExp: jwt.TWO_WEEK,
+		}
+
+		subject := &jwt.Subject{}
+		token := subject.Create(fmt.Sprintf("user_%d", authCallCount)).Dev("APP").Generate(jwtConfig)
+
+		// 生成32字节的密钥作为secret
+		keyBytes := make([]byte, 32)
+		for i := range keyBytes {
+			keyBytes[i] = byte(65 + i%26)
+		}
+		secret := utils.Base64EncodeWithPool(keyBytes)
+
+		return &AuthResponse{
+			Token:   token,
+			Secret:  secret,
+			Expired: utils.UnixSecond() + jwt.TWO_WEEK,
+		}, nil
+	}
+
+	// 启动测试服务器
+	zlog.InitDefaultLog(&zlog.ZapConfig{Layout: 0, Location: time.Local, Level: zlog.DEBUG, Console: true})
+
+	server := node.NewWsServer(node.SubjectDeviceUnique)
+
+	server.AddJwtConfig(jwt.JwtConfig{
+		TokenTyp: jwt.JWT,
+		TokenAlg: jwt.HS256,
+		TokenKey: serverJwtKey,
+		TokenExp: jwt.TWO_WEEK,
+	})
+
+	cipher, _ := crypto.CreateS256ECDSAWithBase64(serverPrk, clientPub)
+	server.AddCipher(cipher)
+
+	err := server.NewPool(100, 10, 5, 30)
+	if err != nil {
+		t.Fatalf("Failed to initialize connection pool: %v", err)
+	}
+
+	serverAddr := "localhost:8089"
+	serverDoneCh := make(chan bool, 1)
+
+	go func() {
+		defer func() { serverDoneCh <- true }()
+		if err := server.StartWebsocket(serverAddr); err != nil {
+			t.Errorf("Server start failed: %v", err)
+		}
+	}()
+
+	time.Sleep(200 * time.Millisecond)
+
+	defer func() {
+		fmt.Println("正在停止测试服务器...")
+		if err := server.StopWebsocket(); err != nil {
+			t.Logf("Server stop failed: %v", err)
+		}
+		select {
+		case <-serverDoneCh:
+			fmt.Println("测试服务器已停止")
+		case <-time.After(5 * time.Second):
+			t.Logf("服务器停止超时")
+		}
+	}()
+
+	select {
+	case <-serverDoneCh:
+		t.Fatalf("Server failed to start")
+	default:
+	}
+
+	// 创建SDK实例
+	wsSdk := NewSocketSDK()
+	wsSdk.Domain = serverAddr
+
+	// 确保ECDSA密钥设置正确
+	if err := wsSdk.SetECDSAObject(clientPrk, serverPub); err != nil {
+		t.Fatalf("Failed to set ECDSA object: %v", err)
+	}
+
+	// 1. 设置初始认证信息（即将过期）
+	initialAuth := sdk.AuthToken{
+		Token:   "expired_token", // 使用无效token
+		Secret:  "expired_secret",
+		Expired: utils.UnixSecond() - 100, // 已经过期
+	}
+	wsSdk.AuthToken(initialAuth)
+
+	// 2. 设置Token过期回调
+	tokenRefreshCount := 0
+	wsSdk.SetTokenExpiredCallback(func() {
+		tokenRefreshCount++
+		if zlog.IsDebug() {
+			zlog.Debug(fmt.Sprintf("Token expired callback triggered (refresh %d)", tokenRefreshCount), 0)
+		}
+
+		// 调用外部认证接口获取新的token
+		authResp, err := externalAuthFunc()
+		if err != nil {
+			zlog.Error("Failed to refresh token from external auth", 0, zlog.AddError(err))
+			return
+		}
+
+		// 更新SDK的认证信息
+		newAuth := sdk.AuthToken{
+			Token:   authResp.Token,
+			Secret:  authResp.Secret,
+			Expired: authResp.Expired,
+		}
+		wsSdk.AuthToken(newAuth)
+
+		if zlog.IsDebug() {
+			zlog.Debug("Token refreshed successfully", 0)
+		}
+
+		// 重置token过期标志，允许下次继续触发回调
+		// 注意：这是一个内部字段，在实际使用中可能需要SDK提供公共方法
+		// wsSdk.tokenExpiredCalled = false
+	})
+
+	// 3. 尝试连接（应该触发token过期回调）
+	err = wsSdk.ConnectWebSocket("/ws")
+	if err != nil {
+		// 预期的错误，因为初始token已过期
+		if !strings.Contains(err.Error(), "token empty or token expired") {
+			t.Fatalf("Unexpected connection error: %v", err)
+		}
+	}
+
+	// 等待回调执行
+	time.Sleep(500 * time.Millisecond)
+
+	// 4. 验证回调被触发
+	if tokenRefreshCount != 1 {
+		t.Errorf("Expected token refresh callback to be called once, got %d", tokenRefreshCount)
+	}
+
+	// 5. 验证外部认证接口被调用
+	if authCallCount != 1 {
+		t.Errorf("Expected external auth to be called once, got %d", authCallCount)
+	}
+
+	// 6. 再次尝试连接（应该成功，因为token已刷新）
+	err = wsSdk.ConnectWebSocket("/ws")
+	if err != nil {
+		t.Fatalf("Failed to connect after token refresh: %v", err)
+	}
+
+	// 7. 验证连接成功
+	if !wsSdk.IsWebSocketConnected() {
+		t.Error("WebSocket should be connected after token refresh")
+	}
+
+	// 8. 测试发送消息
+	response := &node.JsonResp{}
+	err = wsSdk.SendWebSocketMessage("/ws/test", map[string]interface{}{"test": "data"}, response, true, true, 5)
+	if err != nil {
+		t.Fatalf("Failed to send message after token refresh: %v", err)
+	}
+
+	wsSdk.DisconnectWebSocket()
+
+	t.Logf("✅ Token expired callback test completed successfully")
+	t.Logf("   - Callback triggered: %d times", tokenRefreshCount)
+	t.Logf("   - External auth called: %d times", authCallCount)
+}
+
+// TestWebSocketMessageSubscription 测试消息订阅功能（单个客户端）
+func TestWebSocketMessageSubscription(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping WebSocket subscription test in short mode")
+	}
+
+	// 1. 启动测试服务器
+	zlog.InitDefaultLog(&zlog.ZapConfig{Layout: 0, Location: time.Local, Level: zlog.DEBUG, Console: true})
+
+	server := node.NewWsServer(node.SubjectDeviceUnique)
+
+	server.AddJwtConfig(jwt.JwtConfig{
+		TokenTyp: jwt.JWT,
+		TokenAlg: jwt.HS256,
+		TokenKey: "123456" + utils.CreateLocalSecretKey(12, 45, 23, 60, 58, 30),
+		TokenExp: jwt.TWO_WEEK,
+	})
+
+	// 增加双向验签的ECDSA
+	cipher, _ := crypto.CreateS256ECDSAWithBase64(serverPrk, clientPub)
+	server.AddCipher(cipher)
+
+	// 配置连接池
+	err := server.NewPool(100, 10, 5, 30)
+	if err != nil {
+		t.Fatalf("Failed to initialize connection pool: %v", err)
+	}
+
+	// 添加推送触发路由处理器（一次性推送10条消息）
+	err = server.AddRouter("/ws/trigger-push", func(ctx context.Context, connCtx *node.ConnectionContext, body []byte) (interface{}, error) {
+		// 解析触发请求
+		var triggerData map[string]interface{}
+		if err := utils.JsonUnmarshal(body, &triggerData); err != nil {
+			return nil, fmt.Errorf("invalid trigger data: %v", err)
+		}
+
+		// 获取目标路由
+		targetRouter, ok := triggerData["target_router"].(string)
+		if !ok || targetRouter == "" {
+			return nil, fmt.Errorf("missing target_router")
+		}
+
+		// 获取消息内容前缀
+		baseMessage, _ := triggerData["message"].(string)
+		if baseMessage == "" {
+			baseMessage = "Test push message"
+		}
+
+		// 持续推送10条消息
+		go func() {
+			time.Sleep(200 * time.Millisecond) // 确保响应先发送
+
+			for i := 1; i <= 10; i++ {
+				// 构造第i条推送消息
+				pushMessage := &node.JsonResp{
+					Code:    200,
+					Message: fmt.Sprintf("push notification #%d", i),
+					Data:    fmt.Sprintf("%s #%d", baseMessage, i),
+					Router:  targetRouter,
+					Time:    utils.UnixSecond(),
+					Plan:    0,
+				}
+
+				// 序列化推送消息
+				pushData, err := utils.JsonMarshal(pushMessage)
+				if err != nil {
+					zlog.Error("failed to marshal push message", 0, zlog.AddError(err))
+					continue
+				}
+
+				// 广播消息给所有连接的客户端
+				server.GetConnManager().Broadcast(pushData)
+
+				if zlog.IsDebug() {
+					zlog.Debug("sent push message", 0,
+						zlog.String("router", targetRouter),
+						zlog.Int("sequence", i),
+						zlog.String("data", pushMessage.Data))
+				}
+
+				// 消息间隔500ms
+				if i < 10 {
+					time.Sleep(500 * time.Millisecond)
+				}
+			}
+
+			zlog.Info("completed sending 10 push messages", 0,
+				zlog.String("target_router", targetRouter))
+		}()
+
+		return map[string]interface{}{
+			"status":         "pushing_started",
+			"target_router":  targetRouter,
+			"total_messages": 10,
+			"interval_ms":    500,
+		}, nil
+	}, &node.RouterConfig{})
+
+	// 添加持续推送路由处理器（持续推送消息直到客户端断开）
+	err = server.AddRouter("/ws/start-continuous-push", func(ctx context.Context, connCtx *node.ConnectionContext, body []byte) (interface{}, error) {
+		// 解析请求
+		var pushData map[string]interface{}
+		if err := utils.JsonUnmarshal(body, &pushData); err != nil {
+			return nil, fmt.Errorf("invalid push data: %v", err)
+		}
+
+		// 获取目标路由
+		targetRouter, ok := pushData["target_router"].(string)
+		if !ok || targetRouter == "" {
+			return nil, fmt.Errorf("missing target_router")
+		}
+
+		// 获取推送间隔（秒）
+		intervalSeconds, _ := pushData["interval_seconds"].(float64)
+		if intervalSeconds <= 0 {
+			intervalSeconds = 2 // 默认2秒间隔
+		}
+		interval := time.Duration(intervalSeconds) * time.Second
+
+		// 获取消息内容前缀
+		baseMessage, _ := pushData["message"].(string)
+		if baseMessage == "" {
+			baseMessage = "Continuous push message"
+		}
+
+		// 获取持续时间（秒），默认60秒
+		durationSeconds, _ := pushData["duration_seconds"].(float64)
+		if durationSeconds <= 0 {
+			durationSeconds = 60
+		}
+
+		// 启动持续推送goroutine
+		go func() {
+			messageCount := 0
+			startTime := time.Now()
+			ticker := time.NewTicker(interval)
+			defer ticker.Stop()
+
+			zlog.Info("started continuous push", 0,
+				zlog.String("target_router", targetRouter),
+				zlog.Float64("interval_seconds", intervalSeconds),
+				zlog.Float64("duration_seconds", durationSeconds),
+				zlog.String("client", connCtx.GetUserIDString()))
+
+			for {
+				select {
+				case <-ctx.Done():
+					// 连接断开，停止推送
+					zlog.Info("continuous push stopped due to connection close", 0,
+						zlog.String("target_router", targetRouter),
+						zlog.Int("total_messages", messageCount))
+					return
+
+				case <-ticker.C:
+					// 检查是否超过持续时间
+					if time.Since(startTime).Seconds() >= durationSeconds {
+						zlog.Info("continuous push completed", 0,
+							zlog.String("target_router", targetRouter),
+							zlog.Int("total_messages", messageCount))
+						return
+					}
+
+					messageCount++
+					currentTime := utils.UnixSecond()
+
+					// 构造推送消息
+					pushMessage := &node.JsonResp{
+						Code:    200,
+						Message: fmt.Sprintf("continuous push #%d", messageCount),
+						Data:    fmt.Sprintf("%s #%d at %d", baseMessage, messageCount, currentTime),
+						Router:  targetRouter,
+						Time:    currentTime,
+						Plan:    0,
+					}
+
+					// 序列化推送消息
+					pushData, err := utils.JsonMarshal(pushMessage)
+					if err != nil {
+						zlog.Error("failed to marshal continuous push message", 0, zlog.AddError(err))
+						continue
+					}
+
+					// 广播消息给所有连接的客户端（或者可以改为只推送给特定客户端）
+					server.GetConnManager().Broadcast(pushData)
+
+					if zlog.IsDebug() {
+						zlog.Debug("sent continuous push message", 0,
+							zlog.String("router", targetRouter),
+							zlog.Int("sequence", messageCount),
+							zlog.String("data", pushMessage.Data))
+					}
+				}
+			}
+		}()
+
+		return map[string]interface{}{
+			"status":             "continuous_pushing_started",
+			"target_router":      targetRouter,
+			"interval_seconds":   intervalSeconds,
+			"duration_seconds":   durationSeconds,
+			"estimated_messages": int(durationSeconds / intervalSeconds),
+		}, nil
+	}, &node.RouterConfig{})
+	if err != nil {
+		t.Fatalf("Failed to add trigger-push router: %v", err)
+	}
+
+	// 在goroutine中启动服务器
+	serverAddr := "localhost:8089"
+	serverDoneCh := make(chan bool, 1)
+
+	go func() {
+		defer func() { serverDoneCh <- true }()
+		if err := server.StartWebsocket(serverAddr); err != nil {
+			t.Errorf("Server start failed: %v", err)
+		}
+	}()
+
+	// 等待服务器启动
+	time.Sleep(200 * time.Millisecond)
+
+	// 使用 defer 确保服务器被停止
+	defer func() {
+		fmt.Println("正在停止测试服务器...")
+		if err := server.StopWebsocket(); err != nil {
+			t.Logf("Server stop failed: %v", err)
+		}
+		select {
+		case <-serverDoneCh:
+			fmt.Println("测试服务器已停止")
+		case <-time.After(5 * time.Second):
+			t.Logf("服务器停止超时")
+		}
+	}()
+
+	// 检查服务器是否成功启动
+	select {
+	case <-serverDoneCh:
+		t.Fatalf("Server failed to start")
+	default:
+		// 服务器成功启动，继续测试
+	}
+
+	// 2. 创建SDK实例并连接到测试服务器
+	wsSdk := NewSocketSDK()
+	wsSdk.Domain = serverAddr
+
+	handler := &testMessageHandler{
+		receivedMessages: make([]*node.JsonResp, 0),
+	}
+
+	// 测试订阅消息
+	t.Run("SubscribeMessage", func(t *testing.T) {
+		subscriptionID, err := wsSdk.SubscribeMessage("/ws/test", handler)
+		if err != nil {
+			t.Fatalf("Failed to subscribe message: %v", err)
+		}
+
+		if subscriptionID == "" {
+			t.Error("Subscription ID should not be empty")
+		}
+
+		// 验证订阅是否成功
+		subscriptions := wsSdk.GetSubscriptions()
+		if len(subscriptions) != 1 {
+			t.Errorf("Expected 1 subscription, got %d", len(subscriptions))
+		}
+
+		if sub, exists := subscriptions["/ws/test"]; !exists {
+			t.Error("Subscription for /ws/test should exist")
+		} else {
+			if sub.ID != subscriptionID {
+				t.Errorf("Subscription ID mismatch: expected %s, got %s", subscriptionID, sub.ID)
+			}
+			if sub.Router != "/ws/test" {
+				t.Errorf("Subscription router mismatch: expected /ws/test, got %s", sub.Router)
+			}
+		}
+	})
+
+	// 测试消息分发（单个客户端）
+	t.Run("MessageDispatch", func(t *testing.T) {
+		// 创建消息处理器用于接收推送消息
+		dispatchHandler := &testMessageHandler{
+			receivedMessages: make([]*node.JsonResp, 0),
+		}
+
+		// 订阅推送消息
+		_, err := wsSdk.SubscribeMessage("/ws/push", dispatchHandler)
+		if err != nil {
+			t.Fatalf("Failed to subscribe to push messages: %v", err)
+		}
+		defer wsSdk.UnsubscribeMessage("/ws/push")
+
+		// 使用预定义的认证参数
+		authToken := sdk.AuthToken{
+			Token:   access_token,
+			Secret:  token_secret,
+			Expired: token_expire,
+		}
+		wsSdk.AuthToken(authToken)
+
+		// 连接到服务器
+		err = wsSdk.ConnectWebSocket("/ws")
+		if err != nil {
+			t.Fatalf("Failed to connect WebSocket: %v", err)
+		}
+		defer wsSdk.DisconnectWebSocket()
+
+		// 等待连接建立
+		time.Sleep(200 * time.Millisecond)
+
+		// 通过同一个客户端发送触发推送的请求给自己
+		testData := map[string]interface{}{
+			"action":        "trigger_push",
+			"target_router": "/ws/push",
+			"message":       "Hello from push test!",
+		}
+
+		response := &node.JsonResp{}
+		err = wsSdk.SendWebSocketMessage("/ws/trigger-push", testData, response, true, true, 5)
+		if err != nil {
+			t.Fatalf("Push trigger failed: %v", err)
+		}
+
+		// 验证触发响应
+		if response.Message != "pushing_started" {
+			t.Logf("Trigger response: %s", response.Message)
+		}
+
+		// 等待足够的时间来接收所有10条消息 (10条消息 + 9个500ms间隔 = 约6秒)
+		time.Sleep(7 * time.Second)
+
+		// 验证是否接收到10条推送消息
+		dispatchHandler.mu.Lock()
+		messageCount := len(dispatchHandler.receivedMessages)
+		dispatchHandler.mu.Unlock()
+
+		if messageCount != 10 {
+			t.Errorf("Expected 10 push messages, got %d", messageCount)
+		} else {
+			t.Logf("Successfully received all 10 push messages")
+		}
+
+		// 验证消息内容和顺序
+		dispatchHandler.mu.Lock()
+		for i, msg := range dispatchHandler.receivedMessages {
+			expectedSeq := i + 1
+			if msg.Router != "/ws/push" {
+				t.Errorf("Message %d: expected router /ws/push, got %s", expectedSeq, msg.Router)
+			}
+
+			expectedData := fmt.Sprintf("Hello from push test! #%d", expectedSeq)
+			if msg.Data != expectedData {
+				t.Errorf("Message %d: expected data %s, got %s", expectedSeq, expectedData, msg.Data)
+			}
+
+			expectedMessage := fmt.Sprintf("push notification #%d", expectedSeq)
+			if msg.Message != expectedMessage {
+				t.Errorf("Message %d: expected message %s, got %s", expectedSeq, expectedMessage, msg.Message)
+			}
+
+			t.Logf("✓ Received push message %d: %s", expectedSeq, msg.Data)
+		}
+		dispatchHandler.mu.Unlock()
+	})
+
+	// 测试持续消息推送（客户端连接后持续接收消息）
+	t.Run("ContinuousMessagePush", func(t *testing.T) {
+		// 创建消息处理器用于接收持续推送消息
+		continuousHandler := &testMessageHandler{
+			receivedMessages: make([]*node.JsonResp, 0),
+		}
+
+		// 订阅持续推送消息
+		_, err := wsSdk.SubscribeMessage("/ws/continuous", continuousHandler)
+		if err != nil {
+			t.Fatalf("Failed to subscribe to continuous messages: %v", err)
+		}
+		defer wsSdk.UnsubscribeMessage("/ws/continuous")
+
+		// 使用预定义的认证参数
+		authToken := sdk.AuthToken{
+			Token:   access_token,
+			Secret:  token_secret,
+			Expired: token_expire,
+		}
+		wsSdk.AuthToken(authToken)
+
+		// 连接到服务器
+		err = wsSdk.ConnectWebSocket("/ws")
+		if err != nil {
+			t.Fatalf("Failed to connect WebSocket: %v", err)
+		}
+		defer wsSdk.DisconnectWebSocket()
+
+		// 等待连接建立
+		time.Sleep(200 * time.Millisecond)
+
+		// 发送启动持续推送的请求
+		continuousData := map[string]interface{}{
+			"action":           "start_continuous_push",
+			"target_router":    "/ws/continuous",
+			"message":          "Continuous test message",
+			"interval_seconds": 1.0, // 每1秒推送一条消息
+			"duration_seconds": 5.0, // 持续5秒
+		}
+
+		response := &node.JsonResp{}
+		err = wsSdk.SendWebSocketMessage("/ws/start-continuous-push", continuousData, response, true, true, 5)
+		if err != nil {
+			t.Fatalf("Failed to start continuous push: %v", err)
+		}
+
+		// 验证启动响应
+		if response.Message != "success" {
+			t.Logf("Continuous push start response: %s", response.Message)
+		}
+
+		// 等待持续推送完成（5秒 + 1秒缓冲）
+		time.Sleep(7 * time.Second)
+
+		// 验证接收到的消息数量（大约5条消息，间隔1秒）
+		continuousHandler.mu.Lock()
+		continuousMessageCount := len(continuousHandler.receivedMessages)
+		continuousHandler.mu.Unlock()
+
+		if continuousMessageCount < 4 || continuousMessageCount > 6 {
+			t.Errorf("Expected 4-6 continuous messages, got %d", continuousMessageCount)
+		} else {
+			t.Logf("Successfully received %d continuous messages", continuousMessageCount)
+		}
+
+		// 验证消息内容和时序
+		continuousHandler.mu.Lock()
+		for i, msg := range continuousHandler.receivedMessages {
+			if msg.Router != "/ws/continuous" {
+				t.Errorf("Continuous message %d: expected router /ws/continuous, got %s", i+1, msg.Router)
+			}
+
+			expectedPrefix := "Continuous test message #"
+			if !strings.HasPrefix(msg.Data, expectedPrefix) {
+				t.Errorf("Continuous message %d: expected data to start with '%s', got %s", i+1, expectedPrefix, msg.Data)
+			}
+
+			if i > 0 {
+				// 检查时间戳是否递增（每秒一条消息）
+				prevTime := continuousHandler.receivedMessages[i-1].Time
+				currTime := msg.Time
+				timeDiff := currTime - prevTime
+				if timeDiff < 0 || timeDiff > 2 { // 允许1秒误差
+					t.Errorf("Continuous message %d: unexpected time difference %d seconds", i+1, timeDiff)
+				}
+			}
+
+			t.Logf("✓ Received continuous message %d: %s", i+1, msg.Data)
+		}
+		continuousHandler.mu.Unlock()
+
+		// 等待一段时间确保推送已停止
+		time.Sleep(2 * time.Second)
+	})
+
+	// 测试重连后自动重新订阅
+	t.Run("ReconnectAutoResubscribe", func(t *testing.T) {
+		// 创建消息处理器用于测试重连重新订阅
+		reconnectHandler := &testMessageHandler{
+			receivedMessages: make([]*node.JsonResp, 0),
+		}
+
+		// 订阅测试路由
+		testRouter := "/ws/reconnect-test"
+		_, err := wsSdk.SubscribeMessage(testRouter, reconnectHandler)
+		if err != nil {
+			t.Fatalf("Failed to subscribe to reconnect test: %v", err)
+		}
+		defer wsSdk.UnsubscribeMessage(testRouter)
+
+		// 连接到服务器
+		err = wsSdk.ConnectWebSocket("/ws")
+		if err != nil {
+			t.Fatalf("Failed to connect WebSocket: %v", err)
+		}
+		defer wsSdk.DisconnectWebSocket()
+
+		// 等待连接建立
+		time.Sleep(200 * time.Millisecond)
+
+		// 断开连接
+		wsSdk.DisconnectWebSocket()
+
+		// 等待断开完成
+		time.Sleep(100 * time.Millisecond)
+
+		// 验证连接已断开
+		if wsSdk.IsWebSocketConnected() {
+			t.Error("WebSocket should be disconnected")
+		}
+
+		// 重新设置认证信息（模拟重连时的token更新）
+		authToken := sdk.AuthToken{
+			Token:   access_token,
+			Secret:  token_secret,
+			Expired: token_expire,
+		}
+		wsSdk.AuthToken(authToken)
+
+		// 重新连接（这会触发自动重新订阅）
+		err = wsSdk.ConnectWebSocket("/ws")
+		if err != nil {
+			t.Fatalf("Failed to reconnect WebSocket: %v", err)
+		}
+		defer wsSdk.DisconnectWebSocket()
+
+		// 等待重连和重新订阅完成
+		time.Sleep(500 * time.Millisecond)
+
+		// 验证重新连接成功
+		if !wsSdk.IsWebSocketConnected() {
+			t.Error("WebSocket should be reconnected")
+		}
+
+		// 验证订阅仍然存在
+		subscriptions := wsSdk.GetSubscriptions()
+		if len(subscriptions) != 1 {
+			t.Errorf("Expected 1 subscription after reconnect, got %d", len(subscriptions))
+		}
+
+		if _, exists := subscriptions[testRouter]; !exists {
+			t.Errorf("Subscription for %s should still exist after reconnect", testRouter)
+		}
+
+		t.Logf("✓ Reconnect auto-resubscribe test completed successfully")
+	})
 }

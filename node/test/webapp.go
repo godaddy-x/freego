@@ -179,7 +179,7 @@ func NewHTTP() *MyWebNode {
 		TokenTyp: jwt.JWT,
 		TokenAlg: jwt.HS256,
 		TokenKey: "123456" + utils.CreateLocalSecretKey(12, 45, 23, 60, 58, 30),
-		TokenExp: jwt.TWO_WEEK,
+		TokenExp: jwt.TWO_WEEK * 10,
 	})
 
 	// 增加双向验签的ECDSA

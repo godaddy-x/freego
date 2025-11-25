@@ -28,9 +28,8 @@ import (
 
 // WebSocket专用常量
 const (
-	pingCmd         = "ws-health-check" // 心跳检测命令
-	DefaultWsRoute  = "/ws"             // 默认WebSocket路由路径
-	WS_MAX_BODY_LEN = 1024 * 1024       // 1MB
+	DefaultWsRoute  = "/ws"       // 默认WebSocket路由路径
+	WS_MAX_BODY_LEN = 1024 * 1024 // 1MB
 )
 
 // ConnectionUniquenessMode 连接唯一性模式
@@ -908,6 +907,11 @@ func (s *WsServer) startMetricsLogger() {
 	}
 }
 
+// GetConnManager 获取连接管理器（用于测试）
+func (s *WsServer) GetConnManager() *ConnectionManager {
+	return s.connManager
+}
+
 // LogMetrics 记录当前监控指标到日志
 func (s *WsServer) LogMetrics() {
 	metrics := s.GetMetrics()
@@ -969,8 +973,8 @@ func (s *WsServer) StopWebsocket() error {
 }
 
 func (s *WsServer) serveHTTP(ctx *fasthttp.RequestCtx) {
-	path := string(ctx.Path())
-	method := string(ctx.Method())
+	path := utils.Bytes2Str(ctx.Path())
+	method := utils.Bytes2Str(ctx.Method())
 
 	if zlog.IsDebug() {
 		zlog.Debug("HTTP_REQUEST_RECEIVED", 0,
