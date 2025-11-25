@@ -996,3 +996,277 @@ func TestWebSocketMessageSubscription(t *testing.T) {
 		t.Logf("✓ Reconnect auto-resubscribe test completed successfully")
 	})
 }
+
+// TestWebSocketMessageSizeLimit 测试消息大小限制
+func TestWebSocketMessageSizeLimit(t *testing.T) {
+	server := node.NewWsServer(node.SubjectDeviceUnique)
+	serverAddr := "localhost:8089"
+
+	access_token := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxOTkyODAwOTk4Mzg4NjYyMjczIiwiYXVkIjoiIiwiaXNzIjoiIiwiZGV2IjoiQVBQIiwianRpIjoiMjgyZjAwMmQtNTY3MS00YTlhLTgwMDMtMzA5ZmI0ZGNkNTZjIiwiZXh0IjoiIiwiaWF0IjowLCJleHAiOjE3NjUxNjUzNTd9.tbuDc+g0Scge9WNRDESF/acdMG7Fqwgu6F4vWgv69WQ="
+	token_secret := "nt/YcHhS6Y8npXInAhBr9PMdSNLZlGbNCfnqaQWo09HNd67Swoy0qHZeVqN2A42g/SHVoTWkLs3XQna8bEUxeA=="
+	token_expire := int64(1765165357)
+
+	server.AddRouter("/ws/user", func(ctx context.Context, connCtx *node.ConnectionContext, body []byte) (interface{}, error) {
+		return map[string]interface{}{"message": "success"}, nil
+	}, &node.RouterConfig{})
+
+	// 启动服务器
+	go func() {
+		if err := server.StartWebsocket(serverAddr); err != nil {
+			t.Errorf("Failed to start server: %v", err)
+		}
+	}()
+	defer server.StopWebsocket()
+	time.Sleep(100 * time.Millisecond)
+
+	// 初始化SDK
+	wsSdk := NewSocketSDK()
+
+	// 设置认证Token
+	authToken := sdk.AuthToken{
+		Token:   access_token,
+		Secret:  token_secret,
+		Expired: token_expire,
+	}
+	wsSdk.AuthToken(authToken)
+
+	// 连接WebSocket
+	err := wsSdk.ConnectWebSocket("/ws")
+	if err != nil {
+		t.Fatalf("Failed to connect: %v", err)
+	}
+	defer wsSdk.DisconnectWebSocket()
+
+	// 创建超过1MB的消息（大约1.1MB）
+	largeMessage := make([]byte, 1024*1024+100*1024) // 1.1MB
+	for i := range largeMessage {
+		largeMessage[i] = byte(i % 256)
+	}
+
+	requestObject := map[string]interface{}{
+		"data": string(largeMessage), // 将大字节数组转换为字符串
+	}
+	responseObject := &sdk.AuthToken{}
+
+	// 发送大消息，预期会失败
+	err = wsSdk.SendWebSocketMessage("/ws/user", requestObject, responseObject, true, true, 5)
+	if err == nil {
+		t.Error("Expected message size limit error, but got success")
+	} else {
+		t.Logf("✓ Message size limit correctly rejected large message: %v", err)
+	}
+}
+
+// TestWebSocketGracefulShutdownWithTimeout 测试带超时的优雅关闭
+func TestWebSocketGracefulShutdownWithTimeout(t *testing.T) {
+	server := node.NewWsServer(node.SubjectDeviceUnique)
+	serverAddr := "localhost:8090"
+
+	// 初始化连接池和心跳服务
+	if err := server.NewPool(100, 10, 5, 30); err != nil {
+		t.Fatalf("Failed to initialize pool: %v", err)
+	}
+
+	server.AddRouter("/ws/test", func(ctx context.Context, connCtx *node.ConnectionContext, body []byte) (interface{}, error) {
+		return map[string]interface{}{"message": "success"}, nil
+	}, &node.RouterConfig{})
+
+	// 启动服务器
+	go func() {
+		if err := server.StartWebsocket(serverAddr); err != nil {
+			t.Errorf("Failed to start server: %v", err)
+		}
+	}()
+
+	// 等待服务器启动
+	time.Sleep(200 * time.Millisecond)
+
+	// 使用带超时的优雅关闭
+	err := server.StopWebsocketWithTimeout(3 * time.Second)
+	if err != nil {
+		t.Errorf("StopWebsocketWithTimeout failed: %v", err)
+	}
+
+	t.Logf("✓ Graceful shutdown with timeout completed successfully")
+}
+
+// TestWebSocketConnectionHealthCheck 测试连接健康检查功能
+func TestWebSocketConnectionHealthCheck(t *testing.T) {
+	// 创建连接管理器
+	cm := &node.ConnectionManager{}
+
+	// 添加一个模拟连接（用于测试）
+	mockConn := &node.DevConn{
+		Sub:  "test_subject",
+		Dev:  "test_device",
+		Last: utils.UnixSecond(),
+		Conn: nil, // 设置为nil来测试非活跃连接
+	}
+
+	// 使用测试方法添加连接
+	cm.AddTestConnection("test_subject", "test_subject_test_device", mockConn)
+
+	// 执行健康检查
+	healthStats := cm.HealthCheck()
+
+	// 验证健康检查结果
+	t.Logf("Health check stats: %+v", healthStats)
+
+	// 应该返回统计结果
+	if len(healthStats) == 0 {
+		t.Error("Expected health check to return stats")
+	}
+
+	// test_subject应该有0个活跃连接（因为Conn为nil）
+	if count, exists := healthStats["test_subject"]; !exists {
+		t.Error("Expected test_subject in health stats")
+	} else if count != 0 {
+		t.Errorf("Expected 0 active connections for test_subject, got %d", count)
+	}
+
+	t.Logf("✓ Connection health check completed successfully")
+}
+
+// TestDevConnConcurrentSafety 测试DevConn的并发安全性
+func TestDevConnConcurrentSafety(t *testing.T) {
+	// 创建一个模拟的DevConn（Conn为nil，用于测试锁机制）
+	devConn := &node.DevConn{
+		Sub:  "test_subject",
+		Dev:  "test_device",
+		Last: utils.UnixSecond(),
+		Conn: nil, // 设置为nil，IsActive会直接返回false，但会执行锁逻辑
+	}
+
+	// 并发测试：多个goroutine同时调用IsActive
+	const numGoroutines = 10
+	const numCalls = 100
+
+	done := make(chan bool, numGoroutines)
+	errorChan := make(chan error, numGoroutines*numCalls)
+
+	for i := 0; i < numGoroutines; i++ {
+		go func(id int) {
+			defer func() { done <- true }()
+
+			for j := 0; j < numCalls; j++ {
+				// 调用IsActive，会尝试获取sendMu锁
+				active := devConn.IsActive()
+				// 由于Conn为nil，IsActive应该返回false
+				if active {
+					errorChan <- fmt.Errorf("goroutine %d call %d: expected false but got true", id, j)
+					return
+				}
+
+				// 模拟一些处理时间
+				time.Sleep(time.Microsecond)
+			}
+		}(i)
+	}
+
+	// 等待所有goroutine完成
+	for i := 0; i < numGoroutines; i++ {
+		<-done
+	}
+
+	// 检查是否有错误
+	close(errorChan)
+	var errors []error
+	for err := range errorChan {
+		errors = append(errors, err)
+	}
+
+	if len(errors) > 0 {
+		t.Errorf("Concurrent IsActive calls failed with %d errors:", len(errors))
+		for i, err := range errors {
+			t.Errorf("  Error %d: %v", i+1, err)
+		}
+	} else {
+		t.Logf("✓ %d goroutines with %d calls each completed successfully without race conditions", numGoroutines, numCalls)
+	}
+}
+
+// TestWebSocketErrorHandling 测试错误处理的上下文信息记录
+func TestWebSocketErrorHandling(t *testing.T) {
+	server := node.NewWsServer(node.SubjectDeviceUnique)
+	serverAddr := "localhost:8092"
+
+	// 添加JWT配置
+	server.AddJwtConfig(jwt.JwtConfig{
+		TokenTyp: jwt.JWT,
+		TokenAlg: jwt.HS256,
+		TokenKey: "123456" + utils.CreateLocalSecretKey(12, 45, 23, 60, 58, 30),
+		TokenExp: jwt.TWO_WEEK,
+	})
+
+	// 增加双向验签的ECDSA
+	cipher, _ := crypto.CreateS256ECDSAWithBase64(serverPrk, clientPub)
+	server.AddCipher(cipher)
+
+	// 初始化连接池和心跳服务
+	if err := server.NewPool(100, 10, 5, 30); err != nil {
+		t.Fatalf("Failed to initialize pool: %v", err)
+	}
+
+	server.AddRouter("/ws/test", func(ctx context.Context, connCtx *node.ConnectionContext, body []byte) (interface{}, error) {
+		return map[string]interface{}{"message": "success"}, nil
+	}, &node.RouterConfig{})
+
+	// 添加一个会失败的路由来触发错误处理
+	server.AddRouter("/ws/error", func(ctx context.Context, connCtx *node.ConnectionContext, body []byte) (interface{}, error) {
+		return nil, fmt.Errorf("test error for error handling")
+	}, &node.RouterConfig{})
+
+	// 启动服务器
+	go func() {
+		if err := server.StartWebsocket(serverAddr); err != nil {
+			t.Errorf("Failed to start server: %v", err)
+		}
+	}()
+	defer server.StopWebsocket()
+	time.Sleep(200 * time.Millisecond)
+
+	// 初始化SDK并建立连接
+	wsSdk := NewSocketSDK()
+	wsSdk.Domain = serverAddr
+	authToken := sdk.AuthToken{
+		Token:   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxOTkyODAwOTk4Mzg4NjYyMjczIiwiYXVkIjoiIiwiaXNzIjoiIiwiZGV2IjoiQVBQIiwianRpIjoiMjgyZjAwMmQtNTY3MS00YTlhLTgwMDMtMzA5ZmI0ZGNkNTZjIiwiZXh0IjoiIiwiaWF0IjowLCJleHAiOjE3NjUxNjUzNTd9.tbuDc+g0Scge9WNRDESF/acdMG7Fqwgu6F4vWgv69WQ=",
+		Secret:  "nt/YcHhS6Y8npXInAhBr9PMdSNLZlGbNCfnqaQWo09HNd67Swoy0qHZeVqN2A42g/SHVoTWkLs3XQna8bEUxeA==",
+		Expired: int64(1765165357),
+	}
+	wsSdk.AuthToken(authToken)
+
+	err := wsSdk.ConnectWebSocket("/ws")
+	if err != nil {
+		t.Fatalf("Failed to connect: %v", err)
+	}
+	defer wsSdk.DisconnectWebSocket()
+
+	// 发送请求到会失败的路由，触发错误处理
+	requestObject := map[string]interface{}{"test": "error"}
+	responseObject := &sdk.AuthToken{}
+
+	// 发送到错误路由，应该会记录详细的错误日志
+	err = wsSdk.SendWebSocketMessage("/ws/error", requestObject, responseObject, true, true, 5)
+	if err == nil {
+		t.Error("Expected error from /ws/error route, but got success")
+	}
+
+	t.Logf("✓ Error handling test completed - check logs for detailed context information")
+}
+
+// BenchmarkMessageHandlerPool 基准测试：MessageHandler对象池性能
+func BenchmarkMessageHandlerPool(b *testing.B) {
+	// 模拟RSA密钥列表和路由处理器
+	var mockRSA []crypto.Cipher
+	mockHandle := node.Handle(func(ctx context.Context, connCtx *node.ConnectionContext, body []byte) (interface{}, error) {
+		return map[string]interface{}{"result": "ok"}, nil
+	})
+
+	b.Run("WithPool", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			mh := node.GetMessageHandler(mockRSA, mockHandle)
+			node.PutMessageHandler(mh)
+		}
+	})
+}

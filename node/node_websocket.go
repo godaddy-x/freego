@@ -129,6 +129,20 @@ type DevConn struct {
 	cancel context.CancelFunc // 上下文取消函数，用于终止相关goroutine
 }
 
+// IsActive 检查连接是否活跃（通过发送ping消息）
+func (dc *DevConn) IsActive() bool {
+	dc.sendMu.Lock()
+	defer dc.sendMu.Unlock() // 确保锁释放，即使WriteControl报错
+
+	if dc.Conn == nil {
+		return false
+	}
+
+	// 发送ping消息检查连接活性，1秒超时
+	err := dc.Conn.WriteControl(fasthttpWs.PingMessage, nil, time.Now().Add(1*time.Second))
+	return err == nil
+}
+
 // RouteInfo WebSocket路由信息结构体
 type RouteInfo struct {
 	Handle       Handle        // 业务处理器
@@ -197,7 +211,26 @@ type ErrorHandler struct {
 }
 
 func (eh *ErrorHandler) handleConnectionError(connCtx *ConnectionContext, err error, operation string) {
-	zlog.Error(operation+"_failed", 0, zlog.AddError(err))
+	// 准备上下文信息
+	userID := connCtx.GetUserIDString()
+	remoteAddr := ""
+	if connCtx.WsConn != nil {
+		remoteAddr = connCtx.WsConn.RemoteAddr().String()
+	}
+	deviceID := ""
+	if connCtx.DevConn != nil {
+		deviceID = connCtx.DevConn.Dev
+	}
+	connectionPath := connCtx.Path
+
+	// 添加更多上下文信息到错误日志
+	zlog.Error(operation+"_failed", 0,
+		zlog.AddError(err),
+		zlog.String("operation", operation),
+		zlog.String("user_id", userID),
+		zlog.String("remote_addr", remoteAddr),
+		zlog.String("device_id", deviceID),
+		zlog.String("connection_path", connectionPath))
 
 	// 尝试发送错误响应
 	if ws := connCtx.WsConn; ws != nil {
@@ -257,11 +290,6 @@ func (cv *ConfigValidator) validatePoolConfig(maxConn, limit, bucket, ping int) 
 	}
 	return nil
 }
-
-// 假设这些类型在其他文件中定义，如果没有请取消注释
-// type JsonResp struct { Code int; Message, Data, Nonce string; Time, Plan int64; Sign string }
-// type JsonBody struct { Data, Nonce, Sign string; Time, Plan int64 }
-// type HookNode struct{} // 如果未使用，可以移除
 
 // -------------------------- ConnectionManager 实现 --------------------------
 
@@ -402,6 +430,38 @@ func (cm *ConnectionManager) RemoveWithCallback(subject, deviceKey string, callb
 	}
 }
 
+// HealthCheck 健康检查：返回每个subject的活跃连接数统计
+func (cm *ConnectionManager) HealthCheck() map[string]int {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+
+	stats := make(map[string]int)
+	for subject, conns := range cm.conns {
+		active := 0
+		for _, conn := range conns {
+			if conn.IsActive() {
+				active++
+			}
+		}
+		stats[subject] = active
+	}
+	return stats
+}
+
+// AddTestConnection 添加测试连接（仅用于单元测试）
+func (cm *ConnectionManager) AddTestConnection(subject, deviceKey string, conn *DevConn) {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	if cm.conns == nil {
+		cm.conns = make(map[string]map[string]*DevConn)
+	}
+	if cm.conns[subject] == nil {
+		cm.conns[subject] = make(map[string]*DevConn)
+	}
+	cm.conns[subject][deviceKey] = conn
+}
+
 // CleanupExpired 清理过期连接
 func (cm *ConnectionManager) CleanupExpired(timeoutSeconds int64) int {
 	cleaned := 0
@@ -477,7 +537,20 @@ func NewMessageHandler(rsa []crypto.Cipher, handle Handle) *MessageHandler {
 	}
 }
 
+// validateMessageSize 验证消息大小，防止恶意消息攻击
+func (mh *MessageHandler) validateMessageSize(body []byte) error {
+	if len(body) > WS_MAX_BODY_LEN {
+		return ex.Throw{Code: fasthttp.StatusRequestEntityTooLarge, Msg: "message too large"}
+	}
+	return nil
+}
+
 func (mh *MessageHandler) Process(connCtx *ConnectionContext, body []byte) (crypto.Cipher, interface{}, error) {
+	// 验证消息大小，防止恶意消息攻击
+	if err := mh.validateMessageSize(body); err != nil {
+		return nil, nil, err
+	}
+
 	// 解析WebSocket消息体
 	if err := utils.JsonUnmarshal(body, connCtx.JsonBody); err != nil {
 		// 解析失败时释放对象回到池中
@@ -972,6 +1045,43 @@ func (s *WsServer) StopWebsocket() error {
 	return nil
 }
 
+// GetConnectionManager 获取连接管理器（用于健康检查等操作）
+func (s *WsServer) GetConnectionManager() *ConnectionManager {
+	return s.connManager
+}
+
+// StopWebsocketWithTimeout 带超时的优雅关闭
+func (s *WsServer) StopWebsocketWithTimeout(timeout time.Duration) error {
+	if zlog.IsDebug() {
+		zlog.Debug("stopping websocket server with timeout...", 0, zlog.Duration("timeout", timeout))
+	}
+
+	// 停止心跳服务
+	if s.heartbeatSvc != nil {
+		s.heartbeatSvc.Stop()
+	}
+
+	// 通知所有连接优雅关闭
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if s.connManager != nil {
+			s.connManager.CleanupAll()
+		}
+	}()
+
+	// 等待连接关闭完成或超时
+	select {
+	case <-done:
+		zlog.Info("all connections closed gracefully", 0)
+	case <-time.After(timeout):
+		zlog.Warn("graceful shutdown timeout, forcing close", 0, zlog.Duration("timeout", timeout))
+	}
+
+	// 执行标准关闭流程
+	return s.StopWebsocket()
+}
+
 func (s *WsServer) serveHTTP(ctx *fasthttp.RequestCtx) {
 	path := utils.Bytes2Str(ctx.Path())
 	method := utils.Bytes2Str(ctx.Method())
@@ -1121,7 +1231,8 @@ func (s *WsServer) handleConnectionLoop(connCtx *ConnectionContext, handle Handl
 	if zlog.IsDebug() {
 		zlog.Debug("STARTING_MESSAGE_LOOP", 0, zlog.String("client", connCtx.WsConn.RemoteAddr().String()))
 	}
-	messageHandler := NewMessageHandler(s.RSA, handle)
+	messageHandler := GetMessageHandler(s.RSA, handle)
+	defer PutMessageHandler(messageHandler) // 连接结束时释放MessageHandler
 
 	for {
 		select {
