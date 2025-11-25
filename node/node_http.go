@@ -454,11 +454,11 @@ func defaultRenderError(ctx *Context, err error) error {
 			zlog.Error("response error handle failed", 0, zlog.String("path", ctx.Path), zlog.String("errMsg", err.Error()))
 		}
 	}
-	resp := &JsonResp{
-		Code:    out.Code,
-		Message: ErrorMsgToLang(ctx, out.Msg, out.Arg...),
-		Time:    utils.UnixSecond(),
-	}
+	resp := GetJsonResp()
+	defer PutJsonResp(resp) // 确保对象池正确释放
+	resp.Code = out.Code
+	resp.Message = ErrorMsgToLang(ctx, out.Msg, out.Arg...)
+	resp.Time = utils.UnixSecond()
 	if !ctx.Authenticated() {
 		resp.Nonce = utils.RandNonce()
 	} else {
@@ -542,11 +542,11 @@ func defaultRenderPre(ctx *Context) error {
 				return ex.Throw{Code: http.StatusInternalServerError, Msg: "response conversion JSON failed", Err: err}
 			}
 		}
-		resp := &JsonResp{
-			Code:  http.StatusOK,
-			Time:  utils.UnixSecond(),
-			Nonce: utils.RandNonce(),
-		}
+		resp := GetJsonResp()
+		defer PutJsonResp(resp) // 确保对象池正确释放
+		resp.Code = http.StatusOK
+		resp.Time = utils.UnixSecond()
+		resp.Nonce = utils.RandNonce()
 		var sign []byte
 		if routerConfig.UseRSA { // 非登录状态响应
 			if ctx.JsonBody.Plan == 2 {
