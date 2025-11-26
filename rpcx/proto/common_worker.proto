@@ -1,0 +1,40 @@
+syntax = "proto3";
+package pub_worker;
+option go_package = "/rpcx/pb";
+import "google/protobuf/any.proto";
+
+message CommonRequest {
+  google.protobuf.Any d = 1; // 数据载体
+  string n = 2;              // 随机数
+  string s = 3;              // 数据签名
+  int64 t = 4;               // 时间戳
+  string e = 5;              // ECDSA签名
+  string r = 6;              // 访问路由
+  int64 p = 7;               // 计划类型
+}
+
+message CommonResponse {
+  google.protobuf.Any d = 1; // 数据载体
+  string n = 2;              // 随机数
+  string s = 3;              // 数据签名
+  int64 t = 4;               // 时间戳
+  string e = 5;              // ECDSA签名
+  string r = 6;              // 访问路由
+  int64 p = 7;               // 计划类型
+  int64 c = 8;               // 响应代码
+  string m = 9;              // 业务消息
+}
+
+message TestRequest {
+  string message = 1;
+  int64 timestamp = 2;
+}
+
+message TestResponse {
+  string reply = 1;
+  int64 server_time = 2;
+}
+
+service CommonWorker{
+  rpc Do(CommonRequest) returns (CommonResponse){}
+}
