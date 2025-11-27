@@ -281,8 +281,8 @@ func (cv *ConfigValidator) validateRouterConfig(path string, handle Handle) erro
 	if handle == nil {
 		return utils.Error("router handle function cannot be nil")
 	}
-	return nil
-}
+		return nil
+	}
 
 func (cv *ConfigValidator) validatePoolConfig(maxConn, limit, bucket, ping int) error {
 	if maxConn <= 0 || limit <= 0 || bucket <= 0 || ping <= 0 {
@@ -342,8 +342,8 @@ func (cm *ConnectionManager) Add(conn *DevConn) error {
 	}
 
 	atomic.AddInt32(&cm.totalConn, 1)
-	return nil
-}
+		return nil
+	}
 
 // Remove 移除连接
 func (cm *ConnectionManager) Remove(subject, deviceKey string) {
@@ -542,8 +542,8 @@ func (mh *MessageHandler) validateMessageSize(body []byte) error {
 	if len(body) > WS_MAX_BODY_LEN {
 		return ex.Throw{Code: fasthttp.StatusRequestEntityTooLarge, Msg: "message too large"}
 	}
-	return nil
-}
+		return nil
+	}
 
 func (mh *MessageHandler) Process(connCtx *ConnectionContext, body []byte) (crypto.Cipher, interface{}, error) {
 	// 验证消息大小，防止恶意消息攻击
@@ -852,8 +852,8 @@ func (s *WsServer) AddRouter(path string, handle Handle, routerConfig *RouterCon
 		Handle:       handle,
 		RouterConfig: routerConfig,
 	}
-	return nil
-}
+		return nil
+	}
 
 func (s *WsServer) NewPool(maxConn, limit, bucket, ping int) error {
 	if err := s.configValidator.validatePoolConfig(maxConn, limit, bucket, ping); err != nil {
@@ -868,8 +868,8 @@ func (s *WsServer) NewPool(maxConn, limit, bucket, ping int) error {
 
 	pingDuration := time.Duration(ping) * time.Second
 	s.heartbeatSvc = NewHeartbeatService(pingDuration, s.idleTimeout, s.connManager)
-	return nil
-}
+		return nil
+	}
 
 // SetIdleTimeout 设置连接空闲超时时间
 func (s *WsServer) SetIdleTimeout(timeout time.Duration) {
@@ -1099,8 +1099,8 @@ func (s *WsServer) serveHTTP(ctx *fasthttp.RequestCtx) {
 	if !exists || routeInfo.Handle == nil {
 		zlog.Error("NO_DEFAULT_ROUTE_CONFIGURED", 0, zlog.String("expected_route", DefaultWsRoute))
 		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
-		return
-	}
+			return
+		}
 	defaultHandle := routeInfo.Handle
 
 	zlog.Info("WEBSOCKET_UPGRADE_ATTEMPT", 0,
@@ -1109,14 +1109,14 @@ func (s *WsServer) serveHTTP(ctx *fasthttp.RequestCtx) {
 	if s.limiter != nil && !s.limiter.Allow() {
 		ctx.SetStatusCode(fasthttp.StatusTooManyRequests)
 		ctx.SetBodyString("too many connections")
-		return
-	}
+			return
+		}
 
 	if err := s.upgrader.Upgrade(ctx, func(ws *fasthttpWs.Conn) {
 		// 使用默认配置，因为路由现在在消息级别确定
 		defaultConfig := &RouterConfig{}
 		connCtx, err := s.initializeConnection(ctx, ws, path, defaultConfig)
-		if err != nil {
+			if err != nil {
 			zlog.Error("failed to initialize connection", 0, zlog.AddError(err))
 			ws.Close() // 关闭WebSocket连接
 			return

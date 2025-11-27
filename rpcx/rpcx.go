@@ -26,12 +26,6 @@ type RPCManager struct {
 	localCache cache.Cache
 }
 
-type AuthToken struct {
-	Token  string `json:"token"`
-	Secret string `json:"secret"`
-	Expire int64  `json:"expire"`
-}
-
 // NewRPCManager 创建GRPC管理器
 func NewRPCManager() *RPCManager {
 	return &RPCManager{}
@@ -88,7 +82,8 @@ func (g *RPCManager) StartServer(addr string) error {
 	if g.redisCache != nil {
 		zlog.Printf("redis cache service has been started successful")
 	}
-	if g.localCache != nil {
+	if g.localCache == nil {
+		g.localCache = cache.NewLocalCache(30, 10)
 		zlog.Printf("local cache service has been started successful")
 	}
 	if g.RSA != nil {

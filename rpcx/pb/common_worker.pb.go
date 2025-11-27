@@ -25,10 +25,10 @@ const (
 type CommonRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	D             *anypb.Any             `protobuf:"bytes,1,opt,name=d,proto3" json:"d,omitempty"`  // 数据载体
-	N             string                 `protobuf:"bytes,2,opt,name=n,proto3" json:"n,omitempty"`  // 随机数
-	S             string                 `protobuf:"bytes,3,opt,name=s,proto3" json:"s,omitempty"`  // 数据签名
+	N             []byte                 `protobuf:"bytes,2,opt,name=n,proto3" json:"n,omitempty"`  // 随机数
+	S             []byte                 `protobuf:"bytes,3,opt,name=s,proto3" json:"s,omitempty"`  // 数据签名
 	T             int64                  `protobuf:"varint,4,opt,name=t,proto3" json:"t,omitempty"` // 时间戳
-	E             string                 `protobuf:"bytes,5,opt,name=e,proto3" json:"e,omitempty"`  // ECDSA签名
+	E             []byte                 `protobuf:"bytes,5,opt,name=e,proto3" json:"e,omitempty"`  // ECDSA签名
 	R             string                 `protobuf:"bytes,6,opt,name=r,proto3" json:"r,omitempty"`  // 访问路由
 	P             int64                  `protobuf:"varint,7,opt,name=p,proto3" json:"p,omitempty"` // 计划类型
 	unknownFields protoimpl.UnknownFields
@@ -72,18 +72,18 @@ func (x *CommonRequest) GetD() *anypb.Any {
 	return nil
 }
 
-func (x *CommonRequest) GetN() string {
+func (x *CommonRequest) GetN() []byte {
 	if x != nil {
 		return x.N
 	}
-	return ""
+	return nil
 }
 
-func (x *CommonRequest) GetS() string {
+func (x *CommonRequest) GetS() []byte {
 	if x != nil {
 		return x.S
 	}
-	return ""
+	return nil
 }
 
 func (x *CommonRequest) GetT() int64 {
@@ -93,11 +93,11 @@ func (x *CommonRequest) GetT() int64 {
 	return 0
 }
 
-func (x *CommonRequest) GetE() string {
+func (x *CommonRequest) GetE() []byte {
 	if x != nil {
 		return x.E
 	}
-	return ""
+	return nil
 }
 
 func (x *CommonRequest) GetR() string {
@@ -117,10 +117,10 @@ func (x *CommonRequest) GetP() int64 {
 type CommonResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	D             *anypb.Any             `protobuf:"bytes,1,opt,name=d,proto3" json:"d,omitempty"`  // 数据载体
-	N             string                 `protobuf:"bytes,2,opt,name=n,proto3" json:"n,omitempty"`  // 随机数
-	S             string                 `protobuf:"bytes,3,opt,name=s,proto3" json:"s,omitempty"`  // 数据签名
+	N             []byte                 `protobuf:"bytes,2,opt,name=n,proto3" json:"n,omitempty"`  // 随机数
+	S             []byte                 `protobuf:"bytes,3,opt,name=s,proto3" json:"s,omitempty"`  // 数据签名
 	T             int64                  `protobuf:"varint,4,opt,name=t,proto3" json:"t,omitempty"` // 时间戳
-	E             string                 `protobuf:"bytes,5,opt,name=e,proto3" json:"e,omitempty"`  // ECDSA签名
+	E             []byte                 `protobuf:"bytes,5,opt,name=e,proto3" json:"e,omitempty"`  // ECDSA签名
 	R             string                 `protobuf:"bytes,6,opt,name=r,proto3" json:"r,omitempty"`  // 访问路由
 	P             int64                  `protobuf:"varint,7,opt,name=p,proto3" json:"p,omitempty"` // 计划类型
 	C             int64                  `protobuf:"varint,8,opt,name=c,proto3" json:"c,omitempty"` // 响应代码
@@ -166,18 +166,18 @@ func (x *CommonResponse) GetD() *anypb.Any {
 	return nil
 }
 
-func (x *CommonResponse) GetN() string {
+func (x *CommonResponse) GetN() []byte {
 	if x != nil {
 		return x.N
 	}
-	return ""
+	return nil
 }
 
-func (x *CommonResponse) GetS() string {
+func (x *CommonResponse) GetS() []byte {
 	if x != nil {
 		return x.S
 	}
-	return ""
+	return nil
 }
 
 func (x *CommonResponse) GetT() int64 {
@@ -187,11 +187,11 @@ func (x *CommonResponse) GetT() int64 {
 	return 0
 }
 
-func (x *CommonResponse) GetE() string {
+func (x *CommonResponse) GetE() []byte {
 	if x != nil {
 		return x.E
 	}
-	return ""
+	return nil
 }
 
 func (x *CommonResponse) GetR() string {
@@ -334,18 +334,18 @@ const file_rpcx_proto_common_worker_proto_rawDesc = "" +
 	"pub_worker\x1a\x19google/protobuf/any.proto\"\x87\x01\n" +
 	"\rCommonRequest\x12\"\n" +
 	"\x01d\x18\x01 \x01(\v2\x14.google.protobuf.AnyR\x01d\x12\f\n" +
-	"\x01n\x18\x02 \x01(\tR\x01n\x12\f\n" +
-	"\x01s\x18\x03 \x01(\tR\x01s\x12\f\n" +
+	"\x01n\x18\x02 \x01(\fR\x01n\x12\f\n" +
+	"\x01s\x18\x03 \x01(\fR\x01s\x12\f\n" +
 	"\x01t\x18\x04 \x01(\x03R\x01t\x12\f\n" +
-	"\x01e\x18\x05 \x01(\tR\x01e\x12\f\n" +
+	"\x01e\x18\x05 \x01(\fR\x01e\x12\f\n" +
 	"\x01r\x18\x06 \x01(\tR\x01r\x12\f\n" +
 	"\x01p\x18\a \x01(\x03R\x01p\"\xa4\x01\n" +
 	"\x0eCommonResponse\x12\"\n" +
 	"\x01d\x18\x01 \x01(\v2\x14.google.protobuf.AnyR\x01d\x12\f\n" +
-	"\x01n\x18\x02 \x01(\tR\x01n\x12\f\n" +
-	"\x01s\x18\x03 \x01(\tR\x01s\x12\f\n" +
+	"\x01n\x18\x02 \x01(\fR\x01n\x12\f\n" +
+	"\x01s\x18\x03 \x01(\fR\x01s\x12\f\n" +
 	"\x01t\x18\x04 \x01(\x03R\x01t\x12\f\n" +
-	"\x01e\x18\x05 \x01(\tR\x01e\x12\f\n" +
+	"\x01e\x18\x05 \x01(\fR\x01e\x12\f\n" +
 	"\x01r\x18\x06 \x01(\tR\x01r\x12\f\n" +
 	"\x01p\x18\a \x01(\x03R\x01p\x12\f\n" +
 	"\x01c\x18\b \x01(\x03R\x01c\x12\f\n" +

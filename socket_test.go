@@ -675,9 +675,9 @@ func TestWebSocketMessageSubscription(t *testing.T) {
 
 	go func() {
 		defer func() { serverDoneCh <- true }()
-		if err := server.StartWebsocket(serverAddr); err != nil {
-			t.Errorf("Server start failed: %v", err)
-		}
+	if err := server.StartWebsocket(serverAddr); err != nil {
+		t.Errorf("Server start failed: %v", err)
+	}
 	}()
 
 	// 等待服务器启动
