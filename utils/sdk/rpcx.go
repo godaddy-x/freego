@@ -46,7 +46,9 @@ type RPC struct {
 	cacheObject cache.Cache
 }
 
-// NewRPC 创建gRPC客户端SDK实例
+// NewRPC 创建gRPC客户端SDK实例，初始化默认配置
+// address: gRPC服务地址，格式如 "localhost:9090"
+// 返回: 配置了默认参数的RPC客户端实例
 func NewRPC(address string) *RPC {
 	return &RPC{
 		Address:  address,
@@ -56,25 +58,33 @@ func NewRPC(address string) *RPC {
 	}
 }
 
-// SetSSL 设置SSL/TLS连接
+// SetSSL 配置是否启用SSL/TLS安全连接
+// ssl: true启用SSL/TLS连接，false使用明文连接
+// 返回: RPC实例，支持链式调用
 func (r *RPC) SetSSL(ssl bool) *RPC {
 	r.SSL = ssl
 	return r
 }
 
-// SetTimeout 设置请求超时时间(秒)
+// SetTimeout 设置gRPC请求的超时时间
+// timeout: 超时时间(秒)，必须大于0
+// 返回: RPC实例，支持链式调用
 func (r *RPC) SetTimeout(timeout int64) *RPC {
 	r.timeout = timeout
 	return r
 }
 
-// SetLanguage 设置语言
+// SetLanguage 设置客户端语言标识，用于国际化支持
+// language: 语言代码，如 "zh-CN"、"en-US"
+// 返回: RPC实例，支持链式调用
 func (r *RPC) SetLanguage(language string) *RPC {
 	r.language = language
 	return r
 }
 
-// AddCipher 添加ECDSA签名验证器
+// AddCipher 添加ECDSA密钥对用于双向签名验证
+// cipher: ECDSA加密器实例，包含公钥和私钥
+// 返回: RPC实例，支持链式调用
 func (r *RPC) AddCipher(cipher crypto.Cipher) *RPC {
 	if cipher != nil {
 		r.ecdsaObject = append(r.ecdsaObject, cipher)
@@ -82,13 +92,16 @@ func (r *RPC) AddCipher(cipher crypto.Cipher) *RPC {
 	return r
 }
 
-// AddLocalCache 添加缓存实例
+// AddLocalCache 设置本地缓存实例，用于存储共享密钥等临时数据
+// c: 缓存接口实现，通常使用本地缓存实例
+// 返回: RPC实例，支持链式调用
 func (r *RPC) AddLocalCache(c cache.Cache) *RPC {
 	r.cacheObject = c
 	return r
 }
 
-// Connect 建立gRPC连接
+// Connect 建立与gRPC服务器的安全连接，执行必要的参数验证
+// 返回: 连接成功返回nil，否则返回错误信息
 func (r *RPC) Connect() error {
 	if r.conn != nil {
 		return nil // 已连接
@@ -135,7 +148,8 @@ func (r *RPC) Connect() error {
 	return nil
 }
 
-// Close 关闭gRPC连接
+// Close 安全关闭gRPC连接，确保只关闭一次以避免重复关闭错误
+// 返回: 关闭成功返回nil，否则返回关闭过程中的错误
 func (r *RPC) Close() error {
 	var err error
 	r.closeOnce.Do(func() {
@@ -149,12 +163,23 @@ func (r *RPC) Close() error {
 	return err
 }
 
-// Call 发送RPC请求
+// Call 发送gRPC业务请求，使用默认超时时间
+// router: 业务路由标识符，用于服务端路由分发
+// requestObj: 请求数据对象，实现proto.Message接口
+// responseObj: 响应数据对象，实现proto.Message接口，用于接收服务端返回数据
+// encrypted: 是否启用AES-GCM加密传输
+// 返回: 请求成功返回nil，否则返回错误信息
 func (r *RPC) Call(router string, requestObj, responseObj proto.Message, encrypted bool) error {
 	return r.CallWithTimeout(router, requestObj, responseObj, encrypted, r.timeout)
 }
 
-// CallWithTimeout 发送RPC请求
+// CallWithTimeout 发送gRPC业务请求，指定自定义超时时间
+// router: 业务路由标识符，用于服务端路由分发
+// requestObj: 请求数据对象，实现proto.Message接口
+// responseObj: 响应数据对象，实现proto.Message接口，用于接收服务端返回数据
+// encrypted: 是否启用AES-GCM加密传输
+// timeout: 请求超时时间(秒)
+// 返回: 请求成功返回nil，否则返回错误信息
 func (r *RPC) CallWithTimeout(router string, requestObj, responseObj proto.Message, encrypted bool, timeout int64) error {
 	if encrypted {
 		return r.post(router, requestObj, responseObj, 1, timeout)
@@ -163,7 +188,13 @@ func (r *RPC) CallWithTimeout(router string, requestObj, responseObj proto.Messa
 	}
 }
 
-// 内部请求方法
+// post 内部gRPC请求处理方法，实现完整的请求-响应生命周期
+// router: 业务路由标识符
+// requestObj: 请求数据对象
+// responseObj: 响应数据对象
+// plan: 加密标识，0表示明文，1表示密文
+// timeout: 请求超时时间(秒)
+// 返回: 请求成功返回nil，否则返回详细错误信息
 func (r *RPC) post(router string, requestObj, responseObj proto.Message, plan, timeout int64) error {
 
 	// 获取基础的加密参数
@@ -266,7 +297,9 @@ func (r *RPC) post(router string, requestObj, responseObj proto.Message, plan, t
 	return nil
 }
 
-// verifyResponse 验证响应签名
+// verifyResponse 验证服务端响应数据的完整性和真实性
+// resp: 服务端返回的通用响应对象
+// 返回: 验证成功返回nil，否则返回验证失败的具体错误
 func (r *RPC) verifyResponse(resp *pb.CommonResponse) error {
 	for _, cipher := range r.ecdsaObject {
 		if err := cipher.Verify(resp.S, resp.E); err == nil {

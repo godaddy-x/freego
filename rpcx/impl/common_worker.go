@@ -35,7 +35,8 @@ type CommonWorker struct {
 	ConfigProvider ConfigProvider // 配置提供者接口
 }
 
-// GetRSA 获取RSA密钥列表
+// GetRSA 获取RSA/ECDSA密钥对列表，用于数字签名验证
+// 返回: 配置的RSA密钥列表，如果ConfigProvider未设置则返回nil
 func (self *CommonWorker) GetRSA() []crypto.Cipher {
 	if self.ConfigProvider != nil {
 		return self.ConfigProvider.GetRSA()
@@ -43,7 +44,8 @@ func (self *CommonWorker) GetRSA() []crypto.Cipher {
 	return nil
 }
 
-// GetLocalCache 获取本地缓存
+// GetLocalCache 获取本地缓存实例，用于存储共享密钥等临时数据
+// 返回: 本地缓存实例，如果ConfigProvider未设置则返回nil
 func (self *CommonWorker) GetLocalCache() cache.Cache {
 	if self.ConfigProvider != nil {
 		return self.ConfigProvider.GetLocalCache()
@@ -51,7 +53,8 @@ func (self *CommonWorker) GetLocalCache() cache.Cache {
 	return nil
 }
 
-// GetRedisCache 获取Redis缓存
+// GetRedisCache 获取Redis分布式缓存实例，用于跨服务数据共享
+// 返回: Redis缓存实例，如果ConfigProvider未设置则返回nil
 func (self *CommonWorker) GetRedisCache() cache.Cache {
 	if self.ConfigProvider != nil {
 		return self.ConfigProvider.GetRedisCache()
@@ -59,7 +62,10 @@ func (self *CommonWorker) GetRedisCache() cache.Cache {
 	return nil
 }
 
-// Do 所有业务请求的统一入口
+// Do 统一的RPC业务请求处理入口，实现完整的请求生命周期
+// ctx: 请求上下文，包含超时、元数据等信息
+// req: 通用请求对象，包含加密数据、签名、路由等信息
+// 返回: 通用响应对象和可能的处理错误
 func (self *CommonWorker) Do(ctx context.Context, req *pb.CommonRequest) (*pb.CommonResponse, error) {
 
 	// 1. 验证请求数据
@@ -107,6 +113,9 @@ func (self *CommonWorker) Do(ctx context.Context, req *pb.CommonRequest) (*pb.Co
 
 // -------------------------- 验证数据 --------------------------
 
+// validRequest 执行完整的请求验证流程，包括参数校验、双重签名验证和重放攻击防护
+// req: 待验证的通用请求对象
+// 返回: 验证通过的密钥对、共享密钥和可能的验证错误
 func (self *CommonWorker) validRequest(req *pb.CommonRequest) (crypto.Cipher, []byte, error) {
 	// 1. 校验基础参数是否有效
 	if len(req.R) == 0 {
@@ -180,7 +189,10 @@ func (self *CommonWorker) validRequest(req *pb.CommonRequest) (crypto.Cipher, []
 
 // -------------------------- 响应构建工具 --------------------------
 
-// UnpackAny 从 Any 解包到目标类型
+// UnpackAny 将protobuf Any类型的数据解包到指定的目标消息类型
+// anyData: 包含任意类型数据的Any包装器
+// target: 目标消息对象，用于接收解包后的数据
+// 返回: 解包过程中的错误信息
 func UnpackAny(anyData *anypb.Any, target proto.Message) error {
 	if anyData == nil || target == nil {
 		return errors.New("any data or target is nil")
@@ -188,12 +200,19 @@ func UnpackAny(anyData *anypb.Any, target proto.Message) error {
 	return anyData.UnmarshalTo(target)
 }
 
-// PackAny 将业务数据包装为 Any
+// PackAny 将protobuf消息包装为Any类型，便于传输和类型擦除
+// data: 需要包装的protobuf消息对象
+// 返回: 包装后的Any对象和可能的错误信息
 func PackAny(data proto.Message) (*anypb.Any, error) {
 	return anypb.New(data)
 }
 
-// buildSuccessResponse 构建成功响应
+// buildSuccessResponse 构建业务处理成功的标准响应，包含数据加密和签名
+// cipher: 用于签名的密钥对
+// key: 用于数据加密的共享密钥
+// req: 原始请求对象，用于保持请求-响应一致性
+// bizResp: 业务处理成功后的响应数据
+// 返回: 构建完成的通用响应对象和可能的错误
 func (self *CommonWorker) buildSuccessResponse(cipher crypto.Cipher, key []byte, req *pb.CommonRequest, bizResp proto.Message) (*pb.CommonResponse, error) {
 	// 注意：key由外层传入，避免重复获取
 	// key的清理由外层Do方法负责
@@ -241,6 +260,10 @@ func (self *CommonWorker) buildSuccessResponse(cipher crypto.Cipher, key []byte,
 	return res, nil
 }
 
+// GetSharedKey 获取ECDH密钥协商生成的共享密钥，并通过缓存优化性能
+// c: 缓存实例，用于存储加密后的共享密钥
+// cipher: 包含ECDSA密钥对的加密器，用于密钥协商
+// 返回: 协商后的共享密钥和可能的错误信息
 func GetSharedKey(c cache.Cache, cipher crypto.Cipher) ([]byte, error) {
 	// 获取协商密钥
 	prk, _ := cipher.GetPrivateKey()
@@ -278,6 +301,14 @@ func GetSharedKey(c cache.Cache, cipher crypto.Cipher) ([]byte, error) {
 	}
 }
 
+// Signature 使用HMAC-SHA256算法生成请求/响应的数字签名，确保数据完整性
+// key: HMAC密钥，用于签名计算
+// d: 数据负载，通常是请求体的二进制数据
+// n: 随机数nonce，防止重放攻击
+// t: 时间戳，确保请求时效性
+// p: 加密标识，0表示明文，1表示密文
+// r: 路由标识符，指定业务处理逻辑
+// 返回: 计算后的签名字节数组
 func Signature(key, d, n []byte, t, p int64, r string) ([]byte, error) {
 	// 拼接数据载体进行验证S（优化：预分配内存，避免多次append）
 	tBytes := []byte(strconv.FormatInt(t, 10))
@@ -299,7 +330,11 @@ func Signature(key, d, n []byte, t, p int64, r string) ([]byte, error) {
 	return utils.HMAC_SHA256_BASE(body, key), nil
 }
 
-// buildErrorResponse 构建错误响应
+// buildErrorResponse 构建标准化的错误响应，不包含数据和签名以提高性能
+// req: 原始请求对象，用于填充响应中的路由和加密标识
+// code: gRPC错误码，表示错误类型
+// msg: 错误描述信息，提供详细的错误原因
+// 返回: 构建完成的错误响应对象
 func buildErrorResponse(req *pb.CommonRequest, code codes.Code, msg string) *pb.CommonResponse {
 	// 错误响应不包含数据，也不包含签名（客户端会跳过验证）
 	// 这样可以避免在错误情况下还需要计算签名，提高性能

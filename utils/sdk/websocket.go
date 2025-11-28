@@ -75,23 +75,36 @@ type SocketSDK struct {
 	subscriptions sync.Map // 路由 -> 订阅信息 (线程安全)
 }
 
+// AuthObject 设置WebSocket客户端的登录认证对象
+// 用于存储用户名、密码等登录凭据，自动登录时会使用此对象调用登录接口
+// object: 认证对象，包含用户名密码等信息，请使用指针对象避免数据拷贝
 func (s *SocketSDK) AuthObject(object interface{}) {
 	s.authObject = object
 }
 
+// AuthToken 设置WebSocket客户端的JWT认证令牌
+// 设置登录成功后获得的令牌，用于后续WebSocket消息的身份认证
+// object: AuthToken结构体，包含token、secret、expired字段
 func (s *SocketSDK) AuthToken(object AuthToken) {
 	s.authToken = object
 	s.tokenExpiredCalled = false // 重置token过期回调标志
 }
 
+// SetTimeout 设置WebSocket请求的超时时间
+// timeout: 超时时间(秒)，控制WebSocket消息发送和等待响应的最大时间
 func (s *SocketSDK) SetTimeout(timeout int64) {
 	s.timeout = timeout
 }
 
+// SetLanguage 设置WebSocket请求的语言标识
+// language: 语言代码，如"zh-CN"、"en-US"，用于服务端国际化支持
 func (s *SocketSDK) SetLanguage(language string) {
 	s.language = language
 }
 
+// getURI 构建完整的WebSocket连接URI
+// path: WebSocket路径，如"/ws"
+// 返回: 完整的WebSocket URI，支持ws和wss协议
 func (s *SocketSDK) getURI(path string) string {
 	var p string
 	if s.SSL {
@@ -104,6 +117,9 @@ func (s *SocketSDK) getURI(path string) string {
 	return p
 }
 
+// valid 验证当前认证令牌是否有效
+// 检查令牌是否存在、secret是否存在，以及是否即将过期(提前1小时预警)
+// 返回: true表示令牌有效，false表示需要重新认证
 func (s *SocketSDK) valid() bool {
 	if len(s.authToken.Token) == 0 {
 		return false
@@ -117,6 +133,9 @@ func (s *SocketSDK) valid() bool {
 	return true
 }
 
+// addECDSASign 为WebSocket消息添加ECDSA数字签名
+// jsonBody: 消息体结构体，包含待签名的HMAC签名
+// 返回: 签名成功返回nil，否则返回错误信息
 func (s *SocketSDK) addECDSASign(jsonBody *node.JsonBody) error {
 	if len(s.ecdsaObject) > 0 && s.ecdsaObject[0] != nil {
 		ecdsaSign, err := s.ecdsaObject[0].Sign(utils.Base64Decode(jsonBody.Sign))
@@ -133,6 +152,10 @@ func (s *SocketSDK) addECDSASign(jsonBody *node.JsonBody) error {
 	return nil
 }
 
+// verifyECDSASign 验证WebSocket响应数据的ECDSA签名
+// validSign: 预期的签名数据
+// respData: 响应数据结构体
+// 返回: 验证成功返回nil，否则返回验证失败的错误信息
 func (s *SocketSDK) verifyECDSASign(validSign []byte, respData *node.JsonResp) error {
 	if len(s.ecdsaObject) > 0 && len(respData.Valid) > 0 {
 		// 预先解码ECDSA签名数据，避免在循环中重复解码
@@ -160,6 +183,10 @@ func (s *SocketSDK) verifyECDSASign(validSign []byte, respData *node.JsonResp) e
 	return nil
 }
 
+// SetECDSAObject 配置WebSocket客户端的ECDSA密钥对用于数字签名验证
+// prkB64: ECDSA私钥的Base64编码字符串
+// pubB64: ECDSA公钥的Base64编码字符串
+// 返回: 配置成功返回nil，否则返回密钥解析错误
 func (s *SocketSDK) SetECDSAObject(prkB64, pubB64 string) error {
 	cipher, err := crypto.CreateS256ECDSAWithBase64(prkB64, pubB64)
 	if err != nil {
@@ -169,6 +196,9 @@ func (s *SocketSDK) SetECDSAObject(prkB64, pubB64 string) error {
 	return nil
 }
 
+// ConnectWebSocket 建立WebSocket连接并启动相关服务
+// path: WebSocket连接路径，如"/ws"
+// 返回: 连接成功返回nil，否则返回连接失败的错误信息
 func (s *SocketSDK) ConnectWebSocket(path string) error {
 	s.reconnectMutex.Lock()
 	s.connectedPath = path // 存储连接路径用于重连
@@ -177,6 +207,10 @@ func (s *SocketSDK) ConnectWebSocket(path string) error {
 	return s.connectWebSocketInternal(path, true)
 }
 
+// connectWebSocketInternal WebSocket连接的内部实现方法
+// path: WebSocket连接路径
+// isInitial: 是否为初始连接，用于重连逻辑判断
+// 返回: 连接成功返回nil，否则返回连接失败的错误信息
 func (s *SocketSDK) connectWebSocketInternal(path string, isInitial bool) error {
 	s.connMutex.Lock()
 	defer s.connMutex.Unlock()
@@ -270,6 +304,10 @@ func (s *SocketSDK) connectWebSocketInternal(path string, isInitial bool) error 
 	return nil
 }
 
+// prepareWebSocketMessage 准备WebSocket消息数据，包括加密和签名
+// jsonBody: 消息体结构体
+// data: 原始请求数据
+// 返回: 处理后的消息体、序列化后的字节数据和可能的错误
 func (s *SocketSDK) prepareWebSocketMessage(jsonBody *node.JsonBody, data interface{}) (*node.JsonBody, []byte, error) {
 	// 序列化数据
 	jsonData, err := utils.JsonMarshal(data)
@@ -326,6 +364,10 @@ func (s *SocketSDK) prepareWebSocketMessage(jsonBody *node.JsonBody, data interf
 	return jsonBody, bytesData, nil
 }
 
+// sendWebSocketAuthHandshake 发送WebSocket认证握手消息
+// conn: WebSocket连接对象
+// path: 连接路径
+// 返回: 握手成功返回nil，否则返回握手失败的错误信息
 func (s *SocketSDK) sendWebSocketAuthHandshake(conn *websocket.Conn, path string) error {
 	// 使用通用方法准备握手数据
 	jsonBody := node.GetJsonBody()
@@ -412,6 +454,14 @@ func (s *SocketSDK) sendWebSocketAuthHandshake(conn *websocket.Conn, path string
 	return nil
 }
 
+// SendWebSocketMessage 发送WebSocket业务消息并可选等待响应
+// router: 业务路由标识符，用于服务端路由分发
+// requestObj: 请求数据对象
+// responseObj: 响应数据对象，用于接收服务端返回数据（当waitResponse=true时）
+// waitResponse: 是否等待服务端响应
+// encryptRequest: 是否对请求数据进行加密
+// timeout: 等待响应的超时时间(秒)
+// 返回: 发送成功返回nil，否则返回发送失败的错误信息
 func (s *SocketSDK) SendWebSocketMessage(router string, requestObj, responseObj interface{}, waitResponse, encryptRequest bool, timeout int64) error {
 	s.connMutex.Lock()
 	if !s.isConnected || s.conn == nil {
@@ -498,6 +548,10 @@ func (s *SocketSDK) SendWebSocketMessage(router string, requestObj, responseObj 
 	}
 }
 
+// verifyWebSocketResponse 验证WebSocket响应数据的完整性和真实性
+// path: 请求路径
+// response: 响应数据映射
+// 返回: 验证后的响应数据和可能的错误信息
 func (s *SocketSDK) verifyWebSocketResponse(path string, response map[string]interface{}) (interface{}, error) {
 	// 检查响应代码
 	if code, ok := response["code"].(float64); !ok || int(code) != 200 {
@@ -621,6 +675,7 @@ func (s *SocketSDK) verifyWebSocketResponseFromJsonResp(path string, result inte
 	return nil
 }
 
+// websocketHeartbeat WebSocket心跳机制，保持连接活跃状态
 func (s *SocketSDK) websocketHeartbeat() {
 	ticker := time.NewTicker(30 * time.Second) // 每30秒发送一次心跳
 	defer ticker.Stop()
@@ -668,6 +723,8 @@ func (s *SocketSDK) websocketHeartbeat() {
 	}
 }
 
+// websocketMessageListenerHandle 处理接收到的WebSocket消息
+// body: 接收到的消息字节数据
 func (s *SocketSDK) websocketMessageListenerHandle(body []byte) {
 	// 使用对象池获取JsonResp对象，提高内存利用率
 	res := node.GetJsonResp()
@@ -742,6 +799,7 @@ func (s *SocketSDK) websocketMessageListenerHandle(body []byte) {
 	}
 }
 
+// websocketMessageListener WebSocket消息监听器，持续接收和处理服务端推送的消息
 func (s *SocketSDK) websocketMessageListener() {
 	for {
 		select {
@@ -788,6 +846,7 @@ func (s *SocketSDK) handlePushMessage(message map[string]interface{}) {
 	}
 }
 
+// DisconnectWebSocket 断开WebSocket连接，停止所有相关服务
 func (s *SocketSDK) DisconnectWebSocket() {
 	s.disconnectWebSocketNoReconnect() // 主动断开，不触发重连（内部会处理锁）
 }
@@ -946,6 +1005,8 @@ func (s *SocketSDK) startReconnectProcess() {
 	}
 }
 
+// ForceReconnect 强制重新连接WebSocket，适用于连接异常恢复
+// 返回: 重连成功返回nil，否则返回重连失败的错误信息
 func (s *SocketSDK) ForceReconnect() error {
 	s.reconnectMutex.Lock()
 	s.reconnectAttempts = 0
@@ -959,6 +1020,8 @@ func (s *SocketSDK) ForceReconnect() error {
 	return s.connectWebSocketInternal(path, false)
 }
 
+// IsWebSocketConnected 检查WebSocket连接是否处于活跃状态
+// 返回: true表示连接正常，false表示连接已断开
 func (s *SocketSDK) IsWebSocketConnected() bool {
 	s.connMutex.Lock()
 	defer s.connMutex.Unlock()
@@ -1039,6 +1102,10 @@ func (s *SocketSDK) GetReconnectStatus() (enabled bool, attempts int, maxAttempt
 }
 
 // SubscribeMessage 订阅指定路由的消息
+// SubscribeMessage 订阅指定路由的消息推送
+// router: 要订阅的路由标识符
+// handler: 消息处理函数，当接收到对应路由的消息时会被调用
+// 返回: 订阅ID和可能的错误信息
 func (s *SocketSDK) SubscribeMessage(router string, handler MessageHandler) (subscriptionID string, err error) {
 	subscriptionID = utils.GetUUID(true)
 
@@ -1062,6 +1129,9 @@ func (s *SocketSDK) SubscribeMessage(router string, handler MessageHandler) (sub
 }
 
 // UnsubscribeMessage 取消消息订阅
+// UnsubscribeMessage 取消订阅指定路由的消息推送
+// router: 要取消订阅的路由标识符
+// 返回: 取消订阅成功返回nil，否则返回错误信息
 func (s *SocketSDK) UnsubscribeMessage(router string) error {
 	// sync.Map 的 Load 和 Delete 操作本身就是线程安全的
 	if sub, exists := s.subscriptions.Load(router); exists {
