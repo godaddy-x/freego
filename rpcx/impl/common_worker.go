@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"strconv"
 
+	DIC "github.com/godaddy-x/freego/common"
+
 	ecc "github.com/godaddy-x/eccrypto"
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/utils"
@@ -65,6 +67,7 @@ func (self *CommonWorker) Do(ctx context.Context, req *pb.CommonRequest) (*pb.Co
 	if err != nil {
 		return buildErrorResponse(req, codes.InvalidArgument, err.Error()), nil
 	}
+	defer DIC.ClearData(key)
 
 	// 3. 根据路由获取业务处理器
 	handler := GetHandler(req.R)
@@ -131,7 +134,7 @@ func (self *CommonWorker) validRequest(req *pb.CommonRequest) (crypto.Cipher, []
 		return nil, nil, errors.New("request ecdsa signature length invalid")
 	}
 
-	// 1.遍历rsa列表验证s
+	// 2. 先验证ECDSA签名（双重签名验证的第一层）
 	var cipher crypto.Cipher
 	for _, rsa := range self.GetRSA() {
 		if err := rsa.Verify(req.S, req.E); err == nil {
@@ -143,16 +146,17 @@ func (self *CommonWorker) validRequest(req *pb.CommonRequest) (crypto.Cipher, []
 		return nil, nil, errors.New("request ecdsa signature check failed")
 	}
 
+	// 3. 获取共享密钥
 	c := self.GetLocalCache()
 	if c == nil {
 		return nil, nil, errors.New("cache object is nil")
 	}
-
 	key, err := GetSharedKey(c, cipher)
 	if err != nil {
 		return nil, nil, err
 	}
 
+	// 4. 验证HMAC签名（双重签名验证的第二层）
 	sig, err := Signature(key, req.D.Value, req.N, req.T, req.P, req.R)
 	if err != nil {
 		return nil, nil, err
@@ -161,6 +165,15 @@ func (self *CommonWorker) validRequest(req *pb.CommonRequest) (crypto.Cipher, []
 	if !bytes.Equal(sig, req.S) {
 		return nil, nil, errors.New("request body signature invalid")
 	}
+
+	// 5. 只有在签名验证通过后，才检查重放攻击
+	validKey := utils.FNV1a64Base(req.S)
+	exists, err := c.Exists(validKey)
+	if err == nil && exists {
+		return nil, nil, errors.New("request signature already used (replay attack detected)")
+	}
+	// 缓存签名，过期时间设置为10分钟
+	_ = c.Put(validKey, true, 600)
 
 	return cipher, key, nil
 }
@@ -190,6 +203,7 @@ func (self *CommonWorker) buildSuccessResponse(cipher crypto.Cipher, req *pb.Com
 	if err != nil {
 		return buildErrorResponse(req, codes.Internal, err.Error()), nil
 	}
+	defer DIC.ClearData(key)
 
 	// 包装业务响应到 Any
 	anyResp, err := PackAny(bizResp)
@@ -238,6 +252,10 @@ func GetSharedKey(c cache.Cache, cipher crypto.Cipher) ([]byte, error) {
 	// 获取协商密钥
 	prk, _ := cipher.GetPrivateKey()
 	pub, _ := cipher.GetPublicKey()
+	prkBs, err := ecc.GetECDSAPrivateKeyBytes(prk.(*ecdsa.PrivateKey))
+	if err != nil {
+		return nil, errors.New("prk bytes invalid")
+	}
 	pubBs, err := ecc.GetECDSAPublicKeyBytes(pub.(*ecdsa.PublicKey))
 	if err != nil {
 		return nil, errors.New("pub bytes invalid")
@@ -250,11 +268,21 @@ func GetSharedKey(c cache.Cache, cipher crypto.Cipher) ([]byte, error) {
 	if len(sharedKey) == 0 { // 如果没有找到缓存则重新处理协商
 		sharedKey, err = ecc.GenSharedKeyECDSA(prk.(*ecdsa.PrivateKey), pub.(*ecdsa.PublicKey))
 		if err != nil {
-			return nil, errors.New("cipher shared key error：" + err.Error())
+			return nil, errors.New("cipher shared key error")
 		}
-		_ = c.Put(cacheKey, sharedKey)
+		res, err := utils.AesGCMEncryptBaseByteResult(sharedKey, utils.SHA256_BASE(prkBs), pubBs)
+		if err != nil {
+			return nil, errors.New("encrypt shared key error")
+		}
+		_ = c.Put(cacheKey, res)
+		return sharedKey, nil
+	} else {
+		res, err := utils.AesGCMDecryptBaseByteResult(sharedKey, utils.SHA256_BASE(prkBs), pubBs)
+		if err != nil {
+			return nil, errors.New("decrypt shared key error")
+		}
+		return res, nil
 	}
-	return sharedKey, nil
 }
 
 func Signature(key, d, n []byte, t, p int64, r string) ([]byte, error) {
@@ -280,13 +308,14 @@ func Signature(key, d, n []byte, t, p int64, r string) ([]byte, error) {
 
 // buildErrorResponse 构建错误响应
 func buildErrorResponse(req *pb.CommonRequest, code codes.Code, msg string) *pb.CommonResponse {
-	// 错误响应的 s 和 e 字段可简化生成（或按规则生成，客户端按需验证）
+	// 错误响应不包含数据，也不包含签名（客户端会跳过验证）
+	// 这样可以避免在错误情况下还需要计算签名，提高性能
 	return &pb.CommonResponse{
 		D: nil,
 		N: utils.GetRandomSecure(32),
-		S: nil,
+		S: nil, // 错误响应不签名，客户端会跳过验证
 		T: utils.UnixSecond(),
-		E: nil,
+		E: nil, // 错误响应不签名，客户端会跳过验证
 		R: req.R,
 		P: req.P,
 		C: int64(code), // 响应代码 = gRPC 错误码

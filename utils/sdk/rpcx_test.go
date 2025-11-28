@@ -41,5 +41,11 @@ func TestRpcSDK_Basic(t *testing.T) {
 
 	fmt.Println("result: ", testRes)
 
+	if err := rpcClient.Call("test.hello", testReq, testRes, true); err != nil {
+		fmt.Println(err)
+	}
+
+	fmt.Println("result: ", testRes)
+
 	t.Log("✅ RpcSDK basic configuration test passed")
 }

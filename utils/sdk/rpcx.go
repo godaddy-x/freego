@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	DIC "github.com/godaddy-x/freego/common"
+
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/rpcx/impl"
 	"google.golang.org/protobuf/proto"
@@ -175,6 +177,7 @@ func (r *RpcSDK) post(router string, requestObj, responseObj proto.Message, plan
 	if err != nil {
 		return err
 	}
+	defer DIC.ClearData(key)
 
 	// 打包请求数据到Any
 	d, err := impl.PackAny(requestObj)
@@ -231,9 +234,11 @@ func (r *RpcSDK) post(router string, requestObj, responseObj proto.Message, plan
 
 	// 检查响应状态
 	if resp.C != 200 {
+		// 错误响应可能没有签名，跳过验证
 		return fmt.Errorf("server error: %s", resp.M)
 	}
 
+	// 只有成功响应才验证签名
 	if err := r.verifyResponse(resp); err != nil {
 		return fmt.Errorf("response verification failed: %v", err)
 	}
@@ -273,6 +278,7 @@ func (r *RpcSDK) verifyResponse(resp *pb.CommonResponse) error {
 			if err != nil {
 				return err
 			}
+			defer DIC.ClearData(key)
 			sig, err := impl.Signature(key, resp.D.Value, resp.N, resp.T, resp.P, resp.R)
 			if err != nil {
 				return err
