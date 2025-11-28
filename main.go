@@ -10,10 +10,8 @@ import (
 	"github.com/godaddy-x/freego/ormx/sqlc"
 	"github.com/godaddy-x/freego/ormx/sqld"
 
-	rate "github.com/godaddy-x/freego/cache/limiter"
 	ballast "github.com/godaddy-x/freego/gc"
 	http_web "github.com/godaddy-x/freego/node/test"
-	"github.com/godaddy-x/freego/rpcx"
 	"github.com/godaddy-x/freego/utils"
 	_ "go.uber.org/automaxprocs"
 )
@@ -62,14 +60,6 @@ func (o *OwWallet) NewIndex() []sqlc.Index {
 	return []sqlc.Index{appID}
 }
 
-func initConsul() {
-	conf := rpcx.ConsulConfig{}
-	if err := utils.ReadLocalJsonConfig("resource/consul.json", &conf); err != nil {
-		panic(utils.AddStr("读取consul配置失败: ", err.Error()))
-	}
-	new(rpcx.ConsulManager).InitConfig(conf)
-}
-
 func initRedis() {
 	conf := cache.RedisConfig{}
 	if err := utils.ReadLocalJsonConfig("resource/redis.json", &conf); err != nil {
@@ -106,39 +96,6 @@ func initRabbitMQ() {
 		panic(utils.AddStr("初始化rabbitmq管理器失败: ", err.Error()))
 	}
 	fmt.Println("init rabbitmq success")
-}
-
-var appConfig = rpcx.AppConfig{}
-
-func initGRPC() {
-	if err := utils.ReadLocalJsonConfig("resource/app.json", &appConfig); err != nil {
-		panic(err)
-	}
-	client := &rpcx.GRPCManager{}
-	client.CreateJwtConfig(appConfig.AppKey)
-	client.CreateAppConfigCall(func(appId string) (rpcx.AppConfig, error) {
-		if appId == appConfig.AppId {
-			return appConfig, nil
-		}
-		return rpcx.AppConfig{}, utils.Error("appId invalid")
-	})
-	client.CreateRateLimiterCall(func(method string) (rate.Option, error) {
-		return rate.Option{}, nil
-	})
-	client.CreateServerTLS(rpcx.TlsConfig{
-		UseMTLS:   true,
-		CACrtFile: "./rpcx/cert/ca.crt",
-		KeyFile:   "./rpcx/cert/server.key",
-		CrtFile:   "./rpcx/cert/server.crt",
-	})
-	client.CreateClientTLS(rpcx.TlsConfig{
-		UseMTLS:   true,
-		CACrtFile: "./rpcx/cert/ca.crt",
-		KeyFile:   "./rpcx/cert/client.key",
-		CrtFile:   "./rpcx/cert/client.crt",
-		HostName:  "localhost",
-	})
-	client.CreateAuthorizeTLS("./rpcx/cert/server.key")
 }
 
 func main() {

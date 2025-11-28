@@ -6,8 +6,6 @@ import (
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/geetest"
 	"github.com/godaddy-x/freego/node"
-	"github.com/godaddy-x/freego/rpcx"
-	"github.com/godaddy-x/freego/rpcx/pb"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/crypto"
 	"github.com/godaddy-x/freego/utils/jwt"
@@ -34,21 +32,6 @@ func (self *MyWebNode) getUser(ctx *node.Context) error {
 		return err
 	}
 	return self.Json(ctx, req)
-}
-
-func testCallRPC() {
-	conn, err := rpcx.NewClientConn(rpcx.GRPC{Service: "PubWorker", Cache: 30})
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-	defer conn.Close()
-	res, err := pb.NewPubWorkerClient(conn.Value()).GenerateId(conn.Context(), &pb.GenerateIdReq{})
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-	fmt.Println("call rpc:", res)
 }
 
 func (self *MyWebNode) login(ctx *node.Context) error {

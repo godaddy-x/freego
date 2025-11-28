@@ -23,7 +23,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-// RpcSDK FreeGo gRPC客户端SDK
+// RPC FreeGo gRPC客户端SDK
 // 支持ECC+AES-GCM加密传输、双向ECDSA签名验证
 //
 // 安全特性:
@@ -32,11 +32,7 @@ import (
 // - ECDSA 双向签名验证
 // - 动态密钥协商 (ECDH)
 // - 防重放攻击 (时间戳+Nonce)
-//
-// 使用模式:
-// - PostByECC: 匿名访问，使用ECC密钥协商
-// - PostByAuth: 登录后访问，使用预共享密钥
-type RpcSDK struct {
+type RPC struct {
 	Address     string          // gRPC服务地址 (如: localhost:9090)
 	SSL         bool            // 是否启用SSL/TLS
 	timeout     int64           // 请求超时时间(秒)
@@ -50,9 +46,9 @@ type RpcSDK struct {
 	cacheObject cache.Cache
 }
 
-// NewRpcSDK 创建gRPC客户端SDK实例
-func NewRpcSDK(address string) *RpcSDK {
-	return &RpcSDK{
+// NewRPC 创建gRPC客户端SDK实例
+func NewRPC(address string) *RPC {
+	return &RPC{
 		Address:  address,
 		SSL:      false,
 		timeout:  60,
@@ -61,25 +57,25 @@ func NewRpcSDK(address string) *RpcSDK {
 }
 
 // SetSSL 设置SSL/TLS连接
-func (r *RpcSDK) SetSSL(ssl bool) *RpcSDK {
+func (r *RPC) SetSSL(ssl bool) *RPC {
 	r.SSL = ssl
 	return r
 }
 
 // SetTimeout 设置请求超时时间(秒)
-func (r *RpcSDK) SetTimeout(timeout int64) *RpcSDK {
+func (r *RPC) SetTimeout(timeout int64) *RPC {
 	r.timeout = timeout
 	return r
 }
 
 // SetLanguage 设置语言
-func (r *RpcSDK) SetLanguage(language string) *RpcSDK {
+func (r *RPC) SetLanguage(language string) *RPC {
 	r.language = language
 	return r
 }
 
 // AddCipher 添加ECDSA签名验证器
-func (r *RpcSDK) AddCipher(cipher crypto.Cipher) *RpcSDK {
+func (r *RPC) AddCipher(cipher crypto.Cipher) *RPC {
 	if cipher != nil {
 		r.ecdsaObject = append(r.ecdsaObject, cipher)
 	}
@@ -87,13 +83,13 @@ func (r *RpcSDK) AddCipher(cipher crypto.Cipher) *RpcSDK {
 }
 
 // AddLocalCache 添加缓存实例
-func (r *RpcSDK) AddLocalCache(c cache.Cache) *RpcSDK {
+func (r *RPC) AddLocalCache(c cache.Cache) *RPC {
 	r.cacheObject = c
 	return r
 }
 
 // Connect 建立gRPC连接
-func (r *RpcSDK) Connect() error {
+func (r *RPC) Connect() error {
 	if r.conn != nil {
 		return nil // 已连接
 	}
@@ -140,7 +136,7 @@ func (r *RpcSDK) Connect() error {
 }
 
 // Close 关闭gRPC连接
-func (r *RpcSDK) Close() error {
+func (r *RPC) Close() error {
 	var err error
 	r.closeOnce.Do(func() {
 		if r.conn != nil {
@@ -154,12 +150,12 @@ func (r *RpcSDK) Close() error {
 }
 
 // Call 发送RPC请求
-func (r *RpcSDK) Call(router string, requestObj, responseObj proto.Message, encrypted bool) error {
+func (r *RPC) Call(router string, requestObj, responseObj proto.Message, encrypted bool) error {
 	return r.CallWithTimeout(router, requestObj, responseObj, encrypted, r.timeout)
 }
 
 // CallWithTimeout 发送RPC请求
-func (r *RpcSDK) CallWithTimeout(router string, requestObj, responseObj proto.Message, encrypted bool, timeout int64) error {
+func (r *RPC) CallWithTimeout(router string, requestObj, responseObj proto.Message, encrypted bool, timeout int64) error {
 	if encrypted {
 		return r.post(router, requestObj, responseObj, 1, timeout)
 	} else {
@@ -168,7 +164,7 @@ func (r *RpcSDK) CallWithTimeout(router string, requestObj, responseObj proto.Me
 }
 
 // 内部请求方法
-func (r *RpcSDK) post(router string, requestObj, responseObj proto.Message, plan, timeout int64) error {
+func (r *RPC) post(router string, requestObj, responseObj proto.Message, plan, timeout int64) error {
 
 	// 获取基础的加密参数
 	c := r.cacheObject
@@ -271,7 +267,7 @@ func (r *RpcSDK) post(router string, requestObj, responseObj proto.Message, plan
 }
 
 // verifyResponse 验证响应签名
-func (r *RpcSDK) verifyResponse(resp *pb.CommonResponse) error {
+func (r *RPC) verifyResponse(resp *pb.CommonResponse) error {
 	for _, cipher := range r.ecdsaObject {
 		if err := cipher.Verify(resp.S, resp.E); err == nil {
 			key, err := impl.GetSharedKey(r.cacheObject, cipher)

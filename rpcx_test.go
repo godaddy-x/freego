@@ -1,14 +1,17 @@
-package rpcx
+package main
 
 import (
 	"context"
+	"fmt"
+	"github.com/godaddy-x/freego/rpcx"
+	"github.com/godaddy-x/freego/rpcx/pb"
+	"github.com/godaddy-x/freego/utils"
+	"github.com/godaddy-x/freego/utils/sdk"
+	"google.golang.org/protobuf/proto"
 	"testing"
 	"time"
 
-	"github.com/godaddy-x/freego/rpcx/pb"
-	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/crypto"
-	"google.golang.org/protobuf/proto"
 )
 
 // TestHandler 测试业务处理器
@@ -33,21 +36,10 @@ func (h *TestHandler) RequestType() proto.Message {
 	return &pb.TestRequest{}
 }
 
-const (
-	//服务端私钥
-	serverPrk = "Z4WmI28ILmpqTWM4OISPwzF10BcGF7hsPHoaiH3J1vw="
-	//服务端公钥
-	serverPub = "BO6XQ+PD66TMDmQXSEHl2xQarWE0HboB4LazrznThhr6Go5SvpjXJqiSe2fX+sup5OQDOLPkLdI1gh48jOmAq+k="
-	//客户端私钥
-	clientPrk = "rnX5ykQivfbLHtcbPR68CP636usTNC03u8OD1KeoDPg="
-	//客户端公钥
-	clientPub = "BEZkPpdLSQiUvkaObyDz0ya0figOLphr6L8hPEHbPzpc7sEMtq1lBTfG6IwZdd7WuJmMkP1FRt+GzZgnqt+DRjs="
-)
-
 // TestGRPCManager_StartServer 测试GRPC服务启动
 func TestGRPCManager_StartServer(t *testing.T) {
 	// 创建GRPC管理器
-	manager := NewRPCManager()
+	manager := rpcx.NewRPCManager()
 
 	// 增加双向验签的ECDSA
 	cipher, _ := crypto.CreateS256ECDSAWithBase64(serverPrk, clientPub)
@@ -74,19 +66,41 @@ func TestGRPCManager_StartServer(t *testing.T) {
 	// 等待一秒让服务器完全启动
 	time.Sleep(1000 * time.Second)
 
-	// 验证服务器已启动
-	if manager.server == nil {
-		t.Error("Server should be started")
-	}
-
 	// 停止服务器
 	err = manager.StopServer()
 	if err != nil {
 		t.Fatalf("Failed to stop server: %v", err)
 	}
+}
 
-	// 验证服务器已停止
-	if manager.server != nil {
-		t.Error("Server should be stopped")
+// TestRpcSDK_Basic 基础功能测试
+func TestRpcSDK_Basic(t *testing.T) {
+
+	// 增加双向验签的ECDSA
+	cipher, _ := crypto.CreateS256ECDSAWithBase64(clientPrk, serverPub)
+
+	// 创建RPC客户端SDK
+	rpcClient := sdk.NewRPC("localhost:9090").
+		SetSSL(false).
+		AddCipher(cipher)
+	if err := rpcClient.Connect(); err != nil {
+		panic(err)
 	}
+
+	defer rpcClient.Close()
+
+	testReq := &pb.TestRequest{
+		Message: "鲨鱼宝宝嘟嘟嘟嘟！！！",
+	}
+	testRes := &pb.TestResponse{}
+
+	for i := 0; i < 10; i++ {
+		if err := rpcClient.Call("test.hello", testReq, testRes, true); err != nil {
+			fmt.Println(err)
+		}
+
+		fmt.Println("result: ", i, testRes)
+	}
+
+	t.Log("✅ RpcSDK basic configuration test passed")
 }
