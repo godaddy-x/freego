@@ -5,11 +5,12 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"sync"
+	"time"
+
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/rpcx/impl"
 	"google.golang.org/protobuf/proto"
-	"sync"
-	"time"
 
 	"github.com/godaddy-x/freego/rpcx/pb"
 	"github.com/godaddy-x/freego/utils"
@@ -202,6 +203,9 @@ func (r *RpcSDK) post(router string, requestObj, responseObj proto.Message, plan
 	}
 
 	sig, err := impl.Signature(key, req.D.Value, req.N, req.T, req.P, req.R)
+	if err != nil {
+		return fmt.Errorf("failed to calculate signature: %v", err)
+	}
 	req.S = sig
 	req.E, err = cipher.Sign(sig)
 	if err != nil {
@@ -239,8 +243,23 @@ func (r *RpcSDK) post(router string, requestObj, responseObj proto.Message, plan
 		return fmt.Errorf("response data is nil")
 	}
 
-	if err := impl.UnpackAny(resp.D, responseObj); err != nil {
-		return fmt.Errorf("failed to unmarshal response: %v", err)
+	// 如果响应是加密的，需要先解密
+	if resp.P == 1 {
+		enc := &pb.Encrypt{}
+		if err := impl.UnpackAny(resp.D, enc); err != nil {
+			return fmt.Errorf("failed to unpack encrypted response: %v", err)
+		}
+		decrypted, err := utils.AesGCMDecryptBaseByteResult(enc.D, key, enc.N)
+		if err != nil {
+			return fmt.Errorf("failed to decrypt response: %v", err)
+		}
+		if err := proto.Unmarshal(decrypted, responseObj); err != nil {
+			return fmt.Errorf("failed to unmarshal decrypted response: %v", err)
+		}
+	} else {
+		if err := impl.UnpackAny(resp.D, responseObj); err != nil {
+			return fmt.Errorf("failed to unmarshal response: %v", err)
+		}
 	}
 
 	return nil

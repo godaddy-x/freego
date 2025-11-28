@@ -186,10 +186,28 @@ func (self *CommonWorker) buildSuccessResponse(cipher crypto.Cipher, req *pb.Com
 	if c == nil {
 		return nil, errors.New("cache object is nil")
 	}
+	key, err := GetSharedKey(c, cipher)
+	if err != nil {
+		return buildErrorResponse(req, codes.Internal, err.Error()), nil
+	}
+
 	// 包装业务响应到 Any
 	anyResp, err := PackAny(bizResp)
 	if err != nil {
 		return buildErrorResponse(req, codes.Internal, fmt.Sprintf("pack business response failed: %v", err)), nil
+	}
+
+	// 如果请求是加密的，响应也应该加密
+	if req.P == 1 {
+		aad := utils.GetRandomSecure(32)
+		encrypted, err := utils.AesGCMEncryptBaseByteResult(anyResp.Value, key, aad)
+		if err != nil {
+			return buildErrorResponse(req, codes.Internal, fmt.Sprintf("encrypt response failed: %v", err)), nil
+		}
+		anyResp, err = PackAny(&pb.Encrypt{D: encrypted, N: aad})
+		if err != nil {
+			return buildErrorResponse(req, codes.Internal, fmt.Sprintf("pack encrypted response failed: %v", err)), nil
+		}
 	}
 
 	// 构建响应（复用请求的 r、p 字段，保持一致性）
@@ -201,11 +219,6 @@ func (self *CommonWorker) buildSuccessResponse(cipher crypto.Cipher, req *pb.Com
 		P: req.P,
 		C: 200, // 200 = 成功
 		M: "",
-	}
-
-	key, err := GetSharedKey(c, cipher)
-	if err != nil {
-		return buildErrorResponse(req, codes.Internal, err.Error()), nil
 	}
 
 	sig, err := Signature(key, res.D.Value, res.N, res.T, res.P, res.R)
