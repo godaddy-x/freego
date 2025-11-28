@@ -61,7 +61,7 @@ func (self *CommonWorker) GetRedisCache() cache.Cache {
 func (self *CommonWorker) Do(ctx context.Context, req *pb.CommonRequest) (*pb.CommonResponse, error) {
 
 	// 1. 验证请求数据
-	cipher, err := self.validRequest(req)
+	cipher, key, err := self.validRequest(req)
 	if err != nil {
 		return buildErrorResponse(req, codes.InvalidArgument, err.Error()), nil
 	}
@@ -72,10 +72,24 @@ func (self *CommonWorker) Do(ctx context.Context, req *pb.CommonRequest) (*pb.Co
 		return buildErrorResponse(req, codes.NotFound, fmt.Sprintf("route (r) not found: %s", req.R)), nil
 	}
 
-	// 4. 解包 Any 字段到业务请求
 	bizReq := handler.RequestType() // 获取业务请求类型（如 &userpb.UserGetRequest{}）
-	if err := UnpackAny(req.D, bizReq); err != nil {
-		return buildErrorResponse(req, codes.InvalidArgument, fmt.Sprintf("unpack business request failed: %v", err)), nil
+	// 4. 解包 Any 字段到业务请求
+	if req.P == 1 {
+		enc := &pb.Encrypt{}
+		if err := UnpackAny(req.D, enc); err != nil {
+			return buildErrorResponse(req, codes.InvalidArgument, fmt.Sprintf("unpack encrypt failed: %v", err)), nil
+		}
+		dec, err := utils.AesGCMDecryptBaseByteResult(enc.D, key, enc.N)
+		if err != nil {
+			return buildErrorResponse(req, codes.InvalidArgument, fmt.Sprintf("unpack decrypt failed: %v", err)), nil
+		}
+		if err := proto.Unmarshal(dec, bizReq); err != nil {
+			return buildErrorResponse(req, codes.InvalidArgument, fmt.Sprintf("unpack business request failed: %v", err)), nil
+		}
+	} else {
+		if err := UnpackAny(req.D, bizReq); err != nil {
+			return buildErrorResponse(req, codes.InvalidArgument, fmt.Sprintf("unpack business request failed: %v", err)), nil
+		}
 	}
 
 	// 4. 调用业务处理器逻辑
@@ -90,31 +104,31 @@ func (self *CommonWorker) Do(ctx context.Context, req *pb.CommonRequest) (*pb.Co
 
 // -------------------------- 验证数据 --------------------------
 
-func (self *CommonWorker) validRequest(req *pb.CommonRequest) (crypto.Cipher, error) {
+func (self *CommonWorker) validRequest(req *pb.CommonRequest) (crypto.Cipher, []byte, error) {
 	// 1. 校验基础参数是否有效
 	if len(req.R) == 0 {
-		return nil, errors.New("request router is nil")
+		return nil, nil, errors.New("request router is nil")
 	}
 	if req.D == nil {
-		return nil, errors.New("request data is nil")
+		return nil, nil, errors.New("request data is nil")
 	}
 	if req.T <= 0 {
-		return nil, errors.New("request time must be > 0")
+		return nil, nil, errors.New("request time must be > 0")
 	}
 	if utils.MathAbs(utils.UnixSecond()-req.T) > jwt.FIVE_MINUTES { // 判断绝对时间差超过5分钟
-		return nil, errors.New("request time invalid")
+		return nil, nil, errors.New("request time invalid")
 	}
 	if !utils.CheckLen(req.N, 8, 32) {
-		return nil, errors.New("request nonce invalid")
+		return nil, nil, errors.New("request nonce invalid")
 	}
 	if !utils.CheckInt64(req.P, 0, 1) {
-		return nil, errors.New("request plan invalid")
+		return nil, nil, errors.New("request plan invalid")
 	}
 	if !utils.CheckRangeInt(len(req.S), 32, 64) {
-		return nil, errors.New("request signature length invalid")
+		return nil, nil, errors.New("request signature length invalid")
 	}
 	if !utils.CheckRangeInt(len(req.E), 64, 96) {
-		return nil, errors.New("request ecdsa signature length invalid")
+		return nil, nil, errors.New("request ecdsa signature length invalid")
 	}
 
 	// 1.遍历rsa列表验证s
@@ -126,24 +140,29 @@ func (self *CommonWorker) validRequest(req *pb.CommonRequest) (crypto.Cipher, er
 		}
 	}
 	if cipher == nil {
-		return nil, errors.New("request ecdsa signature check failed")
+		return nil, nil, errors.New("request ecdsa signature check failed")
 	}
 
 	c := self.GetLocalCache()
 	if c == nil {
-		return nil, errors.New("cache object is nil")
+		return nil, nil, errors.New("cache object is nil")
 	}
 
-	sig, err := Signature(c, cipher, req.D.Value, req.N, req.T, req.P, req.R)
+	key, err := GetSharedKey(c, cipher)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+
+	sig, err := Signature(key, req.D.Value, req.N, req.T, req.P, req.R)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	if !bytes.Equal(sig, req.S) {
-		return nil, errors.New("request body signature invalid")
+		return nil, nil, errors.New("request body signature invalid")
 	}
 
-	return cipher, nil
+	return cipher, key, nil
 }
 
 // -------------------------- 响应构建工具 --------------------------
@@ -184,7 +203,12 @@ func (self *CommonWorker) buildSuccessResponse(cipher crypto.Cipher, req *pb.Com
 		M: "",
 	}
 
-	sig, err := Signature(c, cipher, res.D.Value, res.N, res.T, res.P, res.R)
+	key, err := GetSharedKey(c, cipher)
+	if err != nil {
+		return buildErrorResponse(req, codes.Internal, err.Error()), nil
+	}
+
+	sig, err := Signature(key, res.D.Value, res.N, res.T, res.P, res.R)
 	if err != nil {
 		return nil, err
 	}
@@ -197,7 +221,7 @@ func (self *CommonWorker) buildSuccessResponse(cipher crypto.Cipher, req *pb.Com
 	return res, nil
 }
 
-func Signature(c cache.Cache, cipher crypto.Cipher, d, n []byte, t, p int64, r string) ([]byte, error) {
+func GetSharedKey(c cache.Cache, cipher crypto.Cipher) ([]byte, error) {
 	// 获取协商密钥
 	prk, _ := cipher.GetPrivateKey()
 	pub, _ := cipher.GetPublicKey()
@@ -217,8 +241,11 @@ func Signature(c cache.Cache, cipher crypto.Cipher, d, n []byte, t, p int64, r s
 		}
 		_ = c.Put(cacheKey, sharedKey)
 	}
+	return sharedKey, nil
+}
 
-	// 3.拼接数据载体进行验证S（优化：预分配内存，避免多次append）
+func Signature(key, d, n []byte, t, p int64, r string) ([]byte, error) {
+	// 拼接数据载体进行验证S（优化：预分配内存，避免多次append）
 	tBytes := []byte(strconv.FormatInt(t, 10))
 	pBytes := []byte(strconv.FormatInt(p, 10))
 	rBytes := utils.Str2Bytes(r)
@@ -235,7 +262,7 @@ func Signature(c cache.Cache, cipher crypto.Cipher, d, n []byte, t, p int64, r s
 	offset += copy(body[offset:], pBytes)
 	copy(body[offset:], rBytes)
 
-	return utils.HMAC_SHA256_BASE(body, sharedKey), nil
+	return utils.HMAC_SHA256_BASE(body, key), nil
 }
 
 // buildErrorResponse 构建错误响应

@@ -30,12 +30,16 @@ func TestRpcSDK_Basic(t *testing.T) {
 
 	defer rpcClient.Close()
 
-	testReq := &pb.TestRequest{}
+	testReq := &pb.TestRequest{
+		Message: "鲨鱼宝宝嘟嘟嘟嘟！！！",
+	}
 	testRes := &pb.TestResponse{}
 
-	if err := rpcClient.Call("test.hello", testReq, testRes, false); err != nil {
+	if err := rpcClient.Call("test.hello", testReq, testRes, true); err != nil {
 		fmt.Println(err)
 	}
+
+	fmt.Println("result: ", testRes)
 
 	t.Log("✅ RpcSDK basic configuration test passed")
 }

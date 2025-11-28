@@ -3,6 +3,11 @@ package pub_worker;
 option go_package = "/rpcx/pb";
 import "google/protobuf/any.proto";
 
+message Encrypt {
+  bytes d = 1;              // 加密数据
+  bytes n = 2;              // 随机数
+}
+
 message CommonRequest {
   google.protobuf.Any d = 1; // 数据载体
   bytes n = 2;              // 随机数

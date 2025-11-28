@@ -245,21 +245,33 @@ func AesGCMEncryptWithAAD(plaintext []byte, key, additionalData string) (string,
 // Nonce: 12 字节（GCM 标准）
 // AuthTag: 16 字节（128-bit 认证标签）
 func AesGCMEncryptBase(plaintext, key, additionalData []byte) (string, error) {
+	result, err := AesGCMEncryptBaseByteResult(plaintext, key, additionalData)
+	if err != nil {
+		return "", err
+	}
+	return Base64Encode(result), nil
+}
+
+// AesGCMEncryptBaseByteResult AES-GCM 加密基础方法
+// 返回格式：Byte(Nonce + Ciphertext + AuthTag)
+// Nonce: 12 字节（GCM 标准）
+// AuthTag: 16 字节（128-bit 认证标签）
+func AesGCMEncryptBaseByteResult(plaintext, key, additionalData []byte) ([]byte, error) {
 	// 1. 输入验证
 	if len(key) != 32 {
-		return "", errors.New("key must be 32 bytes for AES-256")
+		return nil, errors.New("key must be 32 bytes for AES-256")
 	}
 
 	// 2. 创建 AES 加密器
 	block, err := aes.NewCipher(key)
 	if err != nil {
-		return "", fmt.Errorf("failed to create cipher: %w", err)
+		return nil, fmt.Errorf("failed to create cipher: %w", err)
 	}
 
 	// 3. 创建 GCM 模式（AEAD: Authenticated Encryption with Associated Data）
 	gcm, err := cipher.NewGCM(block)
 	if err != nil {
-		return "", fmt.Errorf("failed to create GCM: %w", err)
+		return nil, fmt.Errorf("failed to create GCM: %w", err)
 	}
 
 	// 4. 生成 Nonce（GCM 标准：12 字节）
@@ -277,7 +289,7 @@ func AesGCMEncryptBase(plaintext, key, additionalData []byte) (string, error) {
 	result := append(nonce, ciphertext...)
 
 	// 7. Base64 编码
-	return Base64Encode(result), nil
+	return result, nil
 }
 
 // AesGCMDecrypt AES-GCM 解密（带认证验证）
@@ -304,6 +316,30 @@ func AesGCMDecryptBase(encryptedData string, key, additionalData []byte) ([]byte
 
 	// 2. 解码 Base64
 	data := Base64Decode(encryptedData)
+	if data == nil {
+		return nil, errors.New("base64 decode failed")
+	}
+
+	plaintext, err := AesGCMDecryptBaseByteResult(data, key, additionalData)
+	if err != nil {
+		return nil, err
+	}
+	return plaintext, nil
+}
+
+// AesGCMDecryptBaseByteResult AES-GCM 解密基础方法
+// 会自动验证：
+// 1. 认证标签（AuthTag）- 确保密文未被篡改
+// 2. 附加认证数据（AAD）- 确保关联数据未被篡改
+// 任何一项验证失败都会返回错误，拒绝解密
+func AesGCMDecryptBaseByteResult(encryptedData, key, additionalData []byte) ([]byte, error) {
+	// 1. 输入验证
+	if len(key) != 32 {
+		return nil, errors.New("key must be 32 bytes for AES-256")
+	}
+
+	// 2. 解码 Base64
+	data := encryptedData
 	if data == nil {
 		return nil, errors.New("base64 decode failed")
 	}

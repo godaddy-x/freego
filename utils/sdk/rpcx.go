@@ -166,24 +166,42 @@ func (r *RpcSDK) CallWithTimeout(router string, requestObj, responseObj proto.Me
 
 // 内部请求方法
 func (r *RpcSDK) post(router string, requestObj, responseObj proto.Message, plan, timeout int64) error {
+
+	// 获取基础的加密参数
+	c := r.cacheObject
+	cipher := r.ecdsaObject[0]
+	key, err := impl.GetSharedKey(c, cipher)
+	if err != nil {
+		return err
+	}
+
 	// 打包请求数据到Any
-	anyReq, err := impl.PackAny(requestObj)
+	d, err := impl.PackAny(requestObj)
 	if err != nil {
 		return fmt.Errorf("failed to marshal request: %v", err)
+	}
+	if plan == 1 { // 加密参数
+		aad := utils.GetRandomSecure(32)
+		res, err := utils.AesGCMEncryptBaseByteResult(d.Value, key, aad)
+		if err != nil {
+			return fmt.Errorf("failed to encrypt request: %v", err)
+		}
+		d, err = impl.PackAny(&pb.Encrypt{D: res, N: aad})
+		if err != nil {
+			return fmt.Errorf("failed to marshal request: %v", err)
+		}
 	}
 
 	// 构建CommonRequest
 	req := &pb.CommonRequest{
-		D: anyReq,
+		D: d,
 		N: utils.GetRandomSecure(32), // 随机数
 		T: utils.UnixSecond(),        // 时间戳
 		R: router,                    // 路由
 		P: plan,
 	}
 
-	cipher := r.ecdsaObject[0]
-
-	sig, err := impl.Signature(r.cacheObject, cipher, req.D.Value, req.N, req.T, req.P, req.R)
+	sig, err := impl.Signature(key, req.D.Value, req.N, req.T, req.P, req.R)
 	req.S = sig
 	req.E, err = cipher.Sign(sig)
 	if err != nil {
@@ -232,7 +250,11 @@ func (r *RpcSDK) post(router string, requestObj, responseObj proto.Message, plan
 func (r *RpcSDK) verifyResponse(resp *pb.CommonResponse) error {
 	for _, cipher := range r.ecdsaObject {
 		if err := cipher.Verify(resp.S, resp.E); err == nil {
-			sig, err := impl.Signature(r.cacheObject, cipher, resp.D.Value, resp.N, resp.T, resp.P, resp.R)
+			key, err := impl.GetSharedKey(r.cacheObject, cipher)
+			if err != nil {
+				return err
+			}
+			sig, err := impl.Signature(key, resp.D.Value, resp.N, resp.T, resp.P, resp.R)
 			if err != nil {
 				return err
 			}

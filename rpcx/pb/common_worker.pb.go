@@ -22,6 +22,58 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type Encrypt struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	D             []byte                 `protobuf:"bytes,1,opt,name=d,proto3" json:"d,omitempty"` // 加密数据
+	N             []byte                 `protobuf:"bytes,2,opt,name=n,proto3" json:"n,omitempty"` // 随机数
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Encrypt) Reset() {
+	*x = Encrypt{}
+	mi := &file_rpcx_proto_common_worker_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Encrypt) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Encrypt) ProtoMessage() {}
+
+func (x *Encrypt) ProtoReflect() protoreflect.Message {
+	mi := &file_rpcx_proto_common_worker_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Encrypt.ProtoReflect.Descriptor instead.
+func (*Encrypt) Descriptor() ([]byte, []int) {
+	return file_rpcx_proto_common_worker_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *Encrypt) GetD() []byte {
+	if x != nil {
+		return x.D
+	}
+	return nil
+}
+
+func (x *Encrypt) GetN() []byte {
+	if x != nil {
+		return x.N
+	}
+	return nil
+}
+
 type CommonRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	D             *anypb.Any             `protobuf:"bytes,1,opt,name=d,proto3" json:"d,omitempty"`  // 数据载体
@@ -37,7 +89,7 @@ type CommonRequest struct {
 
 func (x *CommonRequest) Reset() {
 	*x = CommonRequest{}
-	mi := &file_rpcx_proto_common_worker_proto_msgTypes[0]
+	mi := &file_rpcx_proto_common_worker_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -49,7 +101,7 @@ func (x *CommonRequest) String() string {
 func (*CommonRequest) ProtoMessage() {}
 
 func (x *CommonRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpcx_proto_common_worker_proto_msgTypes[0]
+	mi := &file_rpcx_proto_common_worker_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -62,7 +114,7 @@ func (x *CommonRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommonRequest.ProtoReflect.Descriptor instead.
 func (*CommonRequest) Descriptor() ([]byte, []int) {
-	return file_rpcx_proto_common_worker_proto_rawDescGZIP(), []int{0}
+	return file_rpcx_proto_common_worker_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *CommonRequest) GetD() *anypb.Any {
@@ -131,7 +183,7 @@ type CommonResponse struct {
 
 func (x *CommonResponse) Reset() {
 	*x = CommonResponse{}
-	mi := &file_rpcx_proto_common_worker_proto_msgTypes[1]
+	mi := &file_rpcx_proto_common_worker_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -143,7 +195,7 @@ func (x *CommonResponse) String() string {
 func (*CommonResponse) ProtoMessage() {}
 
 func (x *CommonResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpcx_proto_common_worker_proto_msgTypes[1]
+	mi := &file_rpcx_proto_common_worker_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -156,7 +208,7 @@ func (x *CommonResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommonResponse.ProtoReflect.Descriptor instead.
 func (*CommonResponse) Descriptor() ([]byte, []int) {
-	return file_rpcx_proto_common_worker_proto_rawDescGZIP(), []int{1}
+	return file_rpcx_proto_common_worker_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *CommonResponse) GetD() *anypb.Any {
@@ -232,7 +284,7 @@ type TestRequest struct {
 
 func (x *TestRequest) Reset() {
 	*x = TestRequest{}
-	mi := &file_rpcx_proto_common_worker_proto_msgTypes[2]
+	mi := &file_rpcx_proto_common_worker_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -244,7 +296,7 @@ func (x *TestRequest) String() string {
 func (*TestRequest) ProtoMessage() {}
 
 func (x *TestRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_rpcx_proto_common_worker_proto_msgTypes[2]
+	mi := &file_rpcx_proto_common_worker_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -257,7 +309,7 @@ func (x *TestRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TestRequest.ProtoReflect.Descriptor instead.
 func (*TestRequest) Descriptor() ([]byte, []int) {
-	return file_rpcx_proto_common_worker_proto_rawDescGZIP(), []int{2}
+	return file_rpcx_proto_common_worker_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *TestRequest) GetMessage() string {
@@ -284,7 +336,7 @@ type TestResponse struct {
 
 func (x *TestResponse) Reset() {
 	*x = TestResponse{}
-	mi := &file_rpcx_proto_common_worker_proto_msgTypes[3]
+	mi := &file_rpcx_proto_common_worker_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -296,7 +348,7 @@ func (x *TestResponse) String() string {
 func (*TestResponse) ProtoMessage() {}
 
 func (x *TestResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_rpcx_proto_common_worker_proto_msgTypes[3]
+	mi := &file_rpcx_proto_common_worker_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -309,7 +361,7 @@ func (x *TestResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TestResponse.ProtoReflect.Descriptor instead.
 func (*TestResponse) Descriptor() ([]byte, []int) {
-	return file_rpcx_proto_common_worker_proto_rawDescGZIP(), []int{3}
+	return file_rpcx_proto_common_worker_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *TestResponse) GetReply() string {
@@ -331,7 +383,10 @@ var File_rpcx_proto_common_worker_proto protoreflect.FileDescriptor
 const file_rpcx_proto_common_worker_proto_rawDesc = "" +
 	"\n" +
 	"\x1erpcx/proto/common_worker.proto\x12\n" +
-	"pub_worker\x1a\x19google/protobuf/any.proto\"\x87\x01\n" +
+	"pub_worker\x1a\x19google/protobuf/any.proto\"%\n" +
+	"\aEncrypt\x12\f\n" +
+	"\x01d\x18\x01 \x01(\fR\x01d\x12\f\n" +
+	"\x01n\x18\x02 \x01(\fR\x01n\"\x87\x01\n" +
 	"\rCommonRequest\x12\"\n" +
 	"\x01d\x18\x01 \x01(\v2\x14.google.protobuf.AnyR\x01d\x12\f\n" +
 	"\x01n\x18\x02 \x01(\fR\x01n\x12\f\n" +
@@ -373,19 +428,20 @@ func file_rpcx_proto_common_worker_proto_rawDescGZIP() []byte {
 	return file_rpcx_proto_common_worker_proto_rawDescData
 }
 
-var file_rpcx_proto_common_worker_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_rpcx_proto_common_worker_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_rpcx_proto_common_worker_proto_goTypes = []any{
-	(*CommonRequest)(nil),  // 0: pub_worker.CommonRequest
-	(*CommonResponse)(nil), // 1: pub_worker.CommonResponse
-	(*TestRequest)(nil),    // 2: pub_worker.TestRequest
-	(*TestResponse)(nil),   // 3: pub_worker.TestResponse
-	(*anypb.Any)(nil),      // 4: google.protobuf.Any
+	(*Encrypt)(nil),        // 0: pub_worker.Encrypt
+	(*CommonRequest)(nil),  // 1: pub_worker.CommonRequest
+	(*CommonResponse)(nil), // 2: pub_worker.CommonResponse
+	(*TestRequest)(nil),    // 3: pub_worker.TestRequest
+	(*TestResponse)(nil),   // 4: pub_worker.TestResponse
+	(*anypb.Any)(nil),      // 5: google.protobuf.Any
 }
 var file_rpcx_proto_common_worker_proto_depIdxs = []int32{
-	4, // 0: pub_worker.CommonRequest.d:type_name -> google.protobuf.Any
-	4, // 1: pub_worker.CommonResponse.d:type_name -> google.protobuf.Any
-	0, // 2: pub_worker.CommonWorker.Do:input_type -> pub_worker.CommonRequest
-	1, // 3: pub_worker.CommonWorker.Do:output_type -> pub_worker.CommonResponse
+	5, // 0: pub_worker.CommonRequest.d:type_name -> google.protobuf.Any
+	5, // 1: pub_worker.CommonResponse.d:type_name -> google.protobuf.Any
+	1, // 2: pub_worker.CommonWorker.Do:input_type -> pub_worker.CommonRequest
+	2, // 3: pub_worker.CommonWorker.Do:output_type -> pub_worker.CommonResponse
 	3, // [3:4] is the sub-list for method output_type
 	2, // [2:3] is the sub-list for method input_type
 	2, // [2:2] is the sub-list for extension type_name
@@ -404,7 +460,7 @@ func file_rpcx_proto_common_worker_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_rpcx_proto_common_worker_proto_rawDesc), len(file_rpcx_proto_common_worker_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   4,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
