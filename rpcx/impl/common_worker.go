@@ -102,7 +102,7 @@ func (self *CommonWorker) Do(ctx context.Context, req *pb.CommonRequest) (*pb.Co
 	}
 
 	// 5. 包装业务响应为 CommonResponse
-	return self.buildSuccessResponse(cipher, req, bizResp)
+	return self.buildSuccessResponse(cipher, key, req, bizResp)
 }
 
 // -------------------------- 验证数据 --------------------------
@@ -194,16 +194,9 @@ func PackAny(data proto.Message) (*anypb.Any, error) {
 }
 
 // buildSuccessResponse 构建成功响应
-func (self *CommonWorker) buildSuccessResponse(cipher crypto.Cipher, req *pb.CommonRequest, bizResp proto.Message) (*pb.CommonResponse, error) {
-	c := self.GetLocalCache()
-	if c == nil {
-		return nil, errors.New("cache object is nil")
-	}
-	key, err := GetSharedKey(c, cipher)
-	if err != nil {
-		return buildErrorResponse(req, codes.Internal, err.Error()), nil
-	}
-	defer DIC.ClearData(key)
+func (self *CommonWorker) buildSuccessResponse(cipher crypto.Cipher, key []byte, req *pb.CommonRequest, bizResp proto.Message) (*pb.CommonResponse, error) {
+	// 注意：key由外层传入，避免重复获取
+	// key的清理由外层Do方法负责
 
 	// 包装业务响应到 Any
 	anyResp, err := PackAny(bizResp)
