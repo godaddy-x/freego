@@ -15,7 +15,7 @@ import (
 )
 
 // TestHandler 测试业务处理器
-var testHandle = func(ctx context.Context, req proto.Message) (proto.Message, error) {
+func testHandle(ctx context.Context, req proto.Message) (proto.Message, error) {
 	testReq, ok := req.(*pb.TestRequest)
 	if !ok {
 		return nil, utils.Error("invalid request type")
