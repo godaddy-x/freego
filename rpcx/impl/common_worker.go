@@ -108,7 +108,7 @@ func (self *CommonWorker) Do(ctx context.Context, req *pb.CommonRequest) (*pb.Co
 	}
 
 	// 4. 调用业务处理器逻辑
-	bizResp, err := handler.Handle(ctx, bizReq)
+	bizResp, err := handler(ctx, bizReq)
 	if err != nil {
 		return buildErrorResponse(req, codes.Internal, fmt.Sprintf("business handle failed: %v", err)), nil
 	}

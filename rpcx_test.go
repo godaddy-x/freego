@@ -15,9 +15,7 @@ import (
 )
 
 // TestHandler 测试业务处理器
-type TestHandler struct{}
-
-func (h *TestHandler) Handle(ctx context.Context, req proto.Message) (proto.Message, error) {
+var testHandle = func(ctx context.Context, req proto.Message) (proto.Message, error) {
 	testReq, ok := req.(*pb.TestRequest)
 	if !ok {
 		return nil, utils.Error("invalid request type")
@@ -46,8 +44,7 @@ func TestGRPCManager_StartServer(t *testing.T) {
 	}
 
 	// 注册业务处理器
-	testHandler := &TestHandler{}
-	err = manager.RegisterHandler("test.hello", testHandler, func() proto.Message { return &pb.TestRequest{} })
+	err = manager.RegisterHandler("test.hello", testHandle, func() proto.Message { return &pb.TestRequest{} })
 	if err != nil {
 		t.Fatalf("Failed to register handler: %v", err)
 	}
