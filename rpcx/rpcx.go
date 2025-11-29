@@ -52,9 +52,9 @@ func (g *RPCManager) AddLocalCache(cacheAware cache.Cache) *RPCManager {
 	return g
 }
 
-// RegisterHandler 注册业务处理器
-func (g *RPCManager) RegisterHandler(router string, handler impl.BusinessHandler) error {
-	impl.SetHandler(router, handler)
+// RegisterHandler 注册业务处理器 新增构造函数参数，转发到 impl.SetHandler
+func (g *RPCManager) RegisterHandler(router string, handler impl.BusinessHandler, constructor impl.RequestConstructor) error {
+	impl.SetHandler(router, handler, constructor)
 	return nil
 }
 

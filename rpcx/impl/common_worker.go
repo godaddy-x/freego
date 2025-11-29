@@ -75,13 +75,19 @@ func (self *CommonWorker) Do(ctx context.Context, req *pb.CommonRequest) (*pb.Co
 	}
 	defer DIC.ClearData(key)
 
-	// 3. 根据路由获取业务处理器
-	handler := GetHandler(req.R)
+	// 3. 根据路由获取业务处理器  获取处理器 + 构造函数（核心改动）
+	handler, constructor := GetHandler(req.R)
 	if handler == nil {
 		return buildErrorResponse(req, codes.NotFound, fmt.Sprintf("route (r) not found: %s", req.R)), nil
 	}
+	if constructor == nil {
+		return buildErrorResponse(req, codes.NotFound, fmt.Sprintf("route (r) constructor not found: %s", req.R)), nil
+	}
 
-	bizReq := handler.RequestType() // 获取业务请求类型（如 &userpb.UserGetRequest{}）
+	bizReq := constructor() // 获取业务请求类型（如 &userpb.UserGetRequest{}）
+	if bizReq == nil {
+		return buildErrorResponse(req, codes.NotFound, fmt.Sprintf("route (r) constructor returns nil request object: %s", req.R)), nil
+	}
 	// 4. 解包 Any 字段到业务请求
 	if req.P == 1 {
 		enc := &pb.Encrypt{}

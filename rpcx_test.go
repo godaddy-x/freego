@@ -32,10 +32,6 @@ func (h *TestHandler) Handle(ctx context.Context, req proto.Message) (proto.Mess
 	return reply, nil
 }
 
-func (h *TestHandler) RequestType() proto.Message {
-	return &pb.TestRequest{}
-}
-
 // TestGRPCManager_StartServer 测试GRPC服务启动
 func TestGRPCManager_StartServer(t *testing.T) {
 	// 创建GRPC管理器
@@ -51,7 +47,7 @@ func TestGRPCManager_StartServer(t *testing.T) {
 
 	// 注册业务处理器
 	testHandler := &TestHandler{}
-	err = manager.RegisterHandler("test.hello", testHandler)
+	err = manager.RegisterHandler("test.hello", testHandler, func() proto.Message { return &pb.TestRequest{} })
 	if err != nil {
 		t.Fatalf("Failed to register handler: %v", err)
 	}
