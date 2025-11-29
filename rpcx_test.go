@@ -15,15 +15,10 @@ import (
 )
 
 // TestHandler 测试业务处理器
-func testHandle(ctx context.Context, req proto.Message) (proto.Message, error) {
-	testReq, ok := req.(*pb.TestRequest)
-	if !ok {
-		return nil, utils.Error("invalid request type")
-	}
-
+func testHandle(ctx context.Context, req *pb.TestRequest) (*pb.TestResponse, error) {
 	// 处理业务逻辑
 	reply := &pb.TestResponse{
-		Reply:      "Hello, " + testReq.Message,
+		Reply:      "Hello, " + req.Message,
 		ServerTime: utils.UnixSecond(),
 	}
 
@@ -44,7 +39,7 @@ func TestGRPCManager_StartServer(t *testing.T) {
 	}
 
 	// 注册业务处理器
-	err = manager.RegisterHandler("test.hello", testHandle, func() proto.Message { return &pb.TestRequest{} })
+	manager.AddHandler("test.hello", rpcx.WrapHandler(testHandle), func() proto.Message { return &pb.TestRequest{} })
 	if err != nil {
 		t.Fatalf("Failed to register handler: %v", err)
 	}

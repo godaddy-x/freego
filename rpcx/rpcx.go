@@ -3,6 +3,7 @@ package rpcx
 import (
 	"context"
 	"fmt"
+	"google.golang.org/protobuf/proto"
 	"net"
 	"sync"
 	"time"
@@ -50,6 +51,13 @@ func (g *RPCManager) AddRedisCache(cacheAware cache.Cache) *RPCManager {
 func (g *RPCManager) AddLocalCache(cacheAware cache.Cache) *RPCManager {
 	g.localCache = cacheAware
 	return g
+}
+
+// WrapHandler 创建类型安全的handler包装器，避免运行时反射开销
+func WrapHandler[Req proto.Message, Resp proto.Message](handler func(context.Context, Req) (Resp, error)) func(context.Context, proto.Message) (proto.Message, error) {
+	return func(ctx context.Context, req proto.Message) (proto.Message, error) {
+		return handler(ctx, req.(Req))
+	}
 }
 
 // AddHandler 注册业务处理器 新增构造函数参数，转发到 impl.SetHandler
