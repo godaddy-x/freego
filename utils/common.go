@@ -31,6 +31,7 @@ import (
 	"github.com/godaddy-x/freego/utils/decimal"
 	"github.com/godaddy-x/freego/utils/snowflake"
 	"github.com/google/uuid"
+	"gopkg.in/yaml.v3"
 )
 
 var (
@@ -497,6 +498,18 @@ func ReadLocalJsonConfig(path string, result interface{}) error {
 		return err
 	} else {
 		return JsonUnmarshal(data, result)
+	}
+}
+
+// 读取本地YAML配置文件
+func ReadLocalYamlConfig(path string, result interface{}) error {
+	if data, err := ReadFile(path); err != nil {
+		return err
+	} else {
+		if err := yaml.Unmarshal(data, result); err != nil {
+			return Error("YAML unmarshal failed: ", err)
+		}
+		return nil
 	}
 }
 
