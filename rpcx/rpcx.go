@@ -2,11 +2,13 @@ package rpcx
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"google.golang.org/protobuf/proto"
 	"net"
 	"sync"
 	"time"
+
+	"google.golang.org/protobuf/proto"
 
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/rpcx/impl"
@@ -54,9 +56,17 @@ func (g *RPCManager) AddLocalCache(cacheAware cache.Cache) *RPCManager {
 }
 
 // Wrap 创建类型安全的handler包装器，避免运行时反射开销
-func Wrap[Req proto.Message, Resp proto.Message](handler func(context.Context, Req) (Resp, error)) func(context.Context, proto.Message) (proto.Message, error) {
+// Req 和 Resp 是具体的 proto.Message 指针类型（如 *pb.TestRequest/*pb.TestResponse）
+// 核心：极简、高效，错误完全透传，仅做必要的nil/类型校验
+func Wrap[Req, Resp proto.Message](handler func(context.Context, Req) (Resp, error)) func(context.Context, proto.Message) (proto.Message, error) {
 	return func(ctx context.Context, req proto.Message) (proto.Message, error) {
-		return handler(ctx, req.(Req))
+		if req == nil {
+			return nil, errors.New("rpc wrap: request is nil") // 加wrap前缀，便于定位错误来源
+		}
+		if typedReq, ok := req.(Req); ok {
+			return handler(ctx, typedReq) // 错误完全透传，不捕获、不包装
+		}
+		return nil, errors.New("rpc wrap: invalid request type") // 加wrap前缀
 	}
 }
 
