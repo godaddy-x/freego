@@ -39,7 +39,7 @@ func TestGRPCManager_StartServer(t *testing.T) {
 	}
 
 	// 注册业务处理器
-	manager.AddHandler("test.hello", rpcx.WrapHandler(testHandle), func() proto.Message { return &pb.TestRequest{} })
+	manager.AddHandler("test.hello", rpcx.Wrap(testHandle), func() proto.Message { return &pb.TestRequest{} })
 	if err != nil {
 		t.Fatalf("Failed to register handler: %v", err)
 	}

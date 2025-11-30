@@ -53,8 +53,8 @@ func (g *RPCManager) AddLocalCache(cacheAware cache.Cache) *RPCManager {
 	return g
 }
 
-// WrapHandler 创建类型安全的handler包装器，避免运行时反射开销
-func WrapHandler[Req proto.Message, Resp proto.Message](handler func(context.Context, Req) (Resp, error)) func(context.Context, proto.Message) (proto.Message, error) {
+// Wrap 创建类型安全的handler包装器，避免运行时反射开销
+func Wrap[Req proto.Message, Resp proto.Message](handler func(context.Context, Req) (Resp, error)) func(context.Context, proto.Message) (proto.Message, error) {
 	return func(ctx context.Context, req proto.Message) (proto.Message, error) {
 		return handler(ctx, req.(Req))
 	}
