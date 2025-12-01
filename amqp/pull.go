@@ -31,14 +31,54 @@ type PullManager struct {
 	reconnectWg sync.WaitGroup
 }
 
-// InitConfig 初始化配置（双重检查锁模式）
+// InitConfig 初始化配置（支持多数据源配置）
 // 通过双重检查锁定机制确保线程安全，避免重复初始化
-func (self *PullManager) InitConfig(conf AmqpConfig) (*PullManager, error) {
+func (self *PullManager) InitConfig(confs ...AmqpConfig) error {
+	if len(confs) == 0 {
+		return fmt.Errorf("rabbitmq pull init failed: at least one config is required")
+	}
+
+	var lastErr error
+	successCount := 0
+
+	// 遍历所有配置，为每个配置创建对应的manager
+	for i, conf := range confs {
+		_, err := self.initSingleConfig(conf)
+		if err != nil {
+			zlog.Warn("failed to init pull manager for config", 0,
+				zlog.AddError(err),
+				zlog.String("ds_name", conf.DsName),
+				zlog.Int("config_index", i))
+			lastErr = err
+			continue
+		}
+
+		successCount++
+		zlog.Info("pull manager initialized successfully", 0,
+			zlog.String("ds_name", conf.DsName),
+			zlog.Int("config_index", i))
+	}
+
+	if successCount == 0 {
+		return fmt.Errorf("rabbitmq pull init failed: all configs failed, last error: %w", lastErr)
+	}
+
+	zlog.Info("pull managers initialization completed", 0,
+		zlog.Int("total_configs", len(confs)),
+		zlog.Int("success_count", successCount),
+		zlog.Int("failure_count", len(confs)-successCount))
+
+	return nil
+}
+
+// initSingleConfig 为单个配置创建pull manager
+func (self *PullManager) initSingleConfig(conf AmqpConfig) (*PullManager, error) {
 	// 第一重检查
 	pullMgrMu.RLock()
 	if _, exists := pullMgrs[conf.DsName]; exists {
 		pullMgrMu.RUnlock()
-		return nil, fmt.Errorf("rabbitmq pull init failed: [%s] already exists", conf.DsName)
+		// 如果已经存在，返回已存在的实例
+		return pullMgrs[conf.DsName], nil
 	}
 	pullMgrMu.RUnlock()
 

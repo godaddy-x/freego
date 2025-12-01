@@ -67,7 +67,6 @@ type MGOConfig struct {
 	Username       string   `yaml:"username" json:"Username"`
 	Password       string   `yaml:"password" json:"Password"`
 	PoolLimit      int      `yaml:"pool_limit" json:"PoolLimit"`
-	Debug          bool     `yaml:"debug" json:"Debug"`
 }
 
 // RedisConfig Redis配置 - 与cache.RedisConfig字段兼容

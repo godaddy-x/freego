@@ -232,20 +232,64 @@ func (opt *Option) Validate() error {
 	return nil
 }
 
-// NewPublishManager 创建发布者管理器（单例模式，双重检查锁定）
-func NewPublishManager(conf AmqpConfig) (*PublishManager, error) {
+// InitConfig 初始化发布者管理器（支持多数据源配置）
+func (self *PublishManager) InitConfig(confs ...AmqpConfig) error {
+	if len(confs) == 0 {
+		return fmt.Errorf("rabbitmq publish init failed: at least one config is required")
+	}
+
+	var lastErr error
+	successCount := 0
+
+	// 遍历所有配置，为每个配置创建对应的manager
+	for i, conf := range confs {
+		_, err := self.initSingleConfig(conf)
+		if err != nil {
+			zlog.Warn("failed to init publish manager for config", 0,
+				zlog.AddError(err),
+				zlog.String("ds_name", conf.DsName),
+				zlog.Int("config_index", i))
+			lastErr = err
+			continue
+		}
+
+		successCount++
+		zlog.Info("publish manager initialized successfully", 0,
+			zlog.String("ds_name", conf.DsName),
+			zlog.Int("config_index", i))
+	}
+
+	if successCount == 0 {
+		return fmt.Errorf("rabbitmq publish init failed: all configs failed, last error: %w", lastErr)
+	}
+
+	zlog.Info("publish managers initialization completed", 0,
+		zlog.Int("total_configs", len(confs)),
+		zlog.Int("success_count", successCount),
+		zlog.Int("failure_count", len(confs)-successCount))
+
+	return nil
+}
+
+// initSingleConfig 为单个配置创建manager
+func (self *PublishManager) initSingleConfig(conf AmqpConfig) (*PublishManager, error) {
+	// 第一重检查
+	mgrMu.RLock()
+	if _, exists := publishMgrs[conf.DsName]; exists {
+		mgrMu.RUnlock()
+		// 如果已经存在，返回已存在的实例
+		return publishMgrs[conf.DsName], nil
+	}
+	mgrMu.RUnlock()
+
 	if err := conf.Validate(); err != nil {
 		return nil, wrapPublishError(err, "VALIDATION_ERROR", "config validation failed", false)
 	}
 	conf.setDefaults()
 
-	// 第一重检查（读锁）
-	mgrMu.RLock()
-	if existMgr, ok := publishMgrs[conf.DsName]; ok {
-		mgrMu.RUnlock()
-		return existMgr, nil
+	if conf.DsName == "" {
+		conf.DsName = DIC.MASTER
 	}
-	mgrMu.RUnlock()
 
 	// 创建管理器
 	maxConcurrentCreates := 10
@@ -268,26 +312,39 @@ func NewPublishManager(conf AmqpConfig) (*PublishManager, error) {
 		rebuildCancel: rebuildCancel,
 	}
 
-	// 第二重检查（写锁）
+	if _, err := mgr.Connect(); err != nil {
+		rebuildCancel()
+		return nil, fmt.Errorf("connect failed: %w", err)
+	}
+
+	// 第二重检查
 	mgrMu.Lock()
 	defer mgrMu.Unlock()
 
-	if existMgr, ok := publishMgrs[conf.DsName]; ok {
-		// 如果已经存在，直接返回已存在的实例
-		zlog.Info("returning existing publish manager", 0, zlog.String("ds_name", conf.DsName))
-		rebuildCancel()
-		return existMgr, nil
-	}
-
-	// 建立初始连接（在写锁保护下）
-	if _, err := mgr.Connect(); err != nil {
-		rebuildCancel()
-		return nil, wrapPublishError(err, "INIT_ERROR", "init connection failed", false)
+	if existing, exists := publishMgrs[conf.DsName]; exists {
+		mgr.Close()
+		return existing, nil
 	}
 
 	publishMgrs[conf.DsName] = mgr
-	zlog.Info("rabbitmq publish manager started successfully", 0, zlog.String("ds_name", conf.DsName))
+	zlog.Info("rabbitmq publish service started successfully", 0,
+		zlog.String("ds_name", conf.DsName))
 	return mgr, nil
+}
+
+// NewPublishManager 创建发布者管理器（保留向后兼容性）
+func NewPublishManager(confs ...AmqpConfig) (*PublishManager, error) {
+	if len(confs) == 0 {
+		return nil, fmt.Errorf("rabbitmq publish init failed: at least one config is required")
+	}
+
+	mgr := &PublishManager{}
+	if err := mgr.InitConfig(confs...); err != nil {
+		return nil, err
+	}
+
+	// 返回第一个成功创建的manager实例
+	return GetPublishManager(confs[0].DsName)
 }
 
 // GetPublishManager 获取已创建的发布者管理器
