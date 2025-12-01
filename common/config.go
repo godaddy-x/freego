@@ -80,7 +80,6 @@ type RedisConfig struct {
 	MaxActive   int    `yaml:"max_active" json:"MaxActive"`
 	IdleTimeout int    `yaml:"idle_timeout" json:"IdleTimeout"`
 	Network     string `yaml:"network" json:"Network"`
-	LockTimeout int    `yaml:"lock_timeout" json:"LockTimeout"`
 }
 
 // ZapConfig 日志配置 - 与zlog.ZapConfig字段兼容
