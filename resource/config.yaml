@@ -1,0 +1,89 @@
+# 多数据源配置示例
+server:
+  name: "MyApp"
+  version: "1.0.0"
+  debug: true
+  env: "development"
+
+# RabbitMQ多数据源配置
+rabbitmq:
+  master:
+    ds_name: "master"
+    host: "127.0.0.1"
+    username: "guest"
+    password: "guest"
+    port: 5672
+    vhost: "/"
+    secret_key: "rabbitmq_secret_key_32_bytes_1234567890"
+
+# MySQL多数据源配置
+mysql:
+  master:
+    ds_name: "master"
+    host: "127.0.0.1"
+    port: 3306
+    database: "exchange2"
+    username: "root"
+    password: "123456"
+    charset: "utf8mb4"
+    slow_query: 0
+    slow_log_path: ""
+    max_idle_conns: 500
+    max_open_conns: 500
+    conn_max_lifetime: 10
+    conn_max_idle_time: 10
+
+# MongoDB多数据源配置
+mongodb:
+  master:
+    ds_name: "master"
+    addrs: ["127.0.0.1:27017"]
+    direct: true
+    connect_timeout: 5
+    socket_timeout: 5
+    database: "ops_dev"
+    username: ""
+    password: ""
+    pool_limit: 4096
+    debug: false
+
+# Redis多数据源配置
+redis:
+  master:
+    ds_name: "master"
+    host: "127.0.0.1"
+    port: 6379
+    password: ""
+    max_idle: 512
+    max_active: 2048
+    idle_timeout: 60
+    network: "tcp"
+    lock_timeout: 15
+
+# 日志多输出器配置
+logger:
+  # 文件日志输出器（生产环境）
+  api_main:
+    layout: 0
+    location: "Asia/Shanghai"
+    level: "info"
+    console: false
+    file_config:
+      filename: "logs/app.log"
+      max_size: 100
+      max_backups: 30
+      max_age: 30
+      compress: true
+
+  # 错误日志专用输出器
+  admin_main:
+    layout: 0
+    location: "Asia/Shanghai"
+    level: "error"
+    console: false
+    file_config:
+      filename: "logs/error.log"
+      max_size: 50
+      max_backups: 10
+      max_age: 7
+      compress: false
