@@ -292,14 +292,14 @@ func GetSharedKey(c cache.Cache, cipher crypto.Cipher) ([]byte, error) {
 		if err != nil {
 			return nil, errors.New("cipher shared key error")
 		}
-		res, err := utils.AesGCMEncryptBaseByteResult(sharedKey, utils.SHA256_BASE(prkBs), pubBs)
+		res, err := utils.AesGCMEncryptBaseByteResult(sharedKey, utils.HMAC_SHA256_BASE(utils.SHA256_BASE(prkBs), utils.GetLocalDynamicSecretKey()), pubBs)
 		if err != nil {
 			return nil, errors.New("encrypt shared key error")
 		}
 		_ = c.Put(cacheKey, res)
 		return sharedKey, nil
 	} else {
-		res, err := utils.AesGCMDecryptBaseByteResult(sharedKey, utils.SHA256_BASE(prkBs), pubBs)
+		res, err := utils.AesGCMDecryptBaseByteResult(sharedKey, utils.HMAC_SHA256_BASE(utils.SHA256_BASE(prkBs), utils.GetLocalDynamicSecretKey()), pubBs)
 		if err != nil {
 			return nil, errors.New("decrypt shared key error")
 		}

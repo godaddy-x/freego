@@ -36,11 +36,12 @@ import (
 )
 
 var (
-	CstSH, _               = time.LoadLocation("Asia/Shanghai") //上海
-	random_byte_sp         = Str2Bytes("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!@#$%^*+-_=")
-	local_secret_key       = createDefaultLocalSecretKey()
-	local_token_secret_key = createLocalTokenSecretKey()
-	snowflake_node         = GetSnowflakeNode(0)
+	CstSH, _                 = time.LoadLocation("Asia/Shanghai") //上海
+	random_byte_sp           = Str2Bytes("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!@#$%^*+-_=")
+	local_secret_key         = createDefaultLocalSecretKey()
+	local_dynamic_secret_key = GetRandomSecure(32)
+	local_token_secret_key   = createLocalTokenSecretKey()
+	snowflake_node           = GetSnowflakeNode(0)
 )
 
 const (
@@ -72,6 +73,10 @@ func SetLocalSecretKey(key string) {
 
 func GetLocalSecretKey() string {
 	return local_secret_key
+}
+
+func GetLocalDynamicSecretKey() []byte {
+	return local_dynamic_secret_key
 }
 
 func GetLocalTokenSecretKey() string {
