@@ -399,7 +399,7 @@ func ModelDriver(objects ...sqlc.Object) error {
 		if !strings.HasPrefix(md.TableName, "temp_q_") {
 			col, err := getTypeCapacityPresets(md.TableName)
 			if err != nil {
-				zlog.Warn("getSQLTableColumns fail", 0, zlog.String("table", md.TableName))
+				zlog.Debug("MySQL getSQLTableColumns fail", 0, zlog.String("table", md.TableName), zlog.String("errMsg", err.Error()))
 			}
 			md.FieldDBMap = col
 		}
