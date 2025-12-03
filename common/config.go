@@ -19,13 +19,21 @@ type YamlConfig struct {
 	// 日志配置 - 支持多日志输出器，key为日志器名称
 	Logger map[string]*ZapConfig `yaml:"logger,omitempty"`
 
+	// JWT配置 - 支持多JWT配置，key为配置名称
+	JWT map[string]*JwtConfig `yaml:"jwt,omitempty"`
+
 	// 应用基本信息
-	Server struct {
-		Name    string `yaml:"name"`
-		Version string `yaml:"version"`
-		Debug   bool   `yaml:"debug"`
-		Env     string `yaml:"env"`
-	} `yaml:"server,omitempty"`
+	Server map[string]*ServerConfig `yaml:"server,omitempty"`
+}
+
+type ServerConfig struct {
+	Name       string `yaml:"name"`
+	Version    string `yaml:"version"`
+	Debug      bool   `yaml:"debug"`
+	Env        string `yaml:"env"`
+	SecretKey  string `yaml:"secret_key"`
+	PublicKey  string `yaml:"public_key"`
+	PrivateKey string `yaml:"private_key"`
 }
 
 // AmqpConfig RabbitMQ配置 - 与amqp.AmqpConfig字段兼容
@@ -99,6 +107,15 @@ type FileConfig struct {
 	Compress   bool   `yaml:"compress"`
 }
 
+// JwtConfig JWT配置 - 同时支持JWT和Server配置
+type JwtConfig struct {
+	// JWT相关字段
+	TokenKey string `yaml:"token_key,omitempty" json:"TokenKey"`
+	TokenAlg string `yaml:"token_alg,omitempty" json:"TokenAlg"`
+	TokenTyp string `yaml:"token_typ,omitempty" json:"TokenTyp"`
+	TokenExp int64  `yaml:"token_exp,omitempty" json:"TokenExp"`
+}
+
 // InitDefaults 初始化默认值，避免nil map
 func (c *YamlConfig) InitDefaults() {
 	if c.RabbitMQ == nil {
@@ -116,6 +133,17 @@ func (c *YamlConfig) InitDefaults() {
 	if c.Logger == nil {
 		c.Logger = make(map[string]*ZapConfig)
 	}
+	if c.JWT == nil {
+		c.JWT = make(map[string]*JwtConfig)
+	}
+}
+
+// CheckReady 判定是否已经初始化成功
+func (c *YamlConfig) CheckReady() bool {
+	if len(c.Server) == 0 {
+		return false
+	}
+	return true
 }
 
 // GetRabbitMQConfig 获取指定名称的RabbitMQ配置
@@ -196,4 +224,36 @@ func (c *YamlConfig) GetAllLoggerConfigs() map[string]*ZapConfig {
 		return make(map[string]*ZapConfig)
 	}
 	return c.Logger
+}
+
+// GetServerConfig 获取指定名称的服务器配置
+func (c *YamlConfig) GetServerConfig(name string) *ServerConfig {
+	if c.Server == nil {
+		return nil
+	}
+	return c.Server[name]
+}
+
+// GetAllServerConfigs 获取所有服务器配置
+func (c *YamlConfig) GetAllServerConfigs() map[string]*ServerConfig {
+	if c.Server == nil {
+		return make(map[string]*ServerConfig)
+	}
+	return c.Server
+}
+
+// GetJwtConfig 获取指定名称的JWT配置
+func (c *YamlConfig) GetJwtConfig(name string) *JwtConfig {
+	if c.JWT == nil {
+		return nil
+	}
+	return c.JWT[name]
+}
+
+// GetAllJwtConfigs 获取所有JWT配置
+func (c *YamlConfig) GetAllJwtConfigs() map[string]*JwtConfig {
+	if c.JWT == nil {
+		return make(map[string]*JwtConfig)
+	}
+	return c.JWT
 }

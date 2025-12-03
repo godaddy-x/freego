@@ -542,3 +542,29 @@ func (self *Cnd) Upset(keys []string, values ...interface{}) *Cnd {
 func (self *Cnd) GetPageResult() dialect.PageResult {
 	return self.Pagination.GetResult()
 }
+
+type FastObject struct {
+	key    string
+	sort   int
+	PrevID int64
+	LastID int64
+	Size   int64
+	CountQ bool
+	IsPrev bool
+	IsNext bool
+}
+
+func (s *FastObject) Key(k string) *FastObject {
+	s.key = k
+	return s
+}
+
+func (s *FastObject) Asc() *FastObject {
+	s.sort = ASC_
+	return s
+}
+
+func (s *FastObject) Desc() *FastObject {
+	s.sort = DESC_
+	return s
+}

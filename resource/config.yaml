@@ -1,9 +1,22 @@
 # 多数据源配置示例
 server:
-  name: "MyApp"
-  version: "1.0.0"
-  debug: true
-  env: "development"
+  default:
+    name: "MyApp"
+    version: "1.0.0"
+    debug: true
+    env: "development"
+    secret_key: "default_secret_key_32_bytes_for_dev123"
+    public_key: "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA...\n-----END PUBLIC KEY-----"
+    private_key: "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEA...\n-----END PRIVATE KEY-----"
+
+  production:
+    name: "MyApp-Prod"
+    version: "1.0.0"
+    debug: false
+    env: "production"
+    secret_key: "production_secret_key_32_bytes_secure123"
+    public_key: "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA...\n-----END PUBLIC KEY-----"
+    private_key: "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEA...\n-----END PRIVATE KEY-----"
 
 # RabbitMQ多数据源配置
 rabbitmq:
@@ -87,3 +100,30 @@ logger:
       max_backups: 10
       max_age: 7
       compress: false
+
+# JWT多配置
+jwt:
+  default:
+    token_key: "my_secret_jwt_key_32_bytes_length_123456789"
+    token_alg: "HS256"
+    token_typ: "JWT"
+    token_exp: 1209600 # 两周，单位秒
+    secret: "additional_secret_key_for_extra_security_123"
+
+  # API专用JWT配置
+  api:
+    token_key: "api_jwt_secret_key_32_bytes_length_abcdef123"
+    token_alg: "HS256"
+    token_typ: "JWT"
+    token_exp: 3600 # 1小时，单位秒
+    secret: "api_secret_key_for_api_operations_456"
+
+  # RSA JWT配置示例
+  rsa:
+    token_key: "rsa_jwt_key_32_bytes_length_for_rsa_789"
+    token_alg: "RS256"
+    token_typ: "JWT"
+    token_exp: 7200 # 2小时，单位秒
+    secret: ""
+    public_key: "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA...\n-----END PUBLIC KEY-----"
+    private_key: "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEA...\n-----END PRIVATE KEY-----"
