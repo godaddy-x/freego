@@ -132,8 +132,8 @@ type Context struct {
 	errorHandle     ErrorHandle                                            // 8字节 - 函数指针
 
 	// 8字节其他字段组 (2个字段)
-	RSA     []crypto.Cipher        // 8字节 - slice
-	Storage map[string]interface{} // 8字节 - map
+	CipherMap map[int64]crypto.Cipher // 8字节 - slice
+	Storage   map[string]interface{}  // 8字节 - map
 
 	// bool字段 (1字节，会产生填充)
 	postCompleted bool // 1字节 - bool
@@ -178,20 +178,18 @@ func (self *Context) GetTokenSecret() []byte {
 	return self.Subject.GetTokenSecret(utils.Bytes2Str(self.GetRawTokenBytes()), self.configs.jwtConfig.TokenKey)
 }
 
-func (self *Context) GetHmac256Sign(d, n string, t, p int64, key []byte) []byte {
-	return utils.HMAC_SHA256_BASE(utils.Str2Bytes(utils.AddStr(self.Path, d, n, t, p)), key)
+func (self *Context) GetHmac256Sign(d, n string, t, p, u int64, key []byte) []byte {
+	return utils.HMAC_SHA256_BASE(utils.Str2Bytes(utils.AddStr(self.Path, d, n, t, p, u)), key)
 }
 
-func (self *Context) CheckECDSASign(msg, sign []byte) (crypto.Cipher, error) {
-	if len(self.RSA) == 0 {
-		return nil, nil
+func (self *Context) CheckECDSASign(cipher crypto.Cipher, msg, sign []byte) (crypto.Cipher, error) {
+	if cipher == nil {
+		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request cipher invalid"}
 	}
-	for _, cip := range self.RSA {
-		if err := cip.Verify(msg, sign); err == nil {
-			return cip, nil
-		}
+	if err := cipher.Verify(msg, sign); err != nil {
+		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request signature invalid"}
 	}
-	return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request signature valid invalid"}
+	return cipher, nil
 }
 
 func (self *Context) AddStorage(k string, v interface{}) {
@@ -253,7 +251,7 @@ func (self *Context) Parser(dst interface{}) error {
 		System:          &common.System{Name: self.System.Name, Version: self.System.Version},
 		RedisCacheAware: self.RedisCacheAware,
 		LocalCacheAware: self.LocalCacheAware,
-		RSA:             self.RSA,
+		CipherMap:       self.CipherMap,
 	}
 	src := utils.GetPtr(dst, 0)
 	req := common.GetBasePtrReq(src)
@@ -413,7 +411,7 @@ func (self *Context) validJsonBody() error {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters must use RSA encryption"}
 		}
 		authBs := self.RequestCtx.Request.Header.Peek(Authorization)
-		if len(authBs) <= 0 || len(authBs) > 500 {
+		if len(authBs) <= 0 || len(authBs) > 1024 {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "client public key invalid"}
 		}
 		public := &PublicKey{}
@@ -421,7 +419,7 @@ func (self *Context) validJsonBody() error {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "client public key parse error", Err: err}
 		}
 
-		if _, err := CheckPublicKey(public, self.RSA...); err != nil {
+		if _, err := CheckPublicKey(public, self.CipherMap[body.User]); err != nil {
 			return err
 		}
 
@@ -471,18 +469,17 @@ func (self *Context) validJsonBody() error {
 		sharedKey = self.GetTokenSecret()
 	}
 	// Secret签名校验
-	sign := self.GetHmac256Sign(d, body.Nonce, body.Time, body.Plan, sharedKey)
+	sign := self.GetHmac256Sign(d, body.Nonce, body.Time, body.Plan, body.User, sharedKey)
 	if utils.Base64Encode(sign) != body.Sign {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature invalid"}
 	}
-	// ECDSA签名校验，如果服务端没配置cipher则忽略
-	cipher, err := self.CheckECDSASign(sign, utils.Base64Decode(body.Valid))
+	// ECDSA签名校验
+	cipher, err := self.CheckECDSASign(self.CipherMap[body.User], sign, utils.Base64Decode(body.Valid))
 	if err != nil {
 		return err
 	}
-	if cipher != nil {
-		self.AddStorage(Cipher, cipher)
-	}
+	// cipher传递给响应代码
+	self.AddStorage(Cipher, cipher)
 	if err := self.validReplayAttack(body.Sign); err != nil {
 		return err
 	}
@@ -495,12 +492,12 @@ func (self *Context) validJsonBody() error {
 	} else if body.Plan == 1 && !anonymous { // 登录状态 P1 AES
 		secret := self.GetTokenSecret()
 		defer DIC.ClearData(secret)
-		rawData, err = utils.AesGCMDecryptBase(d, secret[:32], utils.Str2Bytes(utils.AddStr(self.JsonBody.Time, self.JsonBody.Nonce, self.JsonBody.Plan, self.Path)))
+		rawData, err = utils.AesGCMDecryptBase(d, secret[:32], utils.Str2Bytes(utils.AddStr(self.JsonBody.Time, self.JsonBody.Nonce, self.JsonBody.Plan, self.Path, self.JsonBody.User)))
 		if err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "failed to parse data", Err: err}
 		}
 	} else if body.Plan == 2 && self.RouterConfig.UseRSA && anonymous { // 非登录状态 P2 ECC+AES
-		rawData, err = utils.AesGCMDecryptBase(d, sharedKey[0:32], utils.Str2Bytes(utils.AddStr(self.JsonBody.Time, self.JsonBody.Nonce, self.JsonBody.Plan, self.Path)))
+		rawData, err = utils.AesGCMDecryptBase(d, sharedKey[0:32], utils.Str2Bytes(utils.AddStr(self.JsonBody.Time, self.JsonBody.Nonce, self.JsonBody.Plan, self.Path, self.JsonBody.User)))
 		if err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "failed to parse data", Err: err}
 		}
@@ -567,11 +564,8 @@ func (self *Context) reset(ctx *Context, handle PostHandle, request *fasthttp.Re
 		self.LocalCacheAware = ctx.LocalCacheAware
 	}
 	// RSA是全局配置，通常只在系统启动时设置一次
-	// 只在RSA未初始化时才从模板拷贝，避免不必要的内存分配
-	if len(self.RSA) == 0 && len(ctx.RSA) > 0 {
-		// 深拷贝全局RSA配置
-		self.RSA = make([]crypto.Cipher, len(ctx.RSA))
-		copy(self.RSA, ctx.RSA)
+	if len(self.CipherMap) == 0 && len(ctx.CipherMap) > 0 {
+		self.CipherMap = ctx.CipherMap
 	}
 	// 如果RSA已有值（全局配置），保持不变
 	if self.roleRealm == nil {
@@ -694,34 +688,27 @@ func (self *Context) NoBody() error {
 	return nil
 }
 
-func CreatePublicKey(key, tag string, cip crypto.Cipher) (*PublicKey, error) {
+func CreatePublicKey(key, tag string, usr int64, cipher crypto.Cipher) (*PublicKey, error) {
 	requestObject := &PublicKey{}
 	requestObject.Key = key
 	requestObject.Tag = tag
-	if cip != nil {
-		requestObject.Noc = utils.Base64Encode(utils.GetRandomSecure(32))
-		requestObject.Exp = utils.UnixSecond()
-		sig, err := cip.Sign(utils.Str2Bytes(utils.AddStr(requestObject.Key, requestObject.Noc, requestObject.Exp)))
-		if err != nil {
-			return nil, ex.Throw{Msg: "ecdsa sign message error: " + err.Error()}
-		}
-		requestObject.Sig = utils.Base64Encode(sig)
+	requestObject.Noc = utils.Base64Encode(utils.GetRandomSecure(32))
+	requestObject.Exp = utils.UnixSecond()
+	requestObject.Usr = usr
+	sig, err := cipher.Sign(utils.Str2Bytes(utils.AddStr(requestObject.Key, requestObject.Noc, requestObject.Exp, requestObject.Usr)))
+	if err != nil {
+		return nil, ex.Throw{Msg: "ecdsa sign message error: " + err.Error()}
 	}
+	requestObject.Sig = utils.Base64Encode(sig)
 	return requestObject, nil
 }
 
-func CheckPublicKey(requestObject *PublicKey, cipher ...crypto.Cipher) (crypto.Cipher, error) {
+func CheckPublicKey(requestObject *PublicKey, cipher crypto.Cipher) (crypto.Cipher, error) {
+	if cipher == nil {
+		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request cipher invalid"}
+	}
 	if len(requestObject.Key) == 0 {
 		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request key is nil"}
-	}
-	if len(cipher) == 0 { // 没有配置ECDSA对象验证要求则跳过
-		return nil, nil
-	} else {
-		for _, v := range cipher {
-			if v == nil {
-				return nil, nil
-			}
-		}
 	}
 	if len(requestObject.Sig) == 0 {
 		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request sig is nil"}
@@ -733,21 +720,10 @@ func CheckPublicKey(requestObject *PublicKey, cipher ...crypto.Cipher) (crypto.C
 		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request exp invalid"}
 	}
 	// ECDSA验证签名
-	var cip crypto.Cipher
-	var ecdsaValid bool
-	for _, v := range cipher {
-		if err := v.Verify(utils.Str2Bytes(utils.AddStr(requestObject.Key, requestObject.Noc, requestObject.Exp)), utils.Base64Decode(requestObject.Sig)); err == nil {
-			ecdsaValid = true
-			cip = v
-			break
-		} else {
-			zlog.Error("ecdsa verify public key error", 0, zlog.String("clientPub", requestObject.Key))
-		}
-	}
-	if !ecdsaValid {
+	if err := cipher.Verify(utils.Str2Bytes(utils.AddStr(requestObject.Key, requestObject.Noc, requestObject.Exp, requestObject.Usr)), utils.Base64Decode(requestObject.Sig)); err != nil {
 		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request sig invalid"}
 	}
-	return cip, nil
+	return cipher, nil
 }
 
 func (self *Context) CreatePublicKey() (*PublicKey, error) {
@@ -761,7 +737,7 @@ func (self *Context) CreatePublicKey() (*PublicKey, error) {
 		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request data parse error", Err: err}
 	}
 
-	cip, err := CheckPublicKey(checkObject, self.RSA...)
+	cipher, err := CheckPublicKey(checkObject, self.CipherMap[checkObject.Usr])
 	if err != nil {
 		return nil, err
 	}
@@ -772,7 +748,7 @@ func (self *Context) CreatePublicKey() (*PublicKey, error) {
 		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "ecdh invalid", Err: err}
 	}
 
-	requestObject, err := CreatePublicKey(utils.Base64Encode(prk.PublicKey().Bytes()), "", cip)
+	requestObject, err := CreatePublicKey(utils.Base64Encode(prk.PublicKey().Bytes()), "", checkObject.Usr, cipher)
 	if err != nil {
 		return nil, err
 	}

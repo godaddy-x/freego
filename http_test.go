@@ -17,9 +17,9 @@ import (
 
 const (
 	domain       = "http://localhost:8090"
-	access_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxOTkyODAwOTk4Mzg4NjYyMjczIiwiYXVkIjoiIiwiaXNzIjoiIiwiZGV2IjoiQVBQIiwianRpIjoiMjgyZjAwMmQtNTY3MS00YTlhLTgwMDMtMzA5ZmI0ZGNkNTZjIiwiZXh0IjoiIiwiaWF0IjowLCJleHAiOjE3NjUxNjUzNTd9.tbuDc+g0Scge9WNRDESF/acdMG7Fqwgu6F4vWgv69WQ="
-	token_secret = "nt/YcHhS6Y8npXInAhBr9PMdSNLZlGbNCfnqaQWo09HNd67Swoy0qHZeVqN2A42g/SHVoTWkLs3XQna8bEUxeA=="
-	token_expire = 1765165357
+	access_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxOTk2MjE3NjQ3MzA1MzI2NTkzIiwiYXVkIjoiIiwiaXNzIjoiIiwiZGV2IjoiQVBQIiwianRpIjoiYTFjNmM1ZTQ1ZDBiNGU3MDljNGJlMTMwMDkzYWM2MGQiLCJleHQiOiIiLCJpYXQiOjAsImV4cCI6MTc3Njg2NjM0OX0=.2pTd/hnzFYAzLYwpvKWus2zI2wUKImWFBrpJvFqzhBs="
+	token_secret = "KAQydyO+dS8i2eGU17mu4IRHI61TbgsXKPvj/g3FQRT9oVX3i0jA2AMzqA6/wp/z+EkqpgN2YVRf24eJ9NRxoA=="
+	token_expire = 1776866349
 )
 
 var httpSDK = NewSDK()
@@ -30,7 +30,8 @@ func NewSDK() *sdk.HttpSDK {
 		KeyPath:   "/key",
 		LoginPath: "/login",
 	}
-	_ = newObject.SetECDSAObject(clientPrk, serverPub)
+	newObject.SetClientNo(1)
+	_ = newObject.SetECDSAObject(newObject.ClientNo, clientPrk, serverPub)
 	return newObject
 }
 
@@ -43,7 +44,7 @@ func TestGetPublicKey(t *testing.T) {
 }
 
 func TestECCLogin(t *testing.T) {
-	_ = httpSDK.SetECDSAObject(clientPrk, serverPub)
+	_ = httpSDK.SetECDSAObject(1, clientPrk, serverPub)
 	requestData := sdk.AuthToken{Token: "AI工具人，鲨鱼宝宝！！！"}
 	responseData := sdk.AuthToken{}
 	if err := httpSDK.PostByECC("/login", &requestData, &responseData); err != nil {

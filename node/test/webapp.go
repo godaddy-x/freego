@@ -167,7 +167,7 @@ func NewHTTP() *MyWebNode {
 
 	// 增加双向验签的ECDSA
 	cipher, _ := crypto.CreateS256ECDSAWithBase64(serverPrk, clientPub)
-	my.AddCipher(cipher)
+	my.AddCipher(1, cipher)
 
 	//my.AddRedisCache(func(ds ...string) (cache.Cache, error) {
 	//	rds, err := cache.NewRedis(ds...)

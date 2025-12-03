@@ -2,11 +2,11 @@ package common
 
 import (
 	"fmt"
+	"github.com/godaddy-x/freego/utils/crypto"
 	"unsafe"
 
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/utils"
-	"github.com/godaddy-x/freego/utils/crypto"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
@@ -70,10 +70,9 @@ type Context struct {
 	System          *System                                 // 8字节 - 指针字段
 	RedisCacheAware func(ds ...string) (cache.Cache, error) // 8字节 - 函数指针
 	LocalCacheAware func(ds ...string) (cache.Cache, error) // 8字节 - 函数指针
-	RSA             []crypto.Cipher                         // 8字节 - slice
-
-	// 16字节字段组 (1个字段)
-	Path string // 16字节 - 字符串字段
+	// 16字节字段组 (2个字段)
+	CipherMap map[int64]crypto.Cipher // 16字节 - slice
+	Path      string                  // 16字节 - 字符串字段
 }
 
 type BaseReq struct {

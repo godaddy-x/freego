@@ -61,6 +61,12 @@ func easyjson19e19bc5DecodeGithubComGodaddyXFreegoNode(in *jlexer.Lexer, out *Pu
 			} else {
 				out.Exp = int64(in.Int64())
 			}
+		case "usr":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Usr = int64(in.Int64())
+			}
 		default:
 			in.SkipRecursive()
 		}
@@ -99,6 +105,11 @@ func easyjson19e19bc5EncodeGithubComGodaddyXFreegoNode(out *jwriter.Writer, in P
 		const prefix string = ",\"exp\":"
 		out.RawString(prefix)
 		out.Int64(int64(in.Exp))
+	}
+	{
+		const prefix string = ",\"usr\":"
+		out.RawString(prefix)
+		out.Int64(int64(in.Usr))
 	}
 	out.RawByte('}')
 }
@@ -411,6 +422,12 @@ func easyjson19e19bc5DecodeGithubComGodaddyXFreegoNode3(in *jlexer.Lexer, out *J
 			} else {
 				out.Plan = int64(in.Int64())
 			}
+		case "u":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.User = int64(in.Int64())
+			}
 		default:
 			in.SkipRecursive()
 		}
@@ -459,6 +476,11 @@ func easyjson19e19bc5EncodeGithubComGodaddyXFreegoNode3(out *jwriter.Writer, in 
 		const prefix string = ",\"p\":"
 		out.RawString(prefix)
 		out.Int64(int64(in.Plan))
+	}
+	{
+		const prefix string = ",\"u\":"
+		out.RawString(prefix)
+		out.Int64(int64(in.User))
 	}
 	out.RawByte('}')
 }

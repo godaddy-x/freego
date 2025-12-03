@@ -32,7 +32,7 @@ func NewSecuritySDK() *sdk.HttpSDK {
 		KeyPath:   "/key",
 		LoginPath: "/login",
 	}
-	_ = newObject.SetECDSAObject(testClientPrk, testServerPub)
+	_ = newObject.SetECDSAObject(1, testClientPrk, testServerPub)
 	return newObject
 }
 

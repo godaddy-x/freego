@@ -97,7 +97,7 @@ func (self *HttpNode) StartServer(addr string) {
 	if self.Context.LocalCacheAware != nil {
 		zlog.Printf("local cache service has been started successful")
 	}
-	if self.Context.RSA != nil {
+	if len(self.Context.CipherMap) != 0 {
 		zlog.Printf("ECC certificate service has been started successful")
 	}
 
@@ -267,6 +267,7 @@ func (self *HttpNode) readyContext() {
 	if self.Context == nil {
 		self.Context = &Context{}
 		self.Context.configs = &Configs{}
+		self.Context.CipherMap = make(map[int64]crypto.Cipher)
 		self.Context.configs.routerConfigs = make(map[string]*RouterConfig)
 		self.Context.configs.langConfigs = make(map[string]map[string]string)
 		self.Context.configs.jwtConfig = jwt.JwtConfig{}
@@ -297,12 +298,12 @@ func (self *HttpNode) AddLocalCache(cacheAware CacheAware) {
 	}
 }
 
-func (self *HttpNode) AddCipher(cipher crypto.Cipher) error {
+func (self *HttpNode) AddCipher(key int64, cipher crypto.Cipher) error {
 	if cipher == nil {
 		return utils.Error("cipher is nil")
 	}
 	self.readyContext()
-	self.Context.RSA = append(self.Context.RSA, cipher)
+	self.Context.CipherMap[key] = cipher
 	return nil
 }
 
@@ -557,12 +558,12 @@ func defaultRenderPre(ctx *Context) error {
 				resp.Plan = 2
 				key, _ := v.([]byte)
 				defer DIC.ClearData(key) // 使用完毕清空敏感密钥
-				resp.Data, err = utils.AesGCMEncryptBase(data, key[0:32], utils.Str2Bytes(utils.AddStr(resp.Time, resp.Nonce, resp.Plan, ctx.Path)))
+				resp.Data, err = utils.AesGCMEncryptBase(data, key[0:32], utils.Str2Bytes(utils.AddStr(resp.Time, resp.Nonce, resp.Plan, ctx.Path, ctx.JsonBody.User)))
 				if err != nil {
 					return ex.Throw{Code: http.StatusInternalServerError, Msg: "encryption response data failed", Err: err}
 				}
 				ctx.DelStorage(SharedKey)
-				sign = ctx.GetHmac256Sign(resp.Data, resp.Nonce, resp.Time, resp.Plan, key)
+				sign = ctx.GetHmac256Sign(resp.Data, resp.Nonce, resp.Time, resp.Plan, ctx.JsonBody.User, key)
 				resp.Sign = utils.Base64Encode(sign)
 			} else {
 				return ex.Throw{Msg: "anonymous response plan invalid"}
@@ -571,17 +572,17 @@ func defaultRenderPre(ctx *Context) error {
 			key := ctx.GetTokenSecret()
 			defer DIC.ClearData(key) // 使用完毕清空敏感密钥
 			resp.Plan = 1
-			resp.Data, err = utils.AesGCMEncryptBase(data, key[0:32], utils.Str2Bytes(utils.AddStr(resp.Time, resp.Nonce, resp.Plan, ctx.Path)))
+			resp.Data, err = utils.AesGCMEncryptBase(data, key[0:32], utils.Str2Bytes(utils.AddStr(resp.Time, resp.Nonce, resp.Plan, ctx.Path, ctx.JsonBody.User)))
 			if err != nil {
 				return ex.Throw{Code: http.StatusInternalServerError, Msg: "encryption response data failed", Err: err}
 			}
-			sign = ctx.GetHmac256Sign(resp.Data, resp.Nonce, resp.Time, resp.Plan, key)
+			sign = ctx.GetHmac256Sign(resp.Data, resp.Nonce, resp.Time, resp.Plan, ctx.JsonBody.User, key)
 			resp.Sign = utils.Base64Encode(sign)
 		} else { // 单纯Base64编码格式响应
 			key := ctx.GetTokenSecret()
 			defer DIC.ClearData(key) // 使用完毕清空敏感密钥
 			resp.Data = utils.Base64Encode(data)
-			sign = ctx.GetHmac256Sign(resp.Data, resp.Nonce, resp.Time, resp.Plan, key)
+			sign = ctx.GetHmac256Sign(resp.Data, resp.Nonce, resp.Time, resp.Plan, ctx.JsonBody.User, key)
 			resp.Sign = utils.Base64Encode(sign)
 		}
 		// 如果cipher不为空则增加ECDSA签名数据

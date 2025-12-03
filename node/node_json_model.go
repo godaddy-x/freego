@@ -7,6 +7,7 @@ type PublicKey struct {
 	Noc string `json:"noc"` // 随机数
 	Sig string `json:"sig"` // 数据签名
 	Exp int64  `json:"exp"` // 有效时间，单位秒
+	Usr int64  `json:"usr"` // 客户端ID
 }
 
 //easyjson:json
@@ -29,7 +30,8 @@ type JsonBody struct {
 
 	// 8字节字段组 (2个int64字段，16字节)
 	Time int64 `json:"t"` // 8字节 - int64字段
-	Plan int64 `json:"p"` // 0.默认(登录状态) 1.AES(登录状态) 2.RSA/ECC模式(匿名状态) 3.独立验签模式(匿名状态) - 8字节
+	Plan int64 `json:"p"` // 8字节 - 0.默认(登录状态) 1.AES(登录状态) 2.RSA/ECC模式(匿名状态)
+	User int64 `json:"u"` // 8字节 - 客户端ID
 }
 
 // JsonResp 结构体 - 96字节 (7个字段，8字节对齐，无填充)

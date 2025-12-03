@@ -43,16 +43,17 @@ type AuthToken struct {
 // - PostByECC: 匿名访问，使用ECC密钥协商
 // - PostByAuth: 登录后访问，使用JWT令牌
 type HttpSDK struct {
-	Domain      string          // API域名 (如: https://api.example.com)
-	AuthDomain  string          // 认证域名 (可选，用于/key和/login接口)
-	KeyPath     string          // 公钥获取路径 (默认: /key)
-	LoginPath   string          // 登录路径 (默认: /login)
-	language    string          // 语言设置 (HTTP头)
-	timeout     int64           // 请求超时时间(秒)
-	authObject  interface{}     // 登录认证对象 (用户名+密码等)
-	authToken   AuthToken       // JWT认证令牌
-	ecdsaObject []crypto.Cipher // ECDSA签名验证对象列表
-	ecdhObject  crypto.Cipher   // ECDH密钥协商对象
+	Domain      string                  // API域名 (如: https://api.example.com)
+	AuthDomain  string                  // 认证域名 (可选，用于/key和/login接口)
+	KeyPath     string                  // 公钥获取路径 (默认: /key)
+	LoginPath   string                  // 登录路径 (默认: /login)
+	language    string                  // 语言设置 (HTTP头)
+	timeout     int64                   // 请求超时时间(秒)
+	ClientNo    int64                   // 客户端编号
+	authObject  interface{}             // 登录认证对象 (用户名+密码等)
+	authToken   AuthToken               // JWT认证令牌
+	ecdsaObject map[int64]crypto.Cipher // ECDSA签名验证对象列表
+	ecdhObject  crypto.Cipher           // ECDH密钥协商对象
 }
 
 // AuthObject 设置登录认证对象
@@ -95,6 +96,10 @@ func (s *HttpSDK) SetTimeout(timeout int64) {
 	s.timeout = timeout
 }
 
+func (s *HttpSDK) SetClientNo(usr int64) {
+	s.ClientNo = usr
+}
+
 // SetLanguage 设置HTTP请求语言头
 // 用于服务端国际化支持
 //
@@ -126,12 +131,15 @@ func (s *HttpSDK) SetLanguage(language string) {
 // - 可以多次调用添加多个备用密钥对
 // - 验证时会尝试所有配置的密钥对
 // - 私钥仅用于签名，公钥用于验证
-func (s *HttpSDK) SetECDSAObject(prkB64, pubB64 string) error {
+func (s *HttpSDK) SetECDSAObject(usr int64, prkB64, pubB64 string) error {
+	if s.ecdsaObject == nil {
+		s.ecdsaObject = make(map[int64]crypto.Cipher)
+	}
 	cipher, err := crypto.CreateS256ECDSAWithBase64(prkB64, pubB64)
 	if err != nil {
 		return err
 	}
-	s.ecdsaObject = append(s.ecdsaObject, cipher)
+	s.ecdsaObject[usr] = cipher
 	return nil
 }
 
@@ -156,17 +164,19 @@ func (s *HttpSDK) SetECDSAObject(prkB64, pubB64 string) error {
 //
 // 注意: 只有在配置了ECDSA对象时才会执行签名
 func (s *HttpSDK) addECDSASign(jsonBody *node.JsonBody) error {
-	if len(s.ecdsaObject) > 0 && s.ecdsaObject[0] != nil {
-		ecdsaSign, err := s.ecdsaObject[0].Sign(utils.Base64Decode(jsonBody.Sign))
-		if err != nil {
-			return ex.Throw{Msg: "ECDSA sign failed: " + err.Error()}
-		}
-		jsonBody.Valid = utils.Base64Encode(ecdsaSign)
-		// 清理ECDSA签名数据（在设置完jsonBody.Valid之后）
-		DIC.ClearData(ecdsaSign)
-		if zlog.IsDebug() {
-			zlog.Debug(fmt.Sprintf("ECDSA sign added for HMAC signature: %s", jsonBody.Valid), 0)
-		}
+	cipher := s.ecdsaObject[s.ClientNo]
+	if cipher == nil {
+		return ex.Throw{Msg: "ECDSA object not found"}
+	}
+	ecdsaSign, err := cipher.Sign(utils.Base64Decode(jsonBody.Sign))
+	if err != nil {
+		return ex.Throw{Msg: "ECDSA sign failed: " + err.Error()}
+	}
+	jsonBody.Valid = utils.Base64Encode(ecdsaSign)
+	// 清理ECDSA签名数据（在设置完jsonBody.Valid之后）
+	DIC.ClearData(ecdsaSign)
+	if zlog.IsDebug() {
+		zlog.Debug(fmt.Sprintf("ECDSA sign added for HMAC signature: %s", jsonBody.Valid), 0)
 	}
 	return nil
 }
@@ -198,28 +208,16 @@ func (s *HttpSDK) addECDSASign(jsonBody *node.JsonBody) error {
 // - 如果响应不包含ECDSA签名，会跳过验证
 // - 验证失败时会尝试所有配置的密钥对
 func (s *HttpSDK) verifyECDSASign(validSign []byte, respData *node.JsonResp) error {
-	if len(s.ecdsaObject) > 0 && len(respData.Valid) > 0 {
-		// 预先解码ECDSA签名数据，避免在循环中重复解码
-		ecdsaSignData := utils.Base64Decode(respData.Valid)
-		// 清理ECDSA签名解码数据
-		defer DIC.ClearData(ecdsaSignData)
-
-		ecdsaValid := false
-		for _, ecdsaObj := range s.ecdsaObject {
-			if ecdsaObj == nil {
-				continue
-			}
-			if err := ecdsaObj.Verify(validSign, ecdsaSignData); err == nil {
-				ecdsaValid = true
-				if zlog.IsDebug() {
-					zlog.Debug("response ECDSA sign verify: success", 0)
-				}
-				break
-			}
-		}
-		if !ecdsaValid {
-			return ex.Throw{Msg: "post response ECDSA sign verify invalid"}
-		}
+	cipher := s.ecdsaObject[s.ClientNo]
+	if cipher == nil {
+		return ex.Throw{Msg: "ECDSA object not found"}
+	}
+	// 预先解码ECDSA签名数据，避免在循环中重复解码
+	ecdsaSignData := utils.Base64Decode(respData.Valid)
+	// 清理ECDSA签名解码数据
+	defer DIC.ClearData(ecdsaSignData)
+	if err := cipher.Verify(validSign, ecdsaSignData); err != nil {
+		return ex.Throw{Msg: "post response ECDSA sign verify invalid"}
 	}
 	return nil
 }
@@ -300,11 +298,8 @@ func (s *HttpSDK) GetPublicKey() (*crypto.EcdhObject, *node.PublicKey, crypto.Ci
 	if err := ecdh.CreateECDH(); err != nil {
 		return nil, nil, nil, ex.Throw{Msg: "create ecdh object error: " + err.Error()}
 	}
-	var cip crypto.Cipher
-	if len(s.ecdsaObject) > 0 {
-		cip = s.ecdsaObject[0]
-	}
-	public, err := node.CreatePublicKey(utils.Base64Encode(utils.GetRandomSecure(32)), "", cip)
+	cipher := s.ecdsaObject[s.ClientNo]
+	public, err := node.CreatePublicKey(utils.Base64Encode(utils.GetRandomSecure(32)), "", s.ClientNo, cipher)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -344,11 +339,11 @@ func (s *HttpSDK) GetPublicKey() (*crypto.EcdhObject, *node.PublicKey, crypto.Ci
 	if err := utils.JsonUnmarshal(respBytes, responseObject); err != nil {
 		return nil, nil, nil, ex.Throw{Msg: "request public key parse error: " + err.Error()}
 	}
-	cip, err = node.CheckPublicKey(responseObject, s.ecdsaObject...)
+	cipher, err = node.CheckPublicKey(responseObject, cipher)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	return ecdh, responseObject, cip, nil
+	return ecdh, responseObject, cipher, nil
 }
 
 // PostByECC 通过ECC+AES-GCM+ECDSA模式发送POST请求
@@ -399,7 +394,7 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	if len(path) == 0 || requestObj == nil || responseObj == nil {
 		return ex.Throw{Msg: "params invalid"}
 	}
-	ecdh, public, cip, err := s.GetPublicKey()
+	ecdh, public, cipher, err := s.GetPublicKey()
 	if err != nil {
 		return err
 	}
@@ -434,6 +429,7 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	jsonBody.Time = utils.UnixSecond()
 	jsonBody.Nonce = utils.RandNonce()
 	jsonBody.Plan = 2
+	jsonBody.User = s.ClientNo
 
 	var jsonData []byte
 	if v, b := requestObj.(*AuthToken); b {
@@ -457,12 +453,12 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 		zlog.Debug(fmt.Sprintf("shared key: %s", utils.Base64Encode(sharedKey)), 0)
 	}
 	// 使用 AES-GCM 加密，Nonce 作为 AAD
-	d, err := utils.AesGCMEncryptBase(utils.Str2Bytes(jsonBody.Data), sharedKey, utils.Str2Bytes(utils.AddStr(jsonBody.Time, jsonBody.Nonce, jsonBody.Plan, path)))
+	d, err := utils.AesGCMEncryptBase(utils.Str2Bytes(jsonBody.Data), sharedKey, utils.Str2Bytes(utils.AddStr(jsonBody.Time, jsonBody.Nonce, jsonBody.Plan, path, jsonBody.User)))
 	if err != nil {
 		return ex.Throw{Msg: "request data AES encrypt failed"}
 	}
 	jsonBody.Data = d
-	jsonBody.Sign = utils.Base64Encode(utils.HMAC_SHA256_BASE(utils.Str2Bytes(utils.AddStr(path, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan)), sharedKey))
+	jsonBody.Sign = utils.Base64Encode(utils.HMAC_SHA256_BASE(utils.Str2Bytes(utils.AddStr(path, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan, jsonBody.User)), sharedKey))
 
 	// 添加ECDSA签名
 	if err := s.addECDSASign(jsonBody); err != nil {
@@ -482,7 +478,7 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 		zlog.Debug(utils.Bytes2Str(bytesData), 0)
 	}
 
-	key, err := node.CreatePublicKey(public.Key, utils.Base64Encode(prk.(*ecdh2.PrivateKey).PublicKey().Bytes()), cip)
+	key, err := node.CreatePublicKey(public.Key, utils.Base64Encode(prk.(*ecdh2.PrivateKey).PublicKey().Bytes()), s.ClientNo, cipher)
 	if err != nil {
 		return err
 	}
@@ -531,7 +527,7 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 		}
 		return ex.Throw{Msg: respData.Message}
 	}
-	validSign := utils.HMAC_SHA256_BASE(utils.Str2Bytes(utils.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan)), sharedKey)
+	validSign := utils.HMAC_SHA256_BASE(utils.Str2Bytes(utils.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan, jsonBody.User)), sharedKey)
 	// 清理签名验证数据
 	defer DIC.ClearData(validSign)
 	if utils.Base64Encode(validSign) != respData.Sign {
@@ -545,7 +541,7 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	if err := s.verifyECDSASign(validSign, respData); err != nil {
 		return err
 	}
-	dec, err := utils.AesGCMDecryptBase(respData.Data, sharedKey, utils.Str2Bytes(utils.AddStr(respData.Time, respData.Nonce, respData.Plan, path)))
+	dec, err := utils.AesGCMDecryptBase(respData.Data, sharedKey, utils.Str2Bytes(utils.AddStr(respData.Time, respData.Nonce, respData.Plan, path, jsonBody.User)))
 	if err != nil {
 		return ex.Throw{Msg: "post response data AES decrypt failed"}
 	}
@@ -702,6 +698,7 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 	jsonBody.Time = utils.UnixSecond()
 	jsonBody.Nonce = utils.RandNonce()
 	jsonBody.Plan = 0
+	jsonBody.User = s.ClientNo
 	var jsonData []byte
 	var err error
 	if v, b := requestObj.(*AuthToken); b {
@@ -725,7 +722,7 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 
 	if encrypted {
 		jsonBody.Plan = 1
-		d, err := utils.AesGCMEncryptBase(utils.Str2Bytes(jsonBody.Data), tokenSecret[:32], utils.Str2Bytes(utils.AddStr(jsonBody.Time, jsonBody.Nonce, jsonBody.Plan, path)))
+		d, err := utils.AesGCMEncryptBase(utils.Str2Bytes(jsonBody.Data), tokenSecret[:32], utils.Str2Bytes(utils.AddStr(jsonBody.Time, jsonBody.Nonce, jsonBody.Plan, path, jsonBody.User)))
 		if err != nil {
 			return ex.Throw{Msg: "request data AES encrypt failed"}
 		}
@@ -740,7 +737,7 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 			zlog.Debug(fmt.Sprintf("request data base64: %s", jsonBody.Data), 0)
 		}
 	}
-	jsonBody.Sign = utils.Base64Encode(utils.HMAC_SHA256_BASE(utils.Str2Bytes(utils.AddStr(path, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan)), tokenSecret))
+	jsonBody.Sign = utils.Base64Encode(utils.HMAC_SHA256_BASE(utils.Str2Bytes(utils.AddStr(path, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan, jsonBody.User)), tokenSecret))
 
 	// 添加ECDSA签名
 	if err := s.addECDSASign(jsonBody); err != nil {
@@ -802,7 +799,7 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 	respTokenSecret := utils.Base64Decode(s.authToken.Secret)
 	defer DIC.ClearData(respTokenSecret) // 清除响应验证时解码的token secret
 
-	validSign := utils.HMAC_SHA256_BASE(utils.Str2Bytes(utils.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan)), respTokenSecret)
+	validSign := utils.HMAC_SHA256_BASE(utils.Str2Bytes(utils.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan, jsonBody.User)), respTokenSecret)
 	// 清理签名验证数据
 	defer DIC.ClearData(validSign)
 	if utils.Base64Encode(validSign) != respData.Sign {
@@ -823,7 +820,7 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 			zlog.Debug(fmt.Sprintf("response data base64: %s", string(dec)), 0)
 		}
 	} else if respData.Plan == 1 {
-		dec, err = utils.AesGCMDecryptBase(respData.Data, respTokenSecret[:32], utils.Str2Bytes(utils.AddStr(respData.Time, respData.Nonce, respData.Plan, path)))
+		dec, err = utils.AesGCMDecryptBase(respData.Data, respTokenSecret[:32], utils.Str2Bytes(utils.AddStr(respData.Time, respData.Nonce, respData.Plan, path, jsonBody.User)))
 		if err != nil {
 			return ex.Throw{Msg: "post response data AES decrypt failed"}
 		}
