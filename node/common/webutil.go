@@ -71,8 +71,8 @@ type Context struct {
 	RedisCacheAware func(ds ...string) (cache.Cache, error) // 8字节 - 函数指针
 	LocalCacheAware func(ds ...string) (cache.Cache, error) // 8字节 - 函数指针
 	// 16字节字段组 (2个字段)
-	CipherMap map[int64]crypto.Cipher // 16字节 - slice
-	Path      string                  // 16字节 - 字符串字段
+	Cipher map[int64]crypto.Cipher // 16字节 - slice
+	Path   string                  // 16字节 - 字符串字段
 }
 
 type BaseReq struct {

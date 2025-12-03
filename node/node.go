@@ -132,8 +132,8 @@ type Context struct {
 	errorHandle     ErrorHandle                                            // 8字节 - 函数指针
 
 	// 8字节其他字段组 (2个字段)
-	CipherMap map[int64]crypto.Cipher // 8字节 - slice
-	Storage   map[string]interface{}  // 8字节 - map
+	Cipher  map[int64]crypto.Cipher // 8字节 - slice
+	Storage map[string]interface{}  // 8字节 - map
 
 	// bool字段 (1字节，会产生填充)
 	postCompleted bool // 1字节 - bool
@@ -251,7 +251,7 @@ func (self *Context) Parser(dst interface{}) error {
 		System:          &common.System{Name: self.System.Name, Version: self.System.Version},
 		RedisCacheAware: self.RedisCacheAware,
 		LocalCacheAware: self.LocalCacheAware,
-		CipherMap:       self.CipherMap,
+		Cipher:          self.Cipher,
 	}
 	src := utils.GetPtr(dst, 0)
 	req := common.GetBasePtrReq(src)
@@ -419,7 +419,7 @@ func (self *Context) validJsonBody() error {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "client public key parse error", Err: err}
 		}
 
-		if _, err := CheckPublicKey(public, self.CipherMap[body.User]); err != nil {
+		if _, err := CheckPublicKey(public, self.Cipher[body.User]); err != nil {
 			return err
 		}
 
@@ -474,7 +474,7 @@ func (self *Context) validJsonBody() error {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature invalid"}
 	}
 	// ECDSA签名校验
-	cipher, err := self.CheckECDSASign(self.CipherMap[body.User], sign, utils.Base64Decode(body.Valid))
+	cipher, err := self.CheckECDSASign(self.Cipher[body.User], sign, utils.Base64Decode(body.Valid))
 	if err != nil {
 		return err
 	}
@@ -564,8 +564,8 @@ func (self *Context) reset(ctx *Context, handle PostHandle, request *fasthttp.Re
 		self.LocalCacheAware = ctx.LocalCacheAware
 	}
 	// RSA是全局配置，通常只在系统启动时设置一次
-	if len(self.CipherMap) == 0 && len(ctx.CipherMap) > 0 {
-		self.CipherMap = ctx.CipherMap
+	if len(self.Cipher) == 0 && len(ctx.Cipher) > 0 {
+		self.Cipher = ctx.Cipher
 	}
 	// 如果RSA已有值（全局配置），保持不变
 	if self.roleRealm == nil {
@@ -737,7 +737,7 @@ func (self *Context) CreatePublicKey() (*PublicKey, error) {
 		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request data parse error", Err: err}
 	}
 
-	cipher, err := CheckPublicKey(checkObject, self.CipherMap[checkObject.Usr])
+	cipher, err := CheckPublicKey(checkObject, self.Cipher[checkObject.Usr])
 	if err != nil {
 		return nil, err
 	}

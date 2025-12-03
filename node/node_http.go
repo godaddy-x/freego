@@ -97,7 +97,7 @@ func (self *HttpNode) StartServer(addr string) {
 	if self.Context.LocalCacheAware != nil {
 		zlog.Printf("local cache service has been started successful")
 	}
-	if len(self.Context.CipherMap) != 0 {
+	if len(self.Context.Cipher) != 0 {
 		zlog.Printf("ECC certificate service has been started successful")
 	}
 
@@ -267,7 +267,7 @@ func (self *HttpNode) readyContext() {
 	if self.Context == nil {
 		self.Context = &Context{}
 		self.Context.configs = &Configs{}
-		self.Context.CipherMap = make(map[int64]crypto.Cipher)
+		self.Context.Cipher = make(map[int64]crypto.Cipher)
 		self.Context.configs.routerConfigs = make(map[string]*RouterConfig)
 		self.Context.configs.langConfigs = make(map[string]map[string]string)
 		self.Context.configs.jwtConfig = jwt.JwtConfig{}
@@ -303,7 +303,7 @@ func (self *HttpNode) AddCipher(key int64, cipher crypto.Cipher) error {
 		return utils.Error("cipher is nil")
 	}
 	self.readyContext()
-	self.Context.CipherMap[key] = cipher
+	self.Context.Cipher[key] = cipher
 	return nil
 }
 
@@ -585,7 +585,6 @@ func defaultRenderPre(ctx *Context) error {
 			sign = ctx.GetHmac256Sign(resp.Data, resp.Nonce, resp.Time, resp.Plan, ctx.JsonBody.User, key)
 			resp.Sign = utils.Base64Encode(sign)
 		}
-		// 如果cipher不为空则增加ECDSA签名数据
 		cipher := ctx.GetStorage(Cipher)
 		if cipher != nil {
 			result, err := cipher.(crypto.Cipher).Sign(sign)

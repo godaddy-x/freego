@@ -672,7 +672,7 @@ func (s *SocketSDK) verifyWebSocketResponseFromJsonResp(path string, result inte
 
 // websocketHeartbeat WebSocket心跳机制，保持连接活跃状态
 func (s *SocketSDK) websocketHeartbeat() {
-	ticker := time.NewTicker(5 * time.Second) // 每30秒发送一次心跳
+	ticker := time.NewTicker(30 * time.Second) // 每30秒发送一次心跳
 	defer ticker.Stop()
 
 	for {
