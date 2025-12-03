@@ -25,7 +25,7 @@ import (
 
 // ConfigProvider 配置提供者接口
 type ConfigProvider interface {
-	GetRSA() []crypto.Cipher
+	GetCipher() map[int64]crypto.Cipher
 	GetLocalCache() cache.Cache
 	GetRedisCache() cache.Cache
 }
@@ -35,11 +35,11 @@ type CommonWorker struct {
 	ConfigProvider ConfigProvider // 配置提供者接口
 }
 
-// GetRSA 获取RSA/ECDSA密钥对列表，用于数字签名验证
+// GetCipher 获取RSA/ECDSA密钥对列表，用于数字签名验证
 // 返回: 配置的RSA密钥列表，如果ConfigProvider未设置则返回nil
-func (self *CommonWorker) GetRSA() []crypto.Cipher {
+func (self *CommonWorker) GetCipher() map[int64]crypto.Cipher {
 	if self.ConfigProvider != nil {
-		return self.ConfigProvider.GetRSA()
+		return self.ConfigProvider.GetCipher()
 	}
 	return nil
 }
@@ -150,14 +150,11 @@ func (self *CommonWorker) validRequest(req *pb.CommonRequest) (crypto.Cipher, []
 	}
 
 	// 2. 先验证ECDSA签名（双重签名验证的第一层）
-	var cipher crypto.Cipher
-	for _, rsa := range self.GetRSA() {
-		if err := rsa.Verify(req.S, req.E); err == nil {
-			cipher = rsa // 校验成功后保存校验器
-			break
-		}
+	cipher, exists := self.GetCipher()[req.U]
+	if !exists || cipher == nil {
+		return nil, nil, errors.New("request ecdsa not found")
 	}
-	if cipher == nil {
+	if err := cipher.Verify(req.S, req.E); err != nil {
 		return nil, nil, errors.New("request ecdsa signature check failed")
 	}
 
@@ -172,7 +169,7 @@ func (self *CommonWorker) validRequest(req *pb.CommonRequest) (crypto.Cipher, []
 	}
 
 	// 4. 验证HMAC签名（双重签名验证的第二层）
-	sig, err := Signature(key, req.D.Value, req.N, req.T, req.P, req.R)
+	sig, err := Signature(key, req.D.Value, req.N, req.T, req.P, req.R, req.U)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -183,7 +180,7 @@ func (self *CommonWorker) validRequest(req *pb.CommonRequest) (crypto.Cipher, []
 
 	// 5. 只有在签名验证通过后，才检查重放攻击
 	validKey := utils.FNV1a64Base(req.S)
-	exists, err := c.Exists(validKey)
+	exists, err = c.Exists(validKey)
 	if err == nil && exists {
 		return nil, nil, errors.New("request signature already used (replay attack detected)")
 	}
@@ -253,7 +250,7 @@ func (self *CommonWorker) buildSuccessResponse(cipher crypto.Cipher, key []byte,
 		M: "",
 	}
 
-	sig, err := Signature(key, res.D.Value, res.N, res.T, res.P, res.R)
+	sig, err := Signature(key, res.D.Value, res.N, res.T, res.P, res.R, req.U)
 	if err != nil {
 		return nil, err
 	}
@@ -314,8 +311,9 @@ func GetSharedKey(c cache.Cache, cipher crypto.Cipher) ([]byte, error) {
 // t: 时间戳，确保请求时效性
 // p: 加密标识，0表示明文，1表示密文
 // r: 路由标识符，指定业务处理逻辑
+// u: 客户端ID，指定Cipher
 // 返回: 计算后的签名字节数组
-func Signature(key, d, n []byte, t, p int64, r string) ([]byte, error) {
+func Signature(key, d, n []byte, t, p int64, r string, u int64) ([]byte, error) {
 	// 拼接数据载体进行验证S（优化：预分配内存，避免多次append）
 	tBytes := []byte(strconv.FormatInt(t, 10))
 	pBytes := []byte(strconv.FormatInt(p, 10))

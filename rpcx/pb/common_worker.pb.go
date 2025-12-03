@@ -83,6 +83,7 @@ type CommonRequest struct {
 	E             []byte                 `protobuf:"bytes,5,opt,name=e,proto3" json:"e,omitempty"`  // ECDSA签名
 	R             string                 `protobuf:"bytes,6,opt,name=r,proto3" json:"r,omitempty"`  // 访问路由
 	P             int64                  `protobuf:"varint,7,opt,name=p,proto3" json:"p,omitempty"` // 计划类型
+	U             int64                  `protobuf:"varint,8,opt,name=u,proto3" json:"u,omitempty"` // 客户端ID
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -162,6 +163,13 @@ func (x *CommonRequest) GetR() string {
 func (x *CommonRequest) GetP() int64 {
 	if x != nil {
 		return x.P
+	}
+	return 0
+}
+
+func (x *CommonRequest) GetU() int64 {
+	if x != nil {
+		return x.U
 	}
 	return 0
 }
@@ -386,7 +394,7 @@ const file_rpcx_proto_common_worker_proto_rawDesc = "" +
 	"pub_worker\x1a\x19google/protobuf/any.proto\"%\n" +
 	"\aEncrypt\x12\f\n" +
 	"\x01d\x18\x01 \x01(\fR\x01d\x12\f\n" +
-	"\x01n\x18\x02 \x01(\fR\x01n\"\x87\x01\n" +
+	"\x01n\x18\x02 \x01(\fR\x01n\"\x95\x01\n" +
 	"\rCommonRequest\x12\"\n" +
 	"\x01d\x18\x01 \x01(\v2\x14.google.protobuf.AnyR\x01d\x12\f\n" +
 	"\x01n\x18\x02 \x01(\fR\x01n\x12\f\n" +
@@ -394,7 +402,8 @@ const file_rpcx_proto_common_worker_proto_rawDesc = "" +
 	"\x01t\x18\x04 \x01(\x03R\x01t\x12\f\n" +
 	"\x01e\x18\x05 \x01(\fR\x01e\x12\f\n" +
 	"\x01r\x18\x06 \x01(\tR\x01r\x12\f\n" +
-	"\x01p\x18\a \x01(\x03R\x01p\"\xa4\x01\n" +
+	"\x01p\x18\a \x01(\x03R\x01p\x12\f\n" +
+	"\x01u\x18\b \x01(\x03R\x01u\"\xa4\x01\n" +
 	"\x0eCommonResponse\x12\"\n" +
 	"\x01d\x18\x01 \x01(\v2\x14.google.protobuf.AnyR\x01d\x12\f\n" +
 	"\x01n\x18\x02 \x01(\fR\x01n\x12\f\n" +

@@ -33,7 +33,7 @@ func TestGRPCManager_StartServer(t *testing.T) {
 	// 增加双向验签的ECDSA
 	cipher, _ := crypto.CreateS256ECDSAWithBase64(serverPrk, clientPub)
 	// 添加RSA cipher
-	err := manager.AddCipher(cipher)
+	err := manager.AddCipher(1, cipher)
 	if err != nil {
 		t.Fatalf("Failed to add cipher: %v", err)
 	}
@@ -70,7 +70,8 @@ func TestRpcSDK_Basic(t *testing.T) {
 	// 创建RPC客户端SDK
 	rpcClient := sdk.NewRPC("localhost:9090").
 		SetSSL(false).
-		AddCipher(cipher)
+		SetClientNo(1).
+		AddCipher(1, cipher)
 	if err := rpcClient.Connect(); err != nil {
 		panic(err)
 	}

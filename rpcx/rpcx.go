@@ -24,7 +24,7 @@ type RPCManager struct {
 	server     *grpc.Server
 	listener   net.Listener
 	cancel     context.CancelFunc
-	RSA        []crypto.Cipher
+	cipher     map[int64]crypto.Cipher
 	redisCache cache.Cache
 	localCache cache.Cache
 }
@@ -35,11 +35,14 @@ func NewRPCManager() *RPCManager {
 }
 
 // AddCipher 增加RSA加密器
-func (g *RPCManager) AddCipher(cipher crypto.Cipher) error {
+func (g *RPCManager) AddCipher(usr int64, cipher crypto.Cipher) error {
 	if cipher == nil {
 		return utils.Error("cipher is nil")
 	}
-	g.RSA = append(g.RSA, cipher)
+	if g.cipher == nil {
+		g.cipher = map[int64]crypto.Cipher{}
+	}
+	g.cipher[usr] = cipher
 	return nil
 }
 
@@ -86,9 +89,11 @@ func (g *RPCManager) StartServer(addr string) error {
 	}
 
 	// 验证必要配置
-	if len(g.RSA) == 0 {
-		return fmt.Errorf("RSA cipher must be set before starting server")
+	if len(g.cipher) == 0 {
+		return fmt.Errorf("cipher must be set before starting server")
 	}
+
+	zlog.Printf("cipher service has been started successful")
 
 	// 验证至少有一个业务处理器已注册
 	if len(impl.GetAllHandlers()) == 0 {
@@ -102,9 +107,6 @@ func (g *RPCManager) StartServer(addr string) error {
 	if g.localCache == nil {
 		g.localCache = cache.NewLocalCache(30, 10)
 		zlog.Printf("local cache service has been started successful")
-	}
-	if g.RSA != nil {
-		zlog.Printf("ECC certificate service has been started successful")
 	}
 
 	// 创建上下文用于优雅关闭
@@ -229,14 +231,16 @@ func (g *RPCManager) StopServerByTimeout(timeout time.Duration) error {
 	return nil
 }
 
-// GetRSA 获取RSA密钥列表 (实现ConfigProvider接口)
-func (g *RPCManager) GetRSA() []crypto.Cipher {
+// GetCipher 获取cipher密钥列表 (实现ConfigProvider接口)
+func (g *RPCManager) GetCipher() map[int64]crypto.Cipher {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	// 返回副本以避免外部修改
-	rsaCopy := make([]crypto.Cipher, len(g.RSA))
-	copy(rsaCopy, g.RSA)
-	return rsaCopy
+	cipherCopy := make(map[int64]crypto.Cipher, len(g.cipher))
+	for k, v := range g.cipher {
+		cipherCopy[k] = v
+	}
+	return cipherCopy
 }
 
 // GetLocalCache 获取本地缓存

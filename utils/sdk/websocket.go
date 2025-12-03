@@ -443,6 +443,14 @@ func (s *SocketSDK) sendWebSocketAuthHandshake(conn *websocket.Conn, path string
 		return ex.Throw{Msg: fmt.Sprintf("handshake failed: %s", response.Message)}
 	}
 
+	// 验证握手响应时间戳，防止重放攻击
+	if response.Time <= 0 {
+		return ex.Throw{Msg: "handshake response time must be > 0"}
+	}
+	if utils.MathAbs(utils.UnixSecond()-response.Time) > 300 { // 5分钟时间窗口
+		return ex.Throw{Msg: "handshake response time invalid"}
+	}
+
 	// 验证响应签名（与HTTP流程保持一致的安全性）
 	tokenSecret := utils.Base64Decode(s.authToken.Secret)
 	defer DIC.ClearData(tokenSecret)
@@ -585,80 +593,22 @@ func (s *SocketSDK) SendWebSocketMessage(router string, requestObj, responseObj 
 	}
 }
 
-// verifyWebSocketResponse 验证WebSocket响应数据的完整性和真实性
+// verifyWebSocketResponseFromJsonResp 验证WebSocket响应数据的完整性和真实性
 // path: 请求路径
 // response: 响应数据映射
 // 返回: 验证后的响应数据和可能的错误信息
-func (s *SocketSDK) verifyWebSocketResponse(path string, response map[string]interface{}) (interface{}, error) {
-	// 检查响应代码
-	if code, ok := response["code"].(float64); !ok || int(code) != 200 {
-		message := "unknown error"
-		if msg, ok := response["message"].(string); ok {
-			message = msg
-		}
-		return nil, ex.Throw{Msg: fmt.Sprintf("response error: %s", message)}
-	}
-
-	respData, ok := response["data"].(string)
-	if !ok {
-		return nil, ex.Throw{Msg: "invalid response data"}
-	}
-
-	// 验证签名
-	tokenSecret := utils.Base64Decode(s.authToken.Secret)
-	defer DIC.ClearData(tokenSecret)
-
-	validSign := utils.HMAC_SHA256_BASE(
-		utils.Str2Bytes(utils.AddStr(path, respData, response["nonce"], response["time"], response["plan"])),
-		tokenSecret)
-	expectedSign := utils.Base64Encode(validSign)
-	defer DIC.ClearData(validSign)
-
-	if responseSign, ok := response["sign"].(string); !ok || responseSign != expectedSign {
-		return nil, ex.Throw{Msg: "response signature verification failed"}
-	}
-
-	// 验证ECDSA签名 (如果有)
-	if validStr, ok := response["valid"].(string); ok && len(s.ecdsaObject) > 0 {
-		ecdsaSignData := utils.Base64Decode(validStr)
-		defer DIC.ClearData(ecdsaSignData)
-
-		ecdsaValid := false
-		for _, ecdsaObj := range s.ecdsaObject {
-			if ecdsaObj == nil {
-				continue
-			}
-			if err := ecdsaObj.Verify(validSign, ecdsaSignData); err == nil {
-				ecdsaValid = true
-				break
-			}
-		}
-		if !ecdsaValid {
-			return nil, ex.Throw{Msg: "response ECDSA signature verification failed"}
-		}
-	}
-
-	// 解密响应数据
-	decryptedData, err := utils.AesGCMDecryptBase(respData, tokenSecret[:32],
-		utils.Str2Bytes(utils.AddStr(response["time"], response["nonce"], response["plan"], path)))
-	if err != nil {
-		return nil, ex.Throw{Msg: "response data decrypt failed"}
-	}
-	defer DIC.ClearData(decryptedData)
-
-	// 反序列化为目标类型
-	var result interface{}
-	if err := utils.JsonUnmarshal(decryptedData, &result); err != nil {
-		return nil, ex.Throw{Msg: "response data unmarshal failed"}
-	}
-
-	return result, nil
-}
-
 func (s *SocketSDK) verifyWebSocketResponseFromJsonResp(path string, result interface{}, jsonResp *node.JsonResp) error {
 
 	if jsonResp.Code != 200 {
 		return ex.Throw{Msg: fmt.Sprintf("response error: %s", jsonResp.Message)}
+	}
+
+	// 验证服务端响应时间戳，防止重放攻击
+	if jsonResp.Time <= 0 {
+		return ex.Throw{Msg: "response time must be > 0"}
+	}
+	if utils.MathAbs(utils.UnixSecond()-jsonResp.Time) > 300 { // 5分钟时间窗口
+		return ex.Throw{Msg: "response time invalid"}
 	}
 
 	tokenSecret := utils.Base64Decode(s.authToken.Secret)

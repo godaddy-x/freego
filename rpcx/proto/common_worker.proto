@@ -16,6 +16,7 @@ message CommonRequest {
   bytes e = 5;              // ECDSA签名
   string r = 6;              // 访问路由
   int64 p = 7;               // 计划类型
+  int64 u = 8;               // 客户端ID
 }
 
 message CommonResponse {

@@ -24,20 +24,21 @@ import (
 )
 
 // RPC FreeGo gRPC客户端SDK
-// 支持ECC+AES-GCM加密传输、双向ECDSA签名验证
+// 支持ECC+AES-GCM加密传输、强制双向ECDSA签名验证
 //
 // 安全特性:
 // - AES-256-GCM 认证加密
 // - HMAC-SHA256 完整性验证
-// - ECDSA 双向签名验证
+// - 强制双向ECDSA签名验证
 // - 动态密钥协商 (ECDH)
 // - 防重放攻击 (时间戳+Nonce)
 type RPC struct {
-	Address     string          // gRPC服务地址 (如: localhost:9090)
-	SSL         bool            // 是否启用SSL/TLS
-	timeout     int64           // 请求超时时间(秒)
-	language    string          // 语言设置
-	ecdsaObject []crypto.Cipher // ECDSA签名验证对象列表
+	Address     string                  // gRPC服务地址 (如: localhost:9090)
+	SSL         bool                    // 是否启用SSL/TLS
+	timeout     int64                   // 请求超时时间(秒)
+	language    string                  // 语言设置
+	clientNo    int64                   // 客户端ID
+	ecdsaObject map[int64]crypto.Cipher // ECDSA签名验证对象列表
 
 	// gRPC连接相关
 	conn        *grpc.ClientConn      // gRPC连接
@@ -66,6 +67,11 @@ func (r *RPC) SetSSL(ssl bool) *RPC {
 	return r
 }
 
+func (r *RPC) SetClientNo(usr int64) *RPC {
+	r.clientNo = usr
+	return r
+}
+
 // SetTimeout 设置gRPC请求的超时时间
 // timeout: 超时时间(秒)，必须大于0
 // 返回: RPC实例，支持链式调用
@@ -85,10 +91,14 @@ func (r *RPC) SetLanguage(language string) *RPC {
 // AddCipher 添加ECDSA密钥对用于双向签名验证
 // cipher: ECDSA加密器实例，包含公钥和私钥
 // 返回: RPC实例，支持链式调用
-func (r *RPC) AddCipher(cipher crypto.Cipher) *RPC {
-	if cipher != nil {
-		r.ecdsaObject = append(r.ecdsaObject, cipher)
+func (r *RPC) AddCipher(usr int64, cipher crypto.Cipher) *RPC {
+	if cipher == nil {
+		return r
 	}
+	if r.ecdsaObject == nil {
+		r.ecdsaObject = make(map[int64]crypto.Cipher)
+	}
+	r.ecdsaObject[usr] = cipher
 	return r
 }
 
@@ -112,7 +122,7 @@ func (r *RPC) Connect() error {
 	}
 
 	if len(r.ecdsaObject) == 0 {
-		return fmt.Errorf("ecdsa object is nil")
+		return fmt.Errorf("ecdsa object not configured, bidirectional ECDSA signature is required")
 	}
 
 	if r.timeout <= 0 {
@@ -199,7 +209,10 @@ func (r *RPC) post(router string, requestObj, responseObj proto.Message, plan, t
 
 	// 获取基础的加密参数
 	c := r.cacheObject
-	cipher := r.ecdsaObject[0]
+	cipher, exists := r.ecdsaObject[r.clientNo]
+	if !exists || cipher == nil {
+		return fmt.Errorf("cipher not found for client, bidirectional ECDSA signature is required")
+	}
 	key, err := impl.GetSharedKey(c, cipher)
 	if err != nil {
 		return err
@@ -230,9 +243,10 @@ func (r *RPC) post(router string, requestObj, responseObj proto.Message, plan, t
 		T: utils.UnixSecond(),        // 时间戳
 		R: router,                    // 路由
 		P: plan,
+		U: r.clientNo,
 	}
 
-	sig, err := impl.Signature(key, req.D.Value, req.N, req.T, req.P, req.R)
+	sig, err := impl.Signature(key, req.D.Value, req.N, req.T, req.P, req.R, req.U)
 	if err != nil {
 		return fmt.Errorf("failed to calculate signature: %v", err)
 	}
@@ -301,22 +315,39 @@ func (r *RPC) post(router string, requestObj, responseObj proto.Message, plan, t
 // resp: 服务端返回的通用响应对象
 // 返回: 验证成功返回nil，否则返回验证失败的具体错误
 func (r *RPC) verifyResponse(resp *pb.CommonResponse) error {
-	for _, cipher := range r.ecdsaObject {
-		if err := cipher.Verify(resp.S, resp.E); err == nil {
-			key, err := impl.GetSharedKey(r.cacheObject, cipher)
-			if err != nil {
-				return err
-			}
-			defer DIC.ClearData(key)
-			sig, err := impl.Signature(key, resp.D.Value, resp.N, resp.T, resp.P, resp.R)
-			if err != nil {
-				return err
-			}
-			if !bytes.Equal(sig, resp.S) {
-				return fmt.Errorf("response signature invalid")
-			}
-			return nil // 验证成功
-		}
+	// 验证服务端响应时间戳，防止重放攻击
+	if resp.T <= 0 {
+		return fmt.Errorf("response time must be > 0")
 	}
-	return fmt.Errorf("response signature verification failed")
+	if utils.MathAbs(utils.UnixSecond()-resp.T) > 300 { // 5分钟时间窗口
+		return fmt.Errorf("response time invalid")
+	}
+
+	cipher, exists := r.ecdsaObject[r.clientNo]
+	if !exists || cipher == nil {
+		return fmt.Errorf("cipher not found for client, bidirectional ECDSA signature is required")
+	}
+
+	// 验证ECDSA签名
+	if err := cipher.Verify(resp.S, resp.E); err != nil {
+		return fmt.Errorf("response ECDSA signature verification failed")
+	}
+
+	// 获取共享密钥
+	key, err := impl.GetSharedKey(r.cacheObject, cipher)
+	if err != nil {
+		return err
+	}
+	defer DIC.ClearData(key)
+
+	// 验证HMAC签名
+	sig, err := impl.Signature(key, resp.D.Value, resp.N, resp.T, resp.P, resp.R, r.clientNo)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(sig, resp.S) {
+		return fmt.Errorf("response signature invalid")
+	}
+
+	return nil // 验证成功
 }
