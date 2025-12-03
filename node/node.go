@@ -419,7 +419,11 @@ func (self *Context) validJsonBody() error {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "client public key parse error", Err: err}
 		}
 
-		if _, err := CheckPublicKey(public, self.Cipher[body.User]); err != nil {
+		cipher, exists := self.Cipher[body.User]
+		if !exists {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "cipher not found for user"}
+		}
+		if _, err := CheckPublicKey(public, cipher); err != nil {
 			return err
 		}
 
@@ -474,7 +478,11 @@ func (self *Context) validJsonBody() error {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature invalid"}
 	}
 	// ECDSA签名校验
-	cipher, err := self.CheckECDSASign(self.Cipher[body.User], sign, utils.Base64Decode(body.Valid))
+	cipher, exists := self.Cipher[body.User]
+	if !exists {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "cipher not found for user"}
+	}
+	cipher, err := self.CheckECDSASign(cipher, sign, utils.Base64Decode(body.Valid))
 	if err != nil {
 		return err
 	}
@@ -563,9 +571,13 @@ func (self *Context) reset(ctx *Context, handle PostHandle, request *fasthttp.Re
 	if self.LocalCacheAware == nil {
 		self.LocalCacheAware = ctx.LocalCacheAware
 	}
-	// RSA是全局配置，通常只在系统启动时设置一次
+	// Cipher是全局配置，通常只在系统启动时设置一次
 	if len(self.Cipher) == 0 && len(ctx.Cipher) > 0 {
-		self.Cipher = ctx.Cipher
+		// 深拷贝Cipher map，避免多个context共享同一个map引用
+		self.Cipher = make(map[int64]crypto.Cipher, len(ctx.Cipher))
+		for k, v := range ctx.Cipher {
+			self.Cipher[k] = v
+		}
 	}
 	// 如果RSA已有值（全局配置），保持不变
 	if self.roleRealm == nil {
@@ -737,7 +749,11 @@ func (self *Context) CreatePublicKey() (*PublicKey, error) {
 		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request data parse error", Err: err}
 	}
 
-	cipher, err := CheckPublicKey(checkObject, self.Cipher[checkObject.Usr])
+	cipher, exists := self.Cipher[checkObject.Usr]
+	if !exists {
+		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "cipher not found for user"}
+	}
+	cipher, err := CheckPublicKey(checkObject, cipher)
 	if err != nil {
 		return nil, err
 	}

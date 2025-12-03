@@ -91,6 +91,12 @@ func (self *HttpNode) StartServer(addr string) {
 	// 初始化限流器（Redis准备就绪后）
 	initRateLimiters()
 
+	// 验证ECDSA配置（强制双向ECDSA签名）
+	if len(self.Context.Cipher) == 0 {
+		panic("ECDSA cipher not configured, bidirectional ECDSA signature is required for server")
+	}
+	zlog.Printf("ecdsa cipher configured for %d users", len(self.Context.Cipher))
+
 	if self.Context.RedisCacheAware != nil {
 		zlog.Printf("redis cache service has been started successful")
 	}
@@ -586,14 +592,15 @@ func defaultRenderPre(ctx *Context) error {
 			resp.Sign = utils.Base64Encode(sign)
 		}
 		cipher := ctx.GetStorage(Cipher)
-		if cipher != nil {
-			result, err := cipher.(crypto.Cipher).Sign(sign)
-			if err != nil {
-				return ex.Throw{Code: http.StatusInternalServerError, Msg: "response sign data failed", Err: err}
-			}
-			ctx.DelStorage(Cipher)
-			resp.Valid = utils.Base64Encode(result)
+		if cipher == nil {
+			return ex.Throw{Code: http.StatusInternalServerError, Msg: "cipher not found for response signing, bidirectional ECDSA signature is required"}
 		}
+		result, err := cipher.(crypto.Cipher).Sign(sign)
+		if err != nil {
+			return ex.Throw{Code: http.StatusInternalServerError, Msg: "response sign data failed", Err: err}
+		}
+		ctx.DelStorage(Cipher)
+		resp.Valid = utils.Base64Encode(result)
 		if result, err := utils.JsonMarshal(resp); err != nil {
 			return ex.Throw{Code: http.StatusInternalServerError, Msg: "response JSON data failed", Err: err}
 		} else {

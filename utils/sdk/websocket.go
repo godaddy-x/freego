@@ -24,6 +24,33 @@ const (
 	DefaultWsRoute = "/ws" // 默认WebSocket路由路径
 )
 
+// NewSocketSDK 创建新的WebSocket SDK实例并设置默认值
+// 提供便捷的构造函数，避免手动初始化所有字段
+//
+// 默认值:
+// - reconnectEnabled: false (默认不启用重连)
+// - maxReconnectAttempts: 10
+// - reconnectInterval: 1秒
+// - maxReconnectInterval: 30秒
+// - timeout: 120秒
+//
+// 返回值:
+//   - *SocketSDK: 初始化的WebSocket SDK实例
+//
+// 使用示例:
+//
+//	sdk := NewSocketSDK()
+//	sdk.Domain = "wss://api.example.com"
+//	sdk.ClientNo = 12345
+func NewSocketSDK() *SocketSDK {
+	return &SocketSDK{
+		timeout:              120,
+		maxReconnectAttempts: 10,
+		reconnectInterval:    time.Second,
+		maxReconnectInterval: 30 * time.Second,
+	}
+}
+
 // MessageHandler 消息处理器接口
 type MessageHandler interface {
 	HandleMessage(message *node.JsonResp) error
@@ -141,10 +168,14 @@ func (s *SocketSDK) valid() bool {
 // addECDSASign 为WebSocket消息添加ECDSA数字签名
 // jsonBody: 消息体结构体，包含待签名的HMAC签名
 // 返回: 签名成功返回nil，否则返回错误信息
+// 注意: 必须配置双向ECDSA签名，否则会抛出异常
 func (s *SocketSDK) addECDSASign(jsonBody *node.JsonBody) error {
-	cipher := s.ecdsaObject[s.ClientNo]
-	if cipher == nil {
-		return ex.Throw{Msg: "ECDSA object is nil"}
+	if s.ecdsaObject == nil {
+		return ex.Throw{Msg: "ECDSA object not configured, bidirectional ECDSA signature is required"}
+	}
+	cipher, exists := s.ecdsaObject[s.ClientNo]
+	if !exists || cipher == nil {
+		return ex.Throw{Msg: "ECDSA object not found for client, bidirectional ECDSA signature is required"}
 	}
 	ecdsaSign, err := cipher.Sign(utils.Base64Decode(jsonBody.Sign))
 	if err != nil {
@@ -163,10 +194,14 @@ func (s *SocketSDK) addECDSASign(jsonBody *node.JsonBody) error {
 // validSign: 预期的签名数据
 // respData: 响应数据结构体
 // 返回: 验证成功返回nil，否则返回验证失败的错误信息
+// 注意: 必须配置双向ECDSA签名，否则会抛出异常
 func (s *SocketSDK) verifyECDSASign(validSign []byte, respData *node.JsonResp) error {
-	cipher := s.ecdsaObject[s.ClientNo]
-	if cipher == nil {
-		return ex.Throw{Msg: "ECDSA object is nil"}
+	if s.ecdsaObject == nil {
+		return ex.Throw{Msg: "ECDSA object not configured, bidirectional ECDSA signature is required"}
+	}
+	cipher, exists := s.ecdsaObject[s.ClientNo]
+	if !exists || cipher == nil {
+		return ex.Throw{Msg: "ECDSA object not found for client, bidirectional ECDSA signature is required"}
 	}
 	// 预先解码ECDSA签名数据，避免在循环中重复解码
 	ecdsaSignData := utils.Base64Decode(respData.Valid)
@@ -423,7 +458,7 @@ func (s *SocketSDK) sendWebSocketAuthHandshake(conn *websocket.Conn, path string
 		return ex.Throw{Msg: "handshake response signature verification failed"}
 	}
 
-	// 验证ECDSA签名（如果配置了ECDSA对象）
+	// 验证ECDSA签名（强制要求，必须配置ECDSA对象）
 	if err := s.verifyECDSASign(validSign, response); err != nil {
 		return err
 	}
@@ -641,9 +676,12 @@ func (s *SocketSDK) verifyWebSocketResponseFromJsonResp(path string, result inte
 	ecdsaSignData := utils.Base64Decode(jsonResp.Valid)
 	defer DIC.ClearData(ecdsaSignData)
 
-	cipher := s.ecdsaObject[s.ClientNo]
-	if cipher == nil {
-		return ex.Throw{Msg: "response ECDSA invalid"}
+	if s.ecdsaObject == nil {
+		return ex.Throw{Msg: "ECDSA object not configured, bidirectional ECDSA signature is required"}
+	}
+	cipher, exists := s.ecdsaObject[s.ClientNo]
+	if !exists || cipher == nil {
+		return ex.Throw{Msg: "ECDSA object not found for client, bidirectional ECDSA signature is required"}
 	}
 
 	if err := cipher.Verify(validSign, ecdsaSignData); err != nil {

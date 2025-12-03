@@ -614,9 +614,9 @@ func (mh *MessageHandler) Process(connCtx *ConnectionContext, body []byte) (cryp
 }
 
 func (self *MessageHandler) CheckECDSASign(usr int64, msg, sign []byte) (crypto.Cipher, error) {
-	cipher := self.cipher[usr]
-	if cipher == nil {
-		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request cipher invalid"}
+	cipher, exists := self.cipher[usr]
+	if !exists || cipher == nil {
+		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "cipher not found for user, bidirectional ECDSA signature is required"}
 	}
 	if err := cipher.Verify(msg, sign); err != nil {
 		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request signature valid invalid"}

@@ -30,18 +30,18 @@ type AuthToken struct {
 }
 
 // HttpSDK FreeGo HTTP客户端SDK
-// 支持ECC+AES-GCM加密传输、双向ECDSA签名验证、JWT认证等
+// 支持ECC+AES-GCM加密传输、强制双向ECDSA签名验证、JWT认证等
 //
 // 安全特性:
 // - AES-256-GCM 认证加密
 // - HMAC-SHA256 完整性验证
-// - ECDSA 双向签名验证
+// - 强制双向ECDSA签名验证 (必须配置)
 // - 动态密钥协商 (ECDH)
 // - 防重放攻击 (时间戳+Nonce)
 //
 // 使用模式:
-// - PostByECC: 匿名访问，使用ECC密钥协商
-// - PostByAuth: 登录后访问，使用JWT令牌
+// - PostByECC: 匿名访问，使用ECC密钥协商 (必须配置ECDSA)
+// - PostByAuth: 登录后访问，使用JWT令牌 (必须配置ECDSA)
 type HttpSDK struct {
 	Domain      string                  // API域名 (如: https://api.example.com)
 	AuthDomain  string                  // 认证域名 (可选，用于/key和/login接口)
@@ -54,6 +54,32 @@ type HttpSDK struct {
 	authToken   AuthToken               // JWT认证令牌
 	ecdsaObject map[int64]crypto.Cipher // ECDSA签名验证对象列表
 	ecdhObject  crypto.Cipher           // ECDH密钥协商对象
+}
+
+// NewHttpSDK 创建新的HttpSDK实例并设置默认值
+// 提供便捷的构造函数，避免手动初始化所有字段
+//
+// 默认值:
+// - KeyPath: "/key"
+// - LoginPath: "/login"
+// - timeout: 120秒
+// - language: "zh-CN"
+//
+// 返回值:
+//   - *HttpSDK: 初始化的HttpSDK实例
+//
+// 使用示例:
+//
+//	sdk := NewHttpSDK()
+//	sdk.Domain = "https://api.example.com"
+//	sdk.ClientNo = 12345
+func NewHttpSDK() *HttpSDK {
+	return &HttpSDK{
+		KeyPath:   "/key",
+		LoginPath: "/login",
+		timeout:   120,
+		language:  "zh-CN",
+	}
 }
 
 // AuthObject 设置登录认证对象
@@ -112,9 +138,10 @@ func (s *HttpSDK) SetLanguage(language string) {
 }
 
 // SetECDSAObject 设置ECDSA签名验证对象
-// 用于双向ECDSA签名验证，提供金融级身份认证
+// 用于强制双向ECDSA签名验证，提供金融级身份认证
 //
 // 安全特性:
+// - 强制双向ECDSA签名验证 (必须配置)
 // - 支持多个备用ECDSA密钥对
 // - 客户端签名，服务端验证
 // - 服务端签名，客户端验证
@@ -128,6 +155,7 @@ func (s *HttpSDK) SetLanguage(language string) {
 //   - error: 创建失败时的错误信息
 //
 // 注意:
+// - 必须配置ECDSA对象，否则所有请求都会失败
 // - 可以多次调用添加多个备用密钥对
 // - 验证时会尝试所有配置的密钥对
 // - 私钥仅用于签名，公钥用于验证
@@ -162,11 +190,14 @@ func (s *HttpSDK) SetECDSAObject(usr int64, prkB64, pubB64 string) error {
 // 返回值:
 //   - error: 签名失败时的错误信息
 //
-// 注意: 只有在配置了ECDSA对象时才会执行签名
+// 注意: 必须配置双向ECDSA签名，否则会抛出异常
 func (s *HttpSDK) addECDSASign(jsonBody *node.JsonBody) error {
-	cipher := s.ecdsaObject[s.ClientNo]
-	if cipher == nil {
-		return ex.Throw{Msg: "ECDSA object not found"}
+	if s.ecdsaObject == nil {
+		return ex.Throw{Msg: "ECDSA object not configured, bidirectional ECDSA signature is required"}
+	}
+	cipher, exists := s.ecdsaObject[s.ClientNo]
+	if !exists || cipher == nil {
+		return ex.Throw{Msg: "ECDSA object not found for client, bidirectional ECDSA signature is required"}
 	}
 	ecdsaSign, err := cipher.Sign(utils.Base64Decode(jsonBody.Sign))
 	if err != nil {
@@ -185,13 +216,12 @@ func (s *HttpSDK) addECDSASign(jsonBody *node.JsonBody) error {
 // 对服务端返回的ECDSA签名进行验证，确保响应数据的真实性和完整性
 //
 // 验证流程:
-// 1. 检查是否配置了ECDSA对象
+// 1. 检查是否配置了ECDSA对象（必须配置）
 // 2. 检查响应数据是否包含ECDSA签名 (respData.Valid)
-// 3. 遍历所有配置的ECDSA对象进行验证
-// 4. 只要有一个ECDSA对象验证成功即认为有效
+// 3. 使用配置的ECDSA对象进行验证
 //
 // 安全特性:
-// - 支持多个备用ECDSA密钥对
+// - 双向ECDSA签名验证
 // - 验证服务端的身份真实性
 // - 防止响应数据被篡改
 // - 提供不可否认性保证
@@ -204,13 +234,15 @@ func (s *HttpSDK) addECDSASign(jsonBody *node.JsonBody) error {
 //   - error: 验证失败时的错误信息
 //
 // 注意:
-// - 如果未配置ECDSA对象，会跳过验证（向后兼容）
-// - 如果响应不包含ECDSA签名，会跳过验证
-// - 验证失败时会尝试所有配置的密钥对
+// - 必须配置双向ECDSA签名，否则会抛出异常
+// - 如果响应不包含ECDSA签名，会验证失败
 func (s *HttpSDK) verifyECDSASign(validSign []byte, respData *node.JsonResp) error {
-	cipher := s.ecdsaObject[s.ClientNo]
-	if cipher == nil {
-		return ex.Throw{Msg: "ECDSA object not found"}
+	if s.ecdsaObject == nil {
+		return ex.Throw{Msg: "ECDSA object not configured, bidirectional ECDSA signature is required"}
+	}
+	cipher, exists := s.ecdsaObject[s.ClientNo]
+	if !exists || cipher == nil {
+		return ex.Throw{Msg: "ECDSA object not found for client, bidirectional ECDSA signature is required"}
 	}
 	// 预先解码ECDSA签名数据，避免在循环中重复解码
 	ecdsaSignData := utils.Base64Decode(respData.Valid)
@@ -269,27 +301,28 @@ func (s *HttpSDK) getURI(path string) string {
 }
 
 // GetPublicKey 获取服务端ECC公钥并建立安全通信信道
-// 这是ECC模式的核心初始化函数，实现密钥协商和身份验证
+// 这是ECC模式的核心初始化函数，实现密钥协商和强制身份验证
 //
 // 执行流程:
 // 1. 生成客户端临时ECDH密钥对 (一次性使用)
 // 2. 构造公钥交换请求 (包含客户端公钥)
 // 3. 请求服务端/key接口获取服务端公钥
-// 4. 验证服务端ECDSA签名 (如果配置)
+// 4. 验证服务端ECDSA签名 (强制要求)
 // 5. 返回协商结果用于后续加密通信
 //
 // 安全特性:
 // - ECDH密钥协商: 前向保密性 (PFS)
 // - 临时密钥: 每次请求使用新的密钥对
-// - ECDSA验证: 验证服务端身份真实性
+// - 强制ECDSA验证: 验证服务端身份真实性
 //
 // 返回值:
 //   - *crypto.EcdhObject: 客户端ECDH对象 (包含私钥)
 //   - *node.PublicKey: 服务端公钥信息
-//   - crypto.Cipher: ECDSA验证对象 (如果配置)
+//   - crypto.Cipher: ECDSA验证对象 (必须配置)
 //   - error: 执行失败时的错误信息
 //
 // 注意:
+// - 必须预先配置ECDSA对象，否则会抛出异常
 // - ECDH对象包含敏感的私钥信息，使用后应立即清除
 // - 此方法会在每次PostByECC调用时执行
 func (s *HttpSDK) GetPublicKey() (*crypto.EcdhObject, *node.PublicKey, crypto.Cipher, error) {
@@ -298,7 +331,14 @@ func (s *HttpSDK) GetPublicKey() (*crypto.EcdhObject, *node.PublicKey, crypto.Ci
 	if err := ecdh.CreateECDH(); err != nil {
 		return nil, nil, nil, ex.Throw{Msg: "create ecdh object error: " + err.Error()}
 	}
-	cipher := s.ecdsaObject[s.ClientNo]
+	// 获取ECDSA cipher，必须配置双向ECDSA签名
+	if s.ecdsaObject == nil {
+		return nil, nil, nil, ex.Throw{Msg: "ECDSA object not configured, bidirectional ECDSA signature is required"}
+	}
+	cipher, exists := s.ecdsaObject[s.ClientNo]
+	if !exists || cipher == nil {
+		return nil, nil, nil, ex.Throw{Msg: "ECDSA object not found for client, bidirectional ECDSA signature is required"}
+	}
 	public, err := node.CreatePublicKey(utils.Base64Encode(utils.GetRandomSecure(32)), "", s.ClientNo, cipher)
 	if err != nil {
 		return nil, nil, nil, err
@@ -346,14 +386,14 @@ func (s *HttpSDK) GetPublicKey() (*crypto.EcdhObject, *node.PublicKey, crypto.Ci
 	return ecdh, responseObject, cipher, nil
 }
 
-// PostByECC 通过ECC+AES-GCM+ECDSA模式发送POST请求
+// PostByECC 通过ECC+AES-GCM+强制ECDSA模式发送POST请求
 // 实现最高安全级别的API调用，支持匿名访问
 //
 // 安全协议栈 (从下到上):
 // 1. TLS 1.2+ (网络层加密)
 // 2. ECDH + AES-256-GCM (密钥协商 + 对称加密)
 // 3. HMAC-SHA256 (数据完整性)
-// 4. ECDSA (双向身份认证)
+// 4. 强制双向ECDSA签名验证 (必须配置)
 //
 // 执行流程:
 // 1. 获取服务端ECC公钥 (GetPublicKey)
@@ -362,10 +402,10 @@ func (s *HttpSDK) GetPublicKey() (*crypto.EcdhObject, *node.PublicKey, crypto.Ci
 // 4. PBKDF2密钥派生
 // 5. AES-GCM加密请求数据
 // 6. 生成HMAC-SHA256签名
-// 7. 添加ECDSA签名 (如果配置)
+// 7. 添加ECDSA签名 (强制要求)
 // 8. 发送HTTP请求
 // 9. 验证响应HMAC签名
-// 10. 验证响应ECDSA签名 (如果配置)
+// 10. 验证响应ECDSA签名 (强制要求)
 // 11. AES-GCM解密响应数据
 //
 // 参数:
@@ -527,6 +567,15 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 		}
 		return ex.Throw{Msg: respData.Message}
 	}
+
+	// 验证服务端响应时间戳，防止重放攻击
+	if respData.Time <= 0 {
+		return ex.Throw{Msg: "response time must be > 0"}
+	}
+	if utils.MathAbs(utils.UnixSecond()-respData.Time) > 300 { // 5分钟时间窗口
+		return ex.Throw{Msg: "response time invalid"}
+	}
+
 	validSign := utils.HMAC_SHA256_BASE(utils.Str2Bytes(utils.AddStr(path, respData.Data, respData.Nonce, respData.Time, respData.Plan, jsonBody.User)), sharedKey)
 	// 清理签名验证数据
 	defer DIC.ClearData(validSign)
@@ -634,7 +683,7 @@ func (s *HttpSDK) checkAuth() error {
 	return nil
 }
 
-// PostByAuth 通过JWT认证模式发送POST请求
+// PostByAuth 通过JWT认证+强制ECDSA模式发送POST请求
 // 适用于登录后的业务API调用，使用令牌进行身份认证
 //
 // 安全协议栈:
@@ -642,7 +691,7 @@ func (s *HttpSDK) checkAuth() error {
 // 2. JWT令牌认证 (身份验证)
 // 3. AES-GCM或Base64 (数据加密，可选)
 // 4. HMAC-SHA256 (数据完整性)
-// 5. ECDSA双向签名 (可选，金融级安全)
+// 5. 强制双向ECDSA签名验证 (必须配置)
 //
 // 执行流程:
 // 1. 检查认证状态，自动登录 (如果需要)
@@ -793,6 +842,14 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 	// 服务器可以自主选择返回的Plan（0或1），只要在有效范围内即可
 	if !utils.CheckInt64(respData.Plan, 0, 1) {
 		return ex.Throw{Msg: "response plan invalid, must be 0 or 1, got: " + utils.AnyToStr(respData.Plan)}
+	}
+
+	// 验证服务端响应时间戳，防止重放攻击
+	if respData.Time <= 0 {
+		return ex.Throw{Msg: "response time must be > 0"}
+	}
+	if utils.MathAbs(utils.UnixSecond()-respData.Time) > 300 { // 5分钟时间窗口
+		return ex.Throw{Msg: "response time invalid"}
 	}
 
 	// 验证响应时也需要解码token secret
