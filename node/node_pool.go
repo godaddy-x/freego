@@ -79,9 +79,9 @@ var messageHandlerPool = sync.Pool{
 }
 
 // GetMessageHandler 从池中获取一个MessageHandler对象
-func GetMessageHandler(rsa []crypto.Cipher, handle Handle) *MessageHandler {
+func GetMessageHandler(cipher map[int64]crypto.Cipher, handle Handle) *MessageHandler {
 	mh := messageHandlerPool.Get().(*MessageHandler)
-	mh.rsa = rsa       // 设置RSA密钥
+	mh.cipher = cipher // 设置ECDSA密钥
 	mh.handle = handle // 设置路由处理器
 	return mh
 }

@@ -58,7 +58,7 @@ func NewSocketSDK() *sdk.SocketSDK {
 	newObject := &sdk.SocketSDK{
 		Domain: "localhost:8088",
 	}
-	_ = newObject.SetECDSAObject(clientPrk, serverPub)
+	_ = newObject.SetECDSAObject(1, clientPrk, serverPub)
 	return newObject
 }
 
@@ -87,7 +87,7 @@ func TestWebSocketSDKUsage(t *testing.T) {
 
 	// 增加双向验签的ECDSA
 	cipher, _ := crypto.CreateS256ECDSAWithBase64(serverPrk, clientPub)
-	server.AddCipher(cipher)
+	server.AddCipher(1, cipher)
 
 	// 配置连接池
 	err := server.NewPool(100, 10, 5, 30)
@@ -166,6 +166,9 @@ func TestWebSocketSDKUsage(t *testing.T) {
 	}
 	wsSdk.AuthToken(authToken)
 
+	wsSdk.SetClientNo(1)
+	wsSdk.SetECDSAObject(wsSdk.ClientNo, clientPrk, serverPub)
+
 	// 5. 尝试连接WebSocket（预期成功，因为服务器已启动）
 	fmt.Println("5. 尝试连接WebSocket（预期成功）...")
 	err = wsSdk.ConnectWebSocket("/ws")
@@ -199,7 +202,7 @@ func TestWebSocketSDKUsage(t *testing.T) {
 	fmt.Println("响应结果2:", responseObject)
 
 	// 添加延迟等待响应
-	time.Sleep(1 * time.Second)
+	time.Sleep(1000 * time.Second)
 
 	// 验证连接状态
 	if !wsSdk.IsWebSocketConnected() {
@@ -328,7 +331,7 @@ func TestWebSocketTokenExpiredCallback(t *testing.T) {
 	})
 
 	cipher, _ := crypto.CreateS256ECDSAWithBase64(serverPrk, clientPub)
-	server.AddCipher(cipher)
+	server.AddCipher(1, cipher)
 
 	err := server.NewPool(100, 10, 5, 30)
 	if err != nil {
@@ -371,7 +374,7 @@ func TestWebSocketTokenExpiredCallback(t *testing.T) {
 	wsSdk.Domain = serverAddr
 
 	// 确保ECDSA密钥设置正确
-	if err := wsSdk.SetECDSAObject(clientPrk, serverPub); err != nil {
+	if err := wsSdk.SetECDSAObject(1, clientPrk, serverPub); err != nil {
 		t.Fatalf("Failed to set ECDSA object: %v", err)
 	}
 
@@ -482,7 +485,7 @@ func TestWebSocketMessageSubscription(t *testing.T) {
 
 	// 增加双向验签的ECDSA
 	cipher, _ := crypto.CreateS256ECDSAWithBase64(serverPrk, clientPub)
-	server.AddCipher(cipher)
+	server.AddCipher(1, cipher)
 
 	// 配置连接池
 	err := server.NewPool(100, 10, 5, 30)
@@ -675,9 +678,9 @@ func TestWebSocketMessageSubscription(t *testing.T) {
 
 	go func() {
 		defer func() { serverDoneCh <- true }()
-	if err := server.StartWebsocket(serverAddr); err != nil {
-		t.Errorf("Server start failed: %v", err)
-	}
+		if err := server.StartWebsocket(serverAddr); err != nil {
+			t.Errorf("Server start failed: %v", err)
+		}
 	}()
 
 	// 等待服务器启动
@@ -1240,7 +1243,7 @@ func TestWebSocketErrorHandling(t *testing.T) {
 
 	// 增加双向验签的ECDSA
 	cipher, _ := crypto.CreateS256ECDSAWithBase64(serverPrk, clientPub)
-	server.AddCipher(cipher)
+	server.AddCipher(1, cipher)
 
 	// 初始化连接池和心跳服务
 	if err := server.NewPool(100, 10, 5, 30); err != nil {
@@ -1292,21 +1295,4 @@ func TestWebSocketErrorHandling(t *testing.T) {
 	}
 
 	t.Logf("✓ Error handling test completed - check logs for detailed context information")
-}
-
-// BenchmarkMessageHandlerPool 基准测试：MessageHandler对象池性能
-func BenchmarkMessageHandlerPool(b *testing.B) {
-	// 模拟RSA密钥列表和路由处理器
-	var mockRSA []crypto.Cipher
-	mockHandle := node.Handle(func(ctx context.Context, connCtx *node.ConnectionContext, body []byte) (interface{}, error) {
-		return map[string]interface{}{"result": "ok"}, nil
-	})
-
-	b.Run("WithPool", func(b *testing.B) {
-		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
-			mh := node.GetMessageHandler(mockRSA, mockHandle)
-			node.PutMessageHandler(mh)
-		}
-	})
 }

@@ -38,13 +38,14 @@ type Subscription struct {
 }
 
 type SocketSDK struct {
-	Domain      string      // API域名 (如:api.example.com)
-	language    string      // 语言设置 (HTTP头)
-	timeout     int64       // 请求超时时间(秒)
-	authObject  interface{} // 登录认证对象 (用户名+密码等)
-	authToken   AuthToken   // JWT认证令牌
-	SSL         bool
-	ecdsaObject []crypto.Cipher // ECDSA签名验证对象列表
+	Domain      string                  // API域名 (如:api.example.com)
+	language    string                  // 语言设置 (HTTP头)
+	timeout     int64                   // 请求超时时间(秒)
+	authObject  interface{}             // 登录认证对象 (用户名+密码等)
+	authToken   AuthToken               // JWT认证令牌
+	SSL         bool                    // 是否启用https
+	ClientNo    int64                   // 客户端ID
+	ecdsaObject map[int64]crypto.Cipher // ECDSA签名验证对象列表
 
 	// WebSocket连接相关
 	conn        *websocket.Conn    // WebSocket连接
@@ -96,6 +97,10 @@ func (s *SocketSDK) SetTimeout(timeout int64) {
 	s.timeout = timeout
 }
 
+func (s *SocketSDK) SetClientNo(clientNo int64) {
+	s.ClientNo = clientNo
+}
+
 // SetLanguage 设置WebSocket请求的语言标识
 // language: 语言代码，如"zh-CN"、"en-US"，用于服务端国际化支持
 func (s *SocketSDK) SetLanguage(language string) {
@@ -137,17 +142,19 @@ func (s *SocketSDK) valid() bool {
 // jsonBody: 消息体结构体，包含待签名的HMAC签名
 // 返回: 签名成功返回nil，否则返回错误信息
 func (s *SocketSDK) addECDSASign(jsonBody *node.JsonBody) error {
-	if len(s.ecdsaObject) > 0 && s.ecdsaObject[0] != nil {
-		ecdsaSign, err := s.ecdsaObject[0].Sign(utils.Base64Decode(jsonBody.Sign))
-		if err != nil {
-			return ex.Throw{Msg: "ECDSA sign failed: " + err.Error()}
-		}
-		jsonBody.Valid = utils.Base64Encode(ecdsaSign)
-		// 清理ECDSA签名数据（在设置完jsonBody.Valid之后）
-		DIC.ClearData(ecdsaSign)
-		if zlog.IsDebug() {
-			zlog.Debug(fmt.Sprintf("ECDSA sign added for HMAC signature: %s", jsonBody.Valid), 0)
-		}
+	cipher := s.ecdsaObject[s.ClientNo]
+	if cipher == nil {
+		return ex.Throw{Msg: "ECDSA object is nil"}
+	}
+	ecdsaSign, err := cipher.Sign(utils.Base64Decode(jsonBody.Sign))
+	if err != nil {
+		return ex.Throw{Msg: "ECDSA sign failed: " + err.Error()}
+	}
+	jsonBody.Valid = utils.Base64Encode(ecdsaSign)
+	// 清理ECDSA签名数据（在设置完jsonBody.Valid之后）
+	DIC.ClearData(ecdsaSign)
+	if zlog.IsDebug() {
+		zlog.Debug(fmt.Sprintf("ECDSA sign added for HMAC signature: %s", jsonBody.Valid), 0)
 	}
 	return nil
 }
@@ -157,42 +164,35 @@ func (s *SocketSDK) addECDSASign(jsonBody *node.JsonBody) error {
 // respData: 响应数据结构体
 // 返回: 验证成功返回nil，否则返回验证失败的错误信息
 func (s *SocketSDK) verifyECDSASign(validSign []byte, respData *node.JsonResp) error {
-	if len(s.ecdsaObject) > 0 && len(respData.Valid) > 0 {
-		// 预先解码ECDSA签名数据，避免在循环中重复解码
-		ecdsaSignData := utils.Base64Decode(respData.Valid)
-		// 清理ECDSA签名解码数据
-		defer DIC.ClearData(ecdsaSignData)
+	cipher := s.ecdsaObject[s.ClientNo]
+	if cipher == nil {
+		return ex.Throw{Msg: "ECDSA object is nil"}
+	}
+	// 预先解码ECDSA签名数据，避免在循环中重复解码
+	ecdsaSignData := utils.Base64Decode(respData.Valid)
+	// 清理ECDSA签名解码数据
+	defer DIC.ClearData(ecdsaSignData)
 
-		ecdsaValid := false
-		for _, ecdsaObj := range s.ecdsaObject {
-			if ecdsaObj == nil {
-				continue
-			}
-			if err := ecdsaObj.Verify(validSign, ecdsaSignData); err == nil {
-				ecdsaValid = true
-				if zlog.IsDebug() {
-					zlog.Debug("response ECDSA sign verify: success", 0)
-				}
-				break
-			}
-		}
-		if !ecdsaValid {
-			return ex.Throw{Msg: "post response ECDSA sign verify invalid"}
-		}
+	if err := cipher.Verify(validSign, ecdsaSignData); err != nil {
+		return ex.Throw{Msg: "post response ECDSA sign verify invalid"}
 	}
 	return nil
 }
 
 // SetECDSAObject 配置WebSocket客户端的ECDSA密钥对用于数字签名验证
+// usr: 客户端ID，服务端提供
 // prkB64: ECDSA私钥的Base64编码字符串
 // pubB64: ECDSA公钥的Base64编码字符串
 // 返回: 配置成功返回nil，否则返回密钥解析错误
-func (s *SocketSDK) SetECDSAObject(prkB64, pubB64 string) error {
+func (s *SocketSDK) SetECDSAObject(usr int64, prkB64, pubB64 string) error {
+	if s.ecdsaObject == nil {
+		s.ecdsaObject = make(map[int64]crypto.Cipher)
+	}
 	cipher, err := crypto.CreateS256ECDSAWithBase64(prkB64, pubB64)
 	if err != nil {
 		return err
 	}
-	s.ecdsaObject = append(s.ecdsaObject, cipher)
+	s.ecdsaObject[usr] = cipher
 	return nil
 }
 
@@ -323,7 +323,7 @@ func (s *SocketSDK) prepareWebSocketMessage(jsonBody *node.JsonBody, data interf
 	// 根据plan决定是否加密
 	if jsonBody.Plan == 1 {
 		encryptedData, err := utils.AesGCMEncryptBase(jsonData, tokenSecret[:32],
-			utils.Str2Bytes(utils.AddStr(jsonBody.Time, jsonBody.Nonce, jsonBody.Plan, jsonBody.Router)))
+			utils.Str2Bytes(utils.AddStr(jsonBody.Time, jsonBody.Nonce, jsonBody.Plan, jsonBody.Router, jsonBody.User)))
 		if err != nil {
 			return nil, nil, ex.Throw{Msg: "data encrypt failed"}
 		}
@@ -340,7 +340,7 @@ func (s *SocketSDK) prepareWebSocketMessage(jsonBody *node.JsonBody, data interf
 
 	// 生成签名
 	signData := utils.HMAC_SHA256_BASE(
-		utils.Str2Bytes(utils.AddStr(jsonBody.Router, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan)),
+		utils.Str2Bytes(utils.AddStr(jsonBody.Router, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan, jsonBody.User)),
 		tokenSecret)
 	jsonBody.Sign = utils.Base64Encode(signData)
 	defer DIC.ClearData(signData)
@@ -376,6 +376,7 @@ func (s *SocketSDK) sendWebSocketAuthHandshake(conn *websocket.Conn, path string
 	jsonBody.Nonce = utils.GetUUID(true)
 	jsonBody.Plan = 1
 	jsonBody.Router = path
+	jsonBody.User = s.ClientNo
 	_, bytesData, err := s.prepareWebSocketMessage(jsonBody, "auth_handshake")
 	if err != nil {
 		return err
@@ -412,7 +413,7 @@ func (s *SocketSDK) sendWebSocketAuthHandshake(conn *websocket.Conn, path string
 	defer DIC.ClearData(tokenSecret)
 
 	// 构建签名字符串（使用握手路径）
-	signStr := utils.AddStr(path, response.Data, response.Nonce, response.Time, response.Plan)
+	signStr := utils.AddStr(path, response.Data, response.Nonce, response.Time, response.Plan, jsonBody.User)
 	validSign := utils.HMAC_SHA256_BASE(utils.Str2Bytes(signStr), tokenSecret)
 	expectedSign := utils.Base64Encode(validSign)
 	defer DIC.ClearData(validSign)
@@ -432,7 +433,7 @@ func (s *SocketSDK) sendWebSocketAuthHandshake(conn *websocket.Conn, path string
 	if response.Plan == 1 {
 		// AES解密
 		decryptedData, err = utils.AesGCMDecryptBase(response.Data, tokenSecret[:32],
-			utils.Str2Bytes(utils.AddStr(response.Time, response.Nonce, response.Plan, path)))
+			utils.Str2Bytes(utils.AddStr(response.Time, response.Nonce, response.Plan, path, jsonBody.User)))
 		if err != nil {
 			return ex.Throw{Msg: "handshake response data decrypt failed"}
 		}
@@ -488,6 +489,7 @@ func (s *SocketSDK) SendWebSocketMessage(router string, requestObj, responseObj 
 		jsonBody.Plan = 1
 	}
 	jsonBody.Router = router
+	jsonBody.User = s.ClientNo
 	// 使用指定的路由路径进行签名和路由分发
 	jsonBody, bytesData, err := s.prepareWebSocketMessage(jsonBody, requestObj)
 	if err != nil {
@@ -628,7 +630,7 @@ func (s *SocketSDK) verifyWebSocketResponseFromJsonResp(path string, result inte
 	defer DIC.ClearData(tokenSecret)
 
 	validSign := utils.HMAC_SHA256_BASE(
-		utils.Str2Bytes(utils.AddStr(path, jsonResp.Data, jsonResp.Nonce, jsonResp.Time, jsonResp.Plan)),
+		utils.Str2Bytes(utils.AddStr(path, jsonResp.Data, jsonResp.Nonce, jsonResp.Time, jsonResp.Plan, s.ClientNo)),
 		tokenSecret)
 	defer DIC.ClearData(validSign)
 
@@ -636,30 +638,23 @@ func (s *SocketSDK) verifyWebSocketResponseFromJsonResp(path string, result inte
 		return ex.Throw{Msg: "response signature verification failed"}
 	}
 
-	if jsonResp.Valid != "" && len(s.ecdsaObject) > 0 {
-		ecdsaSignData := utils.Base64Decode(jsonResp.Valid)
-		defer DIC.ClearData(ecdsaSignData)
+	ecdsaSignData := utils.Base64Decode(jsonResp.Valid)
+	defer DIC.ClearData(ecdsaSignData)
 
-		ecdsaValid := false
-		for _, ecdsaObj := range s.ecdsaObject {
-			if ecdsaObj == nil {
-				continue
-			}
-			if err := ecdsaObj.Verify(validSign, ecdsaSignData); err == nil {
-				ecdsaValid = true
-				break
-			}
-		}
-		if !ecdsaValid {
-			return ex.Throw{Msg: "response ECDSA signature verification failed"}
-		}
+	cipher := s.ecdsaObject[s.ClientNo]
+	if cipher == nil {
+		return ex.Throw{Msg: "response ECDSA invalid"}
+	}
+
+	if err := cipher.Verify(validSign, ecdsaSignData); err != nil {
+		return ex.Throw{Msg: "response ECDSA signature verification failed"}
 	}
 
 	var decryptedData []byte
 	var err error
 	if jsonResp.Plan == 1 {
 		decryptedData, err = utils.AesGCMDecryptBase(jsonResp.Data, tokenSecret[:32],
-			utils.Str2Bytes(utils.AddStr(jsonResp.Time, jsonResp.Nonce, jsonResp.Plan, path)))
+			utils.Str2Bytes(utils.AddStr(jsonResp.Time, jsonResp.Nonce, jsonResp.Plan, path, s.ClientNo)))
 		if err != nil {
 			return ex.Throw{Msg: "response data decrypt failed"}
 		}
@@ -677,7 +672,7 @@ func (s *SocketSDK) verifyWebSocketResponseFromJsonResp(path string, result inte
 
 // websocketHeartbeat WebSocket心跳机制，保持连接活跃状态
 func (s *SocketSDK) websocketHeartbeat() {
-	ticker := time.NewTicker(30 * time.Second) // 每30秒发送一次心跳
+	ticker := time.NewTicker(5 * time.Second) // 每30秒发送一次心跳
 	defer ticker.Stop()
 
 	for {
@@ -693,6 +688,7 @@ func (s *SocketSDK) websocketHeartbeat() {
 				jsonBody.Nonce = utils.GetUUID(true)
 				jsonBody.Plan = 0
 				jsonBody.Router = "/ws/ping"
+				jsonBody.User = s.ClientNo
 				_, bytesData, err := s.prepareWebSocketMessage(jsonBody, "ping") // Plan=0表示明文，使用默认路径
 				if err != nil {
 					node.PutJsonBody(jsonBody)

@@ -104,7 +104,7 @@ type ConnectionManager struct {
 
 // MessageHandler 消息处理器：统一处理消息校验、解码、路由
 type MessageHandler struct {
-	rsa    []crypto.Cipher
+	cipher map[int64]crypto.Cipher
 	handle Handle
 }
 
@@ -201,7 +201,7 @@ type WsServer struct {
 
 	// ECC和缓存配置（用于Plan 2）
 	// 8字节函数指针字段组 (5个字段，40字节)
-	RSA             []crypto.Cipher                         // 8字节 - RSA/ECDSA加密解密对象列表
+	Cipher          map[int64]crypto.Cipher                 // 8字节 - RSA/ECDSA加密解密对象列表
 	RedisCacheAware func(ds ...string) (cache.Cache, error) // 8字节 - 函数指针
 	LocalCacheAware func(ds ...string) (cache.Cache, error) // 8字节 - 函数指针
 }
@@ -281,8 +281,8 @@ func (cv *ConfigValidator) validateRouterConfig(path string, handle Handle) erro
 	if handle == nil {
 		return utils.Error("router handle function cannot be nil")
 	}
-		return nil
-	}
+	return nil
+}
 
 func (cv *ConfigValidator) validatePoolConfig(maxConn, limit, bucket, ping int) error {
 	if maxConn <= 0 || limit <= 0 || bucket <= 0 || ping <= 0 {
@@ -342,8 +342,8 @@ func (cm *ConnectionManager) Add(conn *DevConn) error {
 	}
 
 	atomic.AddInt32(&cm.totalConn, 1)
-		return nil
-	}
+	return nil
+}
 
 // Remove 移除连接
 func (cm *ConnectionManager) Remove(subject, deviceKey string) {
@@ -530,9 +530,9 @@ func (cm *ConnectionManager) Count() int {
 
 // -------------------------- MessageHandler 实现 --------------------------
 
-func NewMessageHandler(rsa []crypto.Cipher, handle Handle) *MessageHandler {
+func NewMessageHandler(cipher map[int64]crypto.Cipher, handle Handle) *MessageHandler {
 	return &MessageHandler{
-		rsa:    rsa,
+		cipher: cipher,
 		handle: handle,
 	}
 }
@@ -542,8 +542,8 @@ func (mh *MessageHandler) validateMessageSize(body []byte) error {
 	if len(body) > WS_MAX_BODY_LEN {
 		return ex.Throw{Code: fasthttp.StatusRequestEntityTooLarge, Msg: "message too large"}
 	}
-		return nil
-	}
+	return nil
+}
 
 func (mh *MessageHandler) Process(connCtx *ConnectionContext, body []byte) (crypto.Cipher, interface{}, error) {
 	// 验证消息大小，防止恶意消息攻击
@@ -613,16 +613,15 @@ func (mh *MessageHandler) Process(connCtx *ConnectionContext, body []byte) (cryp
 	return cipher, result, err
 }
 
-func (self *MessageHandler) CheckECDSASign(msg, sign []byte) (crypto.Cipher, error) {
-	if len(self.rsa) == 0 {
-		return nil, nil
+func (self *MessageHandler) CheckECDSASign(usr int64, msg, sign []byte) (crypto.Cipher, error) {
+	cipher := self.cipher[usr]
+	if cipher == nil {
+		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request cipher invalid"}
 	}
-	for _, cip := range self.rsa {
-		if err := cip.Verify(msg, sign); err == nil {
-			return cip, nil
-		}
+	if err := cipher.Verify(msg, sign); err != nil {
+		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request signature valid invalid"}
 	}
-	return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request signature valid invalid"}
+	return cipher, nil
 }
 
 // validWebSocketBody 验证WebSocket消息体（参考HTTP协议）
@@ -672,14 +671,13 @@ func (mh *MessageHandler) validWebSocketBody(connCtx *ConnectionContext) (crypto
 
 	// 构建签名字符串
 	// 使用从header获取的路由标识进行签名验证，支持通过header指定路由
-	signStr := utils.AddStr(body.Router, d, body.Nonce, body.Time, body.Plan)
+	signStr := utils.AddStr(body.Router, d, body.Nonce, body.Time, body.Plan, body.User)
 	sign := utils.HMAC_SHA256_BASE(utils.Str2Bytes(signStr), sharedKey)
-	expectedSign := utils.Base64Encode(sign)
-	if expectedSign != body.Sign {
+	if utils.Base64Encode(sign) != body.Sign {
 		return nil, ex.Throw{Code: fasthttp.StatusUnauthorized, Msg: "websocket signature verify invalid"}
 	}
 
-	cipher, err := mh.CheckECDSASign(sign, utils.Base64Decode(body.Valid))
+	cipher, err := mh.CheckECDSASign(body.User, sign, utils.Base64Decode(body.Valid))
 	if err != nil {
 		return nil, err
 	}
@@ -705,7 +703,7 @@ func (mh *MessageHandler) decryptWebSocketData(connCtx *ConnectionContext) ([]by
 			return nil, ex.Throw{Code: fasthttp.StatusBadRequest, Msg: "websocket aes secret is nil"}
 		}
 		defer DIC.ClearData(secret)
-		iv := utils.Str2Bytes(utils.AddStr(body.Time, body.Nonce, body.Plan, body.Router))
+		iv := utils.Str2Bytes(utils.AddStr(body.Time, body.Nonce, body.Plan, body.Router, body.User))
 		rawData, err := utils.AesGCMDecryptBase(d, secret[:32], iv)
 		if err != nil {
 			return nil, ex.Throw{Code: fasthttp.StatusBadRequest, Msg: "websocket aes decrypt failed", Err: err}
@@ -852,8 +850,8 @@ func (s *WsServer) AddRouter(path string, handle Handle, routerConfig *RouterCon
 		Handle:       handle,
 		RouterConfig: routerConfig,
 	}
-		return nil
-	}
+	return nil
+}
 
 func (s *WsServer) NewPool(maxConn, limit, bucket, ping int) error {
 	if err := s.configValidator.validatePoolConfig(maxConn, limit, bucket, ping); err != nil {
@@ -868,8 +866,8 @@ func (s *WsServer) NewPool(maxConn, limit, bucket, ping int) error {
 
 	pingDuration := time.Duration(ping) * time.Second
 	s.heartbeatSvc = NewHeartbeatService(pingDuration, s.idleTimeout, s.connManager)
-		return nil
-	}
+	return nil
+}
 
 // SetIdleTimeout 设置连接空闲超时时间
 func (s *WsServer) SetIdleTimeout(timeout time.Duration) {
@@ -1099,8 +1097,8 @@ func (s *WsServer) serveHTTP(ctx *fasthttp.RequestCtx) {
 	if !exists || routeInfo.Handle == nil {
 		zlog.Error("NO_DEFAULT_ROUTE_CONFIGURED", 0, zlog.String("expected_route", DefaultWsRoute))
 		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
-			return
-		}
+		return
+	}
 	defaultHandle := routeInfo.Handle
 
 	zlog.Info("WEBSOCKET_UPGRADE_ATTEMPT", 0,
@@ -1109,14 +1107,14 @@ func (s *WsServer) serveHTTP(ctx *fasthttp.RequestCtx) {
 	if s.limiter != nil && !s.limiter.Allow() {
 		ctx.SetStatusCode(fasthttp.StatusTooManyRequests)
 		ctx.SetBodyString("too many connections")
-			return
-		}
+		return
+	}
 
 	if err := s.upgrader.Upgrade(ctx, func(ws *fasthttpWs.Conn) {
 		// 使用默认配置，因为路由现在在消息级别确定
 		defaultConfig := &RouterConfig{}
 		connCtx, err := s.initializeConnection(ctx, ws, path, defaultConfig)
-			if err != nil {
+		if err != nil {
 			zlog.Error("failed to initialize connection", 0, zlog.AddError(err))
 			ws.Close() // 关闭WebSocket连接
 			return
@@ -1231,7 +1229,7 @@ func (s *WsServer) handleConnectionLoop(connCtx *ConnectionContext, handle Handl
 	if zlog.IsDebug() {
 		zlog.Debug("STARTING_MESSAGE_LOOP", 0, zlog.String("client", connCtx.WsConn.RemoteAddr().String()))
 	}
-	messageHandler := GetMessageHandler(s.RSA, handle)
+	messageHandler := GetMessageHandler(s.Cipher, handle)
 	defer PutMessageHandler(messageHandler) // 连接结束时释放MessageHandler
 
 	for {
@@ -1331,7 +1329,7 @@ func replyData(connCtx *ConnectionContext, cipher crypto.Cipher, reply interface
 		defer DIC.ClearData(secret)
 
 		encryptedData, err := utils.AesGCMEncryptBase(respData, secret[:32],
-			utils.Str2Bytes(utils.AddStr(jsonResp.Time, jsonResp.Nonce, jsonResp.Plan, connCtx.JsonBody.Router)))
+			utils.Str2Bytes(utils.AddStr(jsonResp.Time, jsonResp.Nonce, jsonResp.Plan, connCtx.JsonBody.Router, connCtx.JsonBody.User)))
 		if err != nil {
 			zlog.Error("response_data_encrypt_failed", 0, zlog.AddError(err))
 			return
@@ -1342,18 +1340,16 @@ func replyData(connCtx *ConnectionContext, cipher crypto.Cipher, reply interface
 	}
 
 	// 生成响应签名
-	signStr := utils.AddStr(connCtx.JsonBody.Router, jsonResp.Data, jsonResp.Nonce, jsonResp.Time, jsonResp.Plan)
+	signStr := utils.AddStr(connCtx.JsonBody.Router, jsonResp.Data, jsonResp.Nonce, jsonResp.Time, jsonResp.Plan, connCtx.JsonBody.User)
 	sign := utils.HMAC_SHA256_BASE(utils.Str2Bytes(signStr), connCtx.GetTokenSecret())
 	jsonResp.Sign = utils.Base64Encode(sign)
 
-	if cipher != nil {
-		result, err := cipher.Sign(sign)
-		if err != nil {
-			zlog.Error("failed_to_ecdsa_sign_data", 0, zlog.AddError(err))
-			return
-		}
-		jsonResp.Valid = utils.Base64Encode(result)
+	result, err := cipher.Sign(sign)
+	if err != nil {
+		zlog.Error("failed_to_ecdsa_sign_data", 0, zlog.AddError(err))
+		return
 	}
+	jsonResp.Valid = utils.Base64Encode(result)
 
 	// 发送JsonResp格式的响应
 	replyBytes, err := utils.JsonMarshal(jsonResp)
@@ -1449,11 +1445,14 @@ func (self *WsServer) AddLocalCache(cacheAware CacheAware) {
 }
 
 // AddCipher 增加RSA/ECDSA加密解密对象
-func (self *WsServer) AddCipher(cipher crypto.Cipher) error {
+func (self *WsServer) AddCipher(usr int64, cipher crypto.Cipher) error {
+	if self.Cipher == nil {
+		self.Cipher = make(map[int64]crypto.Cipher)
+	}
 	if cipher == nil {
 		return utils.Error("cipher is nil")
 	}
-	self.RSA = append(self.RSA, cipher)
+	self.Cipher[usr] = cipher
 	return nil
 }
 
