@@ -28,7 +28,7 @@ type YamlConfig struct {
 
 // KeyPair 密钥对配置
 type KeyPair struct {
-	Name       string `yaml:"name"`
+	Name       int64  `yaml:"name"`
 	PublicKey  string `yaml:"public_key"`
 	PrivateKey string `yaml:"private_key"`
 }
@@ -53,7 +53,7 @@ func (s *ServerConfig) GetDefaultKeyPair() *KeyPair {
 }
 
 // GetKeyPairByName 根据名称获取密钥对
-func (s *ServerConfig) GetKeyPairByName(name string) *KeyPair {
+func (s *ServerConfig) GetKeyPairByName(name int64) *KeyPair {
 	for _, key := range s.Keys {
 		if key.Name == name {
 			return &key

@@ -56,8 +56,8 @@ func TestLoadYamlConfig(t *testing.T) {
 		if defaultKeyPair == nil {
 			t.Error("GetDefaultKeyPair() 应该返回第一个密钥对")
 		} else {
-			if defaultKeyPair.Name != "primary_key" {
-				t.Errorf("默认密钥对名称期望为 primary_key，实际为 %s", defaultKeyPair.Name)
+			if defaultKeyPair.Name != 1 {
+				t.Errorf("默认密钥对名称期望为 1，实际为 %d", defaultKeyPair.Name)
 			}
 			if defaultKeyPair.PublicKey == "" {
 				t.Error("默认密钥对 PublicKey 不能为空")
@@ -74,17 +74,17 @@ func TestLoadYamlConfig(t *testing.T) {
 		}
 
 		// 验证通过名称获取密钥对
-		backupKeyPair := defaultServer.GetKeyPairByName("backup_key")
+		backupKeyPair := defaultServer.GetKeyPairByName(2)
 		if backupKeyPair == nil {
-			t.Error("GetKeyPairByName('backup_key') 应该返回密钥对")
+			t.Error("GetKeyPairByName(2) 应该返回密钥对")
 		} else {
-			if backupKeyPair.Name != "backup_key" {
-				t.Errorf("backup_key 密钥对名称期望为 backup_key，实际为 %s", backupKeyPair.Name)
+			if backupKeyPair.Name != 2 {
+				t.Errorf("backup_key 密钥对名称期望为 2，实际为 %d", backupKeyPair.Name)
 			}
 		}
 
 		// 验证不存在的密钥对返回nil
-		nonExistKeyPair := defaultServer.GetKeyPairByName("non_exist_key")
+		nonExistKeyPair := defaultServer.GetKeyPairByName(999)
 		if nonExistKeyPair != nil {
 			t.Error("GetKeyPairByName('non_exist_key') 应该返回nil")
 		}
@@ -116,12 +116,12 @@ func TestLoadYamlConfig(t *testing.T) {
 		}
 
 		// 验证通过名称获取密钥对
-		secondaryKeyPair := prodServer.GetKeyPairByName("secondary_key")
+		secondaryKeyPair := prodServer.GetKeyPairByName(3)
 		if secondaryKeyPair == nil {
-			t.Error("GetKeyPairByName('secondary_key') 应该返回密钥对")
+			t.Error("GetKeyPairByName(3) 应该返回密钥对")
 		} else {
-			if secondaryKeyPair.Name != "secondary_key" {
-				t.Errorf("secondary_key 密钥对名称期望为 secondary_key，实际为 %s", secondaryKeyPair.Name)
+			if secondaryKeyPair.Name != 3 {
+				t.Errorf("secondary_key 密钥对名称期望为 3，实际为 %d", secondaryKeyPair.Name)
 			}
 		}
 	}
@@ -240,13 +240,13 @@ func ExampleGetServerConfig() {
 		// 获取默认密钥对
 		defaultKeyPair := defaultServer.GetDefaultKeyPair()
 		if defaultKeyPair != nil {
-			fmt.Printf("默认密钥对: %s\n", defaultKeyPair.Name)
+			fmt.Printf("默认密钥对: %d\n", defaultKeyPair.Name)
 		}
 
 		// 获取指定名称的密钥对
-		backupKeyPair := defaultServer.GetKeyPairByName("backup_key")
+		backupKeyPair := defaultServer.GetKeyPairByName(2)
 		if backupKeyPair != nil {
-			fmt.Printf("备份密钥对: %s\n", backupKeyPair.Name)
+			fmt.Printf("备份密钥对: %d\n", backupKeyPair.Name)
 		}
 	}
 
@@ -263,8 +263,8 @@ func ExampleGetServerConfig() {
 
 	// Output:
 	// 默认环境 - 应用名称: MyApp, 版本: 1.0.0, 环境: development
-	// 默认密钥对: primary_key
-	// 备份密钥对: backup_key
+	// 默认密钥对: 1
+	// 备份密钥对: 2
 	// 生产环境 - 应用名称: MyApp-Prod, 版本: 1.0.0, 环境: production
 	// 共有 2 个服务器配置
 }
