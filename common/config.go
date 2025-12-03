@@ -26,14 +26,45 @@ type YamlConfig struct {
 	Server map[string]*ServerConfig `yaml:"server,omitempty"`
 }
 
-type ServerConfig struct {
+// KeyPair 密钥对配置
+type KeyPair struct {
 	Name       string `yaml:"name"`
-	Version    string `yaml:"version"`
-	Debug      bool   `yaml:"debug"`
-	Env        string `yaml:"env"`
-	SecretKey  string `yaml:"secret_key"`
 	PublicKey  string `yaml:"public_key"`
 	PrivateKey string `yaml:"private_key"`
+}
+
+type ServerConfig struct {
+	Name      string    `yaml:"name"`
+	Version   string    `yaml:"version"`
+	Debug     bool      `yaml:"debug"`
+	Env       string    `yaml:"env"`
+	SecretKey string    `yaml:"secret_key"`
+	GCLimitMB int       `yaml:"gc_limit_mb"`
+	GCPercent int       `yaml:"gc_percent"`
+	Keys      []KeyPair `yaml:"keys,omitempty"`
+}
+
+// GetDefaultKeyPair 获取默认密钥对（第一个）
+func (s *ServerConfig) GetDefaultKeyPair() *KeyPair {
+	if len(s.Keys) > 0 {
+		return &s.Keys[0]
+	}
+	return nil
+}
+
+// GetKeyPairByName 根据名称获取密钥对
+func (s *ServerConfig) GetKeyPairByName(name string) *KeyPair {
+	for _, key := range s.Keys {
+		if key.Name == name {
+			return &key
+		}
+	}
+	return nil
+}
+
+// GetAllKeyPairs 获取所有密钥对
+func (s *ServerConfig) GetAllKeyPairs() []KeyPair {
+	return s.Keys
 }
 
 // AmqpConfig RabbitMQ配置 - 与amqp.AmqpConfig字段兼容

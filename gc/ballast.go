@@ -36,6 +36,9 @@ var (
 //
 // 注意：函数仅执行一次，重复调用无效
 func GC(limit int, percent int) {
+	if limit <= 0 || percent <= 0 {
+		return
+	}
 	ballastOnce.Do(func() {
 		// 保存原始GC百分比
 		originalPercent := debug.SetGCPercent(-1)
