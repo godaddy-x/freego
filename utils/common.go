@@ -12,11 +12,11 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
-	"encoding/gob"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	DIC "github.com/godaddy-x/freego/common"
+	"golang.org/x/crypto/pbkdf2"
 	"hash/fnv"
 	"io/ioutil"
 	"log"
@@ -1100,14 +1100,14 @@ func FmtZero(r string) string {
 	return a.String()
 }
 
-// 深度复制对象
-func DeepCopy(dst, src interface{}) error {
-	var buf bytes.Buffer
-	if err := gob.NewEncoder(&buf).Encode(src); err != nil {
-		return Error("深度复制对象序列化异常: ", err.Error())
+func CreateSecretKey(l int) []byte {
+	pwd := GetRandomSecure(128)
+	salt := GetRandomSecure(32)
+	if l == 32 {
+		return pbkdf2.Key(pwd, salt, 250000, 32, sha256.New)
+	} else if l == 64 {
+		return pbkdf2.Key(pwd, salt, 250000, 64, sha512.New)
+	} else {
+		panic("key length invalid: 32 or 64")
 	}
-	if err := gob.NewDecoder(bytes.NewBuffer(buf.Bytes())).Decode(dst); err != nil {
-		return Error("深度复制对象反序列异常: ", err.Error())
-	}
-	return nil
 }

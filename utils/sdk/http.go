@@ -78,7 +78,7 @@ func NewHttpSDK() *HttpSDK {
 		KeyPath:   "/key",
 		LoginPath: "/login",
 		timeout:   120,
-		language:  "zh-CN",
+		language:  "",
 	}
 }
 
@@ -553,6 +553,9 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 		zlog.Debug("response data: ", 0)
 		zlog.Debug(utils.Bytes2Str(respBytes), 0)
 	}
+	if !utils.JsonValid(respBytes) {
+		return ex.Throw{Msg: "response data not json: " + utils.Bytes2Str(respBytes)}
+	}
 	respData := node.GetJsonResp()
 	defer node.PutJsonResp(respData)
 	if err := utils.JsonUnmarshal(respBytes, respData); err != nil {
@@ -826,6 +829,9 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 	if zlog.IsDebug() {
 		zlog.Debug("response data: ", 0)
 		zlog.Debug(utils.Bytes2Str(respBytes), 0)
+	}
+	if !utils.JsonValid(respBytes) {
+		return ex.Throw{Msg: "response data not json: " + utils.Bytes2Str(respBytes)}
 	}
 	respData := node.GetJsonResp()
 	defer node.PutJsonResp(respData)

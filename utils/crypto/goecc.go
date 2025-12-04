@@ -4,6 +4,7 @@ import (
 	"crypto/ecdh"
 	"crypto/ecdsa"
 	"errors"
+	"fmt"
 
 	ecc "github.com/godaddy-x/eccrypto"
 	"github.com/godaddy-x/freego/utils"
@@ -86,6 +87,13 @@ type EcdsaObject struct {
 	// 8字节指针字段组
 	privateKey *ecdsa.PrivateKey
 	publicKey  *ecdsa.PublicKey
+}
+
+func PrintECDSABase64() {
+	o := &EcdsaObject{}
+	_ = o.CreateS256ECDSA()
+	fmt.Println("私钥：", o.PrivateKeyBase64)
+	fmt.Println("公钥：", o.PublicKeyBase64)
 }
 
 func (self *EcdsaObject) CreateS256ECDSA() error {

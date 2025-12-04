@@ -5,6 +5,8 @@ server:
     version: "1.0.0"
     debug: true
     env: "development"
+    addr: "0.0.0.0"
+    port: 8080
     secret_key: "default_secret_key_32_bytes_for_dev123"
     gc_limit_mb: 512
     gc_percent: 30
@@ -21,6 +23,8 @@ server:
     version: "1.0.0"
     debug: false
     env: "production"
+    addr: "0.0.0.0"
+    port: 8080
     secret_key: "production_secret_key_32_bytes_secure123"
     keys:
       - name: 1

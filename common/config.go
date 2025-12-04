@@ -38,6 +38,8 @@ type ServerConfig struct {
 	Version   string    `yaml:"version"`
 	Debug     bool      `yaml:"debug"`
 	Env       string    `yaml:"env"`
+	Addr      string    `yaml:"addr"`
+	Port      int       `yaml:"port"`
 	SecretKey string    `yaml:"secret_key"`
 	GCLimitMB int       `yaml:"gc_limit_mb"`
 	GCPercent int       `yaml:"gc_percent"`

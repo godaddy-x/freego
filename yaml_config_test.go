@@ -1,13 +1,25 @@
 package main
 
 import (
+	"encoding/hex"
 	"fmt"
+	"github.com/godaddy-x/freego/utils/crypto"
 	"os"
 	"strings"
 	"testing"
 
 	"github.com/godaddy-x/freego/utils"
 )
+
+func TestPrintSecretKey(t *testing.T) {
+	fmt.Println("密钥32：", hex.EncodeToString(utils.CreateSecretKey(32)))
+	fmt.Println("密钥64：", hex.EncodeToString(utils.CreateSecretKey(64)))
+}
+
+func TestPrintECDSAKey(t *testing.T) {
+	crypto.PrintECDSABase64()
+	crypto.PrintECDSABase64()
+}
 
 func TestLoadYamlConfig(t *testing.T) {
 	// 确保config.yaml文件存在
@@ -41,6 +53,12 @@ func TestLoadYamlConfig(t *testing.T) {
 		}
 		if defaultServer.Env != "development" {
 			t.Errorf("default server Env 期望为 development，实际为 %s", defaultServer.Env)
+		}
+		if defaultServer.Addr != "0.0.0.0" {
+			t.Errorf("default server Addr 期望为 0.0.0.0，实际为 %s", defaultServer.Addr)
+		}
+		if defaultServer.Port != 8080 {
+			t.Errorf("default server Port 期望为 8080，实际为 %d", defaultServer.Port)
 		}
 		if defaultServer.SecretKey == "" {
 			t.Error("default server SecretKey 不能为空")
@@ -105,6 +123,12 @@ func TestLoadYamlConfig(t *testing.T) {
 		}
 		if prodServer.Env != "production" {
 			t.Errorf("production server Env 期望为 production，实际为 %s", prodServer.Env)
+		}
+		if prodServer.Addr != "0.0.0.0" {
+			t.Errorf("production server Addr 期望为 0.0.0.0，实际为 %s", prodServer.Addr)
+		}
+		if prodServer.Port != 8080 {
+			t.Errorf("production server Port 期望为 8080，实际为 %d", prodServer.Port)
 		}
 		if prodServer.SecretKey == "" {
 			t.Error("production server SecretKey 不能为空")
