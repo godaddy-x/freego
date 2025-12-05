@@ -702,8 +702,7 @@ func (mh *MessageHandler) decryptWebSocketData(connCtx *ConnectionContext) ([]by
 			return nil, ex.Throw{Code: fasthttp.StatusBadRequest, Msg: "websocket aes secret is nil"}
 		}
 		defer DIC.ClearData(secret)
-		iv := utils.Str2Bytes(utils.AddStr(body.Time, body.Nonce, body.Plan, body.Router, body.User))
-		rawData, err := utils.AesGCMDecryptBase(d, secret[:32], iv)
+		rawData, err := utils.AesGCMDecryptBase(d, secret[:32], AppendBodyMessage(body.Router, "", body.Nonce, body.Time, body.Plan, body.User))
 		if err != nil {
 			return nil, ex.Throw{Code: fasthttp.StatusBadRequest, Msg: "websocket aes decrypt failed", Err: err}
 		}
@@ -1327,8 +1326,7 @@ func replyData(connCtx *ConnectionContext, cipher crypto.Cipher, reply interface
 		}
 		defer DIC.ClearData(secret)
 
-		encryptedData, err := utils.AesGCMEncryptBase(respData, secret[:32],
-			utils.Str2Bytes(utils.AddStr(jsonResp.Time, jsonResp.Nonce, jsonResp.Plan, connCtx.JsonBody.Router, connCtx.JsonBody.User)))
+		encryptedData, err := utils.AesGCMEncryptBase(respData, secret[:32], AppendBodyMessage(connCtx.JsonBody.Router, "", jsonResp.Nonce, jsonResp.Time, jsonResp.Plan, connCtx.JsonBody.User))
 		if err != nil {
 			zlog.Error("response_data_encrypt_failed", 0, zlog.AddError(err))
 			return

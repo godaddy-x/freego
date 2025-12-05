@@ -73,6 +73,7 @@ type SocketSDK struct {
 	SSL         bool                    // 是否启用https
 	ClientNo    int64                   // 客户端ID
 	ecdsaObject map[int64]crypto.Cipher // ECDSA签名验证对象列表
+	HealthPing  int                     // 健康PING间隔时间/秒
 
 	// WebSocket连接相关
 	conn        *websocket.Conn    // WebSocket连接
@@ -122,6 +123,13 @@ func (s *SocketSDK) AuthToken(object AuthToken) {
 // timeout: 超时时间(秒)，控制WebSocket消息发送和等待响应的最大时间
 func (s *SocketSDK) SetTimeout(timeout int64) {
 	s.timeout = timeout
+}
+
+func (s *SocketSDK) SetHealthPing(t int) {
+	if t <= 0 {
+		t = 30
+	}
+	s.HealthPing = t
 }
 
 func (s *SocketSDK) SetClientNo(clientNo int64) {
@@ -357,8 +365,7 @@ func (s *SocketSDK) prepareWebSocketMessage(jsonBody *node.JsonBody, data interf
 
 	// 根据plan决定是否加密
 	if jsonBody.Plan == 1 {
-		encryptedData, err := utils.AesGCMEncryptBase(jsonData, tokenSecret[:32],
-			utils.Str2Bytes(utils.AddStr(jsonBody.Time, jsonBody.Nonce, jsonBody.Plan, jsonBody.Router, jsonBody.User)))
+		encryptedData, err := utils.AesGCMEncryptBase(jsonData, tokenSecret[:32], node.AppendBodyMessage(jsonBody.Router, "", jsonBody.Nonce, jsonBody.Time, jsonBody.Plan, jsonBody.User))
 		if err != nil {
 			return nil, nil, ex.Throw{Msg: "data encrypt failed"}
 		}
@@ -472,8 +479,7 @@ func (s *SocketSDK) sendWebSocketAuthHandshake(conn *websocket.Conn, path string
 	var decryptedData []byte
 	if response.Plan == 1 {
 		// AES解密
-		decryptedData, err = utils.AesGCMDecryptBase(response.Data, tokenSecret[:32],
-			utils.Str2Bytes(utils.AddStr(response.Time, response.Nonce, response.Plan, path, jsonBody.User)))
+		decryptedData, err = utils.AesGCMDecryptBase(response.Data, tokenSecret[:32], node.AppendBodyMessage(path, "", response.Nonce, response.Time, response.Plan, jsonBody.User))
 		if err != nil {
 			return ex.Throw{Msg: "handshake response data decrypt failed"}
 		}
@@ -636,8 +642,7 @@ func (s *SocketSDK) verifyWebSocketResponseFromJsonResp(path string, result inte
 	var decryptedData []byte
 	var err error
 	if jsonResp.Plan == 1 {
-		decryptedData, err = utils.AesGCMDecryptBase(jsonResp.Data, tokenSecret[:32],
-			utils.Str2Bytes(utils.AddStr(jsonResp.Time, jsonResp.Nonce, jsonResp.Plan, path, s.ClientNo)))
+		decryptedData, err = utils.AesGCMDecryptBase(jsonResp.Data, tokenSecret[:32], node.AppendBodyMessage(path, "", jsonResp.Nonce, jsonResp.Time, jsonResp.Plan, s.ClientNo))
 		if err != nil {
 			return ex.Throw{Msg: "response data decrypt failed"}
 		}
@@ -655,7 +660,10 @@ func (s *SocketSDK) verifyWebSocketResponseFromJsonResp(path string, result inte
 
 // websocketHeartbeat WebSocket心跳机制，保持连接活跃状态
 func (s *SocketSDK) websocketHeartbeat() {
-	ticker := time.NewTicker(30 * time.Second) // 每30秒发送一次心跳
+	if s.HealthPing <= 0 {
+		s.HealthPing = 30
+	}
+	ticker := time.NewTicker(time.Duration(s.HealthPing) * time.Second) // 每30秒发送一次心跳
 	defer ticker.Stop()
 
 	for {

@@ -168,6 +168,7 @@ func TestWebSocketSDKUsage(t *testing.T) {
 
 	wsSdk.SetClientNo(1)
 	wsSdk.SetECDSAObject(wsSdk.ClientNo, clientPrk, serverPub)
+	wsSdk.SetHealthPing(10)
 
 	// 5. 尝试连接WebSocket（预期成功，因为服务器已启动）
 	fmt.Println("5. 尝试连接WebSocket（预期成功）...")
@@ -181,14 +182,14 @@ func TestWebSocketSDKUsage(t *testing.T) {
 	fmt.Println("6. 发送WebSocket消息...")
 	requestObject := map[string]interface{}{"test": "张三"}
 	responseObject := &sdk.AuthToken{}
-	err = wsSdk.SendWebSocketMessage("/ws/user", requestObject, responseObject, true, true, 5)
+	err = wsSdk.SendWebSocketMessage("/ws/user", requestObject, responseObject, true, false, 5)
 	if err != nil {
 		t.Errorf("发送消息失败：%v", err)
 		// 打印详细错误信息
 		t.Logf("错误详情: %v", err)
 		return
 	}
-	fmt.Println("响应结果1:", responseObject)
+	fmt.Println("明文响应结果1:", responseObject)
 
 	requestObject = map[string]interface{}{"test": "张三"}
 	responseObject = &sdk.AuthToken{}
@@ -199,7 +200,7 @@ func TestWebSocketSDKUsage(t *testing.T) {
 		t.Logf("错误详情: %v", err)
 		return
 	}
-	fmt.Println("响应结果2:", responseObject)
+	fmt.Println("加密响应结果2:", responseObject)
 
 	// 添加延迟等待响应
 	time.Sleep(1000 * time.Second)
