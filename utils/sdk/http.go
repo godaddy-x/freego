@@ -974,7 +974,7 @@ func BuildRequestObject(path string, requestObj interface{}, secret string, encr
 	} else {
 		jsonBody.Data = utils.Base64Encode(jsonBody.Data)
 	}
-	jsonBody.Sign = utils.HMAC_SHA256(utils.AddStr(path, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan), secret, true)
+	jsonBody.Sign = utils.Base64Encode(node.SignBodyMessage(path, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan, jsonBody.User, utils.Str2Bytes(secret)))
 	bytesData, err := utils.JsonMarshal(jsonBody)
 	if err != nil {
 		return nil, ex.Throw{Msg: "jsonBody data JsonMarshal invalid"}

@@ -314,22 +314,33 @@ func GetSharedKey(c cache.Cache, cipher crypto.Cipher) ([]byte, error) {
 // u: 客户端ID，指定Cipher
 // 返回: 计算后的签名字节数组
 func Signature(key, d, n []byte, t, p int64, r string, u int64) ([]byte, error) {
-	// 拼接数据载体进行验证S（优化：预分配内存，避免多次append）
+	// 拼接数据载体进行验证S（加入分隔符防止混淆攻击）
+	// 格式与WebSocket保持一致: r|d|n|t|p|u
+	sep := []byte(DIC.SEP)
 	tBytes := []byte(strconv.FormatInt(t, 10))
 	pBytes := []byte(strconv.FormatInt(p, 10))
 	rBytes := utils.Str2Bytes(r)
+	uBytes := []byte(strconv.FormatInt(u, 10))
 
-	// 预计算总长度并一次性分配
-	totalLen := len(d) + len(n) + len(tBytes) + len(pBytes) + len(rBytes)
+	// 预计算总长度（包含分隔符）并一次性分配
+	// 格式: r|d|n|t|p|u
+	sepCount := 5 // 5个分隔符
+	totalLen := len(rBytes) + len(d) + len(n) + len(tBytes) + len(pBytes) + len(uBytes) + sepCount*len(sep)
 	body := make([]byte, totalLen)
 
 	// 使用copy依次填充，避免内存重新分配
 	offset := 0
+	offset += copy(body[offset:], rBytes)
+	offset += copy(body[offset:], sep)
 	offset += copy(body[offset:], d)
+	offset += copy(body[offset:], sep)
 	offset += copy(body[offset:], n)
+	offset += copy(body[offset:], sep)
 	offset += copy(body[offset:], tBytes)
+	offset += copy(body[offset:], sep)
 	offset += copy(body[offset:], pBytes)
-	copy(body[offset:], rBytes)
+	offset += copy(body[offset:], sep)
+	copy(body[offset:], uBytes)
 
 	return utils.HMAC_SHA256_BASE(body, key), nil
 }
