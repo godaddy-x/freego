@@ -774,19 +774,28 @@ func (self *Context) CreatePublicKey() (*PublicKey, error) {
 		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request data is nil"}
 	}
 
+	if len(self.JsonBody.Data) > 1024 {
+		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request data too long"}
+	}
+
 	checkObject := &PublicKey{}
 	if err := utils.JsonUnmarshal(utils.Str2Bytes(self.JsonBody.Data), checkObject); err != nil {
 		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request data parse error", Err: err}
 	}
 
+	if checkObject.Usr < 0 {
+		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request usr invalid"}
+	}
+
 	cipher, exists := self.Cipher[checkObject.Usr]
 	if !exists {
+		zlog.Error("CreatePublicKey usr error", 0, zlog.String("ip", self.RemoteIP()), zlog.Int64("usr", checkObject.Usr))
 		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "cipher not found for user"}
 	}
 
 	// 增加限流器控制USR访问量
 	if !limiter.Allow(utils.AddStr("Limiter:CreatePublicKey:", checkObject.Usr)) {
-		zlog.Error("CreatePublicKey request too frequent", 0, zlog.Int64("usr", checkObject.Usr))
+		zlog.Error("CreatePublicKey usr frequent error", 0, zlog.String("ip", self.RemoteIP()), zlog.Int64("usr", checkObject.Usr))
 		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request too frequent"}
 	}
 
