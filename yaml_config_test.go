@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/hex"
 	"fmt"
 	"github.com/godaddy-x/freego/utils/crypto"
 	"os"
@@ -12,8 +11,7 @@ import (
 )
 
 func TestPrintSecretKey(t *testing.T) {
-	fmt.Println("密钥32：", hex.EncodeToString(utils.CreateSecretKey(32)))
-	fmt.Println("密钥64：", hex.EncodeToString(utils.CreateSecretKey(64)))
+	fmt.Println("密钥32：", utils.Base64Encode(utils.GetRandomSecure(32)))
 }
 
 func TestPrintECDSAKey(t *testing.T) {

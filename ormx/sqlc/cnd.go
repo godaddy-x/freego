@@ -496,21 +496,18 @@ func (self *Cnd) ResultSize(size int64) *Cnd {
 	return self
 }
 
-func (self *Cnd) FastPage(key string, sort int, prevID, lastID, pageSize int64, countQ ...bool) *Cnd {
+func (self *Cnd) FastPage(fast *FastObject) *Cnd {
+	pageSize := fast.Size
 	if pageSize <= 0 {
 		pageSize = 50
 	}
 	if pageSize > 5000 {
 		pageSize = 50
 	}
-	if len(key) == 0 {
+	if len(fast.key) == 0 {
 		panic("fast limit key is nil")
 	}
-	queryCount := false
-	if len(countQ) > 0 {
-		queryCount = countQ[0]
-	}
-	self.Pagination = dialect.Dialect{PageNo: 0, PageSize: pageSize, IsFastPage: true, FastPageKey: key, FastPageSort: sort, FastPageParam: []int64{prevID, lastID}, FastPageSortCountQ: queryCount}
+	self.Pagination = dialect.Dialect{PageNo: 0, PageSize: pageSize, IsFastPage: true, FastPageKey: fast.key, FastPageSort: fast.sort, FastPageParam: []int64{fast.PrevID, fast.LastID}, FastPageSortCountQ: fast.CountQ}
 	return self
 }
 

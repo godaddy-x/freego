@@ -1100,14 +1100,10 @@ func FmtZero(r string) string {
 	return a.String()
 }
 
-func CreateSecretKey(l int) []byte {
-	pwd := GetRandomSecure(128)
-	salt := GetRandomSecure(32)
-	if l == 32 {
-		return pbkdf2.Key(pwd, salt, 250000, 32, sha256.New)
-	} else if l == 64 {
-		return pbkdf2.Key(pwd, salt, 250000, 64, sha512.New)
-	} else {
-		panic("key length invalid: 32 or 64")
-	}
+func NewShortPassword(pwd, salt string) []byte {
+	return pbkdf2.Key(Str2Bytes(pwd), Str2Bytes(salt), 2048, 32, sha256.New)
+}
+
+func NewDeepPassword(pwd, salt string) []byte {
+	return pbkdf2.Key(Str2Bytes(pwd), Str2Bytes(salt), 20480, 32, sha256.New)
 }
