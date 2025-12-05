@@ -549,28 +549,69 @@ func (self *Context) Handle() error {
 	return self.postHandle(self)
 }
 
+// 内网IP段：需过滤的私有IP范围
+var privateIPBlocks = []*net.IPNet{
+	{IP: net.ParseIP("10.0.0.0"), Mask: net.CIDRMask(8, 32)},
+	{IP: net.ParseIP("172.16.0.0"), Mask: net.CIDRMask(12, 32)},
+	{IP: net.ParseIP("192.168.0.0"), Mask: net.CIDRMask(16, 32)},
+	{IP: net.ParseIP("127.0.0.0"), Mask: net.CIDRMask(8, 32)},
+	{IP: net.ParseIP("0.0.0.0"), Mask: net.CIDRMask(8, 32)},
+}
+
+// isPrivateIP 判断IP是否为内网IP
+func isPrivateIP(ip net.IP) bool {
+	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+		return true
+	}
+	for _, block := range privateIPBlocks {
+		if block.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// RemoteIP 安全获取真实客户端IP（防伪造、过滤内网IP）
 func (self *Context) RemoteIP() string {
-	// 1. 检查X-Forwarded-For头（需配置反向代理只传递真实IP）
+	// 1. 优先处理X-Forwarded-For头（反向代理场景）
 	xffHeader := strings.TrimSpace(utils.Bytes2Str(self.RequestCtx.Request.Header.Peek("X-Forwarded-For")))
 	if xffHeader != "" {
-		// X-Forwarded-For可能包含多个IP，用逗号分隔
+		// 拆分XFF头，按反向代理规则：最后一个非内网IP是真实客户端IP（或第一个，需根据代理配置调整）
+		// 【关键】根据你的反向代理配置选择：
+		// - 若代理配置为“追加XFF”（如Nginx的proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;）：取第一个非内网IP
+		// - 若代理配置为“覆盖XFF”：取最后一个非内网IP
 		ips := strings.Split(xffHeader, ",")
-		for _, ip := range ips {
-			ip = strings.TrimSpace(ip)
-			if ip != "" && net.ParseIP(ip) != nil {
-				return ip
+		// 倒序遍历：优先取最后一个非内网IP（适配大部分反向代理配置）
+		for i := len(ips) - 1; i >= 0; i-- {
+			ipStr := strings.TrimSpace(ips[i])
+			if ipStr == "" {
+				continue
+			}
+			ip := net.ParseIP(ipStr)
+			if ip != nil && !isPrivateIP(ip) {
+				return ip.String()
 			}
 		}
 	}
 
-	// 2. 检查X-Real-Ip头
-	clientIP := strings.TrimSpace(utils.Bytes2Str(self.RequestCtx.Request.Header.Peek("X-Real-Ip")))
-	if clientIP != "" && net.ParseIP(clientIP) != nil {
-		return clientIP
+	// 2. 处理X-Real-Ip头（单代理场景）
+	realIP := strings.TrimSpace(utils.Bytes2Str(self.RequestCtx.Request.Header.Peek("X-Real-Ip")))
+	if realIP != "" {
+		ip := net.ParseIP(realIP)
+		if ip != nil && !isPrivateIP(ip) {
+			return ip.String()
+		}
 	}
 
-	// 3. 回退到fasthttp的RemoteIP()
-	return self.RequestCtx.RemoteIP().String()
+	// 3. 回退到fasthttp原生RemoteIP（无代理场景）
+	remoteIP := self.RequestCtx.RemoteIP().String()
+	ip := net.ParseIP(remoteIP)
+	if ip != nil && !isPrivateIP(ip) {
+		return remoteIP
+	}
+
+	// 4. 兜底：返回空字符串（避免返回内网IP）
+	return ""
 }
 
 func (self *Context) reset(ctx *Context, handle PostHandle, request *fasthttp.RequestCtx, fs []*FilterObject) {
@@ -769,9 +810,9 @@ func CheckPublicKey(c cache.Cache, requestObject *PublicKey, cipher crypto.Ciphe
 
 var (
 	limiter = rate.NewRateLimiter(rate.Option{
-		Limit:       5.0,  // 每秒10个令牌
-		Bucket:      3,    // 桶容量5（与Redis版本一致）
-		Expire:      5000, // 5秒过期
+		Limit:       100.0, // 每秒100个令牌
+		Bucket:      200,   // 桶容量200（与Redis版本一致）
+		Expire:      60000, // 60秒过期
 		Distributed: false,
 	})
 )
@@ -802,7 +843,7 @@ func (self *Context) CreatePublicKey() (*PublicKey, error) {
 	}
 
 	// 增加限流器控制USR访问量
-	if !limiter.Allow(utils.AddStr("Limiter:CreatePublicKey:", checkObject.Usr)) {
+	if !limiter.Allow(utils.AddStr("Limiter:CreatePublicKey:", checkObject.Usr, ":", self.RemoteIP())) {
 		zlog.Error("CreatePublicKey usr frequent error", 0, zlog.String("ip", self.RemoteIP()), zlog.Int64("usr", checkObject.Usr))
 		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request too frequent"}
 	}
