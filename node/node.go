@@ -180,7 +180,7 @@ func (self *Context) GetTokenSecret() []byte {
 }
 
 func (self *Context) GetHmac256Sign(d, n string, t, p, u int64, key []byte) []byte {
-	return utils.HMAC_SHA256_BASE(utils.Str2Bytes(utils.AddStr(self.Path, d, n, t, p, u)), key)
+	return utils.HMAC_SHA256_BASE(utils.Str2Bytes(utils.AddStr(self.Path, DIC.SEP, d, DIC.SEP, n, DIC.SEP, t, DIC.SEP, p, DIC.SEP, u)), key)
 }
 
 func (self *Context) CheckECDSASign(cipher crypto.Cipher, msg, sign []byte) (crypto.Cipher, error) {
