@@ -3,6 +3,7 @@ package node
 import (
 	"bytes"
 	"crypto/sha512"
+	rate "github.com/godaddy-x/freego/cache/limiter"
 	"net"
 	"net/http"
 	"strings"
@@ -419,20 +420,21 @@ func (self *Context) validJsonBody() error {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "client public key parse error", Err: err}
 		}
 
-		cipher, exists := self.Cipher[body.User]
-		if !exists {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "cipher not found for user"}
-		}
-		if _, err := CheckPublicKey(public, cipher); err != nil {
-			return err
-		}
-
 		c, err := self.GetCacheObject()
 		if err != nil {
 			return err
 		}
+
+		cipher, exists := self.Cipher[body.User]
+		if !exists {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "cipher not found for user"}
+		}
+		if err := CheckPublicKey(c, public, cipher); err != nil {
+			return err
+		}
+
 		// 使用与CreatePublicKey相同的缓存键计算方式
-		cacheKey := utils.FNV1a64(public.Key)
+		cacheKey := utils.FNV1a64(utils.AddStr(public.Key, ":", public.Usr))
 		var prkObject *PrivateKey
 		if c.Mode() == cache.LOCAL {
 			if v, b, err := c.Get(cacheKey, nil); err != nil || !b {
@@ -707,7 +709,7 @@ func CreatePublicKey(key, tag string, usr int64, cipher crypto.Cipher) (*PublicK
 	requestObject.Noc = utils.Base64Encode(utils.GetRandomSecure(32))
 	requestObject.Exp = utils.UnixSecond()
 	requestObject.Usr = usr
-	sig, err := cipher.Sign(utils.Str2Bytes(utils.AddStr(requestObject.Key, requestObject.Noc, requestObject.Exp, requestObject.Usr)))
+	sig, err := cipher.Sign(utils.Str2Bytes(utils.AddStr(requestObject.Key, DIC.SEP, requestObject.Tag, DIC.SEP, requestObject.Noc, DIC.SEP, requestObject.Exp, DIC.SEP, requestObject.Usr)))
 	if err != nil {
 		return nil, ex.Throw{Msg: "ecdsa sign message error: " + err.Error()}
 	}
@@ -715,28 +717,56 @@ func CreatePublicKey(key, tag string, usr int64, cipher crypto.Cipher) (*PublicK
 	return requestObject, nil
 }
 
-func CheckPublicKey(requestObject *PublicKey, cipher crypto.Cipher) (crypto.Cipher, error) {
+func CheckPublicKey(c cache.Cache, requestObject *PublicKey, cipher crypto.Cipher) error {
 	if cipher == nil {
-		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request cipher invalid"}
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "request cipher invalid"}
 	}
-	if len(requestObject.Key) == 0 {
-		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request key is nil"}
+	if len(requestObject.Key) < 32 {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "request key invalid"}
 	}
-	if len(requestObject.Sig) == 0 {
-		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request sig is nil"}
+	if len(requestObject.Tag) < 32 {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "request tag invalid"}
 	}
-	if len(requestObject.Noc) == 0 {
-		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request noc is nil"}
+	if len(requestObject.Sig) < 32 {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "request sig invalid"}
+	}
+	if len(requestObject.Noc) < 32 {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "request noc invalid"}
+	}
+	if requestObject.Usr < 0 {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "request usr invalid"}
 	}
 	if utils.MathAbs(utils.UnixSecond()-requestObject.Exp) > jwt.FIVE_MINUTES { // 判断绝对时间差超过5分钟
-		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request exp invalid"}
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "request exp invalid"}
+	}
+	key := utils.FNV1a64(requestObject.Noc)
+	if c != nil {
+		if ok, err := c.Exists(key); err != nil {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "noc check failed", Err: err}
+		} else if ok {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "request noc duplicated"}
+		}
 	}
 	// ECDSA验证签名
-	if err := cipher.Verify(utils.Str2Bytes(utils.AddStr(requestObject.Key, requestObject.Noc, requestObject.Exp, requestObject.Usr)), utils.Base64Decode(requestObject.Sig)); err != nil {
-		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request sig invalid"}
+	if err := cipher.Verify(utils.Str2Bytes(utils.AddStr(requestObject.Key, DIC.SEP, requestObject.Tag, DIC.SEP, requestObject.Noc, DIC.SEP, requestObject.Exp, DIC.SEP, requestObject.Usr)), utils.Base64Decode(requestObject.Sig)); err != nil {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "request verify sig invalid"}
 	}
-	return cipher, nil
+	if c != nil {
+		if err := c.Put(key, 1, 300); err != nil {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "request noc cache error", Err: err}
+		}
+	}
+	return nil
 }
+
+var (
+	limiter = rate.NewRateLimiter(rate.Option{
+		Limit:       5.0,  // 每秒10个令牌
+		Bucket:      3,    // 桶容量5（与Redis版本一致）
+		Expire:      5000, // 5秒过期
+		Distributed: false,
+	})
+)
 
 func (self *Context) CreatePublicKey() (*PublicKey, error) {
 	// 检查请求的对象是否有效
@@ -753,8 +783,18 @@ func (self *Context) CreatePublicKey() (*PublicKey, error) {
 	if !exists {
 		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "cipher not found for user"}
 	}
-	cipher, err := CheckPublicKey(checkObject, cipher)
+
+	// 增加限流器控制USR访问量
+	if !limiter.Allow(utils.AddStr("Limiter:CreatePublicKey:", checkObject.Usr)) {
+		zlog.Error("CreatePublicKey request too frequent", 0, zlog.Int64("usr", checkObject.Usr))
+		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request too frequent"}
+	}
+
+	c, err := self.GetCacheObject()
 	if err != nil {
+		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "cache not found for user", Err: err}
+	}
+	if err = CheckPublicKey(c, checkObject, cipher); err != nil {
 		return nil, err
 	}
 
@@ -764,17 +804,12 @@ func (self *Context) CreatePublicKey() (*PublicKey, error) {
 		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "ecdh invalid", Err: err}
 	}
 
-	requestObject, err := CreatePublicKey(utils.Base64Encode(prk.PublicKey().Bytes()), "", checkObject.Usr, cipher)
+	requestObject, err := CreatePublicKey(utils.Base64Encode(prk.PublicKey().Bytes()), utils.Base64Encode(utils.GetRandomSecure(32)), checkObject.Usr, cipher)
 	if err != nil {
 		return nil, err
 	}
 
-	c, err := self.GetCacheObject()
-	if err != nil {
-		return nil, err
-	}
-
-	if err := c.Put(utils.FNV1a64(requestObject.Key), &PrivateKey{Key: utils.Base64Encode(prk.Bytes()), Noc: requestObject.Noc}, 180); err != nil {
+	if err := c.Put(utils.FNV1a64(utils.AddStr(requestObject.Key, ":", requestObject.Usr)), &PrivateKey{Key: utils.Base64Encode(prk.Bytes()), Noc: requestObject.Noc}, 180); err != nil {
 		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "prk cache setting error", Err: err}
 	}
 

@@ -2,6 +2,7 @@ package DIC
 
 const (
 	MASTER = "master"
+	SEP    = "|"
 )
 
 // ClearData 最终清空底层数组的函数

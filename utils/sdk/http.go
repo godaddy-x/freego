@@ -339,13 +339,13 @@ func (s *HttpSDK) GetPublicKey() (*crypto.EcdhObject, *node.PublicKey, crypto.Ci
 	if !exists || cipher == nil {
 		return nil, nil, nil, ex.Throw{Msg: "ECDSA object not found for client, bidirectional ECDSA signature is required"}
 	}
-	public, err := node.CreatePublicKey(utils.Base64Encode(utils.GetRandomSecure(32)), "", s.ClientNo, cipher)
+	public, err := node.CreatePublicKey(utils.Base64Encode(utils.GetRandomSecure(32)), utils.Base64Encode(utils.GetRandomSecure(32)), s.ClientNo, cipher)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 	publicBody, err := utils.JsonMarshal(public)
 	if err != nil {
-		return nil, nil, nil, ex.Throw{Msg: "request object json marshal error: " + err.Error()}
+		return nil, nil, nil, ex.Throw{Msg: "request object json marshal error: " + err.Error(), Err: err}
 	}
 	// 清理临时公钥数据
 	defer DIC.ClearData(publicBody)
@@ -379,8 +379,7 @@ func (s *HttpSDK) GetPublicKey() (*crypto.EcdhObject, *node.PublicKey, crypto.Ci
 	if err := utils.JsonUnmarshal(respBytes, responseObject); err != nil {
 		return nil, nil, nil, ex.Throw{Msg: "request public key parse error: " + err.Error()}
 	}
-	cipher, err = node.CheckPublicKey(responseObject, cipher)
-	if err != nil {
+	if err := node.CheckPublicKey(nil, responseObject, cipher); err != nil {
 		return nil, nil, nil, err
 	}
 	return ecdh, responseObject, cipher, nil
