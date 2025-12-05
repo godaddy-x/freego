@@ -843,7 +843,7 @@ func (self *Context) CreatePublicKey() (*PublicKey, error) {
 	}
 
 	// 增加限流器控制USR访问量
-	if !limiter.Allow(utils.AddStr("Limiter:CreatePublicKey:", checkObject.Usr, ":", self.RemoteIP())) {
+	if !limiter.Allow(utils.AddStr("Limiter:CreatePublicKey:", checkObject.Usr)) {
 		zlog.Error("CreatePublicKey usr frequent error", 0, zlog.String("ip", self.RemoteIP()), zlog.Int64("usr", checkObject.Usr))
 		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request too frequent"}
 	}
