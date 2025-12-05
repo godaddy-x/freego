@@ -564,7 +564,7 @@ func defaultRenderPre(ctx *Context) error {
 				resp.Plan = 2
 				key, _ := v.([]byte)
 				defer DIC.ClearData(key) // 使用完毕清空敏感密钥
-				resp.Data, err = utils.AesGCMEncryptBase(data, key[0:32], utils.Str2Bytes(utils.AddStr(resp.Time, resp.Nonce, resp.Plan, ctx.Path, ctx.JsonBody.User)))
+				resp.Data, err = utils.AesGCMEncryptBase(data, key[0:32], AppendBodyMessage(ctx.Path, "", resp.Nonce, resp.Time, resp.Plan, ctx.JsonBody.User))
 				if err != nil {
 					return ex.Throw{Code: http.StatusInternalServerError, Msg: "encryption response data failed", Err: err}
 				}
@@ -578,7 +578,7 @@ func defaultRenderPre(ctx *Context) error {
 			key := ctx.GetTokenSecret()
 			defer DIC.ClearData(key) // 使用完毕清空敏感密钥
 			resp.Plan = 1
-			resp.Data, err = utils.AesGCMEncryptBase(data, key[0:32], utils.Str2Bytes(utils.AddStr(resp.Time, resp.Nonce, resp.Plan, ctx.Path, ctx.JsonBody.User)))
+			resp.Data, err = utils.AesGCMEncryptBase(data, key[0:32], AppendBodyMessage(ctx.Path, "", resp.Nonce, resp.Time, resp.Plan, ctx.JsonBody.User))
 			if err != nil {
 				return ex.Throw{Code: http.StatusInternalServerError, Msg: "encryption response data failed", Err: err}
 			}

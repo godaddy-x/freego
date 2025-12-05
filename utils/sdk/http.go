@@ -492,7 +492,7 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 		zlog.Debug(fmt.Sprintf("shared key: %s", utils.Base64Encode(sharedKey)), 0)
 	}
 	// 使用 AES-GCM 加密，Nonce 作为 AAD
-	d, err := utils.AesGCMEncryptBase(utils.Str2Bytes(jsonBody.Data), sharedKey, utils.Str2Bytes(utils.AddStr(jsonBody.Time, jsonBody.Nonce, jsonBody.Plan, path, jsonBody.User)))
+	d, err := utils.AesGCMEncryptBase(utils.Str2Bytes(jsonBody.Data), sharedKey, node.AppendBodyMessage(path, "", jsonBody.Nonce, jsonBody.Time, jsonBody.Plan, jsonBody.User))
 	if err != nil {
 		return ex.Throw{Msg: "request data AES encrypt failed"}
 	}
@@ -591,7 +591,7 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	if err := s.verifyECDSASign(validSign, respData); err != nil {
 		return err
 	}
-	dec, err := utils.AesGCMDecryptBase(respData.Data, sharedKey, utils.Str2Bytes(utils.AddStr(respData.Time, respData.Nonce, respData.Plan, path, jsonBody.User)))
+	dec, err := utils.AesGCMDecryptBase(respData.Data, sharedKey, node.AppendBodyMessage(path, "", respData.Nonce, respData.Time, respData.Plan, jsonBody.User))
 	if err != nil {
 		return ex.Throw{Msg: "post response data AES decrypt failed"}
 	}
@@ -772,7 +772,7 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 
 	if encrypted {
 		jsonBody.Plan = 1
-		d, err := utils.AesGCMEncryptBase(utils.Str2Bytes(jsonBody.Data), tokenSecret[:32], utils.Str2Bytes(utils.AddStr(jsonBody.Time, jsonBody.Nonce, jsonBody.Plan, path, jsonBody.User)))
+		d, err := utils.AesGCMEncryptBase(utils.Str2Bytes(jsonBody.Data), tokenSecret[:32], node.AppendBodyMessage(path, "", jsonBody.Nonce, jsonBody.Time, jsonBody.Plan, jsonBody.User))
 		if err != nil {
 			return ex.Throw{Msg: "request data AES encrypt failed"}
 		}
@@ -880,7 +880,7 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 			zlog.Debug(fmt.Sprintf("response data base64: %s", string(dec)), 0)
 		}
 	} else if respData.Plan == 1 {
-		dec, err = utils.AesGCMDecryptBase(respData.Data, respTokenSecret[:32], utils.Str2Bytes(utils.AddStr(respData.Time, respData.Nonce, respData.Plan, path, jsonBody.User)))
+		dec, err = utils.AesGCMDecryptBase(respData.Data, respTokenSecret[:32], node.AppendBodyMessage(path, "", respData.Nonce, respData.Time, respData.Plan, jsonBody.User))
 		if err != nil {
 			return ex.Throw{Msg: "post response data AES decrypt failed"}
 		}

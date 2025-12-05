@@ -150,8 +150,12 @@ type Response struct {
 	ContentEntityByte bytes.Buffer // 24字节 - bytes.Buffer (包含内部字段)
 }
 
+func AppendBodyMessage(path, data, nonce string, time, plan, usr int64) []byte {
+	return utils.Str2Bytes(utils.AddStr(path, DIC.SEP, data, DIC.SEP, nonce, DIC.SEP, time, DIC.SEP, plan, DIC.SEP, usr))
+}
+
 func SignBodyMessage(path, data, nonce string, time, plan, usr int64, key []byte) []byte {
-	return utils.HMAC_SHA256_BASE(utils.Str2Bytes(utils.AddStr(path, DIC.SEP, data, DIC.SEP, nonce, DIC.SEP, time, DIC.SEP, plan, DIC.SEP, usr)), key)
+	return utils.HMAC_SHA256_BASE(AppendBodyMessage(path, data, nonce, time, plan, usr), key)
 }
 
 func (self *HttpNode) SetLengthCheck(bodyLen, tokenLen, codeLen int) {
@@ -506,12 +510,12 @@ func (self *Context) validJsonBody() error {
 	} else if body.Plan == 1 && !anonymous { // 登录状态 P1 AES
 		secret := self.GetTokenSecret()
 		defer DIC.ClearData(secret)
-		rawData, err = utils.AesGCMDecryptBase(d, secret[:32], utils.Str2Bytes(utils.AddStr(self.JsonBody.Time, self.JsonBody.Nonce, self.JsonBody.Plan, self.Path, self.JsonBody.User)))
+		rawData, err = utils.AesGCMDecryptBase(d, secret[:32], AppendBodyMessage(self.Path, "", self.JsonBody.Nonce, self.JsonBody.Time, self.JsonBody.Plan, self.JsonBody.User))
 		if err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "failed to parse data", Err: err}
 		}
 	} else if body.Plan == 2 && self.RouterConfig.UseRSA && anonymous { // 非登录状态 P2 ECC+AES
-		rawData, err = utils.AesGCMDecryptBase(d, sharedKey[0:32], utils.Str2Bytes(utils.AddStr(self.JsonBody.Time, self.JsonBody.Nonce, self.JsonBody.Plan, self.Path, self.JsonBody.User)))
+		rawData, err = utils.AesGCMDecryptBase(d, sharedKey[0:32], AppendBodyMessage(self.Path, "", self.JsonBody.Nonce, self.JsonBody.Time, self.JsonBody.Plan, self.JsonBody.User))
 		if err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "failed to parse data", Err: err}
 		}

@@ -99,7 +99,6 @@ func initRabbitMQ() {
 }
 
 func main() {
-	defer cache.ShutdownAllRedisManagers()
 	initMysqlDB()
 	initRedis()
 	initRabbitMQ()

@@ -190,7 +190,7 @@ func StartHttpNode() {
 	my := NewHTTP()
 	my.SetLengthCheck(node.MAX_BODY_LEN*5, 0, 0)
 	my.POST("/test1", my.test, nil)
-	my.POST("/getUser", my.getUser, &node.RouterConfig{AesRequest: false, AesResponse: false})
+	my.POST("/getUser", my.getUser, &node.RouterConfig{AesRequest: true, AesResponse: true})
 	my.POST("/testGuestPost", my.testGuestPost, &node.RouterConfig{Guest: true})
 	my.POST("/key", my.publicKey, &node.RouterConfig{Guest: true})
 	my.POST("/login", my.login, &node.RouterConfig{UseRSA: true})
