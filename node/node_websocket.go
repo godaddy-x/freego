@@ -671,8 +671,7 @@ func (mh *MessageHandler) validWebSocketBody(connCtx *ConnectionContext) (crypto
 
 	// 构建签名字符串
 	// 使用从header获取的路由标识进行签名验证，支持通过header指定路由
-	signStr := utils.AddStr(body.Router, d, body.Nonce, body.Time, body.Plan, body.User)
-	sign := utils.HMAC_SHA256_BASE(utils.Str2Bytes(signStr), sharedKey)
+	sign := SignBodyMessage(body.Router, d, body.Nonce, body.Time, body.Plan, body.User, sharedKey)
 	if utils.Base64Encode(sign) != body.Sign {
 		return nil, ex.Throw{Code: fasthttp.StatusUnauthorized, Msg: "websocket signature verify invalid"}
 	}
@@ -1340,8 +1339,7 @@ func replyData(connCtx *ConnectionContext, cipher crypto.Cipher, reply interface
 	}
 
 	// 生成响应签名
-	signStr := utils.AddStr(connCtx.JsonBody.Router, jsonResp.Data, jsonResp.Nonce, jsonResp.Time, jsonResp.Plan, connCtx.JsonBody.User)
-	sign := utils.HMAC_SHA256_BASE(utils.Str2Bytes(signStr), connCtx.GetTokenSecret())
+	sign := SignBodyMessage(connCtx.JsonBody.Router, jsonResp.Data, jsonResp.Nonce, jsonResp.Time, jsonResp.Plan, connCtx.JsonBody.User, connCtx.GetTokenSecret())
 	jsonResp.Sign = utils.Base64Encode(sign)
 
 	result, err := cipher.Sign(sign)

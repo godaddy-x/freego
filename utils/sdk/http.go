@@ -497,8 +497,7 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 		return ex.Throw{Msg: "request data AES encrypt failed"}
 	}
 	jsonBody.Data = d
-	jsonBody.Sign = utils.Base64Encode(utils.HMAC_SHA256_BASE(utils.Str2Bytes(utils.AddStr(path, DIC.SEP, jsonBody.Data, DIC.SEP, jsonBody.Nonce, DIC.SEP, jsonBody.Time, DIC.SEP, jsonBody.Plan, DIC.SEP, jsonBody.User)), sharedKey))
-
+	jsonBody.Sign = utils.Base64Encode(node.SignBodyMessage(path, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan, jsonBody.User, sharedKey))
 	// 添加ECDSA签名
 	if err := s.addECDSASign(jsonBody); err != nil {
 		return err
@@ -578,7 +577,7 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 		return ex.Throw{Msg: "response time invalid"}
 	}
 
-	validSign := utils.HMAC_SHA256_BASE(utils.Str2Bytes(utils.AddStr(path, DIC.SEP, respData.Data, DIC.SEP, respData.Nonce, DIC.SEP, respData.Time, DIC.SEP, respData.Plan, DIC.SEP, jsonBody.User)), sharedKey)
+	validSign := node.SignBodyMessage(path, respData.Data, respData.Nonce, respData.Time, respData.Plan, jsonBody.User, sharedKey)
 	// 清理签名验证数据
 	defer DIC.ClearData(validSign)
 	if utils.Base64Encode(validSign) != respData.Sign {
@@ -788,8 +787,7 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 			zlog.Debug(fmt.Sprintf("request data base64: %s", jsonBody.Data), 0)
 		}
 	}
-	jsonBody.Sign = utils.Base64Encode(utils.HMAC_SHA256_BASE(utils.Str2Bytes(utils.AddStr(path, DIC.SEP, jsonBody.Data, DIC.SEP, jsonBody.Nonce, DIC.SEP, jsonBody.Time, DIC.SEP, jsonBody.Plan, DIC.SEP, jsonBody.User)), tokenSecret))
-
+	jsonBody.Sign = utils.Base64Encode(node.SignBodyMessage(path, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan, jsonBody.User, tokenSecret))
 	// 添加ECDSA签名
 	if err := s.addECDSASign(jsonBody); err != nil {
 		return err
@@ -861,7 +859,7 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 	respTokenSecret := utils.Base64Decode(s.authToken.Secret)
 	defer DIC.ClearData(respTokenSecret) // 清除响应验证时解码的token secret
 
-	validSign := utils.HMAC_SHA256_BASE(utils.Str2Bytes(utils.AddStr(path, DIC.SEP, respData.Data, DIC.SEP, respData.Nonce, DIC.SEP, respData.Time, DIC.SEP, respData.Plan, DIC.SEP, jsonBody.User)), respTokenSecret)
+	validSign := node.SignBodyMessage(path, respData.Data, respData.Nonce, respData.Time, respData.Plan, jsonBody.User, respTokenSecret)
 	// 清理签名验证数据
 	defer DIC.ClearData(validSign)
 	if utils.Base64Encode(validSign) != respData.Sign {

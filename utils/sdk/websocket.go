@@ -374,9 +374,7 @@ func (s *SocketSDK) prepareWebSocketMessage(jsonBody *node.JsonBody, data interf
 	}
 
 	// 生成签名
-	signData := utils.HMAC_SHA256_BASE(
-		utils.Str2Bytes(utils.AddStr(jsonBody.Router, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan, jsonBody.User)),
-		tokenSecret)
+	signData := node.SignBodyMessage(jsonBody.Router, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan, jsonBody.User, tokenSecret)
 	jsonBody.Sign = utils.Base64Encode(signData)
 	defer DIC.ClearData(signData)
 
@@ -456,8 +454,7 @@ func (s *SocketSDK) sendWebSocketAuthHandshake(conn *websocket.Conn, path string
 	defer DIC.ClearData(tokenSecret)
 
 	// 构建签名字符串（使用握手路径）
-	signStr := utils.AddStr(path, response.Data, response.Nonce, response.Time, response.Plan, jsonBody.User)
-	validSign := utils.HMAC_SHA256_BASE(utils.Str2Bytes(signStr), tokenSecret)
+	validSign := node.SignBodyMessage(path, response.Data, response.Nonce, response.Time, response.Plan, jsonBody.User, tokenSecret)
 	expectedSign := utils.Base64Encode(validSign)
 	defer DIC.ClearData(validSign)
 
@@ -614,9 +611,7 @@ func (s *SocketSDK) verifyWebSocketResponseFromJsonResp(path string, result inte
 	tokenSecret := utils.Base64Decode(s.authToken.Secret)
 	defer DIC.ClearData(tokenSecret)
 
-	validSign := utils.HMAC_SHA256_BASE(
-		utils.Str2Bytes(utils.AddStr(path, jsonResp.Data, jsonResp.Nonce, jsonResp.Time, jsonResp.Plan, s.ClientNo)),
-		tokenSecret)
+	validSign := node.SignBodyMessage(path, jsonResp.Data, jsonResp.Nonce, jsonResp.Time, jsonResp.Plan, s.ClientNo, tokenSecret)
 	defer DIC.ClearData(validSign)
 
 	if jsonResp.Sign != utils.Base64Encode(validSign) {

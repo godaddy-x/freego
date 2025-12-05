@@ -150,6 +150,10 @@ type Response struct {
 	ContentEntityByte bytes.Buffer // 24字节 - bytes.Buffer (包含内部字段)
 }
 
+func SignBodyMessage(path, data, nonce string, time, plan, usr int64, key []byte) []byte {
+	return utils.HMAC_SHA256_BASE(utils.Str2Bytes(utils.AddStr(path, DIC.SEP, data, DIC.SEP, nonce, DIC.SEP, time, DIC.SEP, plan, DIC.SEP, usr)), key)
+}
+
 func (self *HttpNode) SetLengthCheck(bodyLen, tokenLen, codeLen int) {
 	if bodyLen > 0 {
 		MAX_BODY_LEN = bodyLen // 最大参数值长度
@@ -180,7 +184,7 @@ func (self *Context) GetTokenSecret() []byte {
 }
 
 func (self *Context) GetHmac256Sign(d, n string, t, p, u int64, key []byte) []byte {
-	return utils.HMAC_SHA256_BASE(utils.Str2Bytes(utils.AddStr(self.Path, DIC.SEP, d, DIC.SEP, n, DIC.SEP, t, DIC.SEP, p, DIC.SEP, u)), key)
+	return SignBodyMessage(self.Path, d, n, t, p, u, key)
 }
 
 func (self *Context) CheckECDSASign(cipher crypto.Cipher, msg, sign []byte) (crypto.Cipher, error) {
