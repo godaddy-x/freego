@@ -6,7 +6,6 @@ import (
 	"crypto/ecdsa"
 	"errors"
 	"fmt"
-	"strconv"
 
 	DIC "github.com/godaddy-x/freego/common"
 
@@ -314,35 +313,12 @@ func GetSharedKey(c cache.Cache, cipher crypto.Cipher) ([]byte, error) {
 // u: 客户端ID，指定Cipher
 // 返回: 计算后的签名字节数组
 func Signature(key, d, n []byte, t, p int64, r string, u int64) ([]byte, error) {
-	// 拼接数据载体进行验证S（加入分隔符防止混淆攻击）
-	// 格式与WebSocket保持一致: r|d|n|t|p|u
-	sep := []byte(DIC.SEP)
-	tBytes := []byte(strconv.FormatInt(t, 10))
-	pBytes := []byte(strconv.FormatInt(p, 10))
-	rBytes := utils.Str2Bytes(r)
-	uBytes := []byte(strconv.FormatInt(u, 10))
-
-	// 预计算总长度（包含分隔符）并一次性分配
-	// 格式: r|d|n|t|p|u
-	sepCount := 5 // 5个分隔符
-	totalLen := len(rBytes) + len(d) + len(n) + len(tBytes) + len(pBytes) + len(uBytes) + sepCount*len(sep)
-	body := make([]byte, totalLen)
-
-	// 使用copy依次填充，避免内存重新分配
-	offset := 0
-	offset += copy(body[offset:], rBytes)
-	offset += copy(body[offset:], sep)
-	offset += copy(body[offset:], d)
-	offset += copy(body[offset:], sep)
-	offset += copy(body[offset:], n)
-	offset += copy(body[offset:], sep)
-	offset += copy(body[offset:], tBytes)
-	offset += copy(body[offset:], sep)
-	offset += copy(body[offset:], pBytes)
-	offset += copy(body[offset:], sep)
-	copy(body[offset:], uBytes)
-
-	return utils.HMAC_SHA256_BASE(body, key), nil
+	// 核心安全理论：数据体d必须Base64编码，其他字段在客户端/服务端使用过程中不存在分隔符|
+	// 这样可以防止构造绕过签名的碰撞攻击
+	// 格式: r|base64(d)|base64(n)|t|p|u
+	signMessage := utils.AddStr(r, DIC.SEP, utils.Base64Encode(d), DIC.SEP,
+		utils.Base64Encode(n), DIC.SEP, t, DIC.SEP, p, DIC.SEP, u)
+	return utils.HMAC_SHA256_BASE(utils.Str2Bytes(signMessage), key), nil
 }
 
 // buildErrorResponse 构建标准化的错误响应，不包含数据和签名以提高性能
