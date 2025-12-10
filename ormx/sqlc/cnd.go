@@ -556,6 +556,11 @@ func (s *FastObject) Key(k string) *FastObject {
 	return s
 }
 
+func (s *FastObject) Sort(v int) *FastObject {
+	s.sort = v
+	return s
+}
+
 func (s *FastObject) Asc() *FastObject {
 	s.sort = ASC_
 	return s

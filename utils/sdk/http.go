@@ -326,11 +326,6 @@ func (s *HttpSDK) getURI(path string) string {
 // - ECDH对象包含敏感的私钥信息，使用后应立即清除
 // - 此方法会在每次PostByECC调用时执行
 func (s *HttpSDK) GetPublicKey() (*crypto.EcdhObject, *node.PublicKey, crypto.Cipher, error) {
-	// 生成临时客户端公私钥
-	ecdh := &crypto.EcdhObject{}
-	if err := ecdh.CreateECDH(); err != nil {
-		return nil, nil, nil, ex.Throw{Msg: "create ecdh object error: " + err.Error()}
-	}
 	// 获取ECDSA cipher，必须配置双向ECDSA签名
 	if s.ecdsaObject == nil {
 		return nil, nil, nil, ex.Throw{Msg: "ECDSA object not configured, bidirectional ECDSA signature is required"}
@@ -381,6 +376,11 @@ func (s *HttpSDK) GetPublicKey() (*crypto.EcdhObject, *node.PublicKey, crypto.Ci
 	}
 	if err := node.CheckPublicKey(nil, responseObject, cipher); err != nil {
 		return nil, nil, nil, err
+	}
+	// 生成临时客户端公私钥
+	ecdh := &crypto.EcdhObject{}
+	if err := ecdh.CreateECDH(); err != nil {
+		return nil, nil, nil, ex.Throw{Msg: "create ecdh object error: " + err.Error()}
 	}
 	return ecdh, responseObject, cipher, nil
 }

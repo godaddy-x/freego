@@ -388,7 +388,7 @@ func (self *Context) validJsonBody() error {
 	if !utils.CheckInt64(body.Plan, 0, 1, 2) {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request plan invalid"}
 	}
-	if !utils.CheckLen(body.Nonce, 8, 32) {
+	if !utils.CheckLen(body.Nonce, 16, 64) {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request nonce invalid"}
 	}
 	if body.Time <= 0 {

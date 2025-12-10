@@ -1100,10 +1100,16 @@ func FmtZero(r string) string {
 	return a.String()
 }
 
+func NewPasswordBase(pwd, salt []byte, iter int) []byte {
+	return pbkdf2.Key(pwd, salt, iter, 32, sha256.New)
+}
+
 func NewShortPassword(pwd, salt string) []byte {
-	return pbkdf2.Key(Str2Bytes(pwd), Str2Bytes(salt), 2048, 32, sha256.New)
+	return NewPasswordBase(Str2Bytes(pwd), Str2Bytes(salt), 2048)
+
 }
 
 func NewDeepPassword(pwd, salt string) []byte {
-	return pbkdf2.Key(Str2Bytes(pwd), Str2Bytes(salt), 20480, 32, sha256.New)
+	return NewPasswordBase(Str2Bytes(pwd), Str2Bytes(salt), 20480)
 }
+

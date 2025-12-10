@@ -135,7 +135,7 @@ func (self *CommonWorker) validRequest(req *pb.CommonRequest) (crypto.Cipher, []
 	if utils.MathAbs(utils.UnixSecond()-req.T) > jwt.FIVE_MINUTES { // 判断绝对时间差超过5分钟
 		return nil, nil, errors.New("request time invalid")
 	}
-	if !utils.CheckLen(req.N, 8, 32) {
+	if !utils.CheckLen(req.N, 16, 64) {
 		return nil, nil, errors.New("request nonce invalid")
 	}
 	if !utils.CheckInt64(req.P, 0, 1) {
