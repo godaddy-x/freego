@@ -4,6 +4,7 @@ import (
 	"github.com/godaddy-x/freego/ormx/sqlc"
 )
 
+//easyjson:json
 type Limit struct {
 	// 分页条数
 	Limit int64 `json:"limit"`
