@@ -75,6 +75,7 @@ type Context struct {
 	Path   string                  // 16字节 - 字符串字段
 }
 
+//easyjson:json
 type BaseReq struct {
 	Context Context `json:"-"` // 這個字段不能修改偏移值 ⚠️ 必须保持第一位
 

@@ -1016,6 +1016,18 @@ func (p *PublishMQ) waitReady(ctx context.Context) error {
 	return nil
 }
 
+// PublishObject 发布单条消息（对象序列化接口）
+// 将对象自动序列化为JSON字符串，然后发布
+func (m *PublishManager) PublishObject(ctx context.Context, exchange, queue string, dataType int64, content interface{}, opts ...PublishOption) error {
+	// 序列化对象为JSON字符串
+	jsonBytes, err := utils.JsonMarshal(content)
+	if err != nil {
+		return fmt.Errorf("failed to marshal content to JSON: %w", err)
+	}
+	// 调用现有的Publish方法
+	return m.Publish(ctx, exchange, queue, dataType, utils.Bytes2Str(jsonBytes), opts...)
+}
+
 // Publish 发布单条消息（简化接口）
 func (m *PublishManager) Publish(ctx context.Context, exchange, queue string, dataType int64, content string, opts ...PublishOption) error {
 	msg := &MsgData{

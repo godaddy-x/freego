@@ -87,6 +87,70 @@ func TestPublishBasic(t *testing.T) {
 	t.Log("Basic publish tests passed")
 }
 
+// TestPublishObject 对象序列化发布测试
+func TestPublishObject(t *testing.T) {
+	mgr := setupTestManager(t, "test_object_publish")
+	defer mgr.Close()
+
+	ctx := context.Background()
+
+	// 测试对象 - 将被自动序列化为JSON
+	testObject := map[string]interface{}{
+		"id":        12345,
+		"message":   "test object message",
+		"timestamp": time.Now().Unix(),
+		"type":      "object_test",
+		"nested": map[string]interface{}{
+			"key":   "value",
+			"count": 42,
+		},
+	}
+
+	// 使用PublishObject方法发布对象
+	err := mgr.PublishObject(ctx, "test.exchange", "test.queue", 1, testObject)
+	if err != nil {
+		t.Errorf("PublishObject failed: %v", err)
+	}
+
+	// 验证序列化结果 - 通过Publish方法发布相同的对象进行对比
+	expectedJSON, _ := json.Marshal(testObject)
+	err = mgr.Publish(ctx, "test.exchange", "test.queue", 1, string(expectedJSON))
+	if err != nil {
+		t.Errorf("Publish for comparison failed: %v", err)
+	}
+
+	t.Log("PublishObject tests passed")
+}
+
+// TestPublishObjectErrorCases 对象序列化错误情况测试
+func TestPublishObjectErrorCases(t *testing.T) {
+	mgr := setupTestManager(t, "test_object_error")
+	defer mgr.Close()
+
+	ctx := context.Background()
+
+	// 测试包含无法序列化对象的错误情况
+	type BadObject struct {
+		BadField func() // 函数无法被JSON序列化
+	}
+
+	badObject := BadObject{
+		BadField: func() {},
+	}
+
+	// 应该返回序列化错误
+	err := mgr.PublishObject(ctx, "test.exchange", "test.queue", 1, badObject)
+	if err == nil {
+		t.Error("Expected error for non-serializable object, but got nil")
+	}
+
+	if !strings.Contains(err.Error(), "failed to marshal content to JSON") {
+		t.Errorf("Expected JSON marshal error, got: %v", err)
+	}
+
+	t.Log("PublishObject error cases tests passed")
+}
+
 // TestBatchPublish 批量发布测试
 func TestBatchPublish(t *testing.T) {
 	mgr := setupTestManager(t, "test_batch_publish")

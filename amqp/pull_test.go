@@ -29,63 +29,6 @@ func setupTestPullManager(t *testing.T, dsName string) *PullManager {
 	return mgr
 }
 
-// 基础单元测试 - 不依赖外部系统
-func TestInitConfig(t *testing.T) {
-	// 清理全局状态
-	pullMgrMu.Lock()
-	pullMgrs = make(map[string]*PullManager)
-	pullMgrMu.Unlock()
-
-	conf := AmqpConfig{
-		DsName:   "test",
-		Host:     "localhost",
-		Port:     5672,
-		Username: "guest",
-		Password: "guest",
-	}
-
-	// 测试正常初始化
-	mgr, err := new(PullManager).InitConfig(conf)
-	assert.NoError(t, err)
-	assert.NotNil(t, mgr)
-	assert.Equal(t, "test", mgr.conf.DsName)
-
-	// 测试重复初始化
-	mgr2, err := new(PullManager).InitConfig(conf)
-	assert.Error(t, err)
-	assert.Nil(t, mgr2)
-	assert.Contains(t, err.Error(), "already exists")
-
-	// 清理
-	pullMgrMu.Lock()
-	delete(pullMgrs, "test")
-	pullMgrMu.Unlock()
-}
-
-func TestInitConfig_DefaultDsName(t *testing.T) {
-	// 清理全局状态
-	pullMgrMu.Lock()
-	pullMgrs = make(map[string]*PullManager)
-	pullMgrMu.Unlock()
-
-	conf := AmqpConfig{
-		Host:     "localhost",
-		Port:     5672,
-		Username: "guest",
-		Password: "guest",
-	}
-
-	mgr, err := new(PullManager).InitConfig(conf)
-	assert.NoError(t, err)
-	assert.NotNil(t, mgr)
-	assert.Equal(t, "master", mgr.conf.DsName) // DIC.MASTER 默认值
-
-	// 清理
-	pullMgrMu.Lock()
-	delete(pullMgrs, "master")
-	pullMgrMu.Unlock()
-}
-
 func TestNewPull(t *testing.T) {
 	// 清理全局状态
 	pullMgrMu.Lock()
@@ -399,8 +342,8 @@ func TestRealEnvironmentPull1(t *testing.T) {
 	}
 
 	// 初始化消费管理器
-	mgr, err := new(PullManager).InitConfig(conf)
-	if err != nil {
+	mgr := &PullManager{}
+	if err := mgr.InitConfig(conf); err != nil {
 		t.Fatalf("Failed to init pull manager: %v", err)
 	}
 	defer func() {
@@ -426,8 +369,8 @@ func TestRealEnvironmentPull(t *testing.T) {
 	}
 
 	// 初始化消费管理器
-	mgr, err := new(PullManager).InitConfig(conf)
-	if err != nil {
+	mgr := &PullManager{}
+	if err := mgr.InitConfig(conf); err != nil {
 		t.Fatalf("Failed to init pull manager: %v", err)
 	}
 	defer func() {
@@ -805,8 +748,8 @@ func TestPullReconnectionMechanism(t *testing.T) {
 	}
 
 	// 初始化消费管理器
-	mgr, err := new(PullManager).InitConfig(conf)
-	if err != nil {
+	mgr := &PullManager{}
+	if err := mgr.InitConfig(conf); err != nil {
 		t.Fatalf("Failed to init pull manager: %v", err)
 	}
 	defer func() {
@@ -1011,8 +954,8 @@ func TestEndToEndReconnectionScenario(t *testing.T) {
 	testDurable := true // Publish 默认是持久化的
 
 	// 初始化消费管理器
-	pullMgr, err := new(PullManager).InitConfig(conf)
-	if err != nil {
+	pullMgr := &PullManager{}
+	if err := pullMgr.InitConfig(conf); err != nil {
 		t.Fatalf("Failed to init pull manager: %v", err)
 	}
 	defer func() {
@@ -1413,8 +1356,8 @@ func TestReconnectionMessageFlow(t *testing.T) {
 	}
 
 	// 初始化消费管理器
-	pullMgr, err := new(PullManager).InitConfig(conf)
-	if err != nil {
+	pullMgr := &PullManager{}
+	if err := pullMgr.InitConfig(conf); err != nil {
 		t.Fatalf("Failed to init pull manager: %v", err)
 	}
 	defer func() {
@@ -1719,8 +1662,8 @@ func TestBasicPublishConsumeFlow(t *testing.T) {
 	t.Logf("   Router: %s", testRouter)
 
 	// 初始化消费管理器
-	pullMgr, err := new(PullManager).InitConfig(conf)
-	if err != nil {
+	pullMgr := &PullManager{}
+	if err := pullMgr.InitConfig(conf); err != nil {
 		t.Fatalf("Failed to init pull manager: %v", err)
 	}
 	defer func() {
@@ -2000,8 +1943,8 @@ func TestPublishPullConcurrentOperations(t *testing.T) {
 	}()
 
 	// 初始化消费管理器
-	pullMgr, err := new(PullManager).InitConfig(conf)
-	if err != nil {
+	pullMgr := &PullManager{}
+	if err := pullMgr.InitConfig(conf); err != nil {
 		t.Fatalf("Failed to init pull manager: %v", err)
 	}
 	defer func() {

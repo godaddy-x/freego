@@ -1,7 +1,7 @@
-package utils
+package sqlc
 
 import (
-	"github.com/godaddy-x/freego/ormx/sqlc"
+	"github.com/godaddy-x/freego/node/common"
 )
 
 //easyjson:json
@@ -16,12 +16,12 @@ type Limit struct {
 	PrevID int64 `json:"prevID"`
 }
 
-func LimitPager(sql *sqlc.Cnd, prevID, lastID int64) Limit {
+func LimitPager(sql *Cnd, prevID, lastID int64) Limit {
 	page := sql.GetPageResult()
 	return Limit{Total: page.PageTotal, Limit: page.PageSize, PrevID: prevID, LastID: lastID}
 }
 
-func LoopPager(fast *sqlc.FastObject, size int, call func(index int)) {
+func LoopPager(fast *FastObject, size int, call func(index int)) {
 	if fast.IsPrev {
 		for i := size - 1; i >= 0; i-- {
 			call(i)
@@ -31,4 +31,15 @@ func LoopPager(fast *sqlc.FastObject, size int, call func(index int)) {
 			call(i)
 		}
 	}
+}
+
+func GetFast(req common.BaseReq) *FastObject {
+	fast := &FastObject{}
+	fast.PrevID = req.PrevID
+	fast.LastID = req.LastID
+	fast.Size = req.Limit
+	fast.CountQ = req.CountQ
+	fast.IsPrev = req.PrevID > 0 && req.LastID <= 0
+	fast.IsNext = req.PrevID <= 0 && req.LastID > 0
+	return fast
 }
