@@ -1314,8 +1314,8 @@ func (m *PublishManager) preprocessMsg(data *MsgData) error {
 		data.Content = encryptedContent
 	}
 
-	// 签名（基于最终内容，可能是原文或密文）
-	data.Signature = utils.HMAC_SHA256(utils.AddStr(data.Content, data.Nonce), opt.SigKey, true)
+	// 签名（基于最终内容、Nonce和创建时间戳，可能是原文或密文）
+	data.Signature = utils.HMAC_SHA256(utils.AddStr(data.Content, data.Nonce, data.CreatedAt), opt.SigKey, true)
 
 	// 清除密钥
 	opt.SigKey = ""
@@ -1405,10 +1405,6 @@ func (p *PublishMQ) sendMessage(ctx context.Context, msg *MsgData) error {
 		}
 	}
 
-	zlog.Info("msg published successfully", 0,
-		zlog.String("msg_id", publishing.MessageId),
-		zlog.String("exchange", p.option.Exchange),
-		zlog.String("queue", p.option.Queue))
 	return nil
 }
 

@@ -866,7 +866,7 @@ func (self *PullReceiver) validateMessage(msg *MsgData) error {
 		return fmt.Errorf("signature key is empty")
 	}
 
-	expectedSig := utils.HMAC_SHA256(utils.AddStr(msg.Content, msg.Nonce), sigKey, true)
+	expectedSig := utils.HMAC_SHA256(utils.AddStr(msg.Content, msg.Nonce, msg.CreatedAt), sigKey, true)
 	if msg.Signature != expectedSig {
 		return fmt.Errorf("signature mismatch")
 	}

@@ -299,7 +299,8 @@ func BenchmarkValidateMessage(b *testing.B) {
 	msg := &MsgData{
 		Content:   "test content",
 		Nonce:     "test nonce",
-		Signature: utils.HMAC_SHA256(utils.AddStr("test content", "test nonce"), "test_key_1234567890123456", true),
+		CreatedAt: 1234567890,
+		Signature: utils.HMAC_SHA256(utils.AddStr("test content", "test nonce", int64(1234567890)), "test_key_1234567890123456", true),
 	}
 
 	b.ResetTimer()
