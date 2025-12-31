@@ -1030,15 +1030,15 @@ func (m *PublishManager) PublishObject(ctx context.Context, exchange, queue stri
 
 // Publish 发布单条消息（简化接口）
 func (m *PublishManager) Publish(ctx context.Context, exchange, queue string, dataType int64, content string, opts ...PublishOption) error {
-	msg := &MsgData{
-		Option: Option{
-			Exchange: exchange,
-			Queue:    queue,
-			Durable:  true,
-		},
-		Type:    dataType,
-		Content: content,
-	}
+	msg := GetMsgData()
+	defer PutMsgData(msg)
+
+	msg.Option.Exchange = exchange
+	msg.Option.Queue = queue
+	msg.Option.Durable = true
+	msg.Type = dataType
+	msg.Content = content
+
 	for _, opt := range opts {
 		opt(msg)
 	}
@@ -1285,7 +1285,12 @@ func (m *PublishManager) preprocessMsg(data *MsgData) error {
 
 	// 生成Nonce（防重放）
 	if data.Nonce == "" {
-		data.Nonce = utils.Base64Encode(utils.GetAesIVSecure())
+		data.Nonce = utils.Base64Encode(utils.GetRandomSecure(32))
+	}
+
+	// 自动填充创建时间戳（秒）
+	if data.CreatedAt == 0 {
+		data.CreatedAt = utils.UnixSecond()
 	}
 
 	// 序列化消息内容
@@ -1584,13 +1589,13 @@ func (p *PublishMQ) batchSendWithConfirm(ctx context.Context, msgs []*MsgData) e
 
 // GetQueueStatus 获取队列状态
 func (m *PublishManager) GetQueueStatus(ctx context.Context, exchange, queue, router string) (*QueueData, error) {
-	msg := &MsgData{
-		Option: Option{
-			Exchange: exchange,
-			Queue:    queue,
-			Router:   router,
-		},
-	}
+	msg := GetMsgData()
+	defer PutMsgData(msg)
+
+	msg.Option.Exchange = exchange
+	msg.Option.Queue = queue
+	msg.Option.Router = router
+
 	pub, err := m.initQueue(msg)
 	if err != nil {
 		return nil, err

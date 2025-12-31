@@ -1,6 +1,9 @@
 package rabbitmq
 
-import "time"
+import (
+	"sync"
+	"time"
+)
 
 // MsgData 消息数据结构体
 //
@@ -15,9 +18,10 @@ type MsgData struct {
 	Expiration string `json:"ex"` // 消息过期时间（RabbitMQ格式）
 
 	// int64字段（8字节对齐）
-	Type    int64 `json:"ty"` // 消息类型标识
-	Delay   int64 `json:"dy"` // 延时投递时间(秒)，0表示立即投递
-	Retries int64 `json:"rt"` // 已重试次数
+	Type      int64 `json:"ty"` // 消息类型标识
+	Delay     int64 `json:"dy"` // 延时投递时间(秒)，0表示立即投递
+	Retries   int64 `json:"rt"` // 已重试次数
+	CreatedAt int64 `json:"ct"` // 消息信息的创建时间戳(秒)
 
 	// 结构体字段（8字节对齐）
 	Option Option `json:"op"` // 消息队列配置选项
@@ -60,4 +64,56 @@ type DLXConfig struct {
 	DlxExchange string `json:"dlx_exchange"` // 死信交换机名称
 	DlxQueue    string `json:"dlx_queue"`    // 死信队列名称
 	DlxRouter   string `json:"dlx_router"`   // 死信路由键
+}
+
+// msgDataPool MsgData对象池，用于复用MsgData实例减少GC压力
+var msgDataPool = sync.Pool{
+	New: func() interface{} {
+		return &MsgData{}
+	},
+}
+
+// GetMsgData 从对象池获取MsgData实例
+func GetMsgData() *MsgData {
+	return msgDataPool.Get().(*MsgData)
+}
+
+// PutMsgData 将MsgData实例归还到对象池
+func PutMsgData(msg *MsgData) {
+	if msg != nil {
+		msg.Reset()
+		msgDataPool.Put(msg)
+	}
+}
+
+// Reset 重置MsgData实例到初始状态
+func (m *MsgData) Reset() {
+	// 重置字符串字段
+	m.Content = ""
+	m.Nonce = ""
+	m.Signature = ""
+	m.Expiration = ""
+
+	// 重置数值字段
+	m.Type = 0
+	m.Delay = 0
+	m.Retries = 0
+	m.CreatedAt = 0
+	m.Priority = 0
+
+	// 重置Option结构体
+	if m.Option.Exchange != "" || m.Option.Queue != "" || m.Option.Router != "" {
+		m.Option.Exchange = ""
+		m.Option.Queue = ""
+		m.Option.Kind = ""
+		m.Option.Router = ""
+		m.Option.SigKey = ""
+		m.Option.SigTyp = 0
+		m.Option.ConfirmTimeout = 0
+		m.Option.DLXConfig = nil
+		m.Option.Durable = false
+		m.Option.AutoDelete = false
+		m.Option.Exclusive = false
+		m.Option.UseTransaction = false
+	}
 }

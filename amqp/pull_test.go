@@ -88,7 +88,10 @@ func TestParseMessage(t *testing.T) {
 	}
 
 	data, _ := json.Marshal(msgData)
-	parsedMsg, err := receiver.parseMessage(data)
+	parsedMsg := GetMsgData()
+	defer PutMsgData(parsedMsg)
+
+	err := receiver.parseMessage(data, parsedMsg)
 
 	assert.NoError(t, err)
 	assert.NotNil(t, parsedMsg)
@@ -103,7 +106,10 @@ func TestParseMessage_InvalidJSON(t *testing.T) {
 	}
 
 	// 测试无效JSON
-	_, err := receiver.parseMessage([]byte("invalid json"))
+	parsedMsg := GetMsgData()
+	defer PutMsgData(parsedMsg)
+
+	err := receiver.parseMessage([]byte("invalid json"), parsedMsg)
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "json unmarshal failed")
@@ -274,7 +280,9 @@ func BenchmarkParseMessage(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		receiver.parseMessage(data)
+		msg := GetMsgData()
+		receiver.parseMessage(data, msg)
+		PutMsgData(msg)
 	}
 }
 

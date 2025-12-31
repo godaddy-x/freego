@@ -803,9 +803,12 @@ func (self *PullReceiver) processMessage(d amqp.Delivery) bool {
 			zlog.String("queue", self.Config.Option.Queue))
 	}
 
+	// 从对象池获取MsgData对象
+	msg := GetMsgData()
+	defer PutMsgData(msg) // 确保消息处理完成后归还对象池
+
 	// 解析消息
-	msg, err := self.parseMessage(b)
-	if err != nil {
+	if err := self.parseMessage(b, msg); err != nil {
 		zlog.Error("parse message failed", 0,
 			zlog.String("message_id", d.MessageId),
 			zlog.AddError(err),
@@ -838,17 +841,16 @@ func (self *PullReceiver) processMessage(d amqp.Delivery) bool {
 
 // parseMessage 解析消息
 // 将JSON格式的消息体解析为MsgData结构体
-func (self *PullReceiver) parseMessage(body []byte) (*MsgData, error) {
-	msg := &MsgData{}
+func (self *PullReceiver) parseMessage(body []byte, msg *MsgData) error {
 	if err := utils.JsonUnmarshal(body, msg); err != nil {
-		return nil, fmt.Errorf("json unmarshal failed: %w", err)
+		return fmt.Errorf("json unmarshal failed: %w", err)
 	}
 
 	if len(msg.Content) == 0 {
-		return nil, fmt.Errorf("message content is empty")
+		return fmt.Errorf("message content is empty")
 	}
 
-	return msg, nil
+	return nil
 }
 
 // validateMessage 验证消息

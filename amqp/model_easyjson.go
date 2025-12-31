@@ -257,6 +257,12 @@ func easyjsonC80ae7adDecodeGithubComGodaddyXFreegoAmqp1(in *jlexer.Lexer, out *M
 			} else {
 				out.Retries = int64(in.Int64())
 			}
+		case "ct":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.CreatedAt = int64(in.Int64())
+			}
 		case "op":
 			if in.IsNull() {
 				in.Skip()
@@ -317,6 +323,11 @@ func easyjsonC80ae7adEncodeGithubComGodaddyXFreegoAmqp1(out *jwriter.Writer, in 
 		const prefix string = ",\"rt\":"
 		out.RawString(prefix)
 		out.Int64(int64(in.Retries))
+	}
+	{
+		const prefix string = ",\"ct\":"
+		out.RawString(prefix)
+		out.Int64(int64(in.CreatedAt))
 	}
 	{
 		const prefix string = ",\"op\":"
