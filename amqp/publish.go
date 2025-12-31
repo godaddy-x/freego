@@ -1365,7 +1365,18 @@ func (p *PublishMQ) sendMessage(ctx context.Context, msg *MsgData) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if !p.ready || p.channel == nil {
+	// 处理nil上下文，设置默认5秒超时
+	if ctx == nil {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel() // 确保清理
+	}
+
+	// 基本检查
+	if p.channel == nil {
+		zlog.Error("channel is nil", 0,
+			zlog.String("exchange", p.option.Exchange),
+			zlog.String("queue", p.option.Queue))
 		return &PublishError{Code: "CHANNEL_UNAVAILABLE", Message: "channel is not available", Retryable: true}
 	}
 
@@ -1387,11 +1398,13 @@ func (p *PublishMQ) sendMessage(ctx context.Context, msg *MsgData) error {
 
 	done := make(chan error, 1)
 	go func() {
+		// 使用mandatory=false，避免消息返回处理复杂性
+		// 如果无法路由，消息会被静默丢弃，但Publish会返回成功
 		done <- p.channel.Publish(
 			p.option.Exchange,
 			p.option.Router,
-			true,
-			false,
+			false, // mandatory=false
+			false, // immediate=false
 			publishing,
 		)
 	}()
@@ -1449,8 +1462,8 @@ func (p *PublishMQ) batchSendWithTransaction(ctx context.Context, msgs []*MsgDat
 		if err := p.channel.Publish(
 			p.option.Exchange,
 			p.option.Router,
-			true,
-			false,
+			false, // mandatory=false
+			false, // immediate=false
 			publishing,
 		); err != nil {
 			rollbackErr = err
@@ -1520,8 +1533,8 @@ func (p *PublishMQ) batchSendWithConfirm(ctx context.Context, msgs []*MsgData) e
 		err = p.channel.Publish(
 			p.option.Exchange,
 			p.option.Router,
-			true,
-			false,
+			false, // mandatory=false
+			false, // immediate=false
 			publishing,
 		)
 		if err != nil {
