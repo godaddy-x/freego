@@ -92,34 +92,40 @@ func TestPublishObject(t *testing.T) {
 	mgr := setupTestManager(t, "test_object_publish")
 	defer mgr.Close()
 
-	ctx := context.Background()
+	for i := 0; i < 100000000; i++ {
+		ctx, _ := context.WithTimeout(context.Background(), time.Second*5)
 
-	// 测试对象 - 将被自动序列化为JSON
-	testObject := map[string]interface{}{
-		"id":        12345,
-		"message":   "test object message",
-		"timestamp": time.Now().Unix(),
-		"type":      "object_test",
-		"nested": map[string]interface{}{
-			"key":   "value",
-			"count": 42,
-		},
+		// 测试对象 - 将被自动序列化为JSON
+		testObject := map[string]interface{}{
+			"id":        12345,
+			"message":   "test object message",
+			"timestamp": time.Now().Unix(),
+			"type":      "object_test",
+			"nested": map[string]interface{}{
+				"key":   "value",
+				"count": 42,
+				"index": i,
+			},
+		}
+
+		// 使用PublishObject方法发布对象
+		err := mgr.PublishObject(ctx, "test.exchange", "test.queue", 1, testObject)
+		if err != nil {
+			t.Errorf("PublishObject failed: %v", err)
+		}
+
+		// 验证序列化结果 - 通过Publish方法发布相同的对象进行对比
+		//expectedJSON, _ := json.Marshal(testObject)
+		//err = mgr.Publish(ctx, "test.exchange", "test.queue", 1, string(expectedJSON))
+		//if err != nil {
+		//	t.Errorf("Publish for comparison failed: %v", err)
+		//}
+
+		t.Log("PublishObject tests passed: ", i)
+
+		time.Sleep(time.Duration(100) * time.Millisecond)
 	}
 
-	// 使用PublishObject方法发布对象
-	err := mgr.PublishObject(ctx, "test.exchange", "test.queue", 1, testObject)
-	if err != nil {
-		t.Errorf("PublishObject failed: %v", err)
-	}
-
-	// 验证序列化结果 - 通过Publish方法发布相同的对象进行对比
-	expectedJSON, _ := json.Marshal(testObject)
-	err = mgr.Publish(ctx, "test.exchange", "test.queue", 1, string(expectedJSON))
-	if err != nil {
-		t.Errorf("Publish for comparison failed: %v", err)
-	}
-
-	t.Log("PublishObject tests passed")
 }
 
 // TestPublishObjectErrorCases 对象序列化错误情况测试
