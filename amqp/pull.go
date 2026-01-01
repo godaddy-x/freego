@@ -112,8 +112,8 @@ func (self *PullManager) initSingleConfig(conf AmqpConfig) (*PullManager, error)
 	return pullMgr, nil
 }
 
-// Client 获取已初始化的PullManager
-func (self *PullManager) Client(ds ...string) (*PullManager, error) {
+// NewPull 快捷创建PullManager客户端
+func NewPull(ds ...string) (*PullManager, error) {
 	dsName := DIC.MASTER
 	if len(ds) > 0 && ds[0] != "" {
 		dsName = ds[0]
@@ -127,11 +127,6 @@ func (self *PullManager) Client(ds ...string) (*PullManager, error) {
 		return nil, fmt.Errorf("rabbitmq pull manager not found: [%s]", dsName)
 	}
 	return mgr, nil
-}
-
-// NewPull 快捷创建PullManager客户端
-func NewPull(ds ...string) (*PullManager, error) {
-	return new(PullManager).Client(ds...)
 }
 
 // AddPullReceiver 添加接收器

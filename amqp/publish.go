@@ -109,8 +109,7 @@ func (self *PublishManager) initSingleConfig(conf AmqpConfig) (*PublishManager, 
 	return publishMgr, nil
 }
 
-// Client 获取已初始化的PublishManager
-func (self *PublishManager) Client(ds ...string) (*PublishManager, error) {
+func NewPublish(ds ...string) (*PublishManager, error) {
 	dsName := DIC.MASTER
 	if len(ds) > 0 && ds[0] != "" {
 		dsName = ds[0]
@@ -124,10 +123,6 @@ func (self *PublishManager) Client(ds ...string) (*PublishManager, error) {
 		return nil, fmt.Errorf("rabbitmq publish manager not found: [%s]", dsName)
 	}
 	return mgr, nil
-}
-
-func NewPublish(ds ...string) (*PublishManager, error) {
-	return new(PublishManager).Client(ds...)
 }
 
 // Connect 建立连接
