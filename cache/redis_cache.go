@@ -463,10 +463,10 @@ func (self *RedisManager) InitConfig(input ...RedisConfig) (*RedisManager, error
 	return self, nil
 }
 
-// Client 获取指定数据源的Redis管理器实例
+// NewRedis 创建新的Redis管理器实例
 // ds: 数据源名称，可选，默认为DIC.MASTER
 // 返回: Redis管理器实例或错误
-func (self *RedisManager) Client(ds ...string) (*RedisManager, error) {
+func NewRedis(ds ...string) (*RedisManager, error) {
 	dsName := DIC.MASTER
 	if len(ds) > 0 && len(ds[0]) > 0 {
 		dsName = ds[0]
@@ -481,13 +481,6 @@ func (self *RedisManager) Client(ds ...string) (*RedisManager, error) {
 	}
 
 	return manager, nil
-}
-
-// NewRedis 创建新的Redis管理器实例
-// ds: 数据源名称，可选，默认为DIC.MASTER
-// 返回: Redis管理器实例或错误
-func NewRedis(ds ...string) (*RedisManager, error) {
-	return new(RedisManager).Client(ds...)
 }
 
 // ================================ Redis缓存接口实现 ================================

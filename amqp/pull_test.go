@@ -57,7 +57,6 @@ func TestMessageConsumption(t *testing.T) {
 				Exchange: exchange,
 				Queue:    queue,
 				Durable:  true,
-				SigKey:   mgr.conf.SecretKey,
 			},
 		},
 		Callback: func(msg *MsgData) error {

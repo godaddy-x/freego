@@ -147,6 +147,8 @@ func (self *PullManager) AddPullReceiver(receivers ...*PullReceiver) error {
 		receiver.initDefaults()
 		receiver.initControlChans()
 
+		receiver.Config.Option.SigKey = self.conf.SecretKey
+
 		// 添加到接收器列表
 		self.receivers = append(self.receivers, receiver)
 
