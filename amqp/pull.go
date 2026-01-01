@@ -236,38 +236,47 @@ func (self *PullManager) monitorConnection() {
 }
 
 // reconnectAllReceivers 重连所有接收器
-// 尝试重连RabbitMQ，失败时进行指数退避重试
+// 持续尝试重连RabbitMQ，直到成功或程序关闭
 func (self *PullManager) reconnectAllReceivers() {
-	const maxRetries = 5
 	baseDelay := time.Second
+	attempt := 0
 
-	for i := 0; i < maxRetries; i++ {
+	for {
 		select {
 		case <-self.closeChan:
 			return
 		default:
 		}
 
+		attempt++
 		if err := self.Connect(); err == nil {
-			zlog.Info("reconnection successful, restarting receivers", 0,
-				zlog.String("ds_name", self.conf.DsName))
+			zlog.Info("reconnection successful after attempts", 0,
+				zlog.String("ds_name", self.conf.DsName),
+				zlog.Int("attempts", attempt))
 			self.restartAllReceivers()
 			return
+		} else {
+			// 连接失败，记录错误日志
+			zlog.Warn("reconnection failed, will retry", 0,
+				zlog.String("ds_name", self.conf.DsName),
+				zlog.Int("attempt", attempt),
+				zlog.AddError(err))
 		}
 
-		delay := time.Duration(i+1) * baseDelay
-		if delay > 10*time.Second {
-			delay = 10 * time.Second
+		// 计算延迟时间（指数退避，最长30秒）
+		delay := time.Duration(attempt) * baseDelay
+		if delay > 30*time.Second {
+			delay = 30 * time.Second
 		}
 
-		zlog.Warn("reconnect failed, retrying...", 0,
-			zlog.Int("attempt", i+1),
-			zlog.Duration("delay", delay))
-		time.Sleep(delay)
+		// 使用select监听关闭信号，避免长时间阻塞
+		select {
+		case <-self.closeChan:
+			return
+		case <-time.After(delay):
+			// 继续下一次重试
+		}
 	}
-
-	zlog.Error("max reconnect retries exceeded", 0,
-		zlog.String("ds_name", self.conf.DsName))
 }
 
 // restartAllReceivers 重启所有接收器（带重连风暴防护）
@@ -688,12 +697,9 @@ func (self *PullReceiver) initControlChans() {
 	self.mu.Lock()
 	defer self.mu.Unlock()
 
-	if self.closeChan == nil {
-		self.closeChan = make(chan struct{}, 1)
-	}
-	if self.stopChan == nil {
-		self.stopChan = make(chan struct{}, 1)
-	}
+	// 总是重新创建通道，确保没有残留的旧信号
+	self.closeChan = make(chan struct{}, 1)
+	self.stopChan = make(chan struct{}, 1)
 	self.stopping = false
 	self.healthy = true
 }
@@ -866,12 +872,13 @@ func (self *PullReceiver) validateMessage(msg *MsgData) error {
 		return fmt.Errorf("signature key is empty")
 	}
 
+	// 先验签（使用接收到的内容，可能已加密）
 	expectedSig := utils.HMAC_SHA256(utils.AddStr(msg.Content, msg.Nonce, msg.CreatedAt), sigKey, true)
 	if msg.Signature != expectedSig {
 		return fmt.Errorf("signature mismatch")
 	}
 
-	// 解密内容（如果需要）
+	// 再解密内容（如果需要）
 	if self.Config.Option.SigTyp == 1 {
 		if err := validateAESKeyLength(sigKey); err != nil {
 			return fmt.Errorf("AES key invalid: %w", err)
