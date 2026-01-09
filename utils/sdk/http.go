@@ -43,17 +43,17 @@ type AuthToken struct {
 // - PostByECC: 匿名访问，使用ECC密钥协商 (必须配置ECDSA)
 // - PostByAuth: 登录后访问，使用JWT令牌 (必须配置ECDSA)
 type HttpSDK struct {
-	Domain      string                  // API域名 (如: https://api.example.com)
-	AuthDomain  string                  // 认证域名 (可选，用于/key和/login接口)
-	KeyPath     string                  // 公钥获取路径 (默认: /key)
-	LoginPath   string                  // 登录路径 (默认: /login)
-	language    string                  // 语言设置 (HTTP头)
-	timeout     int64                   // 请求超时时间(秒)
-	ClientNo    int64                   // 客户端编号
-	authObject  interface{}             // 登录认证对象 (用户名+密码等)
-	authToken   AuthToken               // JWT认证令牌
-	ecdsaObject map[int64]crypto.Cipher // ECDSA签名验证对象列表
-	ecdhObject  crypto.Cipher           // ECDH密钥协商对象
+	Domain      string                      // API域名 (如: https://api.example.com)
+	AuthDomain  string                      // 认证域名 (可选，用于/key和/login接口)
+	KeyPath     string                      // 公钥获取路径 (默认: /key)
+	LoginPath   string                      // 登录路径 (默认: /login)
+	language    string                      // 语言设置 (HTTP头)
+	timeout     int64                       // 请求超时时间(秒)
+	ClientNo    int64                       // 客户端编号
+	authObject  func() (interface{}, error) // 登录认证对象 (用户名+密码等)
+	authToken   AuthToken                   // JWT认证令牌
+	ecdsaObject map[int64]crypto.Cipher     // ECDSA签名验证对象列表
+	ecdhObject  crypto.Cipher               // ECDH密钥协商对象
 }
 
 // NewHttpSDK 创建新的HttpSDK实例并设置默认值
@@ -90,7 +90,7 @@ func NewHttpSDK() *HttpSDK {
 //   - object: 认证对象，包含用户名密码等信息
 //
 // 注意: 请使用指针对象以避免数据拷贝
-func (s *HttpSDK) AuthObject(object interface{}) {
+func (s *HttpSDK) AuthObject(object func() (interface{}, error)) {
 	s.authObject = object
 }
 
@@ -632,7 +632,7 @@ func (s *HttpSDK) valid() bool {
 	if len(s.authToken.Secret) == 0 {
 		return false
 	}
-	if utils.UnixSecond() > s.authToken.Expired-3600 {
+	if utils.UnixSecond() > s.authToken.Expired-600 {
 		return false
 	}
 	return true
@@ -676,8 +676,12 @@ func (s *HttpSDK) checkAuth() error {
 	if s.authObject == nil {
 		return ex.Throw{Msg: "authObject is nil"}
 	}
+	requestObject, err := s.authObject()
+	if err != nil {
+		return ex.Throw{Msg: "auth object error: " + err.Error()}
+	}
 	responseObj := AuthToken{}
-	if err := s.PostByECC(s.LoginPath, s.authObject, &responseObj); err != nil {
+	if err := s.PostByECC(s.LoginPath, requestObject, &responseObj); err != nil {
 		return err
 	}
 	s.AuthToken(responseObj)
@@ -740,7 +744,9 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 	if err := s.checkAuth(); err != nil {
 		return err
 	}
-	if len(s.authToken.Token) == 0 || len(s.authToken.Secret) == 0 {
+	token := s.authToken.Token
+	secret := s.authToken.Secret
+	if len(token) == 0 || len(secret) == 0 {
 		return ex.Throw{Msg: "token or secret can't be empty"}
 	}
 	jsonBody := node.GetJsonBody()
@@ -767,7 +773,7 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 	// 清理JSON序列化数据
 	defer DIC.ClearData(jsonData)
 	// 解码token secret用于加密和签名
-	tokenSecret := utils.Base64Decode(s.authToken.Secret)
+	tokenSecret := utils.Base64Decode(secret)
 	defer DIC.ClearData(tokenSecret) // 清除临时解码的token secret
 
 	if encrypted {
@@ -805,7 +811,7 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 	}
 	request := fasthttp.AcquireRequest()
 	request.Header.SetContentType("application/json;charset=UTF-8")
-	request.Header.Set("Authorization", s.authToken.Token)
+	request.Header.Set("Authorization", token)
 	request.Header.Set("Language", s.language)
 	request.Header.SetMethod("POST")
 	request.SetRequestURI(s.getURI(path))
@@ -855,11 +861,7 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 		return ex.Throw{Msg: "response time invalid"}
 	}
 
-	// 验证响应时也需要解码token secret
-	respTokenSecret := utils.Base64Decode(s.authToken.Secret)
-	defer DIC.ClearData(respTokenSecret) // 清除响应验证时解码的token secret
-
-	validSign := node.SignBodyMessage(path, respData.Data, respData.Nonce, respData.Time, respData.Plan, jsonBody.User, respTokenSecret)
+	validSign := node.SignBodyMessage(path, respData.Data, respData.Nonce, respData.Time, respData.Plan, jsonBody.User, tokenSecret)
 	// 清理签名验证数据
 	defer DIC.ClearData(validSign)
 	if utils.Base64Encode(validSign) != respData.Sign {
@@ -880,7 +882,7 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 			zlog.Debug(fmt.Sprintf("response data base64: %s", string(dec)), 0)
 		}
 	} else if respData.Plan == 1 {
-		dec, err = utils.AesGCMDecryptBase(respData.Data, respTokenSecret[:32], node.AppendBodyMessage(path, "", respData.Nonce, respData.Time, respData.Plan, jsonBody.User))
+		dec, err = utils.AesGCMDecryptBase(respData.Data, tokenSecret[:32], node.AppendBodyMessage(path, "", respData.Nonce, respData.Time, respData.Plan, jsonBody.User))
 		if err != nil {
 			return ex.Throw{Msg: "post response data AES decrypt failed"}
 		}

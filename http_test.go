@@ -54,7 +54,9 @@ func TestECCLogin(t *testing.T) {
 }
 
 func TestGetUser(t *testing.T) {
-	httpSDK.AuthObject(&map[string]string{"username": "1234567890123456", "password": "1234567890123456"})
+	httpSDK.AuthObject(func() (interface{}, error) {
+		return &map[string]string{"username": "1234567890123456", "password": "1234567890123456"}, nil
+	})
 	httpSDK.AuthToken(sdk.AuthToken{Token: access_token, Secret: token_secret, Expired: token_expire})
 	requestObj := sdk.AuthToken{Token: "AI工具人，鲨鱼宝宝！QWER123456@##！！", Secret: "安排测试下吧123456789@@@"}
 	responseData := sdk.AuthToken{}
