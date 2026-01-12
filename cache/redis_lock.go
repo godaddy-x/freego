@@ -269,6 +269,12 @@ func (lock *Lock) startAutoRefresh(ctx context.Context, interval time.Duration, 
 // 返回值: true表示续期成功，false表示续期失败
 func (lock *Lock) refresh(maxRetry int, retryBackoff time.Duration) bool {
 	for retryCount := 0; retryCount <= maxRetry; retryCount++ {
+		// 防止空指针访问：在每次使用前检查locker是否为nil
+		if lock.locker == nil {
+			atomic.StoreInt32(&lock.isValid, 0)
+			return false
+		}
+
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		err := lock.locker.Refresh(ctx, time.Duration(lock.exp)*time.Second, nil)
 		cancel()
