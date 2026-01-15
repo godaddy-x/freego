@@ -3,6 +3,7 @@ package cache
 import (
 	"context"
 	"fmt"
+	"math"
 	"sync/atomic"
 	"time"
 
@@ -158,6 +159,12 @@ func (self *RedisManager) TryLockWithTimeout(resource string, expSecond int, cal
 	if watchDogInterval < time.Second {
 		watchDogInterval = time.Second // 最小续期间隔1秒
 	}
+
+	// 续期重试间隔：基于续期间隔动态计算（watchDogInterval/2），确保续期及时但不过于频繁
+	refreshTimeout := watchDogInterval / 2
+	if refreshTimeout < 100*time.Millisecond {
+		refreshTimeout = 100 * time.Millisecond // 最小续期重试间隔100毫秒
+	}
 	// 尝试获取锁的超时时间：根据配置的比例计算（避免无限阻塞）
 	acquireTimeout := time.Duration(float64(expiry) * lockConfig.AcquireTimeoutRatio)
 	if acquireTimeout < time.Second {
@@ -208,7 +215,7 @@ func (self *RedisManager) TryLockWithTimeout(resource string, expSecond int, cal
 	lockObj.lastRefresh.Store(time.Now()) // 初始化最后续期时间为获取时间
 
 	// 启动自动续期
-	go lockObj.startAutoRefresh(refreshCtx, watchDogInterval, lockConfig.MaxRefreshRetries, lockConfig.RefreshRetryBackoff)
+	go lockObj.startAutoRefresh(refreshCtx, watchDogInterval, lockConfig.MaxRefreshRetries, refreshTimeout)
 
 	// 确保资源清理
 	defer func() {
@@ -235,11 +242,13 @@ func (self *RedisManager) TryLockWithTimeout(resource string, expSecond int, cal
 		}
 	}()
 
-	zlog.Debug("lock acquired successfully", 0,
-		zlog.String("ds_name", self.DsName),
-		zlog.String("resource", resource),
-		zlog.String("token", lockObj.token),
-		zlog.Int("exp_second", expSecond))
+	if zlog.IsDebug() {
+		zlog.Debug("lock acquired successfully", 0,
+			zlog.String("ds_name", self.DsName),
+			zlog.String("resource", resource),
+			zlog.String("token", lockObj.token),
+			zlog.Int("exp_second", expSecond))
+	}
 
 	// 6. 执行临界区回调，传入Lock实例供业务代码检查状态
 	return call(lockObj)
@@ -269,9 +278,8 @@ func (lock *Lock) startAutoRefresh(ctx context.Context, interval time.Duration, 
 // 返回值: true表示续期成功，false表示续期失败
 func (lock *Lock) refresh(maxRetry int, retryBackoff time.Duration) bool {
 	for retryCount := 0; retryCount <= maxRetry; retryCount++ {
-		// 防止空指针访问：在每次使用前检查locker是否为nil
-		if lock.locker == nil {
-			atomic.StoreInt32(&lock.isValid, 0)
+		// 统一使用IsValid()检查锁状态，避免竞态条件
+		if !lock.IsValid() {
 			return false
 		}
 
@@ -299,7 +307,12 @@ func (lock *Lock) refresh(maxRetry int, retryBackoff time.Duration) bool {
 		atomic.AddInt32(&lock.refreshFailures, 1)
 
 		if retryCount < maxRetry {
-			time.Sleep(retryBackoff)
+			// 指数退避：避免固定间隔浪费资源，2^retryCount * retryBackoff
+			backoff := time.Duration(math.Pow(2, float64(retryCount))) * retryBackoff
+			if backoff > 5*time.Second {
+				backoff = 5 * time.Second // 最大退避时间5秒
+			}
+			time.Sleep(backoff)
 		} else {
 			zlog.Warn("failed to refresh lock after retries", 0,
 				zlog.String("resource", lock.resource),
@@ -377,6 +390,11 @@ func (lock *Lock) Unlock() error {
 		return nil // 已经释放
 	}
 
+	// 主动取消续期：立即触发续期goroutine退出，避免竞态条件
+	if lock.cancelRefresh != nil {
+		lock.cancelRefresh()
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
@@ -385,7 +403,6 @@ func (lock *Lock) Unlock() error {
 	// 无论释放成功与否，都清理状态
 	lock.locker = nil
 	atomic.StoreInt32(&lock.isValid, 0)
-	// 注意：不清理cancelRefresh，因为它在defer中已经调用过了
 
 	return err
 }

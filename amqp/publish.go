@@ -17,13 +17,14 @@ var (
 )
 
 type PublishManager struct {
-	mu0      sync.Mutex
-	mu       sync.Mutex
-	conf     AmqpConfig
-	conn     *amqp.Connection
-	channels map[string]*PublishMQ
-	closeCh  chan struct{}
-	closed   bool
+	mu0       sync.Mutex
+	mu        sync.Mutex
+	conf      AmqpConfig
+	conn      *amqp.Connection
+	channels  map[string]*PublishMQ
+	closeCh   chan struct{}
+	closeOnce sync.Once // 确保 closeCh 只被关闭一次
+	closed    bool
 }
 
 type PublishMQ struct {
@@ -142,6 +143,13 @@ func (self *PublishManager) openChannel() (*amqp.Channel, error) {
 	if err != nil {
 		e, b := err.(*amqp.Error)
 		if b && e.Code == 504 { // 重连connection
+			// 重连最多 3 次
+			for i := 0; i < 3; i++ {
+				if err := self.Connect(); err == nil {
+					break
+				}
+				time.Sleep(1 * time.Second)
+			}
 			if err := self.Connect(); err != nil {
 				return nil, err
 			}
@@ -194,16 +202,11 @@ func (self *PublishManager) initQueue(data *MsgData) (*PublishMQ, error) {
 	}
 	chanKey := utils.AddStr(data.Option.Exchange, data.Option.Router, data.Option.Queue)
 
-	// 双重检查锁定：先检查是否已存在
-	if pub, ok := self.channels[chanKey]; ok {
-		return pub, nil
-	}
-
-	// 获取锁进行原子操作
+	// 使用 self.mu0 锁保护所有对 self.channels 的访问
 	self.mu0.Lock()
 	defer self.mu0.Unlock()
 
-	// 再次检查（在锁内）
+	// 检查是否已存在
 	if pub, ok := self.channels[chanKey]; ok {
 		return pub, nil
 	}
@@ -236,6 +239,7 @@ func (self *PublishManager) initQueue(data *MsgData) (*PublishMQ, error) {
 		// 清理失败的通道
 		if closeErr := pub.channel.Close(); closeErr != nil {
 			zlog.Warn("failed to close channel after exchange preparation error", 0, zlog.AddError(closeErr))
+			return nil, fmt.Errorf("failed to close channel: %w, exchange preparation failed: %w", closeErr, err)
 		}
 		return nil, fmt.Errorf("failed to prepare exchange: %w", err)
 	}
@@ -244,7 +248,10 @@ func (self *PublishManager) initQueue(data *MsgData) (*PublishMQ, error) {
 		// 清理失败的通道
 		if closeErr := pub.channel.Close(); closeErr != nil {
 			zlog.Warn("failed to close channel after queue preparation error", 0, zlog.AddError(closeErr))
+			pub.channel = nil // 确保 channel 为 nil
+			return nil, fmt.Errorf("failed to close channel: %w, queue preparation failed: %w", closeErr, err)
 		}
+		pub.channel = nil // 确保 channel 为 nil
 		return nil, fmt.Errorf("failed to prepare queue: %w", err)
 	}
 
@@ -399,13 +406,10 @@ func (self *PublishManager) Close() error {
 
 	zlog.Info("closing publish manager", 0, zlog.String("ds_name", self.conf.DsName))
 
-	// 发送关闭信号
-	select {
-	case <-self.closeCh:
-		// channel 已经关闭
-	default:
+	// 发送关闭信号（使用 sync.Once 确保只关闭一次）
+	self.closeOnce.Do(func() {
 		close(self.closeCh)
-	}
+	})
 
 	// 等待一小段时间让监听器退出
 	time.Sleep(100 * time.Millisecond)
