@@ -5,6 +5,8 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -353,8 +355,8 @@ func (self *MGOManager) buildByConfig(manager cache.Cache, input ...MGOConfig) e
 				opts.SetAuth(credential)
 			}
 
-			// 设置连接URI（使用第一个地址作为示例）
-			opts.ApplyURI(fmt.Sprintf("mongodb://%s", v.Addrs[0]))
+			// 设置连接URI（连接所有节点，支持副本集）
+			opts.ApplyURI(fmt.Sprintf("mongodb://%s", strings.Join(v.Addrs, ",")))
 		} else {
 			// 使用完整的连接URI
 			opts.ApplyURI(v.ConnectionURI)
@@ -1642,8 +1644,11 @@ func buildMongoMatch(cnd *sqlc.Cnd) bson.M {
 			query[key] = bson.M{"$nin": values}
 		case sqlc.LIKE_:
 			if value != "" {
-				// 使用正则表达式，添加大小写不敏感选项
-				query[key] = bson.M{"$regex": value, "$options": "i"}
+				// 对 LIKE 查询进行正则转义以提高安全性，然后使用正则表达式匹配
+				if strValue, ok := value.(string); ok && strValue != "" {
+					escaped := regexp.QuoteMeta(strValue)
+					query[key] = bson.M{"$regex": escaped, "$options": "i"}
+				}
 			}
 		case sqlc.NOT_LIKE_:
 			if value != "" {

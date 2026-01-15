@@ -92,7 +92,8 @@ func initRabbitMQ() {
 		panic(utils.AddStr("读取rabbitmq配置失败: ", err.Error()))
 	}
 	// 创建全局RabbitMQ管理器实例
-	if _, err := rabbitmq.NewPublishManager(conf); err != nil {
+	mgr := &rabbitmq.PublishManager{}
+	if err := mgr.InitConfig(conf); err != nil {
 		panic(utils.AddStr("初始化rabbitmq管理器失败: ", err.Error()))
 	}
 	fmt.Println("init rabbitmq success")

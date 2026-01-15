@@ -392,19 +392,12 @@ func getMapValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
 			return nil, nil // 空map不保存
 		}
 
-		// 将Go的map转换为可以序列化为BSON的格式
-		result := make(map[string]interface{})
-		for key, value := range mapValue {
-			// 对于嵌套的map和interface{}，递归处理
-			if processedValue, err := processValueForBson(value); err == nil && processedValue != nil {
-				result[key] = processedValue
-			}
+		// 统一使用 processValueForBson 处理所有复杂类型
+		processed, err := processValueForBson(mapValue)
+		if err != nil {
+			return nil, fmt.Errorf("process map value: %w", err)
 		}
-
-		if len(result) == 0 {
-			return nil, nil
-		}
-		return result, nil
+		return processed, nil
 
 	} else if fieldTypeStr == "map[string]string" {
 		// map[string]string - 特殊处理
@@ -573,9 +566,6 @@ func getSliceValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) 
 		return getTypedSliceValue(ptr, elem, func(val interface{}) interface{} { return val })
 	case "[]uint":
 		return getTypedSliceValue(ptr, elem, func(val interface{}) interface{} { return val })
-	case "[]uint8":
-		// []uint8 已经在上面特殊处理，这里不应该到达
-		return nil, fmt.Errorf("[]uint8 should be handled in special case")
 	case "[]uint16":
 		return getTypedSliceValue(ptr, elem, func(val interface{}) interface{} { return val })
 	case "[]uint32":
@@ -921,7 +911,7 @@ func setMongoValue(obj interface{}, elem *FieldElem, bsonValue bson.RawValue) er
 	case reflect.Float64:
 		return setFloat64(ptr, bsonValue, elem)
 	case reflect.Array:
-		return setArray(obj, elem, bsonValue)
+		return fmt.Errorf("field %s: array types are not supported", elem.FieldName)
 	case reflect.Struct:
 		return setStruct(obj, elem, bsonValue)
 	case reflect.Ptr:
@@ -1239,25 +1229,6 @@ func setFloat32(ptr uintptr, bsonValue bson.RawValue, elem *FieldElem) error {
 	return fmt.Errorf("field %s: float32 requires Double type, got %s", elem.FieldName, bsonValue.Type)
 }
 
-// setArray 设置数组类型字段（仅处理primitive.ObjectID数组）
-// 目前只支持primitive.ObjectID类型的数组
-func setArray(obj interface{}, elem *FieldElem, bsonValue bson.RawValue) error {
-	if elem.FieldType != "primitive.ObjectID" {
-		return fmt.Errorf("field %s: unsupported array type %s", elem.FieldName, elem.FieldType)
-	}
-
-	fieldVal, err := getValidField(obj, elem)
-	if err != nil {
-		return err
-	}
-
-	if oid, ok := bsonValue.ObjectIDOK(); ok {
-		fieldVal.Set(reflect.ValueOf(oid))
-		return nil
-	}
-	return fmt.Errorf("field %s: ObjectID requires ObjectID type, got %s", elem.FieldName, bsonValue.Type)
-}
-
 // setStruct 设置结构体类型字段（时间、primitive类型、decimal等）
 // 处理各种特殊的结构体类型:
 //   - time.Time: 时间类型
@@ -1477,15 +1448,69 @@ func setPtr(obj interface{}, elem *FieldElem, bsonValue bson.RawValue) error {
 	if fieldVal.IsNil() {
 		fieldVal.Set(reflect.New(elemType))
 	}
-	// 递归处理指针指向的类型
-	subObj := fieldVal.Interface()
-	subElem := &FieldElem{
-		FieldName:   elem.FieldName,
-		FieldType:   elemType.String(),
-		FieldKind:   elemKind,
-		FieldOffset: elem.FieldOffset,
+
+	// 直接操作指针指向的值，而不是构造新的FieldElem
+	// 避免FieldOffset错误导致的内存访问问题
+	pointedVal := fieldVal.Elem()
+
+	// 根据指向的类型直接设置值
+	switch elemKind {
+	case reflect.String:
+		val, err := getStringValue(bsonValue)
+		if err != nil {
+			return fmt.Errorf("field %s: %w", elem.FieldName, err)
+		}
+		pointedVal.SetString(val)
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		val, err := getInt64Value(bsonValue)
+		if err != nil {
+			return fmt.Errorf("field %s: %w", elem.FieldName, err)
+		}
+		pointedVal.SetInt(val)
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		val, err := getUint64Value(bsonValue)
+		if err != nil {
+			return fmt.Errorf("field %s: %w", elem.FieldName, err)
+		}
+		pointedVal.SetUint(val)
+	case reflect.Float32, reflect.Float64:
+		val, err := getFloat64Value(bsonValue)
+		if err != nil {
+			return fmt.Errorf("field %s: %w", elem.FieldName, err)
+		}
+		pointedVal.SetFloat(val)
+	case reflect.Bool:
+		val, err := getBoolValue(bsonValue)
+		if err != nil {
+			return fmt.Errorf("field %s: %w", elem.FieldName, err)
+		}
+		pointedVal.SetBool(val)
+	case reflect.Slice, reflect.Map:
+		// 禁止支持指针指向切片或映射类型
+		return fmt.Errorf("field %s: pointer to slice/map type %s not supported", elem.FieldName, elemType.String())
+	case reflect.Struct:
+		// 对于结构体，需要特殊处理
+		if elemType.String() == "primitive.ObjectID" {
+			oid, err := getObjectIDValue(bsonValue)
+			if err != nil {
+				return fmt.Errorf("field %s: %w", elem.FieldName, err)
+			}
+			pointedVal.Set(reflect.ValueOf(oid))
+		} else if elemType.String() == "time.Time" {
+			t, err := getTimeValue(bsonValue)
+			if err != nil {
+				return fmt.Errorf("field %s: %w", elem.FieldName, err)
+			}
+			pointedVal.Set(reflect.ValueOf(t))
+		} else {
+			// 对于其他结构体类型，返回不支持
+			return fmt.Errorf("field %s: pointer to struct type %s not supported", elem.FieldName, elemType.String())
+		}
+	default:
+		return fmt.Errorf("field %s: pointer to unsupported type %s", elem.FieldName, elemType.String())
 	}
-	return setMongoValue(subObj, subElem, bsonValue)
+
+	return nil
 }
 
 // setSlice 设置切片类型字段（完善嵌套处理与错误传递）
@@ -1533,10 +1558,6 @@ func setSlice(obj interface{}, elem *FieldElem, bsonValue bson.RawValue) error {
 	case "[]uint":
 		return parseSliceToField(elements, fieldVal, func(v bson.RawValue) (uint, error) {
 			return getUintValue(v)
-		})
-	case "[]uint8":
-		return parseSliceToField(elements, fieldVal, func(v bson.RawValue) (uint8, error) {
-			return getUint8Value(v)
 		})
 	case "[]uint16":
 		return parseSliceToField(elements, fieldVal, func(v bson.RawValue) (uint16, error) {
