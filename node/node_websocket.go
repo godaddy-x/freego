@@ -415,18 +415,21 @@ func (cm *ConnectionManager) removeConnection(subject, deviceKey string) {
 
 // RemoveWithCallback 移除连接并执行回调（用于指标记录）
 func (cm *ConnectionManager) RemoveWithCallback(subject, deviceKey string, callback func()) {
-	cm.mu.Lock()
-	defer cm.mu.Unlock()
+	// 先收集要执行的回调信息，避免在持有锁时执行回调导致死锁
+	var shouldCallback bool
 
+	cm.mu.Lock()
 	if subjectConns, exists := cm.conns[subject]; exists {
 		if _, exists := subjectConns[deviceKey]; exists {
 			cm.removeConnection(subject, deviceKey)
-
-			// 执行回调（通常用于指标记录）
-			if callback != nil {
-				callback()
-			}
+			shouldCallback = callback != nil
 		}
+	}
+	cm.mu.Unlock()
+
+	// 释放锁后再执行回调，避免死锁风险
+	if shouldCallback {
+		callback()
 	}
 }
 
@@ -1366,7 +1369,13 @@ func (s *WsServer) cleanupConnection(connCtx *ConnectionContext) {
 
 	// 注意：JsonBody在processMessage中通过defer释放，这里不需要重复释放
 
-	deviceKey := utils.AddStr(connCtx.DevConn.Sub, "_", connCtx.DevConn.Dev)
+	var deviceKey string
+	if s.connUniquenessMode == SubjectUnique {
+		deviceKey = connCtx.DevConn.Sub
+	} else {
+		deviceKey = utils.AddStr(connCtx.DevConn.Sub, "_", connCtx.DevConn.Dev)
+	}
+
 	s.connManager.Remove(connCtx.DevConn.Sub, deviceKey)
 	zlog.Info("client_disconnected", 0, zlog.String("subject", deviceKey))
 }
