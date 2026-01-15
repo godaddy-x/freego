@@ -192,7 +192,7 @@ func TestMysqlFindOne(t *testing.T) {
 	}
 	defer db.Close()
 	wallet := OwWallet{}
-	if err := db.FindOne(sqlc.M().Eq("id", 1987689412850352128).Orderby("id", sqlc.DESC_), &wallet); err != nil {
+	if err := db.FindOne(sqlc.M().Eq("id", 1988433892066983936).Orderby("id", sqlc.DESC_), &wallet); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println(wallet)
@@ -209,7 +209,7 @@ func TestMysqlFindList(t *testing.T) {
 	defer db.Close()
 	l := utils.UnixMilli()
 	result := make([]*OwWallet, 0, 200)
-	if err := db.FindList(sqlc.M(&OwWallet{}).Between("id", 1987689412850352128, 1988167654375948387).Limit(1, 5).Orderby("id", sqlc.DESC_), &result); err != nil {
+	if err := db.FindList(sqlc.M(&OwWallet{}).Between("id", 1988433892066983936, 1988433892066983949).Limit(1, 5).Orderby("id", sqlc.DESC_), &result); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Printf("查询到 %d 条记录\n", len(result))

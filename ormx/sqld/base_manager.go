@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"reflect"
 	"sync"
 	"sync/atomic"
@@ -549,7 +550,7 @@ func init() {
 }
 
 func (self *RDBManager) Save(data ...sqlc.Object) error {
-	return self.SaveWithContext(nil, data...)
+	return self.SaveWithContext(context.Background(), data...)
 }
 
 func (self *RDBManager) SaveWithContext(ctx context.Context, data ...sqlc.Object) error {
@@ -746,7 +747,7 @@ func (self *RDBManager) SaveWithContext(ctx context.Context, data ...sqlc.Object
 }
 
 func (self *RDBManager) Update(data ...sqlc.Object) error {
-	return self.UpdateWithContext(nil, data...)
+	return self.UpdateWithContext(context.Background(), data...)
 }
 
 func (self *RDBManager) UpdateWithContext(ctx context.Context, data ...sqlc.Object) error {
@@ -903,7 +904,7 @@ func (self *RDBManager) UpdateWithContext(ctx context.Context, data ...sqlc.Obje
 }
 
 func (self *RDBManager) UpdateByCnd(cnd *sqlc.Cnd) (int64, error) {
-	return self.UpdateByCndWithContext(nil, cnd)
+	return self.UpdateByCndWithContext(context.Background(), cnd)
 }
 
 func (self *RDBManager) UpdateByCndWithContext(ctx context.Context, cnd *sqlc.Cnd) (int64, error) {
@@ -1368,7 +1369,7 @@ func (self *RDBManager) DeleteByCndWithContext(ctx context.Context, cnd *sqlc.Cn
 }
 
 func (self *RDBManager) FindOne(cnd *sqlc.Cnd, data sqlc.Object) error {
-	return self.FindOneWithContext(nil, cnd, data)
+	return self.FindOneWithContext(context.Background(), cnd, data)
 }
 
 func (self *RDBManager) FindOneWithContext(ctx context.Context, cnd *sqlc.Cnd, data sqlc.Object) error {
@@ -1466,7 +1467,7 @@ func (self *RDBManager) FindOneWithContext(ctx context.Context, cnd *sqlc.Cnd, d
 	}
 	out, err := OutDestWithCapacity(obv, rows, cols, 1)
 	// 显式释放字节数组对象
-	defer ReleaseOutDest(out)
+	//defer ReleaseOutDest(out)
 	if err != nil {
 		return self.Error("[Mysql.FindOne] read result failed: ", err)
 	}
@@ -1502,7 +1503,7 @@ func (self *RDBManager) FindOneWithContext(ctx context.Context, cnd *sqlc.Cnd, d
 //   - 支持JOIN、GROUP BY、HAVING等复杂查询
 //   - 自动处理分页和排序逻辑
 func (self *RDBManager) FindList(cnd *sqlc.Cnd, data interface{}) error {
-	return self.FindListWithContext(nil, cnd, data)
+	return self.FindListWithContext(context.Background(), cnd, data)
 }
 
 func (self *RDBManager) FindListWithContext(ctx context.Context, cnd *sqlc.Cnd, data interface{}) error {
@@ -1617,7 +1618,7 @@ func (self *RDBManager) FindListWithContext(ctx context.Context, cnd *sqlc.Cnd, 
 
 	out, err := OutDestWithCapacity(obv, rows, cols, estimatedRows)
 	// 显式释放字节数组对象
-	defer ReleaseOutDest(out)
+	//defer ReleaseOutDest(out)
 	if err != nil {
 		return self.Error("[Mysql.FindList] read result failed: ", err)
 	}
@@ -1840,7 +1841,7 @@ func (self *RDBManager) ExistsWithContext(ctx context.Context, cnd *sqlc.Cnd) (b
 }
 
 func (self *RDBManager) FindOneComplex(cnd *sqlc.Cnd, data sqlc.Object) error {
-	return self.FindOneComplexWithContext(nil, cnd, data)
+	return self.FindOneComplexWithContext(context.Background(), cnd, data)
 }
 
 func (self *RDBManager) FindOneComplexWithContext(ctx context.Context, cnd *sqlc.Cnd, data sqlc.Object) error {
@@ -2007,7 +2008,7 @@ func (self *RDBManager) FindOneComplexWithContext(ctx context.Context, cnd *sqlc
 	}
 	out, err := OutDestWithCapacity(obv, rows, cols, 1)
 	// 显式释放字节数组对象
-	defer ReleaseOutDest(out)
+	//defer ReleaseOutDest(out)
 	if err != nil {
 		return self.Error("[Mysql.FindOneComplex] read result failed: ", err)
 	}
@@ -2047,7 +2048,7 @@ func (self *RDBManager) FindOneComplexWithContext(ctx context.Context, cnd *sqlc
 //   - 支持JOIN、GROUP BY、HAVING等复杂查询
 //   - 自动处理分页和排序逻辑
 func (self *RDBManager) FindListComplex(cnd *sqlc.Cnd, data interface{}) error {
-	return self.FindListComplexWithContext(nil, cnd, data)
+	return self.FindListComplexWithContext(context.Background(), cnd, data)
 }
 
 func (self *RDBManager) FindListComplexWithContext(ctx context.Context, cnd *sqlc.Cnd, data interface{}) error {
@@ -2219,7 +2220,7 @@ func (self *RDBManager) FindListComplexWithContext(ctx context.Context, cnd *sql
 	}
 	out, err := OutDestWithCapacity(obv, rows, cols, 0)
 	// 显式释放字节数组对象
-	defer ReleaseOutDest(out)
+	//defer ReleaseOutDest(out)
 	if err != nil {
 		return self.Error("[Mysql.FindListComplex] read result failed: ", err)
 	}
@@ -2330,193 +2331,114 @@ func (self *RDBManager) mongoSyncData(option int, model sqlc.Object, cnd *sqlc.C
 // 全局对象池：复用 [][]byte（每行数据的切片容器），避免每次循环创建新切片
 var rowByteSlicePool = sync.Pool{
 	New: func() interface{} {
-		// 优化：预分配合理的容量，减少扩容开销
-		// 32 是常见的字段数，预留一些缓冲空间
-		return make([][]byte, 0, 32)
+		const MaxColumns = 64 // 根据业务最大列数调整
+		s := make([][]byte, MaxColumns)
+		for i := range s {
+			s[i] = make([]byte, 0, 256) // 默认字段容量
+		}
+		return s
 	},
 }
 
 // ReleaseOutDest 释放资源（必须调用）
+// ReleaseOutDest 为了兼容旧代码保留，实际为空操作
+// 调用它是安全的，但不再必要
 func ReleaseOutDest(out [][][]byte) {
-	if out == nil {
-		return
-	}
-	for _, rets := range out {
-		// 安全起见，重置所有字节数组，防止敏感数据残留
-		for i := range rets {
-			if len(rets[i]) > 0 {
-				// 清空底层数组数据
-				for j := range rets[i] {
-					rets[i][j] = 0
-				}
-				// 重置切片长度
-				rets[i] = rets[i][:0]
-			}
-		}
-		rowByteSlicePool.Put(rets)
-	}
+	// No-op: 内存由 GC 自动回收
 }
-
-// OutDestWithCapacity 带容量预估的查询结果集输出，减少内存分配
-//func OutDestWithCapacity(obv *MdlDriver, rows *sql.Rows, cols []string, estimatedRows int) ([][][]byte, error) {
-//
-//	// 1. 优化外层 out 切片预分配：按预估行数定容量，减少 append 扩容
-//	flen := len(cols)
-//	initialCap := 16
-//	if estimatedRows > 0 {
-//		initialCap = estimatedRows
-//		if initialCap > 10000 { // 限制最大预分配，避免内存浪费
-//			initialCap = 10000
-//		}
-//	}
-//	out := make([][][]byte, 0, initialCap)
-//
-//	// 2. 复用 dest 数组：全程只分配1次，避免每次循环创建接口切片
-//	dest := make([]interface{}, flen)
-//
-//	// 3. 循环扫描：复用 [][]byte 容器，减少每行的切片分配
-//	for rows.Next() {
-//		// 从对象池获取复用的 [][]byte（避免每次 make([][]byte, flen)）
-//		rets := rowByteSlicePool.Get().([][]byte)
-//
-//		// 优化：简化容量调整逻辑，减少判断分支
-//		currentLen := len(rets)
-//		currentCap := cap(rets)
-//
-//		if currentCap >= flen {
-//			// 容量足够，使用现有切片
-//			rets = rets[:flen]
-//			// 补充缺失的子切片，使用预设容量
-//			for i := currentLen; i < flen; i++ {
-//				capacity := 64 // 默认容量
-//				if obv != nil && obv.FieldDBMap != nil && i < len(cols) {
-//					if presetCap, exists := obv.FieldDBMap[obv.TableName+cols[i]]; exists && presetCap > 0 {
-//						capacity = presetCap
-//					}
-//				}
-//				rets[i] = make([]byte, 0, capacity)
-//			}
-//		} else {
-//			// 容量不足，重建切片但复用可用的子切片
-//			newRets := make([][]byte, flen)
-//			if currentLen > 0 {
-//				copy(newRets, rets[:min(currentLen, flen)])
-//			}
-//			// 为新位置创建子切片，使用预设容量
-//			for i := currentLen; i < flen; i++ {
-//				capacity := 64 // 默认容量
-//				if obv != nil && obv.FieldDBMap != nil && i < len(cols) {
-//					if presetCap, exists := obv.FieldDBMap[obv.TableName+cols[i]]; exists && presetCap > 0 {
-//						capacity = presetCap
-//					}
-//				}
-//				newRets[i] = make([]byte, 0, capacity)
-//			}
-//			rets = newRets
-//		}
-//
-//		// 优化：合并重置和绑定操作，减少循环次数
-//		for i := 0; i < flen; i++ {
-//			rets[i] = rets[i][:0] // 重置长度，复用底层数组
-//			dest[i] = &rets[i]    // 绑定指针
-//		}
-//
-//		// 扫描数据
-//		if err := rows.Scan(dest...); err != nil {
-//			return nil, utils.Error("rows scan failed: ", err)
-//		}
-//
-//		out = append(out, rets)
-//	}
-//
-//	// 检查迭代错误
-//	if err := rows.Err(); err != nil {
-//		return nil, utils.Error("rows.Err(): ", err)
-//	}
-//
-//	return out, nil
-//}
 
 // OutDestWithCapacity 带容量预估的查询结果集输出，使用mdl的预估字段长度
 func OutDestWithCapacity(obv *MdlDriver, rows *sql.Rows, cols []string, estimatedRows int) ([][][]byte, error) {
-	// 优化：根据预估行数智能分配容量
+	if rows == nil || cols == nil {
+		return nil, fmt.Errorf("rows or cols is nil")
+	}
+
 	flen := len(cols)
-	var initialCap int
+	if flen == 0 {
+		return nil, nil
+	}
+
+	// 预估结果行数，限制最大初始容量
+	initialCap := 16
 	if estimatedRows > 0 {
-		// 使用预估行数，但限制最大容量避免过度分配
 		if estimatedRows > 10000 {
-			initialCap = 10000 // 限制最大初始容量
+			initialCap = 10000
 		} else {
 			initialCap = estimatedRows
 		}
-	} else {
-		initialCap = 16 // 默认容量
 	}
-
 	out := make([][][]byte, 0, initialCap)
 
-	// 预先计算每个字段的预估容量，使用mdl的FieldDBMap
+	// 预估每个字段的容量（字节）
 	fieldCapacities := make([]int, flen)
 	if obv != nil && obv.FieldDBMap != nil {
 		for i, colName := range cols {
-			if presetCap, exists := obv.FieldDBMap[obv.TableName+colName]; exists && presetCap > 0 {
-				fieldCapacities[i] = presetCap
+			key := obv.TableName + "." + colName // 更安全的 key 格式
+			if cap, exists := obv.FieldDBMap[key]; exists && cap > 0 {
+				fieldCapacities[i] = cap
 			} else {
-				fieldCapacities[i] = 64 // 默认容量
+				fieldCapacities[i] = 64
 			}
 		}
 	} else {
-		// 如果没有mdl信息，使用默认容量
 		for i := range fieldCapacities {
 			fieldCapacities[i] = 64
 		}
 	}
 
-	// 优化：复用 dest 数组，避免每次循环都分配
+	// 复用 dest 数组（避免每行重新分配 interface{} 切片）
 	dest := make([]interface{}, flen)
 
 	for rows.Next() {
-		// 从对象池获取复用的 [][]byte 切片
-		rets := rowByteSlicePool.Get().([][]byte)
+		// 从池中获取预分配的行缓冲区
+		pooled := rowByteSlicePool.Get().([][]byte)
 
-		// 优化：根据池中切片的容量和需要的长度进行调整
-		currentLen := len(rets)
-		currentCap := cap(rets)
-
-		if currentCap >= flen {
-			// 容量足够，使用现有切片
-			rets = rets[:flen]
-			// 补充缺失的子切片，使用预估容量
-			for i := currentLen; i < flen; i++ {
+		// 确保 pooled 足够容纳当前列数（按需扩容子 slice，但不重建行）
+		var rets [][]byte
+		if cap(pooled) >= flen {
+			rets = pooled[:flen]
+		} else {
+			// 如果列数超过池默认大小，临时扩展（仍复用子 slice）
+			rets = make([][]byte, flen)
+			copy(rets, pooled)
+			// 为新增列分配 buffer
+			for i := len(pooled); i < flen; i++ {
 				rets[i] = make([]byte, 0, fieldCapacities[i])
 			}
-		} else {
-			// 容量不足，重建切片但复用可用的子切片
-			newRets := make([][]byte, flen)
-			if currentLen > 0 {
-				copy(newRets, rets[:min(currentLen, flen)])
-			}
-			// 为新位置创建子切片，使用预估容量
-			for i := currentLen; i < flen; i++ {
-				newRets[i] = make([]byte, 0, fieldCapacities[i])
-			}
-			rets = newRets
 		}
 
-		// 优化：合并重置和绑定操作，减少循环次数
+		// 重置并绑定 Scan 目标
 		for i := 0; i < flen; i++ {
-			rets[i] = rets[i][:0] // 重置长度，复用底层数组
-			dest[i] = &rets[i]    // 绑定指针
+			if cap(rets[i]) < fieldCapacities[i] {
+				// 容量不足，重新分配（尽量少发生）
+				rets[i] = make([]byte, 0, fieldCapacities[i])
+			} else {
+				rets[i] = rets[i][:0] // 复用底层数组
+			}
+			dest[i] = &rets[i]
 		}
 
+		// 执行扫描
 		if err := rows.Scan(dest...); err != nil {
-			return nil, utils.Error("rows scan failed: ", err)
+			rowByteSlicePool.Put(pooled) // 错误时归还原始 pooled 对象
+			return nil, fmt.Errorf("rows scan failed: %w", err)
 		}
-		out = append(out, rets)
+
+		// 深拷贝：将数据复制到新分配的 slice（脱离 pool）
+		copiedRow := make([][]byte, flen)
+		for i := range rets {
+			copiedRow[i] = append([]byte(nil), rets[i]...) // 安全拷贝
+		}
+		out = append(out, copiedRow)
+
+		// 关键：归还原始从 pool Get 出来的对象（即使 rets 是扩展的）
+		rowByteSlicePool.Put(pooled)
 	}
+
 	if err := rows.Err(); err != nil {
-		return nil, utils.Error("rows.Err(): ", err)
+		return nil, fmt.Errorf("rows iteration error: %w", err)
 	}
+
 	return out, nil
 }
 
