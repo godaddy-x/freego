@@ -1467,7 +1467,7 @@ func (self *RDBManager) FindOneWithContext(ctx context.Context, cnd *sqlc.Cnd, d
 	}
 	out, err := OutDestWithCapacity(obv, rows, cols, 1)
 	// 显式释放字节数组对象
-	//defer ReleaseOutDest(out)
+	defer ReleaseOutDest(out)
 	if err != nil {
 		return self.Error("[Mysql.FindOne] read result failed: ", err)
 	}
@@ -1618,7 +1618,7 @@ func (self *RDBManager) FindListWithContext(ctx context.Context, cnd *sqlc.Cnd, 
 
 	out, err := OutDestWithCapacity(obv, rows, cols, estimatedRows)
 	// 显式释放字节数组对象
-	//defer ReleaseOutDest(out)
+	defer ReleaseOutDest(out)
 	if err != nil {
 		return self.Error("[Mysql.FindList] read result failed: ", err)
 	}
@@ -2008,7 +2008,7 @@ func (self *RDBManager) FindOneComplexWithContext(ctx context.Context, cnd *sqlc
 	}
 	out, err := OutDestWithCapacity(obv, rows, cols, 1)
 	// 显式释放字节数组对象
-	//defer ReleaseOutDest(out)
+	defer ReleaseOutDest(out)
 	if err != nil {
 		return self.Error("[Mysql.FindOneComplex] read result failed: ", err)
 	}
@@ -2220,7 +2220,7 @@ func (self *RDBManager) FindListComplexWithContext(ctx context.Context, cnd *sql
 	}
 	out, err := OutDestWithCapacity(obv, rows, cols, 0)
 	// 显式释放字节数组对象
-	//defer ReleaseOutDest(out)
+	defer ReleaseOutDest(out)
 	if err != nil {
 		return self.Error("[Mysql.FindListComplex] read result failed: ", err)
 	}
@@ -2331,20 +2331,38 @@ func (self *RDBManager) mongoSyncData(option int, model sqlc.Object, cnd *sqlc.C
 // 全局对象池：复用 [][]byte（每行数据的切片容器），避免每次循环创建新切片
 var rowByteSlicePool = sync.Pool{
 	New: func() interface{} {
-		const MaxColumns = 64 // 根据业务最大列数调整
-		s := make([][]byte, MaxColumns)
+		// 预分配 64 列（根据业务最大字段数调整）
+		s := make([][]byte, 64)
 		for i := range s {
-			s[i] = make([]byte, 0, 256) // 默认字段容量
+			s[i] = make([]byte, 0, 128) // 默认字段容量
 		}
 		return s
 	},
 }
 
 // ReleaseOutDest 释放资源（必须调用）
-// ReleaseOutDest 为了兼容旧代码保留，实际为空操作
-// 调用它是安全的，但不再必要
+// ReleaseOutDest 将内存对象放回对象池
+// 重要：必须在处理完 out 后调用，否则会导致内存泄漏和池污染
 func ReleaseOutDest(out [][][]byte) {
-	// No-op: 内存由 GC 自动回收
+	if out == nil {
+		return
+	}
+	for _, pooled := range out {
+		if pooled == nil {
+			continue
+		}
+		// 清空所有已使用的字段（最多 len(pooled)，但安全起见遍历全部）
+		for i := range pooled {
+			s := pooled[i]
+			if len(s) > 0 {
+				for j := range s {
+					s[j] = 0
+				}
+				pooled[i] = s[:0] // 重置长度
+			}
+		}
+		rowByteSlicePool.Put(pooled) // ✅ 安全：无论是否扩容，都来自"逻辑上的 pool"
+	}
 }
 
 // OutDestWithCapacity 带容量预估的查询结果集输出，使用mdl的预估字段长度
@@ -2390,49 +2408,38 @@ func OutDestWithCapacity(obv *MdlDriver, rows *sql.Rows, cols []string, estimate
 	dest := make([]interface{}, flen)
 
 	for rows.Next() {
-		// 从池中获取预分配的行缓冲区
+		// 从池中获取对象
 		pooled := rowByteSlicePool.Get().([][]byte)
 
-		// 确保 pooled 足够容纳当前列数（按需扩容子 slice，但不重建行）
-		var rets [][]byte
-		if cap(pooled) >= flen {
-			rets = pooled[:flen]
-		} else {
-			// 如果列数超过池默认大小，临时扩展（仍复用子 slice）
-			rets = make([][]byte, flen)
-			copy(rets, pooled)
-			// 为新增列分配 buffer
-			for i := len(pooled); i < flen; i++ {
-				rets[i] = make([]byte, 0, fieldCapacities[i])
+		// ✅ 修复：基于 len 而非 cap 判断
+		if len(pooled) < flen {
+			if cap(pooled) >= flen {
+				pooled = pooled[:flen] // 扩展长度到 flen
+			} else {
+				// 容量不足，重新分配
+				pooled = make([][]byte, flen, flen*2)
 			}
 		}
+		// 现在 len(pooled) >= flen，可安全使用前 flen 个元素
 
-		// 重置并绑定 Scan 目标
+		// 重置每个字段
 		for i := 0; i < flen; i++ {
-			if cap(rets[i]) < fieldCapacities[i] {
-				// 容量不足，重新分配（尽量少发生）
-				rets[i] = make([]byte, 0, fieldCapacities[i])
+			if cap(pooled[i]) < fieldCapacities[i] {
+				pooled[i] = make([]byte, 0, fieldCapacities[i])
 			} else {
-				rets[i] = rets[i][:0] // 复用底层数组
+				pooled[i] = pooled[i][:0]
 			}
-			dest[i] = &rets[i]
+			dest[i] = &pooled[i]
 		}
 
 		// 执行扫描
 		if err := rows.Scan(dest...); err != nil {
-			rowByteSlicePool.Put(pooled) // 错误时归还原始 pooled 对象
+			rowByteSlicePool.Put(pooled)
 			return nil, fmt.Errorf("rows scan failed: %w", err)
 		}
 
-		// 深拷贝：将数据复制到新分配的 slice（脱离 pool）
-		copiedRow := make([][]byte, flen)
-		for i := range rets {
-			copiedRow[i] = append([]byte(nil), rets[i]...) // 安全拷贝
-		}
-		out = append(out, copiedRow)
-
-		// 关键：归还原始从 pool Get 出来的对象（即使 rets 是扩展的）
-		rowByteSlicePool.Put(pooled)
+		// 将整个 pooled 放入 out
+		out = append(out, pooled)
 	}
 
 	if err := rows.Err(); err != nil {
