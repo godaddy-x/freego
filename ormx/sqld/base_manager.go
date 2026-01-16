@@ -1461,30 +1461,9 @@ func (self *RDBManager) FindOneWithContext(ctx context.Context, cnd *sqlc.Cnd, d
 		}
 		defer rows.Close()
 	}
-	cols, err := rows.Columns()
-	if err != nil {
-		return self.Error("[Mysql.FindOne] read columns failed: ", err)
-	}
-	out, err := OutDestWithCapacity(obv, rows, cols, 1)
-	// 显式释放字节数组对象
-	defer ReleaseOutDest(out)
-	if err != nil {
-		return self.Error("[Mysql.FindOne] read result failed: ", err)
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	first := out[0]
-	// 修复：使用独立索引，避免 Ignore 字段导致索引错位
-	idx := 0
-	for _, vv := range obv.FieldElem {
-		if vv.Ignore {
-			continue
-		}
-		if err := SetValue(data, vv, first[idx]); err != nil {
-			return self.Error(err)
-		}
-		idx++
+	// 使用新的直接扫描方法，避免复杂的字节数组处理
+	if err := ScanRowsToObject(obv, rows, data); err != nil {
+		return self.Error("[Mysql.FindOne] scan result failed: ", err)
 	}
 	return nil
 }
@@ -2376,6 +2355,17 @@ func OutDestWithCapacity(obv *MdlDriver, rows *sql.Rows, cols []string, estimate
 		return nil, nil
 	}
 
+	// 先检查是否有行，避免在无数据时进行内存分配
+	if !rows.Next() {
+		// 检查是否有迭代错误，即使没有行也要检查
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		return nil, nil // 无结果，无需分配内存
+	}
+
+	// 确认有数据后，再进行内存分配
+
 	// 预估结果行数，限制最大初始容量
 	initialCap := 16
 	if estimatedRows > 0 {
@@ -2407,7 +2397,8 @@ func OutDestWithCapacity(obv *MdlDriver, rows *sql.Rows, cols []string, estimate
 	// 复用 dest 数组（避免每行重新分配 interface{} 切片）
 	dest := make([]interface{}, flen)
 
-	for rows.Next() {
+	// 处理第一行（已经在上面检查过了）
+	{
 		// 从池中获取对象
 		pooled := rowByteSlicePool.Get().([][]byte)
 
@@ -2435,7 +2426,43 @@ func OutDestWithCapacity(obv *MdlDriver, rows *sql.Rows, cols []string, estimate
 		// 执行扫描
 		if err := rows.Scan(dest...); err != nil {
 			rowByteSlicePool.Put(pooled)
-			return nil, fmt.Errorf("rows scan failed: %w", err)
+			return out, fmt.Errorf("rows scan failed: %w", err)
+		}
+
+		// 将整个 pooled 放入 out
+		out = append(out, pooled)
+	}
+
+	// 处理剩余行
+	for rows.Next() {
+		// 从池中获取对象
+		pooled := rowByteSlicePool.Get().([][]byte)
+
+		// ✅ 修复：基于 len 而非 cap 判断
+		if len(pooled) < flen {
+			if cap(pooled) >= flen {
+				pooled = pooled[:flen] // 扩展长度到 flen
+			} else {
+				// 容量不足，重新分配
+				pooled = make([][]byte, flen, flen*2)
+			}
+		}
+		// 现在 len(pooled) >= flen，可安全使用前 flen 个元素
+
+		// 重置每个字段
+		for i := 0; i < flen; i++ {
+			if cap(pooled[i]) < fieldCapacities[i] {
+				pooled[i] = make([]byte, 0, fieldCapacities[i])
+			} else {
+				pooled[i] = pooled[i][:0]
+			}
+			dest[i] = &pooled[i]
+		}
+
+		// 执行扫描
+		if err := rows.Scan(dest...); err != nil {
+			rowByteSlicePool.Put(pooled)                        // 仅释放当前失败行
+			return out, fmt.Errorf("rows scan failed: %w", err) // 返回已成功分配的 out
 		}
 
 		// 将整个 pooled 放入 out
@@ -2443,10 +2470,94 @@ func OutDestWithCapacity(obv *MdlDriver, rows *sql.Rows, cols []string, estimate
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("rows iteration error: %w", err)
+		return out, fmt.Errorf("rows iteration error: %w", err) // 不要 ReleaseOutDest! 让调用者处理
 	}
 
 	return out, nil
+}
+
+// ScanRowsToObject 直接将 rows 扫描到 data 对象，零中间分配
+// 适用于单条记录查询（如 FindOne），避免复杂的字节数组处理
+func ScanRowsToObject(obv *MdlDriver, rows *sql.Rows, data sqlc.Object) error {
+	if rows == nil || data == nil {
+		return fmt.Errorf("rows or data is nil")
+	}
+
+	cols, err := rows.Columns()
+	if err != nil {
+		return err
+	}
+	flen := len(cols)
+	if flen == 0 {
+		return nil
+	}
+
+	// 构建字段映射（按顺序匹配，跳过 Ignore 字段）
+	// 预分配容量避免扩容，最多需要 flen 个字段
+	scanFields := make([]*FieldElem, 0, flen)
+	colIndex := 0 // 跟踪列索引
+
+	for _, f := range obv.FieldElem {
+		if f.Ignore {
+			continue
+		}
+		if colIndex >= flen {
+			break // 超出列数
+		}
+		scanFields = append(scanFields, f)
+		colIndex++
+	}
+
+	// 确保字段数量匹配
+	if len(scanFields) != flen {
+		// 如果字段数量不匹配，返回到兼容模式
+		return fmt.Errorf("field count mismatch: expected %d, got %d fields (some fields may be ignored)", flen, len(scanFields))
+	}
+
+	// 预估字段容量
+	fieldCapacities := make([]int, flen)
+	if obv != nil && obv.FieldDBMap != nil {
+		for i, col := range cols {
+			key := obv.TableName + "." + col
+			if cap, exists := obv.FieldDBMap[key]; exists && cap > 0 {
+				fieldCapacities[i] = cap
+			} else {
+				fieldCapacities[i] = 64
+			}
+		}
+	} else {
+		for i := range fieldCapacities {
+			fieldCapacities[i] = 64
+		}
+	}
+
+	// 先检查是否有行，避免在无数据时进行内存分配
+	if !rows.Next() {
+		return rows.Err() // 如果有错误，返回 err；否则返回 nil
+	}
+
+	// 延迟分配：仅在确认有数据时才分配 buffers
+	buffers := make([][]byte, flen)
+	dest := make([]interface{}, flen)
+	for i := range buffers {
+		buffers[i] = make([]byte, 0, fieldCapacities[i])
+		dest[i] = &buffers[i]
+	}
+
+	// 扫描第一行
+	if err := rows.Scan(dest...); err != nil {
+		return err
+	}
+
+	// 直接写入 data（按顺序映射）
+	for i, field := range scanFields {
+		if err := SetValue(data, field, buffers[i]); err != nil {
+			return err
+		}
+	}
+
+	// 不关心后续行（FindOne）
+	return rows.Err()
 }
 
 // min 返回两个整数中的较小值
