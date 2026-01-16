@@ -416,6 +416,7 @@ func (self *RedisManager) InitConfig(input ...RedisConfig) (*RedisManager, error
 				enableSlowLogging:  slowThreshold > 0,
 				enableDetailedLogs: enableDetailedLogs,
 				slowCmdLastLogTime: make(map[string]time.Time),
+				lastCleanupTime:    time.Now(),
 			}
 			client.AddHook(hook)
 			zlog.Info("redis command monitoring enabled", 0,
@@ -444,6 +445,12 @@ func (self *RedisManager) InitConfig(input ...RedisConfig) (*RedisManager, error
 		redisMutex.Lock()
 		if _, b := redisSessions[dsName]; b {
 			redisMutex.Unlock()
+			// 关闭已创建的客户端，防止资源泄漏
+			if err := client.Close(); err != nil {
+				zlog.Warn("failed to close redis client after concurrent init conflict", 0,
+					zlog.String("ds_name", dsName),
+					zlog.AddError(err))
+			}
 			return nil, utils.Error("redis init failed: [", v.DsName, "] exist (concurrent init)")
 		}
 		redisSessions[dsName] = manager
@@ -2251,6 +2258,7 @@ type commandMonitoringHook struct {
 	// 日志限流相关字段
 	slowCmdLastLogTime map[string]time.Time // 记录每个慢命令最后一次记录时间
 	slowCmdLastLogMux  sync.Mutex           // 保护slowCmdLastLogTime的并发访问
+	lastCleanupTime    time.Time            // 上次清理时间
 }
 
 // sanitizeArgs 对命令参数进行脱敏处理，防止敏感信息泄露
@@ -2267,8 +2275,18 @@ func (h *commandMonitoringHook) sanitizeArgs(cmdName string, args []interface{})
 		// 统一将参数转换为字符串，确保二进制数据也被正确处理
 		var argStr string
 		if byteSlice, ok := arg.([]byte); ok {
-			// 对于 []byte 类型，直接转换为字符串
-			argStr = string(byteSlice)
+			// 对于 []byte 类型，检查是否包含不可打印字符
+			if h.isPrintable(byteSlice) {
+				argStr = string(byteSlice)
+			} else {
+				// 二进制数据使用十六进制显示前32字节
+				maxLen := 32
+				if len(byteSlice) > maxLen {
+					argStr = fmt.Sprintf("<binary:%d bytes, hex:%x...>", len(byteSlice), byteSlice[:maxLen])
+				} else {
+					argStr = fmt.Sprintf("<binary:%d bytes, hex:%x>", len(byteSlice), byteSlice)
+				}
+			}
 		} else {
 			// 对于其他类型，使用 fmt.Sprintf 转换
 			argStr = fmt.Sprintf("%v", arg)
@@ -2307,6 +2325,40 @@ func (h *commandMonitoringHook) sanitizeArgs(cmdName string, args []interface{})
 	return sanitized
 }
 
+// isPrintable 检查字节数组是否全部为可打印字符
+func (h *commandMonitoringHook) isPrintable(data []byte) bool {
+	for _, b := range data {
+		// ASCII可打印字符范围: 32-126, 加上常见空白字符
+		if (b < 32 || b > 126) && b != '\t' && b != '\n' && b != '\r' {
+			return false
+		}
+	}
+	return true
+}
+
+// cleanupSlowCmdLog 定期清理过期的慢命令日志记录，防止内存泄漏
+// 每5分钟清理一次，删除30分钟内未更新的记录
+func (h *commandMonitoringHook) cleanupSlowCmdLog() {
+	h.slowCmdLastLogMux.Lock()
+	defer h.slowCmdLastLogMux.Unlock()
+
+	now := time.Now()
+	// 每5分钟清理一次
+	if now.Sub(h.lastCleanupTime) < 5*time.Minute {
+		return
+	}
+
+	// 删除30分钟内未更新的记录
+	expireThreshold := 30 * time.Minute
+	for cmdKey, lastLogTime := range h.slowCmdLastLogTime {
+		if now.Sub(lastLogTime) > expireThreshold {
+			delete(h.slowCmdLastLogTime, cmdKey)
+		}
+	}
+
+	h.lastCleanupTime = now
+}
+
 // DialHook 在建立连接时调用（必需实现）
 func (h *commandMonitoringHook) DialHook(next redis.DialHook) redis.DialHook {
 	return func(ctx context.Context, network, addr string) (net.Conn, error) {
@@ -2340,16 +2392,9 @@ func (h *commandMonitoringHook) DialHook(next redis.DialHook) redis.DialHook {
 // 注意：日志记录已在 BeforeProcess/AfterProcess 中处理，此处仅保留时间记录逻辑，避免重复日志
 func (h *commandMonitoringHook) ProcessHook(next redis.ProcessHook) redis.ProcessHook {
 	return func(ctx context.Context, cmd redis.Cmder) error {
-		// 记录命令开始时间（如果BeforeProcess未设置）
-		if ctx.Value("redis_cmd_start") == nil {
-			ctx = context.WithValue(ctx, "redis_cmd_start", time.Now())
-		}
-
-		err := next(ctx, cmd)
-
-		// 注意：日志记录已在 AfterProcess 中处理，避免重复日志
-
-		return err
+		// BeforeProcess 已经设置了开始时间，这里只是兜底检查
+		// 注意：不需要在这里修改 ctx，因为 BeforeProcess 已经处理了
+		return next(ctx, cmd)
 	}
 }
 
@@ -2357,16 +2402,9 @@ func (h *commandMonitoringHook) ProcessHook(next redis.ProcessHook) redis.Proces
 // 注意：日志记录已在 BeforeProcessPipeline/AfterProcessPipeline 中处理，此处仅保留时间记录逻辑，避免重复日志
 func (h *commandMonitoringHook) ProcessPipelineHook(next redis.ProcessPipelineHook) redis.ProcessPipelineHook {
 	return func(ctx context.Context, cmds []redis.Cmder) error {
-		// 记录管道开始时间（如果BeforeProcessPipeline未设置）
-		if ctx.Value("redis_pipeline_start") == nil {
-			ctx = context.WithValue(ctx, "redis_pipeline_start", time.Now())
-		}
-
-		err := next(ctx, cmds)
-
-		// 注意：日志记录已在 AfterProcessPipeline 中处理，避免重复日志
-
-		return err
+		// BeforeProcessPipeline 已经设置了开始时间，这里只是兜底检查
+		// 注意：不需要在这里修改 ctx，因为 BeforeProcessPipeline 已经处理了
+		return next(ctx, cmds)
 	}
 }
 
@@ -2398,6 +2436,9 @@ func (h *commandMonitoringHook) AfterProcess(ctx context.Context, cmd redis.Cmde
 
 	// 检查是否为慢命令
 	isSlow := h.enableSlowLogging && duration >= h.slowThreshold
+
+	// 定期清理慢命令日志记录，防止内存泄漏
+	h.cleanupSlowCmdLog()
 
 	// 记录命令执行信息（根据配置决定是否记录详细日志）
 	shouldLogCommand := false
@@ -2477,18 +2518,22 @@ func (h *commandMonitoringHook) AfterProcessPipeline(ctx context.Context, cmds [
 	// 检查是否有慢命令
 	isSlow := h.enableSlowLogging && duration >= h.slowThreshold
 
-	// 记录管道执行信息
-	logLevel := zlog.Info
+	// 记录管道执行信息：只有慢管道或启用详细日志时才记录
 	if isSlow {
-		logLevel = zlog.Warn
+		zlog.Warn("redis slow pipeline executed", 0,
+			zlog.String("ds_name", h.dsName),
+			zlog.Strings("commands", cmdNames),
+			zlog.Int("command_count", len(cmds)),
+			zlog.Duration("duration", duration),
+			zlog.Bool("is_slow", true))
+	} else if h.enableDetailedLogs {
+		zlog.Debug("redis pipeline executed", 0,
+			zlog.String("ds_name", h.dsName),
+			zlog.Strings("commands", cmdNames),
+			zlog.Int("command_count", len(cmds)),
+			zlog.Duration("duration", duration),
+			zlog.Bool("is_slow", false))
 	}
-
-	logLevel("redis pipeline executed", 0,
-		zlog.String("ds_name", h.dsName),
-		zlog.Strings("commands", cmdNames),
-		zlog.Int("command_count", len(cmds)),
-		zlog.Duration("duration", duration),
-		zlog.Bool("is_slow", isSlow))
 
 	// 检查管道中的命令是否有错误
 	errorCount := 0
