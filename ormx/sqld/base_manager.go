@@ -2397,44 +2397,8 @@ func OutDestWithCapacity(obv *MdlDriver, rows *sql.Rows, cols []string, estimate
 	// 复用 dest 数组（避免每行重新分配 interface{} 切片）
 	dest := make([]interface{}, flen)
 
-	// 处理第一行（已经在上面检查过了）
-	{
-		// 从池中获取对象
-		pooled := rowByteSlicePool.Get().([][]byte)
-
-		// ✅ 修复：基于 len 而非 cap 判断
-		if len(pooled) < flen {
-			if cap(pooled) >= flen {
-				pooled = pooled[:flen] // 扩展长度到 flen
-			} else {
-				// 容量不足，重新分配
-				pooled = make([][]byte, flen, flen*2)
-			}
-		}
-		// 现在 len(pooled) >= flen，可安全使用前 flen 个元素
-
-		// 重置每个字段
-		for i := 0; i < flen; i++ {
-			if cap(pooled[i]) < fieldCapacities[i] {
-				pooled[i] = make([]byte, 0, fieldCapacities[i])
-			} else {
-				pooled[i] = pooled[i][:0]
-			}
-			dest[i] = &pooled[i]
-		}
-
-		// 执行扫描
-		if err := rows.Scan(dest...); err != nil {
-			rowByteSlicePool.Put(pooled)
-			return out, fmt.Errorf("rows scan failed: %w", err)
-		}
-
-		// 将整个 pooled 放入 out
-		out = append(out, pooled)
-	}
-
-	// 处理剩余行
-	for rows.Next() {
+	// 处理所有行（第一行已经在上面确认存在）
+	for {
 		// 从池中获取对象
 		pooled := rowByteSlicePool.Get().([][]byte)
 
@@ -2467,6 +2431,11 @@ func OutDestWithCapacity(obv *MdlDriver, rows *sql.Rows, cols []string, estimate
 
 		// 将整个 pooled 放入 out
 		out = append(out, pooled)
+
+		// 检查是否还有更多行
+		if !rows.Next() {
+			break
+		}
 	}
 
 	if err := rows.Err(); err != nil {
