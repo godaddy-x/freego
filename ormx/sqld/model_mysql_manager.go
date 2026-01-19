@@ -62,6 +62,11 @@ type MdlTime struct {
 	fmt2  string         // 辅助时间格式（如日期格式）
 }
 
+type FieldDB struct {
+	Cap   int
+	Field *FieldElem
+}
+
 type MdlDriver struct {
 	// 字符串字段
 	TableName  string
@@ -74,7 +79,7 @@ type MdlDriver struct {
 	// 切片字段
 	FieldElem []*FieldElem
 	// 数据库字段预估集合
-	FieldDBMap map[string]int
+	FieldDBMap map[string]*FieldDB
 
 	// 接口字段
 	Object sqlc.Object
@@ -108,12 +113,12 @@ type SQLColumn struct {
 // getTypeCapacityPresets 从数据库的information_schema.columns表中查询指定表的字段信息，
 // 并为每个字段计算预设的缓冲区容量
 // 返回一个映射，键为"表名+字段名"，值为预设容量；如果查询失败则返回错误
-func getTypeCapacityPresets(tableName string) (map[string]int, error) {
+func getTypeCapacityPresets(tableName string) (map[string]*FieldDB, error) {
 	if tableName == "" {
 		return nil, errors.New("表名不能为空")
 	}
 
-	sqlColumnMap := map[string]int{}
+	sqlColumnMap := map[string]*FieldDB{}
 
 	// 查询information_schema.columns获取字段信息
 	query := `
@@ -170,7 +175,7 @@ func getTypeCapacityPresets(tableName string) (map[string]int, error) {
 			col.Length = 0 // 无长度的类型（如datetime、text）
 		}
 
-		sqlColumnMap[tableName+col.ColumnName] = getPresetCapacity(col.DataType, col.Length)
+		sqlColumnMap[utils.AddStr(tableName, "|", col.ColumnName)] = &FieldDB{Cap: getPresetCapacity(col.DataType, col.Length), Field: &FieldElem{FieldJsonName: col.ColumnName}}
 
 	}
 
@@ -396,13 +401,6 @@ func ModelDriver(objects ...sqlc.Object) error {
 			TableName: v.GetTable(),
 			FieldElem: []*FieldElem{},
 		}
-		if !strings.HasPrefix(md.TableName, "temp_q_") {
-			col, err := getTypeCapacityPresets(md.TableName)
-			if err != nil {
-				zlog.Debug("MySQL getSQLTableColumns fail", 0, zlog.String("table", md.TableName), zlog.String("errMsg", err.Error()))
-			}
-			md.FieldDBMap = col
-		}
 
 		tof := reflect.TypeOf(model).Elem()
 		vof := reflect.ValueOf(model).Elem()
@@ -467,6 +465,23 @@ func ModelDriver(objects ...sqlc.Object) error {
 			}
 			md.FieldElem = append(md.FieldElem, f)
 		}
+
+		if !strings.HasPrefix(md.TableName, "temp_q_") {
+			col, err := getTypeCapacityPresets(md.TableName)
+			if err != nil {
+				zlog.Debug("MySQL getSQLTableColumns fail", 0, zlog.String("table", md.TableName), zlog.String("errMsg", err.Error()))
+			}
+			md.FieldDBMap = make(map[string]*FieldDB, len(col))
+			for _, c := range col {
+				for _, f := range md.FieldElem {
+					if f.FieldJsonName == c.Field.FieldJsonName {
+						md.FieldDBMap[f.FieldJsonName] = &FieldDB{Field: f, Cap: c.Cap}
+						break
+					}
+				}
+			}
+		}
+
 		if _, b := modelDrivers[md.TableName]; !b {
 			// 表不存在时才注册，避免并发注册冲突
 			modelDrivers[md.TableName] = md

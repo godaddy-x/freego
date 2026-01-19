@@ -940,7 +940,7 @@ func TestMysqlFindOneComplex(t *testing.T) {
 	defer db.Close()
 	l := utils.UnixMilli()
 	result := OwWallet{}
-	if err := db.FindOneComplex(sqlc.M().Fields("a.id id", "a.appID appID").From("ow_wallet a").Join(sqlc.LEFT_, "user b", "a.id = b.id").Eq("a.id", 218418572484169728).Eq("a.appID", "updated_app_yzNQSr").Orderby("a.id", sqlc.ASC_).Limit(1, 5), &result); err != nil {
+	if err := db.FindOneComplex(sqlc.M().Fields("a.id id", "a.appID appID").From("ow_wallet a").Join(sqlc.LEFT_, "user b", "a.id = b.id").Eq("a.id", 1988433892066983949).Eq("a.appID", "test_app_3MuciK").Orderby("a.id", sqlc.ASC_).Limit(1, 5), &result); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println(result)
