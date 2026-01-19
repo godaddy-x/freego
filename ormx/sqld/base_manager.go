@@ -1589,11 +1589,6 @@ func (self *RDBManager) FindListWithContext(ctx context.Context, cnd *sqlc.Cnd, 
 	}
 	flen := len(cols)
 	if flen == 0 {
-		// 无列，直接返回（同时处理空分页）
-		if cnd.Pagination.IsPage {
-			cnd.Pagination.PageCount = 0
-			cnd.Pagination.PageTotal = 0
-		}
 		return nil
 	}
 
@@ -1602,11 +1597,6 @@ func (self *RDBManager) FindListWithContext(ctx context.Context, cnd *sqlc.Cnd, 
 		// 无数据
 		if err = rows.Err(); err != nil {
 			return self.Error("[Mysql.FindList] rows error on empty result: ", err)
-		}
-		// 处理空分页
-		if cnd.Pagination.IsPage {
-			cnd.Pagination.PageCount = 0
-			cnd.Pagination.PageTotal = 0
 		}
 		return nil
 	}
