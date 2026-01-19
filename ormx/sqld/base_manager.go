@@ -2025,30 +2025,9 @@ func (self *RDBManager) FindOneComplexWithContext(ctx context.Context, cnd *sqlc
 	if len(cols) != len(cnd.AnyFields) {
 		return self.Error("[Mysql.FindOneComplex] read columns length invalid")
 	}
-	out, err := OutDestWithCapacity(obv, rows, cols, 1)
-	// 显式释放字节数组对象
-	defer ReleaseOutDest(out)
-	if err != nil {
-		return self.Error("[Mysql.FindOneComplex] read result failed: ", err)
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	first := out[0]
-	// 优化：建立字段名到字段信息的映射，避免O(n²)查找
-	fieldMap := make(map[string]*FieldElem, len(obv.FieldElem))
-	for _, vv := range obv.FieldElem {
-		if !vv.Ignore {
-			fieldMap[vv.FieldJsonName] = vv
-		}
-	}
-
-	for i := 0; i < len(cols); i++ {
-		if field, ok := fieldMap[cols[i]]; ok {
-			if err := SetValue(data, field, first[i]); err != nil {
-				return self.Error(err)
-			}
-		}
+	// 使用新的直接扫描方法，避免复杂的字节数组处理
+	if err := ScanRowsToObject(obv, rows, data); err != nil {
+		return self.Error("[Mysql.FindOneComplex] scan result failed: ", err)
 	}
 	return nil
 }
