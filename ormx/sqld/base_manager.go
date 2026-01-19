@@ -1583,86 +1583,10 @@ func (self *RDBManager) FindListWithContext(ctx context.Context, cnd *sqlc.Cnd, 
 		}
 		defer rows.Close()
 	}
-	cols, err := rows.Columns()
-	if err != nil {
-		return self.Error("[Mysql.FindList] read columns failed: ", err)
+	// 使用通用的多行扫描方法
+	if err := ScanRowsToObjects(obv, rows, cnd, data, 0); err != nil {
+		return self.Error("[Mysql.FindList] ", err)
 	}
-	flen := len(cols)
-	if flen == 0 {
-		return nil
-	}
-
-	// === 关键：先检查是否有数据行，再分配内存 ===
-	if !rows.Next() {
-		// 无数据
-		if err = rows.Err(); err != nil {
-			return self.Error("[Mysql.FindList] rows error on empty result: ", err)
-		}
-		return nil
-	}
-
-	// 2. 预估每个列的 buffer 容量
-	fieldCapacities := make([]int, flen)
-	for i, col := range cols {
-		if fieldDB, exists := obv.FieldDBMap[col]; exists && fieldDB.Cap > 0 {
-			fieldCapacities[i] = fieldDB.Cap
-		} else {
-			fieldCapacities[i] = 64
-		}
-	}
-
-	// ✅ 确认有数据后，才分配 buffers 和 dest
-	buffers := make([][]byte, flen)
-	dest := make([]interface{}, flen)
-	for i := range dest {
-		buffers[i] = make([]byte, 0, fieldCapacities[i])
-		dest[i] = &buffers[i]
-	}
-
-	rowCount := 0
-	for {
-		// 从第二行开始，重置 buffers
-		if rowCount > 0 {
-			for i := range buffers {
-				if cap(buffers[i]) < fieldCapacities[i] {
-					buffers[i] = make([]byte, 0, fieldCapacities[i])
-				} else {
-					buffers[i] = buffers[i][:0]
-				}
-				// dest[i] 仍指向 &buffers[i]，无需更新
-			}
-		}
-
-		// 扫描当前行
-		if err := rows.Scan(dest...); err != nil {
-			return self.Error("[Mysql.FindList] scan row failed: ", err)
-		}
-
-		// 创建并填充对象
-		model := cnd.Model.NewObject()
-		// 修复：使用独立索引，避免 Ignore 字段导致索引错位
-		for k, col := range cols {
-			f, has := obv.FieldDBMap[col]
-			if !has {
-				return self.Error("[Mysql.FindList] row mapping field not found: ", obv.TableName, " - ", col)
-			}
-			if err := SetValue(model, f.Field, buffers[k]); err != nil {
-				return self.Error(err)
-			}
-		}
-		cnd.Model.AppendObject(data, model)
-		rowCount++
-
-		// 检查是否还有下一行
-		if !rows.Next() {
-			break
-		}
-	}
-
-	if err = rows.Err(); err != nil {
-		return self.Error("[Mysql.FindList] rows iteration error: ", err)
-	}
-
 	return nil
 }
 
@@ -2060,7 +1984,7 @@ func (self *RDBManager) FindListComplexWithContext(ctx context.Context, cnd *sql
 	if len(cnd.AnyFields) == 0 {
 		return self.Error("[Mysql.FindListComplex] any fields is nil")
 	}
-	_, ok := modelDrivers[cnd.Model.GetTable()]
+	obv, ok := modelDrivers[cnd.Model.GetTable()]
 	if !ok {
 		return self.Error("[Mysql.FindListComplex] registration object type not found [", cnd.Model.GetTable(), "]")
 	}
@@ -2207,55 +2131,10 @@ func (self *RDBManager) FindListComplexWithContext(ctx context.Context, cnd *sql
 		}
 		defer rows.Close()
 	}
-	cols, err := rows.Columns()
-	if err != nil {
-		return self.Error("[Mysql.FindListComplex] read columns failed: ", err)
+	// 使用通用的多行扫描方法，验证字段数量
+	if err := ScanRowsToObjects(obv, rows, cnd, data, len(cnd.AnyFields)); err != nil {
+		return self.Error("[Mysql.FindListComplex] ", err)
 	}
-	if len(cols) != len(cnd.AnyFields) {
-		return self.Error("[Mysql.FindListComplex] read columns length invalid")
-	}
-	//out, err := OutDestWithCapacity(obv, rows, cols, 0)
-	//// 显式释放字节数组对象
-	//defer ReleaseOutDest(out)
-	if err != nil {
-		return self.Error("[Mysql.FindListComplex] read result failed: ", err)
-	}
-	//if len(out) == 0 {
-	//	if cnd.Pagination.IsPage {
-	//		cnd.Pagination.PageCount = 0
-	//		cnd.Pagination.PageTotal = 0
-	//	}
-	//	return nil
-	//}
-	resultv := reflect.ValueOf(data)
-	if resultv.Kind() != reflect.Ptr {
-		return self.Error("[Mysql.FindList] target value kind not ptr")
-	}
-	slicev := resultv.Elem()
-	if slicev.Kind() != reflect.Slice {
-		return self.Error("[Mysql.FindList] target value kind not slice")
-	}
-	// 优化：建立列名到索引的映射，避免 O(n) 查找
-	colIndexMap := make(map[string]int, len(cols))
-	for i, col := range cols {
-		colIndexMap[col] = i
-	}
-
-	//for _, v := range [][]byte{} {
-	//	model := cnd.Model.NewObject()
-	//	for _, vv := range obv.FieldElem {
-	//		if vv.Ignore {
-	//			continue
-	//		}
-	//		if _, exists := colIndexMap[vv.FieldJsonName]; exists {
-	//			if err := SetValue(model, vv, nil); err != nil {
-	//				return self.Error(err)
-	//			}
-	//		}
-	//	}
-	//	cnd.Model.AppendObject(data, model)
-	//}
-
 	return nil
 }
 
@@ -2324,144 +2203,6 @@ func (self *RDBManager) mongoSyncData(option int, model sqlc.Object, cnd *sqlc.C
 	return nil
 }
 
-// 全局对象池：复用 [][]byte（每行数据的切片容器），避免每次循环创建新切片
-var rowByteSlicePool = sync.Pool{
-	New: func() interface{} {
-		// 预分配 64 列（根据业务最大字段数调整）
-		s := make([][]byte, 64)
-		for i := range s {
-			s[i] = make([]byte, 0, 128) // 默认字段容量
-		}
-		return s
-	},
-}
-
-// ReleaseOutDest 释放资源（必须调用）
-// ReleaseOutDest 将内存对象放回对象池
-// 重要：必须在处理完 out 后调用，否则会导致内存泄漏和池污染
-//func ReleaseOutDest(out [][][]byte) {
-//	if out == nil {
-//		return
-//	}
-//	for _, pooled := range out {
-//		if pooled == nil {
-//			continue
-//		}
-//		// 清空所有已使用的字段（最多 len(pooled)，但安全起见遍历全部）
-//		for i := range pooled {
-//			s := pooled[i]
-//			if len(s) > 0 {
-//				for j := range s {
-//					s[j] = 0
-//				}
-//				pooled[i] = s[:0] // 重置长度
-//			}
-//		}
-//		rowByteSlicePool.Put(pooled) // ✅ 安全：无论是否扩容，都来自"逻辑上的 pool"
-//	}
-//}
-
-// OutDestWithCapacity 带容量预估的查询结果集输出，使用mdl的预估字段长度
-//func OutDestWithCapacity(obv *MdlDriver, rows *sql.Rows, cols []string, estimatedRows int) ([][][]byte, error) {
-//	if rows == nil || cols == nil {
-//		return nil, fmt.Errorf("rows or cols is nil")
-//	}
-//
-//	flen := len(cols)
-//	if flen == 0 {
-//		return nil, nil
-//	}
-//
-//	// 先检查是否有行，避免在无数据时进行内存分配
-//	if !rows.Next() {
-//		// 检查是否有迭代错误，即使没有行也要检查
-//		if err := rows.Err(); err != nil {
-//			return nil, err
-//		}
-//		return nil, nil // 无结果，无需分配内存
-//	}
-//
-//	// 确认有数据后，再进行内存分配
-//
-//	// 预估结果行数，限制最大初始容量
-//	initialCap := 16
-//	if estimatedRows > 0 {
-//		if estimatedRows > 10000 {
-//			initialCap = 10000
-//		} else {
-//			initialCap = estimatedRows
-//		}
-//	}
-//	out := make([][][]byte, 0, initialCap)
-//
-//	// 预估每个字段的容量（字节）
-//	fieldCapacities := make([]int, flen)
-//	if obv != nil && obv.FieldDBMap != nil {
-//		for i, colName := range cols {
-//			key := obv.TableName + "." + colName // 更安全的 key 格式
-//			if cap, exists := obv.FieldDBMap[key]; exists && cap > 0 {
-//				fieldCapacities[i] = cap
-//			} else {
-//				fieldCapacities[i] = 64
-//			}
-//		}
-//	} else {
-//		for i := range fieldCapacities {
-//			fieldCapacities[i] = 64
-//		}
-//	}
-//
-//	// 复用 dest 数组（避免每行重新分配 interface{} 切片）
-//	dest := make([]interface{}, flen)
-//
-//	// 处理所有行（第一行已经在上面确认存在）
-//	for {
-//		// 从池中获取对象
-//		pooled := rowByteSlicePool.Get().([][]byte)
-//
-//		// ✅ 修复：基于 len 而非 cap 判断
-//		if len(pooled) < flen {
-//			if cap(pooled) >= flen {
-//				pooled = pooled[:flen] // 扩展长度到 flen
-//			} else {
-//				// 容量不足，重新分配
-//				pooled = make([][]byte, flen, flen*2)
-//			}
-//		}
-//		// 现在 len(pooled) >= flen，可安全使用前 flen 个元素
-//
-//		// 重置每个字段
-//		for i := 0; i < flen; i++ {
-//			if cap(pooled[i]) < fieldCapacities[i] {
-//				pooled[i] = make([]byte, 0, fieldCapacities[i])
-//			} else {
-//				pooled[i] = pooled[i][:0]
-//			}
-//			dest[i] = &pooled[i]
-//		}
-//
-//		// 执行扫描
-//		if err := rows.Scan(dest...); err != nil {
-//			rowByteSlicePool.Put(pooled)                        // 仅释放当前失败行
-//			return out, fmt.Errorf("rows scan failed: %w", err) // 返回已成功分配的 out
-//		}
-//
-//		// 将整个 pooled 放入 out
-//		out = append(out, pooled)
-//
-//		// 检查是否还有更多行
-//		if !rows.Next() {
-//			break
-//		}
-//	}
-//
-//	if err := rows.Err(); err != nil {
-//		return out, fmt.Errorf("rows iteration error: %w", err) // 不要 ReleaseOutDest! 让调用者处理
-//	}
-//
-//	return out, nil
-//}
-
 // ScanRowsToObject 直接将 rows 扫描到 data 对象，零中间分配
 // 适用于单条记录查询（如 FindOne），避免复杂的字节数组处理
 // ScanRowsToObject 直接将 rows 扫描到 data 对象，零中间分配
@@ -2515,6 +2256,103 @@ func ScanRowsToObject(obv *MdlDriver, rows *sql.Rows, data sqlc.Object) error {
 	}
 
 	return rows.Err()
+}
+
+// ScanRowsToObjects 直接将多行数据扫描到对象列表，零中间分配
+// 适用于多条记录查询（如 FindList），避免复杂的字节数组处理
+// expectedFieldCount 用于复杂查询的字段验证，0表示不验证
+func ScanRowsToObjects(obv *MdlDriver, rows *sql.Rows, cnd *sqlc.Cnd, data interface{}, expectedFieldCount int) error {
+	if rows == nil || obv == nil || cnd == nil || data == nil {
+		return fmt.Errorf("invalid argument")
+	}
+
+	cols, err := rows.Columns()
+	if err != nil {
+		return fmt.Errorf("read columns failed: %w", err)
+	}
+
+	// 验证字段数量（用于复杂查询）
+	if expectedFieldCount > 0 && len(cols) != expectedFieldCount {
+		return fmt.Errorf("read columns length invalid: expected %d, got %d", expectedFieldCount, len(cols))
+	}
+
+	flen := len(cols)
+	if flen == 0 {
+		return nil
+	}
+
+	// === 关键：先检查是否有数据行，再分配内存 ===
+	if !rows.Next() {
+		// 无数据
+		if err = rows.Err(); err != nil {
+			return fmt.Errorf("rows error on empty result: %w", err)
+		}
+		return nil
+	}
+
+	// 2. 预估每个列的 buffer 容量
+	fieldCapacities := make([]int, flen)
+	for i, col := range cols {
+		if fieldDB, exists := obv.FieldDBMap[col]; exists && fieldDB.Cap > 0 {
+			fieldCapacities[i] = fieldDB.Cap
+		} else {
+			fieldCapacities[i] = 64
+		}
+	}
+
+	// ✅ 确认有数据后，才分配 buffers 和 dest
+	buffers := make([][]byte, flen)
+	dest := make([]interface{}, flen)
+	for i := range dest {
+		buffers[i] = make([]byte, 0, fieldCapacities[i])
+		dest[i] = &buffers[i]
+	}
+
+	rowCount := 0
+	for {
+		// 从第二行开始，重置 buffers
+		if rowCount > 0 {
+			for i := range buffers {
+				if cap(buffers[i]) < fieldCapacities[i] {
+					buffers[i] = make([]byte, 0, fieldCapacities[i])
+				} else {
+					buffers[i] = buffers[i][:0]
+				}
+				// dest[i] 仍指向 &buffers[i]，无需更新
+			}
+		}
+
+		// 扫描当前行
+		if err := rows.Scan(dest...); err != nil {
+			return fmt.Errorf("scan row failed: %w", err)
+		}
+
+		// 创建并填充对象
+		model := cnd.Model.NewObject()
+		// 修复：使用独立索引，避免 Ignore 字段导致索引错位
+		for k, col := range cols {
+			f, has := obv.FieldDBMap[col]
+			if !has {
+				return fmt.Errorf("row mapping field not found: %s - %s", obv.TableName, col)
+			}
+			if err := SetValue(model, f.Field, buffers[k]); err != nil {
+				return fmt.Errorf("set value failed: %w", err)
+			}
+		}
+		cnd.Model.AppendObject(data, model)
+		rowCount++
+
+		// 检查是否还有下一行
+		if !rows.Next() {
+			break
+		}
+	}
+
+	if err = rows.Err(); err != nil {
+		return fmt.Errorf("rows iteration error: %w", err)
+	}
+
+	return nil
 }
 
 // min 返回两个整数中的较小值
