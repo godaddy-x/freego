@@ -194,7 +194,7 @@ func BenchmarkMysqlFindOne(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			var result OwWallet
-			if err := db.FindOne(sqlc.M().Eq("id", 1983821936127377408), &result); err != nil {
+			if err := db.FindOne(sqlc.M().Eq("id", 1988433892066983936), &result); err != nil {
 				b.Error(err)
 			}
 		}
