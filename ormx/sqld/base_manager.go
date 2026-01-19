@@ -1587,21 +1587,9 @@ func (self *RDBManager) FindListWithContext(ctx context.Context, cnd *sqlc.Cnd, 
 	if err != nil {
 		return self.Error("[Mysql.FindList] read columns failed: ", err)
 	}
-
-	// 优化：根据分页信息智能预估容量
-	var estimatedRows int
-	if (cnd.Pagination.IsPage || cnd.Pagination.IsOffset) && cnd.Pagination.PageSize > 0 {
-		// 分页查询时，最多返回 PageSize 行
-		estimatedRows = int(cnd.Pagination.PageSize)
-	}
-
-	out, err := OutDestWithCapacity(obv, rows, cols, estimatedRows)
-	// 显式释放字节数组对象
-	defer ReleaseOutDest(out)
-	if err != nil {
-		return self.Error("[Mysql.FindList] read result failed: ", err)
-	}
-	if len(out) == 0 {
+	flen := len(cols)
+	if flen == 0 {
+		// 无列，直接返回（同时处理空分页）
 		if cnd.Pagination.IsPage {
 			cnd.Pagination.PageCount = 0
 			cnd.Pagination.PageTotal = 0
@@ -1609,23 +1597,85 @@ func (self *RDBManager) FindListWithContext(ctx context.Context, cnd *sqlc.Cnd, 
 		return nil
 	}
 
-	for _, v := range out {
+	// === 关键：先检查是否有数据行，再分配内存 ===
+	if !rows.Next() {
+		// 无数据
+		if err = rows.Err(); err != nil {
+			return self.Error("[Mysql.FindList] rows error on empty result: ", err)
+		}
+		// 处理空分页
+		if cnd.Pagination.IsPage {
+			cnd.Pagination.PageCount = 0
+			cnd.Pagination.PageTotal = 0
+		}
+		return nil
+	}
+
+	// 2. 预估每个列的 buffer 容量
+	fieldCapacities := make([]int, flen)
+	for i, col := range cols {
+		key := obv.TableName + "." + col
+		if cap, exists := obv.FieldDBMap[key]; exists && cap > 0 {
+			fieldCapacities[i] = cap
+		} else {
+			fieldCapacities[i] = 64
+		}
+	}
+
+	// ✅ 确认有数据后，才分配 buffers 和 dest
+	buffers := make([][]byte, flen)
+	dest := make([]interface{}, flen)
+	for i := range dest {
+		buffers[i] = make([]byte, 0, fieldCapacities[i])
+		dest[i] = &buffers[i]
+	}
+
+	rowCount := 0
+	for {
+		// 从第二行开始，重置 buffers
+		if rowCount > 0 {
+			for i := range buffers {
+				if cap(buffers[i]) < fieldCapacities[i] {
+					buffers[i] = make([]byte, 0, fieldCapacities[i])
+				} else {
+					buffers[i] = buffers[i][:0]
+				}
+				// dest[i] 仍指向 &buffers[i]，无需更新
+			}
+		}
+
+		// 扫描当前行
+		if err := rows.Scan(dest...); err != nil {
+			return self.Error("[Mysql.FindList] scan row failed: ", err)
+		}
+
+		// 创建并填充对象
 		model := cnd.Model.NewObject()
 		// 修复：使用独立索引，避免 Ignore 字段导致索引错位
-		idx := 0
-		for _, vv := range obv.FieldElem {
-			if vv.Ignore {
+		index := 0
+		for _, f := range obv.FieldElem {
+			if f.Ignore {
 				continue
 			}
-			if err := SetValue(model, vv, v[idx]); err != nil {
+			if err := SetValue(model, f, buffers[index]); err != nil {
 				return self.Error(err)
 			}
-			idx++
+			index++
 		}
 		cnd.Model.AppendObject(data, model)
-	}
-	return nil
+		rowCount++
 
+		// 检查是否还有下一行
+		if !rows.Next() {
+			break
+		}
+	}
+
+	if err = rows.Err(); err != nil {
+		return self.Error("[Mysql.FindList] rows iteration error: ", err)
+	}
+
+	return nil
 }
 
 func (self *RDBManager) Count(cnd *sqlc.Cnd) (int64, error) {
