@@ -2242,6 +2242,12 @@ func ScanRowsToObject(obv *MdlDriver, rows *sql.Rows, data sqlc.Object) error {
 	return rows.Err()
 }
 
+var scanBufferPool = sync.Pool{
+	New: func() interface{} {
+		return make([][]byte, 0, 32)
+	},
+}
+
 // ScanRowsToObjects 直接将多行数据扫描到对象列表
 // 每行独立分配 buffers，允许安全使用 unsafe 字符串转换
 // 适用于多条记录查询（如 FindList）
@@ -2278,12 +2284,41 @@ func ScanRowsToObjects(obv *MdlDriver, rows *sql.Rows, cnd *sqlc.Cnd, data inter
 		return nil
 	}
 
-	// ===== 关键：批量模式判断 =====
-	// 启用批量优化：预分配可复用 buffers
-	reusableBuffers := make([][]byte, flen)
-	for i := range reusableBuffers {
-		reusableBuffers[i] = make([]byte, fieldCapacities[i]) // 分配足够容量
+	// ===== 使用对象池获取 reusableBuffers =====
+	raw := scanBufferPool.Get()
+	var reusableBuffers [][]byte
+	if raw != nil {
+		reusableBuffers = raw.([][]byte)
+	} else {
+		reusableBuffers = make([][]byte, 0, flen+8)
 	}
+
+	// 确保长度为 flen
+	if cap(reusableBuffers) < flen {
+		reusableBuffers = make([][]byte, flen)
+	} else {
+		reusableBuffers = reusableBuffers[:flen]
+	}
+
+	// 为每一列分配/重用 buffer
+	for i := 0; i < flen; i++ {
+		requiredCap := fieldCapacities[i]
+		if cap(reusableBuffers[i]) < requiredCap {
+			reusableBuffers[i] = make([]byte, requiredCap)
+		} else {
+			reusableBuffers[i] = reusableBuffers[i][:requiredCap]
+		}
+	}
+
+	// 归还到池（保留底层数组）
+	defer func() {
+		// 解除对底层 []byte 的引用，避免大 buffer（如 TEXT/BLOB）
+		// 被 sync.Pool 意外持有，导致内存无法释放
+		for i := range reusableBuffers {
+			reusableBuffers[i] = nil
+		}
+		scanBufferPool.Put(reusableBuffers[:0])
+	}()
 
 	rowCount := 0
 	for {
