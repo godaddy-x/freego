@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"reflect"
 	"sync"
 	"sync/atomic"
@@ -2223,30 +2224,24 @@ func ScanRowsToObject(obv *MdlDriver, rows *sql.Rows, data sqlc.Object) error {
 		return rows.Err()
 	}
 
-	flen := len(cols)
+	fieldCapacities := getFieldCapacities(obv, cols)
 
-	// 预计算每列的 buffer 容量（一次）
-	fieldCapacities := make([]int, flen)
-	for i, col := range cols {
-		if f, ok := obv.FieldDBMap[col]; ok && f.Cap > 0 {
-			fieldCapacities[i] = f.Cap
-		} else {
-			fieldCapacities[i] = 64
-		}
-	}
-
-	if err := SetRowValues(obv, rows, cols, data, flen, fieldCapacities, nil); err != nil {
+	if err := SetRowValues(obv, rows, cols, data, len(cols), fieldCapacities, nil); err != nil {
 		return err
 	}
 
 	return rows.Err()
 }
 
-var scanBufferPool = sync.Pool{
-	New: func() interface{} {
-		return make([][]byte, 0, 32)
-	},
-}
+var (
+	scanBufferPool = sync.Pool{
+		New: func() interface{} {
+			return make([][]byte, 0, 32)
+		},
+	}
+	globalFieldCapacitiesSep   = []byte{0}
+	globalFieldCapacitiesCache sync.Map // key: uint64, value: []int
+)
 
 // ScanRowsToObjects 直接将多行数据扫描到对象列表
 // 每行独立分配 buffers，允许安全使用 unsafe 字符串转换
@@ -2266,15 +2261,7 @@ func ScanRowsToObjects(obv *MdlDriver, rows *sql.Rows, cnd *sqlc.Cnd, data inter
 		return nil
 	}
 
-	// 预计算每列的 buffer 容量（一次）
-	fieldCapacities := make([]int, flen)
-	for i, col := range cols {
-		if f, ok := obv.FieldDBMap[col]; ok && f.Cap > 0 {
-			fieldCapacities[i] = f.Cap
-		} else {
-			fieldCapacities[i] = 64
-		}
-	}
+	fieldCapacities := getFieldCapacities(obv, cols)
 
 	// 先检查是否有第一行
 	if !rows.Next() {
@@ -2396,13 +2383,48 @@ func SetRowValues(obv *MdlDriver, rows *sql.Rows, cols []string, model sqlc.Obje
 	return nil
 }
 
-// min 返回两个整数中的较小值
-//func min(a, b int) int {
-//	if a < b {
-//		return a
-//	}
-//	return b
-//}
+// hashTableColumns 保持不变（但建议稍后替换 Str2Bytes）
+func hashTableColumns(tableName string, cols []string) uint64 {
+	h := fnv.New64a()
+
+	// 写入表名
+	h.Write(utils.Str2Bytes(tableName)) // 👈 建议改用标准转换（见下文说明）
+	h.Write(globalFieldCapacitiesSep)
+
+	// 写入列名
+	for _, col := range cols {
+		h.Write(utils.Str2Bytes(col))
+		h.Write(globalFieldCapacitiesSep)
+	}
+
+	return h.Sum64()
+}
+
+func getFieldCapacities(obv *MdlDriver, cols []string) []int {
+	if len(cols) == 0 {
+		return nil // or return []int{}
+	}
+
+	tableName := obv.TableName
+	cacheKey := hashTableColumns(tableName, cols)
+
+	if cached, ok := globalFieldCapacitiesCache.Load(cacheKey); ok {
+		return cached.([]int)
+	}
+
+	// 计算
+	fieldCapacities := make([]int, len(cols))
+	for i, col := range cols {
+		if f, ok := obv.FieldDBMap[col]; ok && f.Cap > 0 {
+			fieldCapacities[i] = f.Cap
+		} else {
+			fieldCapacities[i] = 64
+		}
+	}
+
+	globalFieldCapacitiesCache.Store(cacheKey, fieldCapacities)
+	return fieldCapacities
+}
 
 // BuildCondKey 将条件键写入传入的buffer（不包含前导空格）
 func (self *RDBManager) BuildCondKey(cnd *sqlc.Cnd, key string, buf *bytes.Buffer) {

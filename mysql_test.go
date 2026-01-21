@@ -212,6 +212,9 @@ func TestMysqlFindList(t *testing.T) {
 	if err := db.FindList(sqlc.M(&OwWallet{}).Between("id", 1988433892066983936, 1988433892066983949).Limit(1, 5).Orderby("id", sqlc.DESC_), &result); err != nil {
 		fmt.Println(err)
 	}
+	if err := db.FindList(sqlc.M(&OwWallet{}).Between("id", 1988433892066983936, 1988433892066983949).Limit(1, 5).Orderby("id", sqlc.DESC_), &result); err != nil {
+		fmt.Println(err)
+	}
 	fmt.Printf("查询到 %d 条记录\n", len(result))
 	fmt.Println("cost: ", utils.UnixMilli()-l)
 
