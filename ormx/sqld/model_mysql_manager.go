@@ -713,17 +713,19 @@ func GetValue(obj interface{}, elem *FieldElem) (interface{}, error) {
 // safeBytesToString 安全地将 []byte 转换为字符串，避免对象池释放时的内存共享问题
 // 对于非空字节数组，会创建副本后转换；空数组直接转换，无需创建副本
 func safeBytesToString(b []byte) string {
-	if len(b) == 0 {
-		// 空数据直接转换，无需创建副本
-		ret, _ := utils.NewString(b)
-		return ret
-	} else {
-		// 非空数据创建副本，避免对象池释放问题
-		v := make([]byte, len(b))
-		copy(v, b)
-		ret, _ := utils.NewString(v)
-		return ret
-	}
+	//if len(b) == 0 {
+	//	// 空数据直接转换，无需创建副本
+	//	ret, _ := utils.NewString(b)
+	//	return ret
+	//} else {
+	//	// 非空数据创建副本，避免对象池释放问题
+	//	v := make([]byte, len(b))
+	//	copy(v, b)
+	//	ret, _ := utils.NewString(v)
+	//	return ret
+	//}
+	ret, _ := utils.NewString(b)
+	return ret
 }
 
 // SetValue 根据字段元素信息将字节数组数据设置到对象的对应字段中

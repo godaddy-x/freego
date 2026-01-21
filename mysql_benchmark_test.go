@@ -223,24 +223,40 @@ func BenchmarkMysqlFindOneComplex(b *testing.B) {
 }
 
 // BenchmarkMysqlFindList 列表查询性能基准测试
-// 测试分页查询多条记录的性能表现，包含排序和限制结果集
+// 测试不同数据规模的分页查询性能表现
 func BenchmarkMysqlFindList(b *testing.B) {
 	initMysqlDB()
-	db, err := sqld.NewMysqlTx(false)
-	if err != nil {
-		b.Fatal(err)
-	}
-	defer db.Close()
 
-	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			result := make([]*OwWallet, 0, 3000)
-			if err := db.FindList(sqlc.M(&OwWallet{}).Between("id", 1988433892066983936, 2013154036118716416).Offset(0, 3000).Orderby("id", sqlc.DESC_), &result); err != nil {
-				fmt.Println(err)
+	// 定义测试的数据规模
+	testSizes := []struct {
+		name string
+		size int64
+	}{
+		{"100", 100},
+		{"500", 500},
+		{"1000", 1000},
+		{"2000", 2000},
+	}
+
+	for _, ts := range testSizes {
+		b.Run(ts.name+"_records", func(b *testing.B) {
+			db, err := sqld.NewMysqlTx(false)
+			if err != nil {
+				b.Fatal(err)
 			}
-		}
-	})
+			defer db.Close()
+
+			b.ResetTimer()
+			b.RunParallel(func(pb *testing.PB) {
+				for pb.Next() {
+					result := make([]*OwWallet, 0, ts.size)
+					if err := db.FindList(sqlc.M(&OwWallet{}).Between("id", 1988433892066983936, 2013154036118716416).Offset(0, ts.size).Orderby("id", sqlc.DESC_), &result); err != nil {
+						b.Error(err)
+					}
+				}
+			})
+		})
+	}
 }
 
 // BenchmarkMysqlFindListComplex 复杂列表查询性能基准测试

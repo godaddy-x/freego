@@ -30,8 +30,7 @@ func NewInt(b []byte) (int, error) {
 	if len(b) == 0 {
 		return 0, nil
 	}
-	str, _ := NewString(b)
-	if i, err := strconv.ParseInt(str, 10, strconv.IntSize); err != nil {
+	if i, err := strconv.ParseInt(Bytes2Str(b), 10, strconv.IntSize); err != nil {
 		return 0, err
 	} else {
 		return int(i), nil
@@ -43,8 +42,7 @@ func NewInt8(b []byte) (int8, error) {
 	if len(b) == 0 {
 		return 0, nil
 	}
-	str, _ := NewString(b)
-	i, err := strconv.ParseInt(str, 10, 8)
+	i, err := strconv.ParseInt(Bytes2Str(b), 10, 8)
 	if err != nil {
 		return 0, err
 	}
@@ -56,8 +54,7 @@ func NewInt16(b []byte) (int16, error) {
 	if len(b) == 0 {
 		return 0, nil
 	}
-	str, _ := NewString(b)
-	if i, err := strconv.ParseInt(str, 10, 16); err != nil {
+	if i, err := strconv.ParseInt(Bytes2Str(b), 10, 16); err != nil {
 		return 0, err
 	} else {
 		return int16(i), nil
@@ -69,8 +66,7 @@ func NewInt32(b []byte) (int32, error) {
 	if len(b) == 0 {
 		return 0, nil
 	}
-	str, _ := NewString(b)
-	if i, err := strconv.ParseInt(str, 10, 32); err != nil {
+	if i, err := strconv.ParseInt(Bytes2Str(b), 10, 32); err != nil {
 		return 0, err
 	} else {
 		return int32(i), nil
@@ -82,8 +78,7 @@ func NewInt64(b []byte) (int64, error) {
 	if len(b) == 0 {
 		return 0, nil
 	}
-	str, _ := NewString(b)
-	if i64, err := strconv.ParseInt(str, 10, 64); err != nil {
+	if i64, err := strconv.ParseInt(Bytes2Str(b), 10, 64); err != nil {
 		return 0, err
 	} else {
 		return i64, nil
@@ -95,8 +90,7 @@ func NewFloat32(b []byte) (float32, error) {
 	if len(b) == 0 {
 		return 0, nil
 	}
-	str, _ := NewString(b)
-	f32, err := strconv.ParseFloat(str, 32)
+	f32, err := strconv.ParseFloat(Bytes2Str(b), 32)
 	if err != nil {
 		return 0, err
 	}
@@ -108,8 +102,7 @@ func NewFloat64(b []byte) (float64, error) {
 	if len(b) == 0 {
 		return 0, nil
 	}
-	str, _ := NewString(b)
-	f64, err := strconv.ParseFloat(str, 64)
+	f64, err := strconv.ParseFloat(Bytes2Str(b), 64)
 	if err != nil {
 		return 0, err
 	}
@@ -121,8 +114,7 @@ func NewUint(b []byte) (uint, error) {
 	if len(b) == 0 {
 		return 0, nil
 	}
-	str, _ := NewString(b)
-	if u, err := strconv.ParseUint(str, 10, strconv.IntSize); err != nil {
+	if u, err := strconv.ParseUint(Bytes2Str(b), 10, strconv.IntSize); err != nil {
 		return 0, err
 	} else {
 		return uint(u), nil
@@ -134,8 +126,7 @@ func NewUint8(b []byte) (uint8, error) {
 	if len(b) == 0 {
 		return 0, nil
 	}
-	str, _ := NewString(b)
-	if u, err := strconv.ParseUint(str, 10, 8); err != nil {
+	if u, err := strconv.ParseUint(Bytes2Str(b), 10, 8); err != nil {
 		return 0, err
 	} else {
 		return uint8(u), nil
@@ -147,8 +138,7 @@ func NewUint16(b []byte) (uint16, error) {
 	if len(b) == 0 {
 		return 0, nil
 	}
-	str, _ := NewString(b)
-	if u, err := strconv.ParseUint(str, 10, 16); err != nil {
+	if u, err := strconv.ParseUint(Bytes2Str(b), 10, 16); err != nil {
 		return 0, err
 	} else {
 		return uint16(u), nil
@@ -160,8 +150,7 @@ func NewUint32(b []byte) (uint32, error) {
 	if len(b) == 0 {
 		return 0, nil
 	}
-	str, _ := NewString(b)
-	if u, err := strconv.ParseUint(str, 10, 32); err != nil {
+	if u, err := strconv.ParseUint(Bytes2Str(b), 10, 32); err != nil {
 		return 0, err
 	} else {
 		return uint32(u), nil
@@ -173,8 +162,7 @@ func NewUint64(b []byte) (uint64, error) {
 	if len(b) == 0 {
 		return 0, nil
 	}
-	str, _ := NewString(b)
-	if u, err := strconv.ParseUint(str, 10, 64); err != nil {
+	if u, err := strconv.ParseUint(Bytes2Str(b), 10, 64); err != nil {
 		return 0, err
 	} else {
 		return u, nil

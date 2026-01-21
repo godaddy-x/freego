@@ -2224,43 +2224,27 @@ func ScanRowsToObject(obv *MdlDriver, rows *sql.Rows, data sqlc.Object) error {
 	}
 
 	flen := len(cols)
-	buffers := make([][]byte, flen)
-	dest := make([]interface{}, flen)
 
-	// 第一次：准备 buffers
+	// 预计算每列的 buffer 容量（一次）
+	fieldCapacities := make([]int, flen)
 	for i, col := range cols {
-		if finfo := obv.FieldDBMap[col]; finfo != nil {
-			if cap := finfo.Cap; cap > 0 {
-				buffers[i] = make([]byte, 0, cap)
-			} else {
-				buffers[i] = make([]byte, 0, 64)
-			}
+		if f, ok := obv.FieldDBMap[col]; ok && f.Cap > 0 {
+			fieldCapacities[i] = f.Cap
 		} else {
-			buffers[i] = make([]byte, 0, 64) // 或 return error
+			fieldCapacities[i] = 64
 		}
-		dest[i] = &buffers[i]
 	}
 
-	if err = rows.Scan(dest...); err != nil {
+	if err := SetRowValues(obv, rows, cols, data, flen, fieldCapacities); err != nil {
 		return err
-	}
-
-	// 第二次：赋值（直接查 map）
-	for i, col := range cols {
-		if finfo := obv.FieldDBMap[col]; finfo != nil && finfo.Field != nil {
-			if err = SetValue(data, finfo.Field, buffers[i]); err != nil {
-				return err
-			}
-		}
-		// 如果要求严格匹配，可在这里加 else { return error }
 	}
 
 	return rows.Err()
 }
 
-// ScanRowsToObjects 直接将多行数据扫描到对象列表，零中间分配
-// 适用于多条记录查询（如 FindList），避免复杂的字节数组处理
-// expectedFieldCount 用于复杂查询的字段验证，0表示不验证
+// ScanRowsToObjects 直接将多行数据扫描到对象列表
+// 每行独立分配 buffers，允许安全使用 unsafe 字符串转换
+// 适用于多条记录查询（如 FindList）
 func ScanRowsToObjects(obv *MdlDriver, rows *sql.Rows, cnd *sqlc.Cnd, data interface{}, expectedFieldCount int) error {
 	if rows == nil || obv == nil || cnd == nil || data == nil {
 		return fmt.Errorf("invalid argument")
@@ -2271,7 +2255,6 @@ func ScanRowsToObjects(obv *MdlDriver, rows *sql.Rows, cnd *sqlc.Cnd, data inter
 		return fmt.Errorf("read columns failed: %w", err)
 	}
 
-	// 验证字段数量（用于复杂查询）
 	if expectedFieldCount > 0 && len(cols) != expectedFieldCount {
 		return fmt.Errorf("read columns length invalid: expected %d, got %d", expectedFieldCount, len(cols))
 	}
@@ -2281,68 +2264,37 @@ func ScanRowsToObjects(obv *MdlDriver, rows *sql.Rows, cnd *sqlc.Cnd, data inter
 		return nil
 	}
 
-	// === 关键：先检查是否有数据行，再分配内存 ===
+	// 预计算每列的 buffer 容量（一次）
+	fieldCapacities := make([]int, flen)
+	for i, col := range cols {
+		if f, ok := obv.FieldDBMap[col]; ok && f.Cap > 0 {
+			fieldCapacities[i] = f.Cap
+		} else {
+			fieldCapacities[i] = 64
+		}
+	}
+
+	// 先检查是否有第一行
 	if !rows.Next() {
-		// 无数据
 		if err = rows.Err(); err != nil {
 			return fmt.Errorf("rows error on empty result: %w", err)
 		}
 		return nil
 	}
 
-	// 2. 预估每个列的 buffer 容量
-	fieldCapacities := make([]int, flen)
-	for i, col := range cols {
-		if fieldDB, exists := obv.FieldDBMap[col]; exists && fieldDB.Cap > 0 {
-			fieldCapacities[i] = fieldDB.Cap
-		} else {
-			fieldCapacities[i] = 64
-		}
-	}
-
-	// ✅ 确认有数据后，才分配 buffers 和 dest
-	buffers := make([][]byte, flen)
-	dest := make([]interface{}, flen)
-	for i := range dest {
-		buffers[i] = make([]byte, 0, fieldCapacities[i])
-		dest[i] = &buffers[i]
-	}
-
 	rowCount := 0
 	for {
-		// 从第二行开始，重置 buffers
-		if rowCount > 0 {
-			for i := range buffers {
-				if cap(buffers[i]) < fieldCapacities[i] {
-					buffers[i] = make([]byte, 0, fieldCapacities[i])
-				} else {
-					buffers[i] = buffers[i][:0]
-				}
-				// dest[i] 仍指向 &buffers[i]，无需更新
-			}
-		}
-
-		// 扫描当前行
-		if err := rows.Scan(dest...); err != nil {
-			return fmt.Errorf("scan row failed: %w", err)
-		}
-
-		// 创建并填充对象
+		// 创建新对象
 		model := cnd.Model.NewObject()
-		// 修复：使用独立索引，避免 Ignore 字段导致索引错位
-		for k, col := range cols {
-			f, has := obv.FieldDBMap[col]
-			if !has {
-				return fmt.Errorf("row mapping field not found: %s - %s", obv.TableName, col)
-			}
-			if err := SetValue(model, f.Field, buffers[k]); err != nil {
-				return fmt.Errorf("set value failed: %w", err)
-			}
+
+		if err := SetRowValues(obv, rows, cols, model, flen, fieldCapacities); err != nil {
+			return err
 		}
+
 		cnd.Model.AppendObject(data, model)
 		rowCount++
 
-		// 检查是否还有下一行
+		// 检查下一行
 		if !rows.Next() {
 			break
 		}
@@ -2350,6 +2302,37 @@ func ScanRowsToObjects(obv *MdlDriver, rows *sql.Rows, cnd *sqlc.Cnd, data inter
 
 	if err = rows.Err(); err != nil {
 		return fmt.Errorf("rows iteration error: %w", err)
+	}
+
+	return nil
+}
+
+func SetRowValues(obv *MdlDriver, rows *sql.Rows, cols []string, model sqlc.Object, flen int, fieldCapacities []int) error {
+	// === 每行独立分配 buffers（关键改动）===
+	buffers := make([][]byte, flen)
+	dest := make([]interface{}, flen)
+	for i := range buffers {
+		buffers[i] = make([]byte, 0, fieldCapacities[i])
+		dest[i] = &buffers[i]
+	}
+
+	// 扫描当前行
+	if err := rows.Scan(dest...); err != nil {
+		return fmt.Errorf("scan row failed: %w", err)
+	}
+
+	// 填充字段：现在可以安全使用 utils.Bytes2Str！
+	for k, col := range cols {
+		f, has := obv.FieldDBMap[col]
+		if !has {
+			return fmt.Errorf("row mapping field not found: %s - %s", obv.TableName, col)
+		}
+
+		// 关键优化：直接传递 buffers[k] 给 SetValue
+		// 在 SetValue 内部，对 string 类型使用 utils.Bytes2Str
+		if err := SetValue(model, f.Field, buffers[k]); err != nil {
+			return fmt.Errorf("set value failed: %s - %s - %w", obv.TableName, f.Field.FieldJsonName, err)
+		}
 	}
 
 	return nil

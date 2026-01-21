@@ -30,7 +30,7 @@ type OwWallet struct {
 	Alias        string `json:"alias" bson:"alias"`
 	IsTrust      int64  `json:"isTrust" bson:"isTrust"`
 	PasswordType int64  `json:"passwordType" bson:"passwordType"`
-	Password     []byte `json:"password" bson:"password" blob:"true"`
+	Password     []byte `json:"password" bson:"password" ignore:"true"`
 	AuthKey      string `json:"authKey" bson:"authKey"`
 	RootPath     string `json:"rootPath" bson:"rootPath"`
 	AccountIndex int64  `json:"accountIndex" bson:"accountIndex"`
