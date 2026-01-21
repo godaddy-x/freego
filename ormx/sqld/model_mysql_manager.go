@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"time"
+	"unsafe"
 
 	"github.com/godaddy-x/freego/zlog"
 
@@ -724,20 +725,26 @@ func safeBytesToString(b []byte) string {
 	//	ret, _ := utils.NewString(v)
 	//	return ret
 	//}
-	ret, _ := utils.NewString(b)
-	return ret
+	//ret, _ := utils.NewString(b)
+	return *(*string)(unsafe.Pointer(&b))
 }
 
-// SetValue 根据字段元素信息将字节数组数据设置到对象的对应字段中
+func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
+	return SetValueDefault(obj, elem, b, false)
+}
+
+// SetValueDefault 根据字段元素信息将字节数组数据设置到对象的对应字段中
 // 支持各种Go基础类型、指针类型、切片类型和映射类型
 // 对于时间类型，会根据字段标记进行解析；对于字符串和字节数组，会进行安全复制避免内存共享
-func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
+func SetValueDefault(obj interface{}, elem *FieldElem, b []byte, needSafe bool) error {
 	ptr := utils.GetPtr(obj, elem.FieldOffset)
 	switch elem.FieldKind {
 	case reflect.String:
-		// 使用安全的方法转换字符串，避免对象池释放问题
-		ret := safeBytesToString(b)
-		utils.SetString(ptr, ret)
+		if needSafe {
+			utils.SetString(ptr, string(b))
+		} else {
+			utils.SetString(ptr, safeBytesToString(b))
+		}
 		return nil
 	case reflect.Int:
 		if elem.IsDate {
@@ -1247,7 +1254,12 @@ func SetValue(obj interface{}, elem *FieldElem, b []byte) error {
 		}
 		switch elem.FieldType {
 		case "*string":
-			ret := safeBytesToString(b)
+			var ret string
+			if needSafe {
+				ret = string(b)
+			} else {
+				ret = safeBytesToString(b)
+			}
 			utils.SetStringP(ptr, &ret)
 			return nil
 		case "*int":

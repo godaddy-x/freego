@@ -1584,7 +1584,7 @@ func (self *RDBManager) FindListWithContext(ctx context.Context, cnd *sqlc.Cnd, 
 		defer rows.Close()
 	}
 	// 使用通用的多行扫描方法
-	if err := ScanRowsToObjects(obv, rows, cnd, data, 0); err != nil {
+	if err := ScanRowsToObjects(obv, rows, cnd, data); err != nil {
 		return self.Error("[Mysql.FindList] ", err)
 	}
 	return nil
@@ -2132,7 +2132,7 @@ func (self *RDBManager) FindListComplexWithContext(ctx context.Context, cnd *sql
 		defer rows.Close()
 	}
 	// 使用通用的多行扫描方法，验证字段数量
-	if err := ScanRowsToObjects(obv, rows, cnd, data, len(cnd.AnyFields)); err != nil {
+	if err := ScanRowsToObjects(obv, rows, cnd, data); err != nil {
 		return self.Error("[Mysql.FindListComplex] ", err)
 	}
 	return nil
@@ -2235,7 +2235,7 @@ func ScanRowsToObject(obv *MdlDriver, rows *sql.Rows, data sqlc.Object) error {
 		}
 	}
 
-	if err := SetRowValues(obv, rows, cols, data, flen, fieldCapacities); err != nil {
+	if err := SetRowValues(obv, rows, cols, data, flen, fieldCapacities, nil); err != nil {
 		return err
 	}
 
@@ -2245,7 +2245,7 @@ func ScanRowsToObject(obv *MdlDriver, rows *sql.Rows, data sqlc.Object) error {
 // ScanRowsToObjects 直接将多行数据扫描到对象列表
 // 每行独立分配 buffers，允许安全使用 unsafe 字符串转换
 // 适用于多条记录查询（如 FindList）
-func ScanRowsToObjects(obv *MdlDriver, rows *sql.Rows, cnd *sqlc.Cnd, data interface{}, expectedFieldCount int) error {
+func ScanRowsToObjects(obv *MdlDriver, rows *sql.Rows, cnd *sqlc.Cnd, data interface{}) error {
 	if rows == nil || obv == nil || cnd == nil || data == nil {
 		return fmt.Errorf("invalid argument")
 	}
@@ -2253,10 +2253,6 @@ func ScanRowsToObjects(obv *MdlDriver, rows *sql.Rows, cnd *sqlc.Cnd, data inter
 	cols, err := rows.Columns()
 	if err != nil {
 		return fmt.Errorf("read columns failed: %w", err)
-	}
-
-	if expectedFieldCount > 0 && len(cols) != expectedFieldCount {
-		return fmt.Errorf("read columns length invalid: expected %d, got %d", expectedFieldCount, len(cols))
 	}
 
 	flen := len(cols)
@@ -2282,12 +2278,19 @@ func ScanRowsToObjects(obv *MdlDriver, rows *sql.Rows, cnd *sqlc.Cnd, data inter
 		return nil
 	}
 
+	// ===== 关键：批量模式判断 =====
+	// 启用批量优化：预分配可复用 buffers
+	reusableBuffers := make([][]byte, flen)
+	for i := range reusableBuffers {
+		reusableBuffers[i] = make([]byte, fieldCapacities[i]) // 分配足够容量
+	}
+
 	rowCount := 0
 	for {
 		// 创建新对象
 		model := cnd.Model.NewObject()
 
-		if err := SetRowValues(obv, rows, cols, model, flen, fieldCapacities); err != nil {
+		if err := SetRowValues(obv, rows, cols, model, flen, fieldCapacities, reusableBuffers); err != nil {
 			return err
 		}
 
@@ -2307,13 +2310,33 @@ func ScanRowsToObjects(obv *MdlDriver, rows *sql.Rows, cnd *sqlc.Cnd, data inter
 	return nil
 }
 
-func SetRowValues(obv *MdlDriver, rows *sql.Rows, cols []string, model sqlc.Object, flen int, fieldCapacities []int) error {
-	// === 每行独立分配 buffers（关键改动）===
-	buffers := make([][]byte, flen)
-	dest := make([]interface{}, flen)
-	for i := range buffers {
-		buffers[i] = make([]byte, 0, fieldCapacities[i])
-		dest[i] = &buffers[i]
+// SetRowValues 扫描并填充单行数据到 model
+// reusableBuffers: 可选。若非 nil，则复用该 buffers（用于 FindList 批量场景）
+//
+//	若为 nil，则每行独立分配（用于 FindOne 单条场景）
+func SetRowValues(obv *MdlDriver, rows *sql.Rows, cols []string, model sqlc.Object, flen int, fieldCapacities []int, reusableBuffers [][]byte) error {
+	var buffers [][]byte
+	var dest []interface{}
+
+	if reusableBuffers != nil {
+		// ===== 批量模式：复用 buffers =====
+		// 重置每个 buffer 的长度为 0（保留底层数组和 cap）
+		for i := range reusableBuffers {
+			reusableBuffers[i] = reusableBuffers[i][:0]
+		}
+		buffers = reusableBuffers
+		dest = make([]interface{}, flen)
+		for i := range dest {
+			dest[i] = &buffers[i]
+		}
+	} else {
+		// ===== 单条模式：每行独立分配（保持原有行为）=====
+		buffers = make([][]byte, flen)
+		dest = make([]interface{}, flen)
+		for i := range buffers {
+			buffers[i] = make([]byte, 0, fieldCapacities[i])
+			dest[i] = &buffers[i]
+		}
 	}
 
 	// 扫描当前行
@@ -2321,16 +2344,16 @@ func SetRowValues(obv *MdlDriver, rows *sql.Rows, cols []string, model sqlc.Obje
 		return fmt.Errorf("scan row failed: %w", err)
 	}
 
-	// 填充字段：现在可以安全使用 utils.Bytes2Str！
+	// 如果使用了多记录填充则响应needSafe=true
+	needSafe := reusableBuffers != nil
+
+	// 填充字段
 	for k, col := range cols {
 		f, has := obv.FieldDBMap[col]
 		if !has {
 			return fmt.Errorf("row mapping field not found: %s - %s", obv.TableName, col)
 		}
-
-		// 关键优化：直接传递 buffers[k] 给 SetValue
-		// 在 SetValue 内部，对 string 类型使用 utils.Bytes2Str
-		if err := SetValue(model, f.Field, buffers[k]); err != nil {
+		if err := SetValueDefault(model, f.Field, buffers[k], needSafe); err != nil {
 			return fmt.Errorf("set value failed: %s - %s - %w", obv.TableName, f.Field.FieldJsonName, err)
 		}
 	}
