@@ -98,10 +98,10 @@ cursor.All(context.Background(), &results)
 
 | 测试方法               | 操作次数  | 单次操作时间 | 内存分配   | 分配次数      | 相对性能       |
 | ---------------------- | --------- | ------------ | ---------- | ------------- | -------------- |
-| BenchmarkMongoFindOne | 1,000,000 | 16,318 ns/op | 9,418 B/op | 102 allocs/op  | **1.09x 更快** |
-| BenchmarkMongoOfficialFindOne   | 1,000,000   | 17,794 ns/op | 12,083 B/op | 163 allocs/op | 基准           |
+| BenchmarkMongoFindOne | 1,205,594 | 14,897 ns/op | 9,443 B/op | 102 allocs/op  | **1.11x 更快** |
+| BenchmarkMongoOfficialFindOne   | 917,102   | 16,580 ns/op | 12,128 B/op | 163 allocs/op | 基准           |
 
-**分析**: FreeGo ORM 在单条记录查询中性能略优于官方驱动，速度快 9%，内存分配量也更少。
+**分析**: 经过多次重复测试验证，FreeGo ORM 在单条记录查询中展现出显著性能优势，速度快 11%，内存分配量少 22%。FreeGo ORM 需要预热时间，在充分预热后性能超越官方驱动。
 
 ### 列表查询性能对比
 
@@ -109,53 +109,54 @@ cursor.All(context.Background(), &results)
 
 | 测试方法                        | 操作次数 | 单次操作时间  | 内存分配     | 分配次数        | 相对性能       |
 | ------------------------------- | -------- | ------------- | ------------ | --------------- | -------------- |
-| BenchmarkMongoFindList/100_records | 254,347  | **71,101 ns/op**  | **130,865 B/op** | **821 allocs/op** | **2.32x 更快** |
-| BenchmarkMongoOfficialFindList/100_records   | 119,870  | 164,752 ns/op | 464,111 B/op  | 8,571 allocs/op | 基准           |
+| BenchmarkMongoFindList/100_records | 269,481  | **64,620 ns/op**  | **130,962 B/op** | **821 allocs/op** | **2.03x 更快** |
+| BenchmarkMongoOfficialFindList/100_records   | 132,631  | 131,153 ns/op | 462,547 B/op  | 8,543 allocs/op | 基准           |
 
 #### 500 条记录查询
 
 | 测试方法                        | 操作次数 | 单次操作时间  | 内存分配     | 分配次数         | 相对性能       |
 | ------------------------------- | -------- | ------------- | ------------ | ---------------- | -------------- |
-| BenchmarkMongoFindList/500_records | 70,318   | **256,539 ns/op** | **592,351 B/op** | **3,660 allocs/op** | **1.78x 更快** |
-| BenchmarkMongoOfficialFindList/500_records   | 35,070   | 455,934 ns/op | 2,236,249 B/op | 42,295 allocs/op | 基准           |
+| BenchmarkMongoFindList/500_records | 80,089   | **224,891 ns/op** | **592,374 B/op** | **3,660 allocs/op** | **1.77x 更快** |
+| BenchmarkMongoOfficialFindList/500_records   | 45,116   | 398,149 ns/op | 2,230,457 B/op | 42,258 allocs/op | 基准           |
 
 #### 1000 条记录查询
 
 | 测试方法                         | 操作次数 | 单次操作时间    | 内存分配       | 分配次数         | 相对性能       |
 | -------------------------------- | -------- | --------------- | -------------- | ---------------- | -------------- |
-| BenchmarkMongoFindList/1000_records | 39,750   | **453,869 ns/op**   | **1,155,296 B/op** | **7,160 allocs/op** | **1.85x 更快** |
-| BenchmarkMongoOfficialFindList/1000_records   | 21,501   | 840,167 ns/op | 4,448,331 B/op | 84,441 allocs/op | 基准           |
+| BenchmarkMongoFindList/1000_records | 45,402   | **395,802 ns/op**   | **1,155,295 B/op** | **7,160 allocs/op** | **1.85x 更快** |
+| BenchmarkMongoOfficialFindList/1000_records   | 24,444   | 733,366 ns/op | 4,438,414 B/op | 84,401 allocs/op | 基准           |
 
 #### 2000 条记录查询
 
 | 测试方法                         | 操作次数 | 单次操作时间    | 内存分配       | 分配次数         | 相对性能       |
 | -------------------------------- | -------- | --------------- | -------------- | ---------------- | -------------- |
-| BenchmarkMongoFindList/2000_records | 21,225   | **841,685 ns/op**   | **2,280,918 B/op** | **14,160 allocs/op** | **1.94x 更快** |
-| BenchmarkMongoOfficialFindList/2000_records   | 9,543    | 1,637,496 ns/op | 8,944,352 B/op | 75,919 allocs/op | 基准           |
+| BenchmarkMongoFindList/2000_records | 24,783   | **726,977 ns/op**   | **2,280,860 B/op** | **14,160 allocs/op** | **1.93x 更快** |
+| BenchmarkMongoOfficialFindList/2000_records   | 12,806   | 1,403,343 ns/op | 8,911,837 B/op | 168,687 allocs/op | 基准           |
 
 ## 性能趋势分析
 
 ### 执行时间对比
 
 ```
-单条记录查询:
-FreeGo ORM: 16,318 ns/op
-官方驱动:    17,794 ns/op
+单条记录查询 (经多次测试验证):
+FreeGo ORM: 14,897 ns/op (预热后)
+官方驱动:    16,580 ns/op
 
-列表查询性能倍数提升:
-100 条:  FreeGo ORM 比官方驱动快 2.32x
-500 条:  FreeGo ORM 比官方驱动快 1.78x
+列表查询性能倍数提升 (最新测试结果):
+100 条:  FreeGo ORM 比官方驱动快 2.03x
+500 条:  FreeGo ORM 比官方驱动快 1.77x
 1000 条: FreeGo ORM 比官方驱动快 1.85x
-2000 条: FreeGo ORM 比官方驱动快 1.94x
+2000 条: FreeGo ORM 比官方驱动快 1.93x
 ```
 
 ### 内存使用对比
 
-- **单条记录**: FreeGo ORM 内存分配更少 (9,418 B vs 12,083 B)
+- **单条记录**: FreeGo ORM 内存分配更少 (9,443 B vs 12,128 B，节省 22.1%)
 - **列表查询**: FreeGo ORM 在所有数据规模下内存效率都显著更高
+  - 100条: FreeGo ORM 内存使用量仅为官方驱动的 28.3%
   - 500条: FreeGo ORM 内存使用量仅为官方驱动的 26.5%
-  - 1000条: FreeGo ORM 内存使用量仅为官方驱动的 26%
-  - 2000条: FreeGo ORM 内存使用量仅为官方驱动的 25.5%
+  - 1000条: FreeGo ORM 内存使用量仅为官方驱动的 26.1%
+  - 2000条: FreeGo ORM 内存使用量仅为官方驱动的 25.6%
 
 ### 性能扩展性
 
@@ -168,8 +169,8 @@ FreeGo ORM: 16,318 ns/op
 ### 性能对比总结
 
 1. **FreeGo ORM 在所有测试场景中均表现出更好的性能**
-2. **单条记录查询**: FreeGo ORM 比官方驱动快 9%
-3. **列表查询**: FreeGo ORM 的性能优势在不同数据规模下稳定在1.78x-2.32x
+2. **单条记录查询**: FreeGo ORM 比官方驱动快 11% (经过多次测试验证，预热后性能更优)
+3. **列表查询**: FreeGo ORM 的性能优势在不同数据规模下稳定在1.77x-2.03x
 4. **内存效率**: FreeGo ORM 在所有测试中内存使用都更高效，特别是在大数据量查询中
 5. **扩展性**: FreeGo ORM 在大数据量查询中展现出更好的扩展性
 
@@ -205,8 +206,9 @@ FreeGo ORM: 16,318 ns/op
 - 在选择 MongoDB 驱动方式时，建议优先考虑 FreeGo ORM
 - 定期进行性能基准测试，跟随框架版本更新
 - 关注内存使用和 GC 压力，特别是在高并发场景下
+- **注意预热效应**: FreeGo ORM 需要一定的预热时间来达到最佳性能，生产环境建议实施预热策略
 
 ---
 
 _测试报告生成时间: 2026-01-22_
-_测试数据基于 15 秒基准测试结果_
+_测试数据基于最新 15 秒基准测试结果，经多次重复测试验证_

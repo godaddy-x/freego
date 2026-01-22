@@ -167,7 +167,7 @@ func BenchmarkMongoOfficialFindList(b *testing.B) {
 					}
 
 					// 获取所有结果
-					var results []bson.M
+					results := make([]bson.M, 0, ts.size)
 					if err := cursor.All(context.Background(), &results); err != nil {
 						b.Error(err)
 						cursor.Close(context.Background())
