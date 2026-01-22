@@ -2307,18 +2307,14 @@ func ScanRowsToObjects(obv *MdlDriver, rows *sql.Rows, cnd *sqlc.Cnd, data inter
 		scanBufferPool.Put(reusableBuffers[:0])
 	}()
 
-	rowCount := 0
 	for {
 		// 创建新对象
 		model := cnd.Model.NewObject()
-
 		if err := SetRowValues(obv, rows, cols, model, flen, fieldCapacities, reusableBuffers); err != nil {
 			return err
 		}
-
+		// 填充对象到结果集
 		cnd.Model.AppendObject(data, model)
-		rowCount++
-
 		// 检查下一行
 		if !rows.Next() {
 			break
