@@ -279,8 +279,8 @@ var typeCapacityPresets = map[string]func(dbDefinedLen int) int{
 
 	// 文本类型：数据库定义无长度，按类型分级
 	"text":       func(int) int { return 512 },
-	"mediumtext": func(int) int { return 2048 },
-	"longtext":   func(int) int { return 8192 },
+	"mediumtext": func(int) int { return 1024 },
+	"longtext":   func(int) int { return 2048 },
 
 	// 时间类型：固定长度（不受数据库定义影响）
 	"date":      func(int) int { return 10 }, // YYYY-MM-DD
@@ -348,8 +348,8 @@ var typeCapacityPresets = map[string]func(dbDefinedLen int) int{
 
 	// 大二进制对象：数据库定义无长度，按类型分级
 	"blob":       func(int) int { return 512 },
-	"mediumblob": func(int) int { return 2048 },
-	"longblob":   func(int) int { return 8192 },
+	"mediumblob": func(int) int { return 1024 },
+	"longblob":   func(int) int { return 2048 },
 
 	// JSON类型：MySQL 8.0+
 	"json": func(int) int { return 1024 },
@@ -475,7 +475,7 @@ func ModelDriver(objects ...sqlc.Object) error {
 			md.FieldDBMap = make(map[string]*FieldDB, len(col))
 			for _, c := range col {
 				for _, f := range md.FieldElem {
-					if f.FieldJsonName == c.Field.FieldJsonName {
+					if !f.Ignore && f.FieldJsonName == c.Field.FieldJsonName {
 						md.FieldDBMap[f.FieldJsonName] = &FieldDB{Field: f, Cap: c.Cap}
 						break
 					}
