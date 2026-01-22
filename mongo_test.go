@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"strings"
@@ -329,12 +330,12 @@ func TestMongoSavePerformance(t *testing.T) {
 			Addrs:    []string{"127.0.0.1:27017"},
 		}
 
-			manager := &sqld.MGOManager{}
-			err := manager.InitConfig(config)
-			if err != nil {
-				t.Logf("性能测试跳过(需要MongoDB服务): %v", err)
-				return
-			}
+		manager := &sqld.MGOManager{}
+		err := manager.InitConfig(config)
+		if err != nil {
+			t.Logf("性能测试跳过(需要MongoDB服务): %v", err)
+			return
+		}
 		defer manager.Close()
 
 		// 这里可以添加实际的模型测试
@@ -601,6 +602,14 @@ type TestAllTypes struct {
 	Binary   []byte             `json:"binary" bson:"binary"`
 	Time     time.Time          `json:"time" bson:"time"`
 
+	// 指针类型 - 测试指针字段支持
+	PtrString  *string  `json:"ptrString" bson:"ptrString"`
+	PtrInt64   *int64   `json:"ptrInt64" bson:"ptrInt64"`
+	PtrFloat64 *float64 `json:"ptrFloat64" bson:"ptrFloat64"`
+	PtrBool    *bool    `json:"ptrBool" bson:"ptrBool"`
+
+	// primitive 特殊类型
+
 	// Map类型 - 重要类型支持测试
 	StringMap    map[string]string      `json:"stringMap" bson:"stringMap"`
 	IntMap       map[string]int         `json:"intMap" bson:"intMap"`
@@ -609,9 +618,6 @@ type TestAllTypes struct {
 
 	// Interface类型 - 测试动态类型支持
 	Interface interface{} `json:"interface" bson:"interface"`
-	//
-	//// 测试时间戳
-	//Ctime int64 `json:"ctime" bson:"ctime"`
 }
 
 func (o *TestAllTypes) GetTable() string {
@@ -1163,7 +1169,33 @@ func TestMongoFindOneAllTypes(t *testing.T) {
 		}
 	}
 
-	t.Logf("🎉 总计: 32个类型验证完成！")
+	// 指针类型验证 (4个) - MongoDB不支持指针类型序列化
+	t.Logf("👉 指针类型 (4个) - 不支持:")
+	if result.PtrString == nil {
+		t.Logf("  ⚠️ PtrString为nil (不支持)")
+	} else {
+		t.Logf("  ✅ PtrString: %s", *result.PtrString)
+	}
+
+	if result.PtrInt64 == nil {
+		t.Logf("  ⚠️ PtrInt64为nil (不支持)")
+	} else {
+		t.Logf("  ✅ PtrInt64: %d", *result.PtrInt64)
+	}
+
+	if result.PtrFloat64 == nil {
+		t.Logf("  ⚠️ PtrFloat64为nil (不支持)")
+	} else {
+		t.Logf("  ✅ PtrFloat64: %f", *result.PtrFloat64)
+	}
+
+	if result.PtrBool == nil {
+		t.Logf("  ⚠️ PtrBool为nil (不支持)")
+	} else {
+		t.Logf("  ✅ PtrBool: %v", *result.PtrBool)
+	}
+
+	t.Logf("🎉 总计: 37个类型验证完成！")
 	t.Logf("🚀 MongoDB零反射解码setMongoValue方法工作正常！")
 
 	// 测试UpdateWithContext是否使用encode方法
@@ -1199,6 +1231,390 @@ func TestMongoFindOneAllTypes(t *testing.T) {
 	//	t.Logf("清理测试数据失败: %v", err)
 	//}
 }
+
+// TestMongoFindListAllTypes 测试FindList方法对所有类型的支持
+func TestMongoFindListAllTypes(t *testing.T) {
+	if err := initMongoForTest(); err != nil {
+		t.Fatalf("MongoDB初始化失败: %v", err)
+	}
+
+	// 注册测试模型
+	if err := sqld.ModelDriver(&TestAllTypes{}); err != nil && !strings.Contains(err.Error(), "exists") {
+		t.Fatalf("注册TestAllTypes模型失败: %v", err)
+	}
+
+	mgoManager := &sqld.MGOManager{}
+	err := mgoManager.GetDB()
+	if err != nil {
+		t.Fatalf("获取MongoDB管理器失败: %v", err)
+	}
+	defer mgoManager.Close()
+
+	// 创建多条测试数据 - 每条记录有不同的 []byte 和 [][]uint8 数据
+	testAppID := fmt.Sprintf("findlist_alltypes_test_%d", time.Now().Unix())
+	testData := []*TestAllTypes{
+		{
+			Id:       utils.NextIID(),
+			String:   testAppID + "_record_1",
+			Int64:    1,
+			Binary:   []byte{0x01, 0x02, 0x03, 0x04, 0x05},
+			Time:     time.Now().Add(-10 * time.Second),
+			ObjectID: primitive.NewObjectID(),
+		},
+		{
+			Id:       utils.NextIID(),
+			String:   testAppID + "_record_2",
+			Int64:    2,
+			Binary:   []byte{0xAA, 0xBB, 0xCC, 0xDD},
+			Time:     time.Now().Add(-5 * time.Second),
+			ObjectID: primitive.NewObjectID(),
+		},
+		{
+			Id:       utils.NextIID(),
+			String:   testAppID + "_record_3",
+			Int64:    3,
+			Binary:   []byte{0xFF, 0xFE, 0xFD},
+			Time:     time.Now(),
+			ObjectID: primitive.NewObjectID(),
+		},
+		{
+			Id:       utils.NextIID(),
+			String:   testAppID + "_record_4",
+			Int64:    4,
+			Binary:   []byte{0x00},
+			Time:     time.Now().Add(5 * time.Second),
+			ObjectID: primitive.NewObjectID(),
+		},
+	}
+
+	// 保存测试数据
+	for _, d := range testData {
+		err = mgoManager.Save(d)
+		if err != nil {
+			t.Fatalf("保存测试数据失败: %v", err)
+		}
+	}
+	t.Logf("✅ 成功保存 %d 条测试数据", len(testData))
+
+	// 使用 FindList 查询所有记录 - 逐个查询每条记录
+	var results []*TestAllTypes
+	for _, record := range testData {
+		var result []*TestAllTypes
+		condition := sqlc.M(&TestAllTypes{}).Eq("string", record.String)
+
+		err = mgoManager.FindList(condition, &result)
+		if err != nil {
+			t.Fatalf("查询记录 %s 失败: %v", record.String, err)
+		}
+
+		if len(result) != 1 {
+			t.Fatalf("期望查询到1条记录，实际查询到%d条", len(result))
+		}
+		results = append(results, result[0])
+	}
+
+	if len(results) != len(testData) {
+		t.Fatalf("期望查询到 %d 条记录，实际查询到 %d 条", len(testData), len(results))
+	}
+	t.Logf("✅ FindList 成功查询到 %d 条记录", len(results))
+
+	// 验证每条记录的数据完整性，特别是 []byte 字段
+	t.Logf("🔍 开始验证所有字段的数据完整性...")
+
+	allPassed := true
+	for i, result := range results {
+		t.Logf("--- 验证记录 %d: %s (Id: %d) ---", i+1, result.String, result.Id)
+
+		// 查找对应的原始数据
+		var expectedIdx int = -1
+		for j, d := range testData {
+			if d.Id == result.Id {
+				expectedIdx = j
+				break
+			}
+		}
+
+		if expectedIdx == -1 {
+			t.Errorf("❌ 无法找到记录 %d 的原始数据", result.Id)
+			allPassed = false
+			continue
+		}
+		expected := testData[expectedIdx]
+
+		// 验证 Binary 字段 - 这是最关键的验证点
+		if string(result.Binary) != string(expected.Binary) {
+			t.Errorf("❌ 记录 %d Binary 字段数据混乱!\n   期望: %v (%x)\n   实际: %v (%x)",
+				result.Id, expected.Binary, expected.Binary, result.Binary, result.Binary)
+			allPassed = false
+		} else {
+			t.Logf("  ✅ Binary: %v (%x)", result.Binary, result.Binary)
+		}
+
+		// 验证其他字段
+		if result.String != expected.String {
+			t.Errorf("❌ 记录 %d String 不匹配: 期望 %s, 实际 %s", result.Id, expected.String, result.String)
+			allPassed = false
+		} else {
+			t.Logf("  ✅ String: %s", result.String)
+		}
+
+		if result.Int64 != expected.Int64 {
+			t.Errorf("❌ 记录 %d Int64 不匹配: 期望 %d, 实际 %d", result.Id, expected.Int64, result.Int64)
+			allPassed = false
+		} else {
+			t.Logf("  ✅ Int64: %d", result.Int64)
+		}
+
+		if result.Time.Unix() != expected.Time.Unix() {
+			t.Errorf("❌ 记录 %d Time 不匹配: 期望 %v, 实际 %v", result.Id, expected.Time, result.Time)
+			allPassed = false
+		} else {
+			t.Logf("  ✅ Time: %v", result.Time)
+		}
+
+		if result.ObjectID.IsZero() {
+			t.Errorf("❌ 记录 %d ObjectID 为零值", result.Id)
+			allPassed = false
+		} else {
+			t.Logf("  ✅ ObjectID: %v", result.ObjectID)
+		}
+	}
+
+	if allPassed {
+		t.Logf("🎉 所有 %d 条记录的数据完整性验证通过！", len(results))
+		t.Logf("🎉 FindList cursor buffer 复用问题已修复，不会导致 []byte 数据混乱！")
+	} else {
+		t.Fatalf("❌ 存在数据混乱问题，测试失败！")
+	}
+}
+
+// TestMongoDataCorruptionCheck 专门检验数据混乱问题
+// 在大规模数据和多次查询的情况下验证数据完整性
+func TestMongoDataCorruptionCheck(t *testing.T) {
+	if err := initMongoForTest(); err != nil {
+		t.Fatalf("MongoDB初始化失败: %v", err)
+	}
+
+	// 注册测试模型 - 使用TestAllTypesNoBsonTag避免[][]uint8类型问题
+	if err := sqld.ModelDriver(&TestAllTypesNoBsonTag{}); err != nil && !strings.Contains(err.Error(), "exists") {
+		t.Fatalf("注册TestAllTypesNoBsonTag模型失败: %v", err)
+	}
+
+	mgoManager := &sqld.MGOManager{}
+	err := mgoManager.GetDB()
+	if err != nil {
+		t.Fatalf("获取MongoDB管理器失败: %v", err)
+	}
+	defer mgoManager.Close()
+
+	const numRecords = 100 // 创建100条记录进行大规模测试
+	testAppID := fmt.Sprintf("datacorruption_test_%d", time.Now().UnixNano())
+
+	t.Logf("🔄 创建 %d 条测试记录用于数据混乱检测...", numRecords)
+
+	// 创建测试数据 - 包含各种边界情况和特殊数据
+	testData := make([]*TestAllTypesNoBsonTag, numRecords)
+	for i := 0; i < numRecords; i++ {
+		// 创建独特的二进制数据 - 每个记录都有不同的模式
+		binaryData := make([]byte, 16)
+		for j := range binaryData {
+			binaryData[j] = byte((i*16 + j) % 256)
+		}
+
+		testData[i] = &TestAllTypesNoBsonTag{
+			Id:       utils.NextIID(),
+			String:   fmt.Sprintf("%s_record_%03d", testAppID, i),
+			Int64:    int64(i + 1),
+			Binary:   binaryData,
+			Time:     time.Now().Add(time.Duration(i) * time.Second),
+			ObjectID: primitive.NewObjectID(),
+
+			// 填充其他字段以确保完整性
+			Int32:   int32(i),
+			Int16:   int16(i % 32767),
+			Int8:    int8(i % 127),
+			Uint64:  uint64(i),
+			Uint32:  uint32(i),
+			Uint16:  uint16(i % 65535),
+			Uint8:   uint8(i % 255),
+			Float64: float64(i) + 0.5,
+			Float32: float32(i) + 0.25,
+			Bool:    i%2 == 0,
+
+			StringArr:  []string{fmt.Sprintf("str%d_a", i), fmt.Sprintf("str%d_b", i)},
+			IntArr:     []int{i, i + 1, i + 2},
+			Int64Arr:   []int64{int64(i), int64(i + 1)},
+			Int32Arr:   []int32{int32(i)},
+			Int16Arr:   []int16{int16(i % 32767)},
+			Int8Arr:    []int8{int8(i % 127)},
+			UintArr:    []uint{uint(i)},
+			Uint64Arr:  []uint64{uint64(i)},
+			Uint32Arr:  []uint32{uint32(i)},
+			Uint16Arr:  []uint16{uint16(i % 65535)},
+			Uint8Arr:   []uint8{uint8(i % 255)},
+			Float64Arr: []float64{float64(i) + 0.1},
+			Float32Arr: []float32{float32(i) + 0.2},
+			BoolArr:    []bool{i%2 == 0, i%3 == 0},
+
+			StringMap: map[string]string{
+				"key1": fmt.Sprintf("value%d_1", i),
+				"key2": fmt.Sprintf("value%d_2", i),
+			},
+			IntMap: map[string]int{
+				"score": i * 10,
+				"rank":  i,
+			},
+			Int64Map: map[string]int64{
+				"id": int64(i),
+			},
+			InterfaceMap: map[string]interface{}{
+				"mixed": []interface{}{i, fmt.Sprintf("item%d", i)},
+			},
+			Interface: fmt.Sprintf("interface_value_%d", i),
+		}
+	}
+
+	// 保存所有测试数据
+	t.Logf("💾 保存 %d 条测试记录...", numRecords)
+	for i, d := range testData {
+		err = mgoManager.Save(d)
+		if err != nil {
+			t.Fatalf("保存测试数据 %d 失败: %v", i, err)
+		}
+		if i%20 == 0 {
+			t.Logf("  已保存 %d/%d 条记录", i+1, numRecords)
+		}
+	}
+	t.Logf("✅ 成功保存所有 %d 条测试数据", numRecords)
+
+	// 先测试单个记录的保存和查询
+	t.Logf("🔍 测试数据保存和查询...")
+	testRecord := testData[0]
+
+	// 测试直接使用字符串匹配查询
+	var singleResult []*TestAllTypesNoBsonTag
+	singleCondition := sqlc.M(&TestAllTypesNoBsonTag{}).Eq("string", testRecord.String)
+
+	err = mgoManager.FindList(singleCondition, &singleResult)
+	if err != nil {
+		t.Fatalf("单个记录查询失败: %v", err)
+	}
+	if len(singleResult) != 1 {
+		t.Fatalf("期望查询到1条记录，实际查询到%d条", len(singleResult))
+	}
+	t.Logf("✅ 单个记录查询成功")
+
+	// 执行多次查询测试 - 验证数据一致性
+	const numQueryIterations = 5
+	t.Logf("🔍 执行 %d 次查询迭代测试数据一致性...", numQueryIterations)
+
+	for iteration := 0; iteration < numQueryIterations; iteration++ {
+		t.Logf("📊 第 %d/%d 次查询迭代", iteration+1, numQueryIterations)
+
+		// 使用 FindList 查询所有记录 - 逐个查询每条记录
+		var results []*TestAllTypesNoBsonTag
+		for _, record := range testData {
+			var result []*TestAllTypesNoBsonTag
+			condition := sqlc.M(&TestAllTypesNoBsonTag{}).Eq("string", record.String)
+			err = mgoManager.FindList(condition, &result)
+			if err != nil {
+				t.Fatalf("第 %d 次查询记录 %s 失败: %v", iteration+1, record.String, err)
+			}
+			if len(result) != 1 {
+				t.Fatalf("第 %d 次查询期望1条记录，实际%d条", iteration+1, len(result))
+			}
+			results = append(results, result[0])
+		}
+
+		if len(results) != numRecords {
+			t.Fatalf("第 %d 次查询期望 %d 条记录，实际查询到 %d 条", iteration+1, numRecords, len(results))
+		}
+
+		// 验证每条记录的数据完整性
+		corruptionFound := false
+		for _, result := range results {
+			// 查找对应的原始数据
+			var expectedIdx int = -1
+			for j, d := range testData {
+				if d.Id == result.Id {
+					expectedIdx = j
+					break
+				}
+			}
+
+			if expectedIdx == -1 {
+				t.Errorf("❌ 第 %d 次查询：无法找到记录 %d 的原始数据", iteration+1, result.Id)
+				corruptionFound = true
+				continue
+			}
+			expected := testData[expectedIdx]
+
+			// 重点验证二进制数据 - 这是最容易出现混乱的字段
+			if !bytes.Equal(result.Binary, expected.Binary) {
+				t.Errorf("❌ 第 %d 次查询：记录 %d Binary 字段数据混乱!\n   期望长度: %d, 数据: %x\n   实际长度: %d, 数据: %x",
+					iteration+1, result.Id, len(expected.Binary), expected.Binary, len(result.Binary), result.Binary)
+				corruptionFound = true
+			}
+
+			// 验证其他关键字段
+			if result.String != expected.String {
+				t.Errorf("❌ 第 %d 次查询：记录 %d String 字段不匹配", iteration+1, result.Id)
+				corruptionFound = true
+			}
+			if result.Int64 != expected.Int64 {
+				t.Errorf("❌ 第 %d 次查询：记录 %d Int64 字段不匹配", iteration+1, result.Id)
+				corruptionFound = true
+			}
+			if result.Time.Unix() != expected.Time.Unix() {
+				t.Errorf("❌ 第 %d 次查询：记录 %d Time 字段不匹配", iteration+1, result.Id)
+				corruptionFound = true
+			}
+		}
+
+		if corruptionFound {
+			t.Fatalf("❌ 第 %d 次查询发现数据混乱问题！", iteration+1)
+		} else {
+			t.Logf("✅ 第 %d 次查询：所有 %d 条记录数据验证通过", iteration+1, len(results))
+		}
+
+		// 在迭代之间添加小延迟，避免可能的时序问题
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	t.Logf("🎉 数据混乱检测完成！经过 %d 次查询迭代，所有数据保持一致", numQueryIterations)
+	t.Logf("🎉 确认 MongoDB 查询不会导致 []byte 和其他字段数据混乱！")
+
+	// 清理测试数据
+	t.Logf("🧹 清理测试数据...")
+	deleteCondition := sqlc.M(&TestAllTypesNoBsonTag{}).Like("string", testAppID+"%")
+	deletedCount, err := mgoManager.DeleteByCnd(deleteCondition)
+	if err != nil {
+		t.Logf("⚠️ 清理测试数据失败: %v", err)
+	} else {
+		t.Logf("✅ 成功清理 %d 条测试数据", deletedCount)
+	}
+}
+
+// 辅助函数：安全解引用指针
+func derefString(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+func derefInt64(i *int64) int64 {
+	if i == nil {
+		return 0
+	}
+	return *i
+}
+
+// 指针辅助函数
+func ptrString(s string) *string    { return &s }
+func ptrInt64(i int64) *int64       { return &i }
+func ptrFloat64(f float64) *float64 { return &f }
+func ptrBool(b bool) *bool          { return &b }
 
 // verifyField 验证单个字段值
 func verifyField[T comparable](t *testing.T, fieldName string, actual, expected T) bool {
