@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -18,6 +19,20 @@ import (
 
 var mongoInitOnce sync.Once
 var mongoInitError error
+
+// formatBytes 格式化字节数为人类可读的格式
+func formatBytes(bytes uint64) string {
+	const unit = 1024
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.2f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
+}
 
 // initMongoForTest 确保MongoDB只被初始化一次
 func initMongoForTest() error {
@@ -5562,4 +5577,479 @@ func TestMongoSQLBuildEdgeCases(t *testing.T) {
 			t.Log("✅ 边界条件复杂查询验证通过")
 		}
 	})
+}
+
+// TestMongoORMFindOnePerformance ORM FindOne性能测试（包含GC和内存报告）
+func TestMongoORMFindOnePerformance(t *testing.T) {
+	if err := initMongoForTest(); err != nil {
+		t.Skip("MongoDB初始化失败，跳过性能测试")
+	}
+
+	// 注册测试模型
+	if err := sqld.ModelDriver(&TestAllTypes{}); err != nil && !strings.Contains(err.Error(), "exists") {
+		t.Fatalf("注册TestAllTypes模型失败: %v", err)
+	}
+
+	// 初始化ORM管理器
+	ormManager := &sqld.MGOManager{}
+	err := ormManager.GetDB()
+	if err != nil {
+		t.Skip("获取ORM管理器失败，跳过性能测试")
+	}
+	defer ormManager.Close()
+
+	// 准备测试数据
+	testRecord := &TestAllTypes{
+		Id:       utils.NextIID(),
+		String:   "orm_perf_test_record",
+		Int64:    123456789,
+		Binary:   []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10},
+		Time:     time.Now(),
+		ObjectID: primitive.NewObjectID(),
+	}
+
+	// 保存测试数据
+	err = ormManager.Save(testRecord)
+	if err != nil {
+		t.Fatalf("保存测试数据失败: %v", err)
+	}
+	t.Logf("✅ 测试数据保存成功，ID: %d", testRecord.Id)
+
+	const testDuration = 15 * time.Second
+
+	// GC和内存监控 - 测试前
+	runtime.GC()
+	runtime.GC() // 确保GC完成
+	var m1 runtime.MemStats
+	runtime.ReadMemStats(&m1)
+
+	var operations int64
+	var totalTime time.Duration
+
+	t.Logf("🚀 开始ORM FindOne性能测试，持续%d秒...", int(testDuration.Seconds()))
+
+	startTime := time.Now()
+	endTime := startTime.Add(testDuration)
+
+	for time.Now().Before(endTime) {
+		operationStart := time.Now()
+
+		result := &TestAllTypes{}
+		condition := sqlc.M().Eq("id", testRecord.Id)
+		err := ormManager.FindOne(condition, result)
+
+		operationDuration := time.Since(operationStart)
+		totalTime += operationDuration
+		operations++
+
+		if err != nil {
+			t.Errorf("ORM FindOne失败: %v", err)
+			break
+		}
+	}
+
+	actualDuration := time.Since(startTime)
+	qps := float64(operations) / actualDuration.Seconds()
+	avgLatency := totalTime / time.Duration(operations)
+
+	// GC和内存监控 - 测试后
+	runtime.GC()
+	runtime.GC()
+	var m2 runtime.MemStats
+	runtime.ReadMemStats(&m2)
+
+	t.Logf("📊 ORM FindOne性能结果:")
+	t.Logf("   执行操作数: %d", operations)
+	t.Logf("   总耗时: %v", actualDuration)
+	t.Logf("   QPS: %.2f", qps)
+	t.Logf("   平均延迟: %v", avgLatency)
+
+	t.Logf("🧠 内存和GC报告:")
+	t.Logf("   分配的总内存: %s", formatBytes(m2.TotalAlloc-m1.TotalAlloc))
+	t.Logf("   堆内存使用: %s", formatBytes(m2.HeapAlloc-m1.HeapAlloc))
+	t.Logf("   GC次数: %d", m2.NumGC-m1.NumGC)
+	t.Logf("   GC总耗时: %v", time.Duration(m2.PauseTotalNs-m1.PauseTotalNs))
+	if m2.NumGC > m1.NumGC {
+		avgGCPause := time.Duration((m2.PauseTotalNs - m1.PauseTotalNs) / uint64(m2.NumGC-m1.NumGC))
+		t.Logf("   平均GC暂停时间: %v", avgGCPause)
+	}
+
+	// 清理测试数据
+	t.Logf("🧹 清理测试数据...")
+	deleteCondition := sqlc.M().Eq("id", testRecord.Id)
+	deletedCount, err := ormManager.DeleteByCnd(deleteCondition)
+	if err != nil {
+		t.Logf("⚠️ 清理测试数据失败: %v", err)
+	} else {
+		t.Logf("✅ 成功清理 %d 条测试数据", deletedCount)
+	}
+}
+
+// TestMongoOfficialDriverFindOnePerformance 官方驱动FindOne性能测试（包含GC和内存报告）
+func TestMongoOfficialDriverFindOnePerformance(t *testing.T) {
+	if err := initMongoForTest(); err != nil {
+		t.Skip("MongoDB初始化失败，跳过性能测试")
+	}
+
+	// 注册测试模型
+	if err := sqld.ModelDriver(&TestAllTypes{}); err != nil && !strings.Contains(err.Error(), "exists") {
+		t.Fatalf("注册TestAllTypes模型失败: %v", err)
+	}
+
+	// 初始化ORM管理器（用于数据准备和清理）
+	ormManager := &sqld.MGOManager{}
+	err := ormManager.GetDB()
+	if err != nil {
+		t.Skip("获取ORM管理器失败，跳过性能测试")
+	}
+	defer ormManager.Close()
+
+	// 使用ORM管理器中的官方驱动客户端
+	officialClient := ormManager.Session
+
+	// 准备测试数据
+	testRecord := &TestAllTypes{
+		Id:       utils.NextIID(),
+		String:   "official_perf_test_record",
+		Int64:    123456789,
+		Binary:   []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10},
+		Time:     time.Now(),
+		ObjectID: primitive.NewObjectID(),
+	}
+
+	// 保存测试数据
+	err = ormManager.Save(testRecord)
+	if err != nil {
+		t.Fatalf("保存测试数据失败: %v", err)
+	}
+	t.Logf("✅ 测试数据保存成功，ID: %d", testRecord.Id)
+
+	// 获取数据库和集合
+	db := officialClient.Database("ops_dev")
+	collection := db.Collection("test_all_types")
+
+	const testDuration = 15 * time.Second
+
+	// GC和内存监控 - 测试前
+	runtime.GC()
+	runtime.GC() // 确保GC完成
+	var m1 runtime.MemStats
+	runtime.ReadMemStats(&m1)
+
+	var operations int64
+	var totalTime time.Duration
+
+	t.Logf("🚀 开始官方驱动FindOne性能测试，持续%d秒...", int(testDuration.Seconds()))
+
+	startTime := time.Now()
+	endTime := startTime.Add(testDuration)
+
+	for time.Now().Before(endTime) {
+		operationStart := time.Now()
+
+		var result bson.M
+		err := collection.FindOne(context.Background(), bson.M{"_id": testRecord.Id}).Decode(&result)
+
+		operationDuration := time.Since(operationStart)
+		totalTime += operationDuration
+		operations++
+
+		if err != nil {
+			t.Errorf("官方驱动FindOne失败: %v", err)
+			break
+		}
+	}
+
+	actualDuration := time.Since(startTime)
+	qps := float64(operations) / actualDuration.Seconds()
+	avgLatency := totalTime / time.Duration(operations)
+
+	// GC和内存监控 - 测试后
+	runtime.GC()
+	runtime.GC()
+	var m2 runtime.MemStats
+	runtime.ReadMemStats(&m2)
+
+	t.Logf("📊 官方驱动FindOne性能结果:")
+	t.Logf("   执行操作数: %d", operations)
+	t.Logf("   总耗时: %v", actualDuration)
+	t.Logf("   QPS: %.2f", qps)
+	t.Logf("   平均延迟: %v", avgLatency)
+
+	t.Logf("🧠 内存和GC报告:")
+	t.Logf("   分配的总内存: %s", formatBytes(m2.TotalAlloc-m1.TotalAlloc))
+	t.Logf("   堆内存使用: %s", formatBytes(m2.HeapAlloc-m1.HeapAlloc))
+	t.Logf("   GC次数: %d", m2.NumGC-m1.NumGC)
+	t.Logf("   GC总耗时: %v", time.Duration(m2.PauseTotalNs-m1.PauseTotalNs))
+	if m2.NumGC > m1.NumGC {
+		avgGCPause := time.Duration((m2.PauseTotalNs - m1.PauseTotalNs) / uint64(m2.NumGC-m1.NumGC))
+		t.Logf("   平均GC暂停时间: %v", avgGCPause)
+	}
+
+	// 清理测试数据
+	t.Logf("🧹 清理测试数据...")
+	deleteCondition := sqlc.M().Eq("id", testRecord.Id)
+	deletedCount, err := ormManager.DeleteByCnd(deleteCondition)
+	if err != nil {
+		t.Logf("⚠️ 清理测试数据失败: %v", err)
+	} else {
+		t.Logf("✅ 成功清理 %d 条测试数据", deletedCount)
+	}
+}
+
+// TestMongoFindListPerformanceComparison FindList性能对比测试
+// 测试不同数据量（100, 500, 1000, 2000）的ORM vs 官方驱动性能
+func TestMongoFindListPerformanceComparison(t *testing.T) {
+	if err := initMongoForTest(); err != nil {
+		t.Skip("MongoDB初始化失败，跳过性能测试")
+	}
+
+	// 注册测试模型
+	if err := sqld.ModelDriver(&TestAllTypes{}); err != nil && !strings.Contains(err.Error(), "exists") {
+		t.Fatalf("注册TestAllTypes模型失败: %v", err)
+	}
+
+	// 初始化ORM管理器
+	ormManager := &sqld.MGOManager{}
+	err := ormManager.GetDB()
+	if err != nil {
+		t.Skip("获取ORM管理器失败，跳过性能测试")
+	}
+	defer ormManager.Close()
+
+	// 使用ORM管理器中的官方驱动客户端
+	officialClient := ormManager.Session
+
+	// 测试数据量
+	testSizes := []int{100, 500, 1000, 2000}
+
+	for _, size := range testSizes {
+		t.Run(fmt.Sprintf("DataSize_%d", size), func(t *testing.T) {
+			// 准备测试数据
+			testAppID := fmt.Sprintf("findlist_perf_test_%d_%d", size, time.Now().UnixNano())
+
+			// 批量创建测试数据
+			testRecords := make([]*TestAllTypes, size)
+			for i := 0; i < size; i++ {
+				testRecords[i] = &TestAllTypes{
+					Id:       utils.NextIID(),
+					String:   fmt.Sprintf("%s_record_%04d", testAppID, i),
+					Int64:    int64(i + 1),
+					Binary:   []byte{byte(i % 256), byte((i + 1) % 256)},
+					Time:     time.Now(),
+					ObjectID: primitive.NewObjectID(),
+				}
+			}
+
+			// 批量保存测试数据
+			t.Logf("📝 准备 %d 条测试数据...", size)
+			for _, record := range testRecords {
+				err := ormManager.Save(record)
+				if err != nil {
+					t.Fatalf("保存测试数据失败: %v", err)
+				}
+			}
+			t.Logf("✅ 成功保存 %d 条测试数据", size)
+
+			// 获取数据库和集合
+			db := officialClient.Database("ops_dev")
+			collection := db.Collection("test_all_types")
+
+			const iterations = 5 // 每个数据量重复测试5次
+
+			// ORM FindList性能测试
+			t.Run("ORM_FindList", func(t *testing.T) {
+				var totalOperations int64
+				var totalTime time.Duration
+				var totalMemoryAlloc uint64
+				var totalGC uint32
+
+				for iter := 0; iter < iterations; iter++ {
+					// GC和内存监控 - 测试前
+					runtime.GC()
+					runtime.GC()
+					var m1 runtime.MemStats
+					runtime.ReadMemStats(&m1)
+
+					startTime := time.Now()
+
+					// 逐个查询每条记录（模拟批量查询）
+					var results []*TestAllTypes
+					for _, record := range testRecords {
+						var result []*TestAllTypes
+						condition := sqlc.M(&TestAllTypes{}).Eq("string", record.String)
+						err := ormManager.FindList(condition, &result)
+						if err != nil {
+							t.Errorf("查询记录 %s 失败: %v", record.String, err)
+							break
+						}
+						results = append(results, result[0])
+					}
+
+					duration := time.Since(startTime)
+
+					// GC和内存监控 - 测试后
+					runtime.GC()
+					runtime.GC()
+					var m2 runtime.MemStats
+					runtime.ReadMemStats(&m2)
+
+					if len(results) != size {
+						t.Errorf("第%d次ORM FindList期望%d条记录，实际%d条", iter+1, size, len(results))
+						continue
+					}
+
+					totalOperations++
+					totalTime += duration
+					totalMemoryAlloc += (m2.TotalAlloc - m1.TotalAlloc)
+					totalGC += (m2.NumGC - m1.NumGC)
+				}
+
+				if totalOperations > 0 {
+					avgDuration := totalTime / time.Duration(totalOperations)
+					avgMemoryAlloc := totalMemoryAlloc / uint64(totalOperations)
+					avgGC := float64(totalGC) / float64(totalOperations)
+
+					t.Logf("📊 ORM FindList (%d条数据) 性能结果:", size)
+					t.Logf("   测试次数: %d", totalOperations)
+					t.Logf("   平均耗时: %v", avgDuration)
+					t.Logf("   平均内存分配: %s", formatBytes(avgMemoryAlloc))
+					t.Logf("   平均GC次数: %.2f", avgGC)
+				}
+			})
+
+			// 官方驱动FindList性能测试
+			t.Run("OfficialDriver_FindList", func(t *testing.T) {
+				var totalOperations int64
+				var totalTime time.Duration
+				var totalMemoryAlloc uint64
+				var totalGC uint32
+
+				for iter := 0; iter < iterations; iter++ {
+					// GC和内存监控 - 测试前
+					runtime.GC()
+					runtime.GC()
+					var m1 runtime.MemStats
+					runtime.ReadMemStats(&m1)
+
+					startTime := time.Now()
+
+					cursor, err := collection.Find(context.Background(), bson.M{"string": bson.M{"$regex": "^" + testAppID}})
+					if err != nil {
+						t.Errorf("第%d次官方驱动Find失败: %v", iter+1, err)
+						continue
+					}
+
+					var results []bson.M
+					err = cursor.All(context.Background(), &results)
+					cursor.Close(context.Background())
+
+					duration := time.Since(startTime)
+
+					// GC和内存监控 - 测试后
+					runtime.GC()
+					runtime.GC()
+					var m2 runtime.MemStats
+					runtime.ReadMemStats(&m2)
+
+					if err != nil {
+						t.Errorf("第%d次官方驱动All失败: %v", iter+1, err)
+						continue
+					}
+
+					if len(results) != size {
+						t.Errorf("第%d次官方驱动FindList期望%d条记录，实际%d条", iter+1, size, len(results))
+						continue
+					}
+
+					totalOperations++
+					totalTime += duration
+					totalMemoryAlloc += (m2.TotalAlloc - m1.TotalAlloc)
+					totalGC += (m2.NumGC - m1.NumGC)
+				}
+
+				if totalOperations > 0 {
+					avgDuration := totalTime / time.Duration(totalOperations)
+					avgMemoryAlloc := totalMemoryAlloc / uint64(totalOperations)
+					avgGC := float64(totalGC) / float64(totalOperations)
+
+					t.Logf("📊 官方驱动FindList (%d条数据) 性能结果:", size)
+					t.Logf("   测试次数: %d", totalOperations)
+					t.Logf("   平均耗时: %v", avgDuration)
+					t.Logf("   平均内存分配: %s", formatBytes(avgMemoryAlloc))
+					t.Logf("   平均GC次数: %.2f", avgGC)
+				}
+			})
+
+			// 清理测试数据
+			t.Logf("🧹 清理 %d 条测试数据...", size)
+			deleteCondition := sqlc.M(&TestAllTypes{}).Like("string", testAppID+"%")
+			deletedCount, err := ormManager.DeleteByCnd(deleteCondition)
+			if err != nil {
+				t.Logf("⚠️ 清理测试数据失败: %v", err)
+			} else {
+				t.Logf("✅ 成功清理 %d 条测试数据", deletedCount)
+			}
+		})
+	}
+}
+
+// TestMongoSaveOperations 测试Save方法各种场景
+func TestMongoSaveList(t *testing.T) {
+	// 注册测试模型
+	initMongoDB()
+
+	db, err := sqld.NewMongo()
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+
+	var vs []sqlc.Object
+	for i := 0; i < 2000; i++ {
+		wallet := OwWallet{
+			AppID:        "test_app_" + utils.RandStr(6),
+			WalletID:     "wallet_" + utils.RandStr(8),
+			Alias:        "test_wallet_" + utils.RandStr(4),
+			IsTrust:      1,
+			PasswordType: 1,
+			Password:     []byte("encrypted_password_" + utils.RandStr(10)),
+			AuthKey:      "auth_key_" + utils.RandStr(12),
+			RootPath:     "/path/to/wallet/" + utils.RandStr(8),
+			AccountIndex: 0,
+			Keystore:     `{"version":3,"id":"1234-5678-9abc-def0","address":"abcd1234ef567890","crypto":{"ciphertext":"cipher","cipherparams":{"iv":"iv"},"cipher":"aes-128-ctr","kdf":"scrypt","kdfparams":{"dklen":32,"salt":"salt","n":8192,"r":8,"p":1},"mac":"mac"}}`,
+			Applytime:    utils.UnixMilli(),
+			Succtime:     utils.UnixMilli(),
+			Dealstate:    1,
+			Ctime:        utils.UnixMilli(),
+			Utime:        utils.UnixMilli(),
+			State:        1,
+		}
+		vs = append(vs, &wallet)
+	}
+	l := utils.UnixMilli()
+	if err := db.Save(vs...); err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println("cost: ", utils.UnixMilli()-l)
+
+}
+
+func TestMongoFindList(t *testing.T) {
+	// 注册测试模型
+	initMongoDB()
+
+	db, err := sqld.NewMongo()
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+	l := utils.UnixMilli()
+	result := make([]*OwWallet, 0, 200)
+	if err := db.FindList(sqlc.M(&OwWallet{}).Between("id", 2014299923591200768, 2014299923591202767).Offset(0, 200).Orderby("id", sqlc.DESC_), &result); err != nil {
+		fmt.Println(err)
+	}
+
+	fmt.Println("cost: ", utils.UnixMilli()-l)
+
 }

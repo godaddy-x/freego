@@ -44,7 +44,8 @@ type OwWallet struct {
 }
 
 func (o *OwWallet) GetTable() string {
-	return "ow_wallet"
+	return "test_wallet2"
+	// return "ow_wallet"
 }
 
 func (o *OwWallet) NewObject() sqlc.Object {
@@ -75,6 +76,17 @@ func initMysqlDB() {
 	}
 	new(sqld.MysqlManager).InitConfigAndCache(nil, conf)
 	fmt.Println("init mysql success")
+
+	initDriver()
+}
+
+func initMongoDB() {
+	conf := sqld.MGOConfig{}
+	if err := utils.ReadLocalJsonConfig("resource/mongo.json", &conf); err != nil {
+		panic(utils.AddStr("读取mongo配置失败: ", err.Error()))
+	}
+	new(sqld.MGOManager).InitConfigAndCache(nil, conf)
+	fmt.Println("init mongo success")
 
 	initDriver()
 }
