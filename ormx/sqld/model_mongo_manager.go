@@ -933,7 +933,10 @@ func setMongoValue(obj interface{}, elem *FieldElem, bsonValue bson.RawValue) er
 //   - Array: 数组中的每个元素转换为uint8
 func handleUint8Slice(ptr uintptr, bsonValue bson.RawValue, elem *FieldElem) error {
 	if _, binary, ok := bsonValue.BinaryOK(); ok {
-		utils.SetUint8Arr(ptr, binary)
+		// 创建副本，避免 cursor buffer 复用导致数据混乱
+		copyBinary := make([]byte, len(binary))
+		copy(copyBinary, binary)
+		utils.SetUint8Arr(ptr, copyBinary)
 		return nil
 	}
 
@@ -1258,7 +1261,10 @@ func setStruct(obj interface{}, elem *FieldElem, bsonValue bson.RawValue) error 
 		return fmt.Errorf("field %s: Timestamp requires Timestamp type, got %s", elem.FieldName, bsonValue.Type)
 	case "primitive.Binary":
 		if subtype, binary, ok := bsonValue.BinaryOK(); ok {
-			bin := primitive.Binary{Subtype: subtype, Data: binary}
+			// 创建副本，避免 cursor buffer 复用导致数据混乱
+			copyBinary := make([]byte, len(binary))
+			copy(copyBinary, binary)
+			bin := primitive.Binary{Subtype: subtype, Data: copyBinary}
 			fieldVal.Set(reflect.ValueOf(bin))
 			return nil
 		}
@@ -1750,7 +1756,10 @@ func parseMapValue(v bson.RawValue) (interface{}, error) {
 		}
 	case bson.TypeBinary:
 		if _, binary, ok := v.BinaryOK(); ok {
-			return binary, nil
+			// 创建副本，避免 cursor buffer 复用导致数据混乱
+			copyBinary := make([]byte, len(binary))
+			copy(copyBinary, binary)
+			return copyBinary, nil
 		}
 	case bson.TypeEmbeddedDocument:
 		// 递归解析嵌套文档为map
@@ -2037,7 +2046,10 @@ func getObjectIDValue(v bson.RawValue) (primitive.ObjectID, error) {
 
 func getUint8SliceValue(v bson.RawValue) ([]uint8, error) {
 	if _, binary, ok := v.BinaryOK(); ok {
-		return binary, nil
+		// 创建副本，避免 cursor buffer 复用导致数据混乱
+		copyBinary := make([]byte, len(binary))
+		copy(copyBinary, binary)
+		return copyBinary, nil
 	}
 	if v.Type == bson.TypeArray {
 		return parseBsonArray(v.Array(), func(sv bson.RawValue) (uint8, error) {
