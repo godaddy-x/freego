@@ -1,8 +1,6 @@
 package ex
 
 import (
-	"errors"
-
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/zlog"
 )
@@ -71,15 +69,15 @@ func Catch(err error) Throw {
 	if throw, ok := err.(Throw); ok {
 		return throw
 	}
-	result := Throw{}
-	if err := utils.JsonUnmarshal(utils.Str2Bytes(err.Error()), &result); err != nil {
-		return Throw{Code: UNKNOWN, Msg: "failed to catch exception", Err: err}
-	} else {
-		if len(result.ErrMsg) > 0 { // 如果存在原始错误信息则转成error对象
-			result.Err = errors.New(result.ErrMsg)
-		}
-		return result
+	errMsg := err.Error()
+	if !utils.JsonValidString(errMsg) {
+		return Throw{Code: BIZ, Msg: errMsg}
 	}
+	result := Throw{}
+	if err := utils.JsonUnmarshal(utils.Str2Bytes(errMsg), &result); err != nil {
+		return Throw{Code: UNKNOWN, Msg: "failed to catch exception", Err: err}
+	}
+	return result
 }
 
 func OutError(title string, err error) {
