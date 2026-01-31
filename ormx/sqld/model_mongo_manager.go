@@ -120,10 +120,8 @@ func EncodeObjectToBson(data sqlc.Object) (bson.M, error) {
 			return nil, fmt.Errorf("field %s: %v", elem.FieldName, err)
 		}
 
-		// 只有非零值才添加到文档中，但ObjectID字段例外
-		if value != nil || elem.FieldType == "primitive.ObjectID" {
-			doc[fieldName] = value
-		}
+		// 全量字段填入文档，包括零值，以确保查询的一致性
+		doc[fieldName] = value
 	}
 
 	return doc, nil
@@ -217,139 +215,94 @@ func processValueForBson(value interface{}) (interface{}, error) {
 // 以下函数通过内存偏移量直接读取结构体字段值，避免反射开销
 
 // getStringValueFromObject 从对象中获取字符串字段值
-// 只有非空字符串才会被保存到BSON文档
+// 返回字符串值，包括空字符串
 func getStringValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
 	val := utils.GetString(ptr)
-	if val != "" {
-		return val, nil
-	}
-	return nil, nil // 返回nil表示零值，不添加到文档中
+	return val, nil
 }
 
 // getInt64ValueFromObject 从对象中获取int64字段值
 func getInt64ValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
 	val := utils.GetInt64(ptr)
-	if val != 0 {
-		return val, nil
-	}
-	return nil, nil
+	return val, nil
 }
 
 // getIntValueFromObject 从对象中获取int字段值
 func getIntValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
 	val := utils.GetInt(ptr)
-	if val != 0 {
-		return val, nil
-	}
-	return nil, nil
+	return val, nil
 }
 
 // getInt8ValueFromObject 从对象中获取int8字段值
 func getInt8ValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
 	val := utils.GetInt8(ptr)
-	if val != 0 {
-		return val, nil
-	}
-	return nil, nil
+	return val, nil
 }
 
 // getInt16ValueFromObject 从对象中获取int16字段值
 func getInt16ValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
 	val := utils.GetInt16(ptr)
-	if val != 0 {
-		return val, nil
-	}
-	return nil, nil
+	return val, nil
 }
 
 // getInt32ValueFromObject 从对象中获取int32字段值
 func getInt32ValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
 	val := utils.GetInt32(ptr)
-	if val != 0 {
-		return val, nil
-	}
-	return nil, nil
+	return val, nil
 }
 
 // getUintValueFromObject 从对象中获取uint字段值
 func getUintValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
 	val := utils.GetUint(ptr)
-	if val != 0 {
-		return val, nil
-	}
-	return nil, nil
+	return val, nil
 }
 
 // getUint8ValueFromObject 从对象中获取uint8字段值
 func getUint8ValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
 	val := utils.GetUint8(ptr)
-	if val != 0 {
-		return val, nil
-	}
-	return nil, nil
+	return val, nil
 }
 
 // getUint16ValueFromObject 从对象中获取uint16字段值
 func getUint16ValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
 	val := utils.GetUint16(ptr)
-	if val != 0 {
-		return val, nil
-	}
-	return nil, nil
+	return val, nil
 }
 
 // getUint32ValueFromObject 从对象中获取uint32字段值
 func getUint32ValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
 	val := utils.GetUint32(ptr)
-	if val != 0 {
-		return val, nil
-	}
-	return nil, nil
+	return val, nil
 }
 
 // getUint64ValueFromObject 从对象中获取uint64字段值
 func getUint64ValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
 	val := utils.GetUint64(ptr)
-	if val != 0 {
-		return val, nil
-	}
-	return nil, nil
+	return val, nil
 }
 
 // getFloat32ValueFromObject 从对象中获取float32字段值
 func getFloat32ValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
 	val := utils.GetFloat32(ptr)
-	if val != 0.0 {
-		return val, nil
-	}
-	return nil, nil
+	return val, nil
 }
 
 // getFloat64ValueFromObject 从对象中获取float64字段值
 func getFloat64ValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
 	val := utils.GetFloat64(ptr)
-	if val != 0.0 {
-		return val, nil
-	}
-	return nil, nil
+	return val, nil
 }
 
 // getBoolValueFromObject 从对象中获取bool字段值
 func getBoolValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
 	val := utils.GetBool(ptr)
-	if val {
-		return val, nil
-	}
-	return nil, nil
+	return val, nil
 }
 
 // getUint8SliceValueFromObject 从对象中获取[]uint8字段值
 func getUint8SliceValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
 	val := utils.GetUint8Arr(ptr)
-	if len(val) > 0 {
-		return val, nil
-	}
-	return nil, nil
+	return val, nil
 }
 
 // getObjectIDValueFromObject 从对象中获取ObjectID字段值
@@ -384,12 +337,12 @@ func getMapValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
 		// map[string]interface{} 或 map[string]any - 直接处理
 		mapPtr := (*map[string]interface{})(unsafe.Pointer(ptr))
 		if mapPtr == nil {
-			return nil, nil
+			return make(map[string]interface{}), nil
 		}
 
 		mapValue := *mapPtr
-		if mapValue == nil || len(mapValue) == 0 {
-			return nil, nil // 空map不保存
+		if mapValue == nil {
+			return make(map[string]interface{}), nil
 		}
 
 		// 统一使用 processValueForBson 处理所有复杂类型
@@ -403,12 +356,12 @@ func getMapValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
 		// map[string]string - 特殊处理
 		mapPtr := (*map[string]string)(unsafe.Pointer(ptr))
 		if mapPtr == nil {
-			return nil, nil
+			return make(map[string]string), nil
 		}
 
 		mapValue := *mapPtr
-		if len(mapValue) == 0 {
-			return nil, nil // 空map不保存
+		if mapValue == nil {
+			return make(map[string]string), nil
 		}
 
 		// 将map[string]string转换为map[string]interface{}
@@ -422,23 +375,18 @@ func getMapValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
 		// map[string]int - 特殊处理
 		mapPtr := (*map[string]int)(unsafe.Pointer(ptr))
 		if mapPtr == nil {
-			return nil, nil
+			return make(map[string]int), nil
 		}
 
 		mapValue := *mapPtr
-		if len(mapValue) == 0 {
-			return nil, nil // 空map不保存
+		if mapValue == nil {
+			return make(map[string]int), nil
 		}
 
 		// 将map[string]int转换为map[string]interface{}
 		result := make(map[string]interface{})
 		for key, value := range mapValue {
-			if value != 0 { // 只保存非零值
-				result[key] = value
-			}
-		}
-		if len(result) == 0 {
-			return nil, nil
+			result[key] = value
 		}
 		return result, nil
 
@@ -446,23 +394,18 @@ func getMapValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) {
 		// map[string]int64 - 特殊处理
 		mapPtr := (*map[string]int64)(unsafe.Pointer(ptr))
 		if mapPtr == nil {
-			return nil, nil
+			return make(map[string]int64), nil
 		}
 
 		mapValue := *mapPtr
-		if len(mapValue) == 0 {
-			return nil, nil // 空map不保存
+		if mapValue == nil {
+			return make(map[string]int64), nil
 		}
 
 		// 将map[string]int64转换为map[string]interface{}
 		result := make(map[string]interface{})
 		for key, value := range mapValue {
-			if value != 0 { // 只保存非零值
-				result[key] = value
-			}
-		}
-		if len(result) == 0 {
-			return nil, nil
+			result[key] = value
 		}
 		return result, nil
 
@@ -591,8 +534,8 @@ func getSliceValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) 
 		return getTypedSliceValue(ptr, elem, func(val interface{}) interface{} { return val })
 	case "[]interface{}":
 		slicePtr := (*[]interface{})(unsafe.Pointer(ptr))
-		if slicePtr == nil || len(*slicePtr) == 0 {
-			return nil, nil
+		if slicePtr == nil {
+			return make([]interface{}, 0), nil
 		}
 		slice := *slicePtr
 		result := make([]interface{}, len(slice))
@@ -604,8 +547,8 @@ func getSliceValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error) 
 		return result, nil
 	case "[]map[string]interface{}":
 		slicePtr := (*[]map[string]interface{})(unsafe.Pointer(ptr))
-		if slicePtr == nil || len(*slicePtr) == 0 {
-			return nil, nil
+		if slicePtr == nil {
+			return make([]interface{}, 0), nil
 		}
 		slice := *slicePtr
 		result := make([]interface{}, len(slice))
@@ -636,8 +579,8 @@ func getTypedSliceValue(ptr uintptr, elem *FieldElem, converter func(interface{}
 	switch elem.FieldType {
 	case "[]string":
 		slicePtr := (*[]string)(unsafe.Pointer(ptr))
-		if slicePtr == nil || len(*slicePtr) == 0 {
-			return nil, nil
+		if slicePtr == nil {
+			return make([]interface{}, 0), nil
 		}
 		slice := *slicePtr
 		result := make([]interface{}, len(slice))
@@ -648,8 +591,8 @@ func getTypedSliceValue(ptr uintptr, elem *FieldElem, converter func(interface{}
 
 	case "[]int":
 		slicePtr := (*[]int)(unsafe.Pointer(ptr))
-		if slicePtr == nil || len(*slicePtr) == 0 {
-			return nil, nil
+		if slicePtr == nil {
+			return make([]interface{}, 0), nil
 		}
 		slice := *slicePtr
 		result := make([]interface{}, len(slice))
@@ -660,8 +603,8 @@ func getTypedSliceValue(ptr uintptr, elem *FieldElem, converter func(interface{}
 
 	case "[]int8":
 		slicePtr := (*[]int8)(unsafe.Pointer(ptr))
-		if slicePtr == nil || len(*slicePtr) == 0 {
-			return nil, nil
+		if slicePtr == nil {
+			return make([]interface{}, 0), nil
 		}
 		slice := *slicePtr
 		result := make([]interface{}, len(slice))
@@ -672,8 +615,8 @@ func getTypedSliceValue(ptr uintptr, elem *FieldElem, converter func(interface{}
 
 	case "[]int16":
 		slicePtr := (*[]int16)(unsafe.Pointer(ptr))
-		if slicePtr == nil || len(*slicePtr) == 0 {
-			return nil, nil
+		if slicePtr == nil {
+			return make([]interface{}, 0), nil
 		}
 		slice := *slicePtr
 		result := make([]interface{}, len(slice))
@@ -684,8 +627,8 @@ func getTypedSliceValue(ptr uintptr, elem *FieldElem, converter func(interface{}
 
 	case "[]int32":
 		slicePtr := (*[]int32)(unsafe.Pointer(ptr))
-		if slicePtr == nil || len(*slicePtr) == 0 {
-			return nil, nil
+		if slicePtr == nil {
+			return make([]interface{}, 0), nil
 		}
 		slice := *slicePtr
 		result := make([]interface{}, len(slice))
@@ -696,8 +639,8 @@ func getTypedSliceValue(ptr uintptr, elem *FieldElem, converter func(interface{}
 
 	case "[]int64":
 		slicePtr := (*[]int64)(unsafe.Pointer(ptr))
-		if slicePtr == nil || len(*slicePtr) == 0 {
-			return nil, nil
+		if slicePtr == nil {
+			return make([]interface{}, 0), nil
 		}
 		slice := *slicePtr
 		result := make([]interface{}, len(slice))
@@ -708,8 +651,8 @@ func getTypedSliceValue(ptr uintptr, elem *FieldElem, converter func(interface{}
 
 	case "[]uint":
 		slicePtr := (*[]uint)(unsafe.Pointer(ptr))
-		if slicePtr == nil || len(*slicePtr) == 0 {
-			return nil, nil
+		if slicePtr == nil {
+			return make([]interface{}, 0), nil
 		}
 		slice := *slicePtr
 		result := make([]interface{}, len(slice))
@@ -720,8 +663,8 @@ func getTypedSliceValue(ptr uintptr, elem *FieldElem, converter func(interface{}
 
 	case "[]uint16":
 		slicePtr := (*[]uint16)(unsafe.Pointer(ptr))
-		if slicePtr == nil || len(*slicePtr) == 0 {
-			return nil, nil
+		if slicePtr == nil {
+			return make([]interface{}, 0), nil
 		}
 		slice := *slicePtr
 		result := make([]interface{}, len(slice))
@@ -732,8 +675,8 @@ func getTypedSliceValue(ptr uintptr, elem *FieldElem, converter func(interface{}
 
 	case "[]uint32":
 		slicePtr := (*[]uint32)(unsafe.Pointer(ptr))
-		if slicePtr == nil || len(*slicePtr) == 0 {
-			return nil, nil
+		if slicePtr == nil {
+			return make([]interface{}, 0), nil
 		}
 		slice := *slicePtr
 		result := make([]interface{}, len(slice))
@@ -744,8 +687,8 @@ func getTypedSliceValue(ptr uintptr, elem *FieldElem, converter func(interface{}
 
 	case "[]uint64":
 		slicePtr := (*[]uint64)(unsafe.Pointer(ptr))
-		if slicePtr == nil || len(*slicePtr) == 0 {
-			return nil, nil
+		if slicePtr == nil {
+			return make([]interface{}, 0), nil
 		}
 		slice := *slicePtr
 		result := make([]interface{}, len(slice))
@@ -756,8 +699,8 @@ func getTypedSliceValue(ptr uintptr, elem *FieldElem, converter func(interface{}
 
 	case "[]float32":
 		slicePtr := (*[]float32)(unsafe.Pointer(ptr))
-		if slicePtr == nil || len(*slicePtr) == 0 {
-			return nil, nil
+		if slicePtr == nil {
+			return make([]interface{}, 0), nil
 		}
 		slice := *slicePtr
 		result := make([]interface{}, len(slice))
@@ -768,8 +711,8 @@ func getTypedSliceValue(ptr uintptr, elem *FieldElem, converter func(interface{}
 
 	case "[]float64":
 		slicePtr := (*[]float64)(unsafe.Pointer(ptr))
-		if slicePtr == nil || len(*slicePtr) == 0 {
-			return nil, nil
+		if slicePtr == nil {
+			return make([]interface{}, 0), nil
 		}
 		slice := *slicePtr
 		result := make([]interface{}, len(slice))
@@ -780,8 +723,8 @@ func getTypedSliceValue(ptr uintptr, elem *FieldElem, converter func(interface{}
 
 	case "[]bool":
 		slicePtr := (*[]bool)(unsafe.Pointer(ptr))
-		if slicePtr == nil || len(*slicePtr) == 0 {
-			return nil, nil
+		if slicePtr == nil {
+			return make([]interface{}, 0), nil
 		}
 		slice := *slicePtr
 		result := make([]interface{}, len(slice))
