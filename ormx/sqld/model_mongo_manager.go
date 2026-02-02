@@ -1710,6 +1710,9 @@ func parseMapValue(v bson.RawValue) (interface{}, error) {
 	case bson.TypeArray:
 		// 递归解析数组为[]interface{}
 		return parseArrayToInterface(v.Array())
+	case bson.TypeNull:
+		// 处理null值，返回Go的nil
+		return nil, nil
 	}
 	return nil, fmt.Errorf("unsupported map value type %s", v.Type)
 }
@@ -1762,7 +1765,13 @@ func setInterface(obj interface{}, elem *FieldElem, bsonValue bson.RawValue) err
 	if err != nil {
 		return fmt.Errorf("field %s: parse interface value failed: %w", elem.FieldName, err)
 	}
-	fieldVal.Set(reflect.ValueOf(val))
+
+	// 特殊处理nil值，对于interface{}字段
+	if val == nil {
+		fieldVal.Set(reflect.Zero(fieldVal.Type()))
+	} else {
+		fieldVal.Set(reflect.ValueOf(val))
+	}
 	return nil
 }
 
