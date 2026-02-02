@@ -1213,6 +1213,81 @@ func TestMongoFindOneAllTypes(t *testing.T) {
 	t.Logf("🎉 总计: 37个类型验证完成！")
 	t.Logf("🚀 MongoDB零反射解码setMongoValue方法工作正常！")
 
+	// 测试全量字段填入可能的问题
+	t.Logf("🔍 测试全量字段填入对查询的影响...")
+
+	// 验证零值字段确实存在于BSON文档中
+	doc, err := sqld.EncodeObjectToBson(testData)
+	if err != nil {
+		t.Fatalf("编码失败: %v", err)
+	}
+
+	// 检查零值字段是否存在
+	if _, exists := doc["string"]; !exists {
+		t.Errorf("❌ 零值字段 'string' 不存在于BSON文档中")
+	}
+	if _, exists := doc["int64"]; !exists {
+		t.Errorf("❌ 零值字段 'int64' 不存在于BSON文档中")
+	}
+	if _, exists := doc["int32"]; !exists {
+		t.Errorf("❌ 零值字段 'int32' 不存在于BSON文档中")
+	}
+	if _, exists := doc["float64"]; !exists {
+		t.Errorf("❌ 零值字段 'float64' 不存在于BSON文档中")
+	}
+
+	t.Logf("✅ 全量字段填入验证通过：零值字段存在于BSON文档中")
+
+	// 测试空切片和空map - 注意：测试数据中这些字段都有值，所以应该存在
+	if _, exists := doc["stringArr"]; !exists {
+		t.Errorf("❌ 切片字段 'stringArr' 不存在于BSON文档中")
+	}
+	if _, exists := doc["stringMap"]; !exists {
+		t.Errorf("❌ map字段 'stringMap' 不存在于BSON文档中")
+	}
+
+	t.Logf("✅ 空集合类型字段验证通过")
+
+	// 创建一个只初始化ID的空对象来测试零值字段
+	emptyData := &TestAllTypes{
+		Id: nextID + 1, // 使用不同的ID
+	}
+	// 其他字段保持零值
+
+	emptyDoc, err := sqld.EncodeObjectToBson(emptyData)
+	if err != nil {
+		t.Fatalf("编码空对象失败: %v", err)
+	}
+
+	t.Logf("🔍 测试零值字段在空对象中的存在性...")
+
+	// 检查零值字段是否都存在
+	zeroValueFields := []string{"string", "int64", "int32", "int16", "int8", "int", "uint64", "uint32", "uint16", "uint8", "uint", "float64", "float32", "bool"}
+	allZeroFieldsExist := true
+	for _, field := range zeroValueFields {
+		if _, exists := emptyDoc[field]; !exists {
+			t.Errorf("❌ 零值字段 '%s' 不存在于空对象的BSON文档中", field)
+			allZeroFieldsExist = false
+		}
+	}
+
+	if allZeroFieldsExist {
+		t.Logf("✅ 所有零值字段都存在于空对象的BSON文档中")
+	}
+
+	// 检查空切片和空map字段
+	if _, exists := emptyDoc["stringArr"]; !exists {
+		t.Logf("⚠️ 空切片字段 'stringArr' 不存在于空对象的BSON文档中")
+	} else {
+		t.Logf("✅ 空切片字段 'stringArr' 存在于空对象的BSON文档中")
+	}
+
+	if _, exists := emptyDoc["stringMap"]; !exists {
+		t.Logf("⚠️ 空map字段 'stringMap' 不存在于空对象的BSON文档中")
+	} else {
+		t.Logf("✅ 空map字段 'stringMap' 存在于空对象的BSON文档中")
+	}
+
 	// 测试UpdateWithContext是否使用encode方法
 	t.Logf("🔄 测试UpdateWithContext的encode适配...")
 
