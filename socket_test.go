@@ -1297,3 +1297,128 @@ func TestWebSocketErrorHandling(t *testing.T) {
 
 	t.Logf("✓ Error handling test completed - check logs for detailed context information")
 }
+
+func TestWebSocketServer(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping WebSocket SDK usage test in short mode")
+	}
+
+	zlog.InitDefaultLog(&zlog.ZapConfig{Layout: 0, Location: time.Local, Level: zlog.DEBUG, Console: true}) // 测试环境使用空logger，避免输出干扰
+
+	fmt.Println("=== WebSocket SDK 完整使用流程测试 ===")
+
+	// 0. 启动测试服务器
+	fmt.Println("0. 启动测试服务器...")
+
+	// 创建WebSocket服务器实例
+	server := node.NewWsServer(node.SubjectDeviceUnique)
+
+	server.AddJwtConfig(jwt.JwtConfig{
+		TokenTyp: jwt.JWT,
+		TokenAlg: jwt.HS256,
+		TokenKey: "123456" + utils.CreateLocalSecretKey(12, 45, 23, 60, 58, 30),
+		TokenExp: jwt.TWO_WEEK,
+	})
+
+	// 增加双向验签的ECDSA
+	cipher, _ := crypto.CreateS256ECDSAWithBase64(serverPrk, clientPub)
+	server.AddCipher(1, cipher)
+
+	// 配置连接池
+	err := server.NewPool(100, 10, 5, 30)
+	if err != nil {
+		t.Fatalf("Failed to initialize connection pool: %v", err)
+	}
+
+	// 添加业务路由处理器
+	err = server.AddRouter("/ws/user", func(ctx context.Context, connCtx *node.ConnectionContext, body []byte) (interface{}, error) {
+		fmt.Println("test", connCtx.GetUserID())
+		ret := &sdk.AuthToken{
+			Token:  "鲨鱼宝宝获取websocket",
+			Secret: connCtx.GetUserIDString(),
+		}
+		return ret, nil
+	}, &node.RouterConfig{})
+	if err != nil {
+		t.Fatalf("Failed to add router: %v", err)
+	}
+
+	err = server.AddRouter("/ws/user2", func(ctx context.Context, connCtx *node.ConnectionContext, body []byte) (interface{}, error) {
+		fmt.Println("test", connCtx.GetUserID())
+		ret := &sdk.AuthToken{
+			Token:  "鲨鱼爸爸获取websocket",
+			Secret: connCtx.GetUserIDString(),
+		}
+		return ret, nil
+	}, &node.RouterConfig{})
+	if err != nil {
+		t.Fatalf("Failed to add router: %v", err)
+	}
+
+	// 在goroutine中启动服务器
+	serverAddr := "localhost:8088"
+	serverDoneCh := make(chan bool, 1)
+
+	go func() {
+		defer func() { serverDoneCh <- true }()
+		if err := server.StartWebsocket(serverAddr); err != nil {
+			t.Errorf("Server start failed: %v", err)
+		}
+	}()
+
+	select {}
+
+}
+
+func TestWebSocketClient(t *testing.T) {
+	access_token := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyMDE5OTU1OTM5MzA1NTg2Njg5IiwiYXVkIjoiIiwiaXNzIjoiIiwiZGV2IjoiQVBQIiwianRpIjoiZDRiOTJhNjhmODU3NGY4NTg4NjljNDNlYTk4YzZlNDAiLCJleHQiOiIiLCJpYXQiOjAsImV4cCI6MTc4MjUyNTk5OX0=.8hUWn5+sEkbabRV1rDTqFLbBIMcxQ0WplRqlz0MJKRc="
+	token_secret := "P2wvYCoyzsFI97gJj10tNofO2YFYmK9jmFPrkiZ4qhowL4OefGgdgzIgVM0anz1KdY8KaqASeTZysYAC21AZ6Q=="
+	token_expire := int64(1782525999)
+
+	// 1. 初始化SDK
+	fmt.Println("1. 初始化SDK...")
+	wsSdk := sdk.NewSocketSDK("localhost:8088")
+
+	// 2. 设置认证Token
+	fmt.Println("2. 设置认证Token...")
+	authToken := sdk.AuthToken{
+		Token:   access_token,
+		Secret:  token_secret,
+		Expired: token_expire,
+	}
+	wsSdk.AuthToken(authToken)
+
+	wsSdk.SetClientNo(1)
+	wsSdk.SetECDSAObject(wsSdk.ClientNo, clientPrk, serverPub)
+	wsSdk.SetHealthPing(3) // 3秒心跳间隔，便于测试
+
+	// 5. 尝试连接WebSocket（预期成功，因为服务器已启动）
+	fmt.Println("5. 尝试连接WebSocket（预期成功）...")
+	_ = wsSdk.ConnectWebSocket("/ws")
+
+	// 6. 发送WebSocket消息
+	fmt.Println("6. 发送WebSocket消息...")
+	requestObject := map[string]interface{}{"test": "张三"}
+	responseObject := &sdk.AuthToken{}
+	err := wsSdk.SendWebSocketMessage("/ws/user", requestObject, responseObject, true, false, 5)
+	if err != nil {
+		t.Errorf("发送消息失败：%v", err)
+		// 打印详细错误信息
+		t.Logf("错误详情: %v", err)
+		return
+	}
+	fmt.Println("明文响应结果1:", responseObject)
+
+	requestObject = map[string]interface{}{"test": "张三"}
+	responseObject = &sdk.AuthToken{}
+	err = wsSdk.SendWebSocketMessage("/ws/user2", requestObject, responseObject, true, true, 5)
+	if err != nil {
+		t.Errorf("发送消息失败：%v", err)
+		// 打印详细错误信息
+		t.Logf("错误详情: %v", err)
+		return
+	}
+	fmt.Println("加密响应结果2:", responseObject)
+
+	select {}
+}

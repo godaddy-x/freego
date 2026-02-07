@@ -204,6 +204,9 @@ type WsServer struct {
 	Cipher          map[int64]crypto.Cipher                 // 8字节 - RSA/ECDSA加密解密对象列表
 	RedisCacheAware func(ds ...string) (cache.Cache, error) // 8字节 - 函数指针
 	LocalCacheAware func(ds ...string) (cache.Cache, error) // 8字节 - 函数指针
+
+	// 用于确保 Stop 只执行一次
+	shutdownOnce sync.Once
 }
 
 // ErrorHandler WebSocket错误处理器（统一错误处理）
@@ -308,6 +311,10 @@ func NewConnectionManager(maxConn int, mode ConnectionUniquenessMode) *Connectio
 // - SubjectDeviceUnique: 替换同subject+device的连接，允许多设备同时在线
 // 设备键格式：subject_device (如: user123_web, user123_app)
 func (cm *ConnectionManager) Add(conn *DevConn) error {
+	if cm == nil || cm.conns == nil || conn == nil {
+		return utils.Error("invalid connection or manager")
+	}
+
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
@@ -320,47 +327,46 @@ func (cm *ConnectionManager) Add(conn *DevConn) error {
 	if cm.mode == SubjectUnique {
 		// Subject唯一模式：使用subject作为唯一键
 		uniqueKey = conn.Sub
-		// 检查是否已有连接，如果有则替换
-		if cm.conns[conn.Sub] == nil {
-			cm.conns[conn.Sub] = make(map[string]*DevConn)
-		}
-		if _, exists := cm.conns[conn.Sub][uniqueKey]; exists {
-			cm.removeConnection(conn.Sub, uniqueKey) // 直接调用内部无锁方法，避免重复加锁
-		}
-		cm.conns[conn.Sub][uniqueKey] = conn
 	} else {
 		// Subject+Device唯一模式：使用subject+device作为唯一键
 		uniqueKey = utils.AddStr(conn.Sub, "_", conn.Dev)
-		if cm.conns[conn.Sub] == nil {
-			cm.conns[conn.Sub] = make(map[string]*DevConn)
-		}
-		// 替换旧连接
-		if _, exists := cm.conns[conn.Sub][uniqueKey]; exists {
-			cm.removeConnection(conn.Sub, uniqueKey) // 直接调用内部无锁方法，避免重复加锁
-		}
-		cm.conns[conn.Sub][uniqueKey] = conn
 	}
 
+	if cm.conns[conn.Sub] == nil {
+		cm.conns[conn.Sub] = make(map[string]*DevConn)
+	}
+
+	// 替换旧连接：先移除引用，并安排关闭
+	if oldConn, exists := cm.conns[conn.Sub][uniqueKey]; exists {
+		delete(cm.conns[conn.Sub], uniqueKey)
+		atomic.AddInt32(&cm.totalConn, -1)
+		// 在 goroutine 中关闭旧连接，避免锁内 I/O
+		go func() {
+			closeConn(oldConn, "replaced by new connection")
+		}()
+	}
+
+	cm.conns[conn.Sub][uniqueKey] = conn
 	atomic.AddInt32(&cm.totalConn, 1)
 	return nil
 }
 
-// Remove 移除连接
-func (cm *ConnectionManager) Remove(subject, deviceKey string) {
+// Remove 移除连接（不关闭，仅从管理器移除）
+func (cm *ConnectionManager) Remove(subject, deviceKey string) *DevConn {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
 	if subjectConns, exists := cm.conns[subject]; exists {
 		if conn, exists := subjectConns[deviceKey]; exists {
-			closeConn(conn, "remove connection")
 			delete(subjectConns, deviceKey)
 			atomic.AddInt32(&cm.totalConn, -1)
-
 			if len(subjectConns) == 0 {
 				delete(cm.conns, subject)
 			}
+			return conn
 		}
 	}
+	return nil
 }
 
 // Get 获取指定连接
@@ -398,6 +404,44 @@ func (cm *ConnectionManager) SendToSubject(subject string, data []byte) {
 	}
 }
 
+// SendToSubjectRes 发送结构化消息到指定主题的所有连接
+func (cm *ConnectionManager) SendToSubjectRes(subject string, res *JsonResp) error {
+	if res.Router == "" {
+		return utils.Error("res.router is nil")
+	}
+	if res.Data == "" {
+		return utils.Error("res.data is nil")
+	}
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+	data, err := utils.JsonMarshal(res)
+	if err != nil {
+		return err
+	}
+	if subject != "" { // 指定subject
+		if subjectConns, exists := cm.conns[subject]; exists {
+			for _, conn := range subjectConns {
+				if err := conn.Send(data); err != nil {
+					if zlog.IsDebug() {
+						zlog.Debug("push send error", 0, zlog.String("subject", subject), zlog.String("errMsg", err.Error()))
+					}
+				}
+			}
+		}
+	} else {
+		for _, conn := range cm.conns {
+			for _, v := range conn {
+				if err := v.Send(data); err != nil {
+					if zlog.IsDebug() {
+						zlog.Debug("push send error", 0, zlog.String("subject", subject), zlog.String("errMsg", err.Error()))
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
 // removeConnection 内部方法：移除连接（不获取锁，调用方需要处理锁）
 func (cm *ConnectionManager) removeConnection(subject, deviceKey string) {
 	if subjectConns, exists := cm.conns[subject]; exists {
@@ -414,23 +458,8 @@ func (cm *ConnectionManager) removeConnection(subject, deviceKey string) {
 }
 
 // RemoveWithCallback 移除连接并执行回调（用于指标记录）
-func (cm *ConnectionManager) RemoveWithCallback(subject, deviceKey string, callback func()) {
-	// 先收集要执行的回调信息，避免在持有锁时执行回调导致死锁
-	var shouldCallback bool
-
-	cm.mu.Lock()
-	if subjectConns, exists := cm.conns[subject]; exists {
-		if _, exists := subjectConns[deviceKey]; exists {
-			cm.removeConnection(subject, deviceKey)
-			shouldCallback = callback != nil
-		}
-	}
-	cm.mu.Unlock()
-
-	// 释放锁后再执行回调，避免死锁风险
-	if shouldCallback {
-		callback()
-	}
+func (cm *ConnectionManager) RemoveWithCallback(subject, deviceKey string, callback func()) *DevConn {
+	return cm.Remove(subject, deviceKey) // callback 由调用方在锁外执行
 }
 
 // HealthCheck 健康检查：返回每个subject的活跃连接数统计
@@ -491,8 +520,11 @@ func (cm *ConnectionManager) CleanupExpired(timeoutSeconds int64) int {
 
 	// 执行清理（使用标准接口，保持设计一致性）
 	for _, item := range toRemove {
-		cm.RemoveWithCallback(item.subject, item.deviceKey, nil)
-		cleaned++
+		conn := cm.Remove(item.subject, item.deviceKey)
+		if conn != nil {
+			closeConn(conn, "expired")
+			cleaned++
+		}
 	}
 
 	return cleaned
@@ -587,9 +619,36 @@ func (mh *MessageHandler) Process(connCtx *ConnectionContext, body []byte) (cryp
 			zlog.Debug("heartbeat_received_and_updated", 0,
 				zlog.String("subject", connCtx.Subject.GetSub(nil)),
 				zlog.String("device", connCtx.Subject.GetDev(nil)),
-				zlog.String("connection_path", connCtx.Path))
+				zlog.String("connection_path", connCtx.Path),
+				zlog.String("nonce", connCtx.JsonBody.Nonce))
 		}
-		return nil, nil, nil
+
+		// 返回 pong 响应 - 直接构造完整的JsonResp对象
+		pongResp := GetJsonResp()
+		pongResp.Code = 200
+		pongResp.Message = "pong"
+		pongResp.Data = utils.Base64Encode("{}") // 空对象
+		pongResp.Router = connCtx.JsonBody.Router
+		pongResp.Nonce = connCtx.JsonBody.Nonce
+		pongResp.Time = utils.UnixSecond()
+		pongResp.Plan = connCtx.JsonBody.Plan
+
+		// 生成签名
+		sign := SignBodyMessage(pongResp.Router, pongResp.Data, pongResp.Nonce, pongResp.Time, pongResp.Plan, connCtx.JsonBody.User, connCtx.GetTokenSecret())
+		pongResp.Sign = utils.Base64Encode(sign)
+
+		// 生成ECDSA签名
+		if cipher != nil {
+			ecdsaResult, err := cipher.Sign(sign)
+			if err != nil {
+				zlog.Error("failed_to_ecdsa_sign_pong", 0, zlog.AddError(err))
+				PutJsonResp(pongResp)
+				return nil, nil, err
+			}
+			pongResp.Valid = utils.Base64Encode(ecdsaResult)
+		}
+
+		return cipher, pongResp, nil
 	}
 
 	// 解密业务数据
@@ -1014,34 +1073,33 @@ func (s *WsServer) LogMetrics() {
 
 // StopWebsocket 停止WebSocket服务器
 func (s *WsServer) StopWebsocket() error {
-	if zlog.IsDebug() {
-		zlog.Debug("stopping websocket server...", 0)
-	}
+	var err error
+	s.shutdownOnce.Do(func() {
+		zlog.Info("stopping websocket server...", 0)
 
-	// 停止心跳服务
-	if s.heartbeatSvc != nil {
-		s.heartbeatSvc.Stop()
-	}
-
-	// 取消全局上下文
-	if s.globalCancel != nil {
-		s.globalCancel()
-	}
-
-	// 停止HTTP服务器
-	if s.server != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := s.server.ShutdownWithContext(ctx); err != nil {
-			zlog.Error("error shutting down server", 0, zlog.AddError(err))
-			return err
+		// 停止心跳服务
+		if s.heartbeatSvc != nil {
+			s.heartbeatSvc.Stop()
 		}
-	}
 
-	// 连接管理器的清理会在上下文取消时自动处理
+		// 取消全局上下文
+		if s.globalCancel != nil {
+			s.globalCancel()
+		}
 
-	zlog.Info("websocket server stopped", 0)
-	return nil
+		// 停止HTTP服务器
+		if s.server != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			err = s.server.ShutdownWithContext(ctx)
+			if err != nil {
+				zlog.Error("error shutting down server", 0, zlog.AddError(err))
+			}
+		}
+
+		zlog.Info("websocket server stopped", 0)
+	})
+	return err
 }
 
 // GetConnectionManager 获取连接管理器（用于健康检查等操作）
@@ -1281,6 +1339,11 @@ func (s *WsServer) processMessage(messageHandler *MessageHandler, connCtx *Conne
 	jsonBody := GetJsonBody()
 	connCtx.JsonBody = jsonBody
 	defer PutJsonBody(jsonBody)
+
+	if zlog.IsDebug() {
+		zlog.Debug("processing message", 0, zlog.String("message", string(message)))
+	}
+
 	cipher, reply, err := messageHandler.Process(connCtx, message)
 	if err != nil {
 		// 记录消息处理失败指标
@@ -1300,7 +1363,25 @@ func replyData(connCtx *ConnectionContext, cipher crypto.Cipher, reply interface
 	if reply == nil {
 		return
 	}
-	// 构造JsonResp格式的响应，与HTTP流程保持一致
+
+	// 检查reply是否已经是JsonResp对象（性能优化：避免重复序列化）
+	if jsonResp, ok := reply.(*JsonResp); ok {
+		// 直接使用已构造的JsonResp对象，避免重复处理
+		defer PutJsonResp(jsonResp)
+
+		bytesData, err := utils.JsonMarshal(jsonResp)
+		if err != nil {
+			zlog.Error("failed_to_marshal_jsonresp", 0, zlog.AddError(err))
+			return
+		}
+
+		if err := connCtx.DevConn.Send(bytesData); err != nil {
+			zlog.Error("failed_to_send_response", 0, zlog.AddError(err))
+		}
+		return
+	}
+
+	// 原有的逻辑：构造新的JsonResp并序列化reply
 	jsonResp := GetJsonResp()
 	jsonResp.Code = 200
 	jsonResp.Message = "success"
@@ -1369,15 +1450,20 @@ func (s *WsServer) cleanupConnection(connCtx *ConnectionContext) {
 
 	// 注意：JsonBody在processMessage中通过defer释放，这里不需要重复释放
 
-	var deviceKey string
-	if s.connUniquenessMode == SubjectUnique {
-		deviceKey = connCtx.DevConn.Sub
-	} else {
-		deviceKey = utils.AddStr(connCtx.DevConn.Sub, "_", connCtx.DevConn.Dev)
-	}
+	if s.connManager != nil {
+		var deviceKey string
+		if s.connUniquenessMode == SubjectUnique {
+			deviceKey = connCtx.DevConn.Sub
+		} else {
+			deviceKey = utils.AddStr(connCtx.DevConn.Sub, "_", connCtx.DevConn.Dev)
+		}
 
-	s.connManager.Remove(connCtx.DevConn.Sub, deviceKey)
-	zlog.Info("client_disconnected", 0, zlog.String("subject", deviceKey))
+		conn := s.connManager.Remove(connCtx.DevConn.Sub, deviceKey)
+		if conn != nil {
+			closeConn(conn, "client disconnected")
+		}
+		zlog.Info("client_disconnected", 0, zlog.String("subject", deviceKey))
+	}
 }
 
 func (s *WsServer) gracefulShutdown() {
@@ -1385,29 +1471,8 @@ func (s *WsServer) gracefulShutdown() {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	<-sigCh
 
-	zlog.Info("initiating graceful shutdown...", 0)
-
-	// 统一使用带上下文的 ShutdownWithContext，设置 5 秒超时
-	if s.server != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := s.server.ShutdownWithContext(ctx); err != nil {
-			zlog.Error("error shutting down server", 0, zlog.AddError(err))
-		}
-	}
-
-	// 停止心跳服务
-	if s.heartbeatSvc != nil {
-		s.heartbeatSvc.Stop()
-	}
-
-	// 关闭所有现有连接
-	if s.connManager != nil {
-		s.connManager.CleanupAll()
-	}
-
-	// 触发全局取消
-	s.globalCancel()
+	zlog.Info("initiating graceful shutdown from signal...", 0)
+	s.StopWebsocket() // 使用统一入口
 }
 
 // GetCacheObject 获取缓存对象

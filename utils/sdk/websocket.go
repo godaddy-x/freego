@@ -25,29 +25,35 @@ const (
 )
 
 // NewSocketSDK 创建新的WebSocket SDK实例并设置默认值
-// 提供便捷的构造函数，避免手动初始化所有字段
+//
+// domain: API域名，如"api.example.com"
 //
 // 默认值:
-// - reconnectEnabled: false (默认不启用重连)
+// - timeout: 120秒
 // - maxReconnectAttempts: 10
 // - reconnectInterval: 1秒
 // - maxReconnectInterval: 30秒
-// - timeout: 120秒
+// - HealthPing: 30秒
 //
 // 返回值:
 //   - *SocketSDK: 初始化的WebSocket SDK实例
 //
 // 使用示例:
 //
-//	sdk := NewSocketSDK()
-//	sdk.Domain = "wss://api.example.com"
+//	sdk := NewSocketSDK("api.example.com")
+//	sdk.AuthToken(AuthToken{...})
 //	sdk.ClientNo = 12345
-func NewSocketSDK() *SocketSDK {
+func NewSocketSDK(domain string) *SocketSDK {
+	rootCtx, rootCancel := context.WithCancel(context.Background())
 	return &SocketSDK{
+		Domain:               domain,
 		timeout:              120,
 		maxReconnectAttempts: 10,
 		reconnectInterval:    time.Second,
 		maxReconnectInterval: 30 * time.Second,
+		HealthPing:           30,
+		rootCtx:              rootCtx,
+		rootCancel:           rootCancel,
 	}
 }
 
@@ -76,29 +82,35 @@ type SocketSDK struct {
 	HealthPing  int                     // 健康PING间隔时间/秒
 
 	// WebSocket连接相关
-	conn        *websocket.Conn    // WebSocket连接
-	connMutex   sync.Mutex         // 连接互斥锁
-	isConnected bool               // 连接状态
-	ctx         context.Context    // 上下文
-	cancel      context.CancelFunc // 取消函数
+	conn        *websocket.Conn // WebSocket连接
+	connMutex   sync.Mutex      // 连接互斥锁
+	isConnected bool            // 连接状态
+
+	// 上下文管理（关键修复）
+	rootCtx    context.Context    // SDK全局上下文（用于Close）
+	rootCancel context.CancelFunc // 取消整个SDK
+	connCtx    context.Context    // 当前连接上下文（每次重连新建）
+	connCancel context.CancelFunc // 取消当前连接
 
 	// 重连相关配置
-	reconnectEnabled     bool               // 是否启用自动重连
-	maxReconnectAttempts int                // 最大重连次数 (-1表示无限重连)
-	reconnectInterval    time.Duration      // 重连间隔
-	maxReconnectInterval time.Duration      // 最大重连间隔
-	reconnectAttempts    int                // 当前重连次数
-	lastReconnectTime    time.Time          // 上次重连时间
-	reconnectMutex       sync.Mutex         // 重连互斥锁
-	connectedPath        string             // 已连接的WebSocket路径 (用于重连)
-	stopReconnect        context.CancelFunc // 停止重连的函数
+	reconnectEnabled     bool          // 是否启用自动重连
+	maxReconnectAttempts int           // 最大重连次数 (-1表示无限重连)
+	reconnectInterval    time.Duration // 重连间隔
+	maxReconnectInterval time.Duration // 最大重连间隔
+	reconnectAttempts    int           // 当前重连次数
+	lastReconnectTime    time.Time     // 上次重连时间
+	reconnectMutex       sync.Mutex    // 重连互斥锁
+	connectedPath        string        // 已连接的WebSocket路径 (用于重连)
 
 	// Token过期回调
-	onTokenExpired     func() // Token过期时回调，用户可以重新认证
-	tokenExpiredCalled bool   // 是否已经调用过token过期回调，避免重复调用
+	onTokenExpired   func()    // Token过期时回调，用户可以重新认证
+	tokenExpiredOnce sync.Once // 防止重复调用
 
-	// 新增：同步响应映射表 (msgId -> chan interface{})
+	// 新增：同步响应映射表 (nonce -> chan JsonResp)
 	responseMap sync.Map // 存储等待响应的通道
+
+	// 新增：服务端主动推送消息的回调
+	onPushMessage func(router string, data []byte)
 
 	// 消息订阅相关
 	subscriptions sync.Map // 路由 -> 订阅信息 (线程安全)
@@ -116,7 +128,7 @@ func (s *SocketSDK) AuthObject(object interface{}) {
 // object: AuthToken结构体，包含token、secret、expired字段
 func (s *SocketSDK) AuthToken(object AuthToken) {
 	s.authToken = object
-	s.tokenExpiredCalled = false // 重置token过期回调标志
+	s.tokenExpiredOnce = sync.Once{} // 重置token过期回调标志
 }
 
 // SetTimeout 设置WebSocket请求的超时时间
@@ -140,6 +152,11 @@ func (s *SocketSDK) SetClientNo(clientNo int64) {
 // language: 语言代码，如"zh-CN"、"en-US"，用于服务端国际化支持
 func (s *SocketSDK) SetLanguage(language string) {
 	s.language = language
+}
+
+// SetPushMessageCallback 设置服务端主动推送消息的回调函数
+func (s *SocketSDK) SetPushMessageCallback(callback func(router string, data []byte)) {
+	s.onPushMessage = callback
 }
 
 // getURI 构建完整的WebSocket连接URI
@@ -258,23 +275,22 @@ func (s *SocketSDK) connectWebSocketInternal(path string, isInitial bool) error 
 	s.connMutex.Lock()
 	defer s.connMutex.Unlock()
 
-	// 检查是否已有连接
 	if s.isConnected && s.conn != nil && !isInitial {
 		return nil
 	}
 
-	// 验证认证信息
 	if !s.valid() {
-		// 触发Token过期回调
 		s.triggerTokenExpiredCallback()
 		return ex.Throw{Msg: "token empty or token expired"}
 	}
 
-	// --- 修复：取消旧ctx，创建新ctx（无论是否初始连接）---
-	if s.cancel != nil {
-		s.cancel() // 取消旧的ctx，停止之前的心跳和监听
+	// 取消旧的连接上下文（安全）
+	if s.connCancel != nil {
+		s.connCancel()
 	}
-	s.ctx, s.cancel = context.WithCancel(context.Background())
+
+	// 创建新的连接上下文（绑定到 rootCtx）
+	s.connCtx, s.connCancel = context.WithCancel(s.rootCtx)
 
 	// 构建WebSocket URL
 	wsURL := s.getURI(path)
@@ -345,6 +361,57 @@ func (s *SocketSDK) connectWebSocketInternal(path string, isInitial bool) error 
 	go s.websocketMessageListener()
 
 	return nil
+}
+
+// prepareHeartbeatMessage 准备心跳消息数据
+func (s *SocketSDK) prepareHeartbeatMessage(router string, data interface{}) ([]byte, string, error) {
+	heartbeatUUID := utils.GetUUID(true)
+
+	// 序列化心跳数据
+	jsonData, err := utils.JsonMarshal(data)
+	if err != nil {
+		return nil, "", ex.Throw{Msg: "heartbeat data marshal failed"}
+	}
+	defer DIC.ClearData(jsonData)
+
+	jsonBody := node.GetJsonBody()
+	defer node.PutJsonBody(jsonBody)
+
+	// 设置心跳消息的基本字段
+	jsonBody.Time = utils.UnixSecond()
+	jsonBody.Nonce = heartbeatUUID
+	jsonBody.Router = router
+	jsonBody.Plan = 0 // 心跳使用明文
+	jsonBody.User = s.ClientNo
+
+	// 根据plan设置数据
+	jsonBody.Data = utils.Base64Encode(utils.Bytes2Str(jsonData))
+
+	// 生成签名（心跳也需要签名验证）
+	tokenSecret := utils.Base64Decode(s.authToken.Secret)
+	defer DIC.ClearData(tokenSecret)
+
+	signData := node.SignBodyMessage(jsonBody.Router, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan, jsonBody.User, tokenSecret)
+	jsonBody.Sign = utils.Base64Encode(signData)
+	defer DIC.ClearData(signData)
+
+	// 添加ECDSA签名（如果配置了）
+	if s.ecdsaObject != nil {
+		if err := s.addECDSASign(jsonBody); err != nil {
+			return nil, "", err
+		}
+	}
+
+	bytesData, err := utils.JsonMarshal(jsonBody)
+	if err != nil {
+		return nil, "", ex.Throw{Msg: "heartbeat jsonBody marshal failed"}
+	}
+
+	zlog.Info("prepared heartbeat data", 0,
+		zlog.String("data", utils.Bytes2Str(bytesData)),
+		zlog.String("uuid", heartbeatUUID))
+
+	return bytesData, heartbeatUUID, nil
 }
 
 // prepareWebSocketMessage 准备WebSocket消息数据，包括加密和签名
@@ -591,7 +658,7 @@ func (s *SocketSDK) SendWebSocketMessage(router string, requestObj, responseObj 
 		return nil
 	case <-time.After(waitTimeout):
 		return ex.Throw{Msg: fmt.Sprintf("wait response timeout (msgID: %s)", jsonBody.Nonce)}
-	case <-s.ctx.Done():
+	case <-s.connCtx.Done(): // 监听当前连接上下文
 		return ex.Throw{Msg: fmt.Sprintf("connection closed while waiting response (msgID: %s)", jsonBody.Nonce)}
 	}
 }
@@ -660,52 +727,66 @@ func (s *SocketSDK) verifyWebSocketResponseFromJsonResp(path string, result inte
 
 // websocketHeartbeat WebSocket心跳机制，保持连接活跃状态
 func (s *SocketSDK) websocketHeartbeat() {
-	if s.HealthPing <= 0 {
-		s.HealthPing = 30
+	healthPing := s.HealthPing
+	if healthPing <= 0 {
+		healthPing = 30
 	}
-	ticker := time.NewTicker(time.Duration(s.HealthPing) * time.Second) // 每30秒发送一次心跳
+	ticker := time.NewTicker(time.Duration(healthPing) * time.Second)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-s.ctx.Done():
+		case <-s.connCtx.Done(): // 监听当前连接上下文
 			return
 		case <-ticker.C:
 			s.connMutex.Lock()
-			if s.isConnected && s.conn != nil {
-				// 使用 prepareWebSocketMessage 构建标准格式的消息
-				jsonBody := node.GetJsonBody()
-				jsonBody.Time = utils.UnixSecond()
-				jsonBody.Nonce = utils.GetUUID(true)
-				jsonBody.Plan = 0
-				jsonBody.Router = "/ws/ping"
-				jsonBody.User = s.ClientNo
-				_, bytesData, err := s.prepareWebSocketMessage(jsonBody, "ping") // Plan=0表示明文，使用默认路径
-				if err != nil {
-					node.PutJsonBody(jsonBody)
-					if zlog.IsDebug() {
-						zlog.Debug("heartbeat prepare failed", 0)
-					}
-					s.connMutex.Unlock()
-					continue // 心跳失败不触发重连，继续下一次心跳
-				}
+			if !s.isConnected || s.conn == nil {
+				s.connMutex.Unlock()
+				return
+			}
+			conn := s.conn
+			s.connMutex.Unlock()
 
-				s.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-				if err := s.conn.WriteMessage(websocket.TextMessage, bytesData); err != nil {
-					node.PutJsonBody(jsonBody)
-					if zlog.IsDebug() {
-						zlog.Debug("heartbeat send failed, connection may be lost", 0)
-					}
-					s.connMutex.Unlock()
-					s.disconnectWebSocket() // 触发重连逻辑
+			bytesData, heartbeatUUID, err := s.prepareHeartbeatMessage("/ws/ping", "ping")
+			if err != nil {
+				if zlog.IsDebug() {
+					zlog.Debug("heartbeat prepare failed", 0)
+				}
+				continue
+			}
+
+			heartbeatChan := make(chan *node.JsonResp, 1)
+			s.responseMap.Store(heartbeatUUID, heartbeatChan)
+
+			conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+			if err := conn.WriteMessage(websocket.TextMessage, bytesData); err != nil {
+				s.responseMap.Delete(heartbeatUUID)
+				close(heartbeatChan)
+				if zlog.IsDebug() {
+					zlog.Debug("heartbeat send failed, connection may be lost", 0)
+				}
+				s.disconnectWebSocket()
+				return
+			}
+
+			zlog.Info("heartbeat sent, waiting for pong", 0, zlog.String("uuid", heartbeatUUID))
+
+			select {
+			case resp := <-heartbeatChan:
+				if resp.Code == 200 {
+					zlog.Info("heartbeat pong received", 0, zlog.String("uuid", heartbeatUUID))
+				} else {
+					zlog.Warn("heartbeat pong error", 0, zlog.String("uuid", heartbeatUUID), zlog.Int("code", resp.Code))
+					s.disconnectWebSocket()
 					return
 				}
-				node.PutJsonBody(jsonBody)
-				if zlog.IsDebug() {
-					zlog.Debug("heartbeat sent", 0)
-				}
+			case <-time.After(5 * time.Second):
+				s.responseMap.Delete(heartbeatUUID)
+				close(heartbeatChan)
+				zlog.Error("heartbeat pong timeout", 0, zlog.String("uuid", heartbeatUUID))
+				s.disconnectWebSocket()
+				return
 			}
-			s.connMutex.Unlock()
 		}
 	}
 }
@@ -724,64 +805,34 @@ func (s *SocketSDK) websocketMessageListenerHandle(body []byte) {
 
 	messageCopy := *res // 拷贝值
 
-	// 处理响应消息（有nonce的同步响应）
-	if len(res.Nonce) > 0 {
+	// 关键逻辑：判断是响应还是推送
+	if res.Nonce != "" {
+		// 有 UUID/Nonce：这是对某个请求的响应
+		zlog.Info("received response with nonce", 0, zlog.String("nonce", res.Nonce), zlog.String("data", res.Data))
 		respChanVal, loaded := s.responseMap.LoadAndDelete(res.Nonce)
 		if loaded {
 			respChan, ok := respChanVal.(chan *node.JsonResp)
 			if ok {
-				// 使用 select 来安全地发送，避免向已关闭的 channel 发送
 				select {
 				case respChan <- &messageCopy:
-					// 异步处理订阅消息，避免阻塞消息监听
+					zlog.Info("response sent to waiting channel successfully", 0, zlog.String("nonce", res.Nonce))
 				case <-time.After(100 * time.Millisecond):
-					// 超时，channel 可能已被关闭，立即释放对象
-					if zlog.IsDebug() {
-						zlog.Debug("response channel timeout, may be closed", 0, zlog.String("nonce", res.Nonce))
-					}
+					zlog.Warn("response channel timeout, may be closed", 0, zlog.String("nonce", res.Nonce))
 				}
 			}
-		}
-		return // 响应消息已处理，跳过订阅处理
-	}
-
-	// 处理订阅消息（无nonce的推送消息）
-	if res.Router != "" {
-		// sync.Map 的 Load 操作是线程安全的，无需额外锁
-		subVal, exists := s.subscriptions.Load(res.Router)
-
-		if exists {
-			if subscription, ok := subVal.(*Subscription); ok && subscription.active {
-				// 异步处理订阅消息，避免阻塞消息监听
-
-				go func(sub *Subscription, msg node.JsonResp) {
-					defer func() {
-						if r := recover(); r != nil {
-							zlog.Error("subscription handler panic", 0,
-								zlog.String("router", sub.Router),
-								zlog.String("subscription_id", sub.ID),
-								zlog.Any("panic", r))
-						}
-					}()
-
-					// 将值传递给处理器，处理器可以安全地使用和存储
-					if err := sub.Handler.HandleMessage(&msg); err != nil {
-						zlog.Error("subscription handler error", 0,
-							zlog.String("router", sub.Router),
-							zlog.String("subscription_id", sub.ID),
-							zlog.AddError(err))
-					}
-				}(subscription, messageCopy)
-			}
 		} else {
-			// 没有订阅处理器，立即释放对象
-			if zlog.IsDebug() {
-				zlog.Debug("no subscription handler found for router", 0, zlog.String("router", res.Router))
-			}
+			zlog.Warn("no waiting channel found for nonce", 0, zlog.String("nonce", res.Nonce))
 		}
 	} else {
-		if zlog.IsDebug() {
-			zlog.Debug("received message without router or nonce", 0, zlog.String("data", res.Data))
+		// 无 UUID/Nonce：这是服务端主动推送的消息！
+		zlog.Info("received server push message", 0, zlog.String("router", res.Router), zlog.String("data", res.Data))
+
+		// 调用推送回调
+		if s.onPushMessage != nil {
+			// 注意：这里传递的是原始 data 字符串的字节，也可以传递整个 res
+			go s.onPushMessage(res.Router, []byte(res.Data))
+		} else {
+			zlog.Debug("push message received but no callback set", 0)
 		}
 	}
 }
@@ -790,7 +841,7 @@ func (s *SocketSDK) websocketMessageListenerHandle(body []byte) {
 func (s *SocketSDK) websocketMessageListener() {
 	for {
 		select {
-		case <-s.ctx.Done():
+		case <-s.connCtx.Done(): // 监听当前连接上下文
 			return
 		default:
 			s.connMutex.Lock()
@@ -847,29 +898,23 @@ func (s *SocketSDK) disconnectWebSocketNoReconnect() {
 }
 
 func (s *SocketSDK) disconnectWebSocketInternal(triggerReconnect bool) {
-	if s.cancel != nil {
-		s.cancel()
+	// 只取消当前连接上下文，不影响重连能力
+	if s.connCancel != nil {
+		s.connCancel()
 	}
-	// 清理响应映射（避免goroutine泄漏）
+
+	// 清理 responseMap
 	s.responseMap.Range(func(key, value interface{}) bool {
 		s.responseMap.Delete(key)
-		if ch, ok := value.(chan *node.JsonResp); ok {
-			// 安全关闭channel，使用defer保护避免panic
-			defer func() {
-				if r := recover(); r != nil {
-					// 忽略 channel 已经关闭的 panic
-				}
-			}()
-			close(ch)
-		}
 		return true
 	})
+
 	s.connMutex.Lock()
+	wasConnected := s.isConnected
 	if s.conn != nil {
 		s.conn.Close()
 		s.conn = nil
 	}
-	wasConnected := s.isConnected
 	s.isConnected = false
 	s.connMutex.Unlock()
 
@@ -877,17 +922,13 @@ func (s *SocketSDK) disconnectWebSocketInternal(triggerReconnect bool) {
 		zlog.Debug("WebSocket connection closed", 0)
 	}
 
-	// 如果之前是连接状态且启用了重连，则触发重连
 	if triggerReconnect && wasConnected && s.reconnectEnabled {
 		go s.startReconnectProcess()
 	}
 }
 
-// --- 修复：限制attempts最大为30，防止指数退避溢出 ---
-func (s *SocketSDK) calculateReconnectInterval() time.Duration {
-	s.reconnectMutex.Lock()
-	defer s.reconnectMutex.Unlock()
-
+// calculateReconnectIntervalLocked 计算重连间隔（调用者必须已持有 s.reconnectMutex）
+func (s *SocketSDK) calculateReconnectIntervalLocked() time.Duration {
 	// 限制最大尝试次数，避免位运算溢出（1<<30已接近int64上限）
 	attempts := s.reconnectAttempts
 	if attempts > 30 {
@@ -910,16 +951,22 @@ func (s *SocketSDK) calculateReconnectInterval() time.Duration {
 	return interval
 }
 
+func (s *SocketSDK) calculateReconnectInterval() time.Duration {
+	s.reconnectMutex.Lock()
+	defer s.reconnectMutex.Unlock()
+	return s.calculateReconnectIntervalLocked()
+}
+
 func (s *SocketSDK) startReconnectProcess() {
+	zlog.Info("startReconnectProcess called", 0)
 	s.reconnectMutex.Lock()
 
-	// 检查是否已启用重连
 	if !s.reconnectEnabled {
+		zlog.Info("reconnect not enabled, skipping", 0)
 		s.reconnectMutex.Unlock()
 		return
 	}
 
-	// 检查重连次数限制
 	if s.maxReconnectAttempts != -1 && s.reconnectAttempts >= s.maxReconnectAttempts {
 		if zlog.IsDebug() {
 			zlog.Debug(fmt.Sprintf("Max reconnect attempts (%d) reached, stopping reconnect", s.maxReconnectAttempts), 0)
@@ -929,67 +976,52 @@ func (s *SocketSDK) startReconnectProcess() {
 	}
 
 	s.reconnectAttempts++
-	interval := s.calculateReconnectInterval()
+	interval := s.calculateReconnectIntervalLocked()
 	s.lastReconnectTime = time.Now()
-
-	if zlog.IsDebug() {
-		zlog.Debug(fmt.Sprintf("Scheduling reconnect attempt %d in %v", s.reconnectAttempts, interval), 0)
-	}
-
 	s.reconnectMutex.Unlock()
 
-	// 创建重连上下文 (可以被取消)
-	reconnectCtx, cancel := context.WithCancel(context.Background())
-	s.reconnectMutex.Lock()
-	if s.stopReconnect != nil {
-		s.stopReconnect()
-	}
-	s.stopReconnect = cancel
-	s.reconnectMutex.Unlock()
-
-	// 等待重连间隔
+	// 等待时监听 rootCtx（只有用户主动 Close 才退出）
 	select {
 	case <-time.After(interval):
-		// 继续重连
-	case <-reconnectCtx.Done():
-		// 重连被取消
+	case <-s.rootCtx.Done():
 		return
 	}
 
-	// 检查token是否仍然有效
+	// 等待时监听 rootCtx（只有用户主动 Close 才退出）
+	select {
+	case <-time.After(interval):
+	case <-s.rootCtx.Done():
+		return
+	}
+
 	if !s.valid() {
 		if zlog.IsDebug() {
 			zlog.Debug("Token expired during reconnect, stopping reconnect process", 0)
 		}
-
-		// 触发Token过期回调
 		s.triggerTokenExpiredCallback()
 		return
 	}
 
-	// 尝试重连 (使用存储的连接路径)
-	s.reconnectMutex.Lock()
-	path := s.connectedPath
-	if path == "" {
-		path = DefaultWsRoute // 使用默认路径
-	}
-	s.reconnectMutex.Unlock()
-
+	path := s.getConnectedPath()
 	if err := s.connectWebSocketInternal(path, false); err != nil {
-		if zlog.IsDebug() {
-			zlog.Debug(fmt.Sprintf("Reconnect attempt %d failed: %v", s.reconnectAttempts, err), 0)
-		}
-		// 如果重连失败，继续下一次重连
+		zlog.Error(fmt.Sprintf("Reconnect attempt %d failed: %v", s.reconnectAttempts, err), 0)
 		go s.startReconnectProcess()
 	} else {
-		if zlog.IsDebug() {
-			zlog.Debug(fmt.Sprintf("Reconnect attempt %d successful", s.reconnectAttempts), 0)
-		}
-		// 重连成功，重置计数
+		zlog.Info(fmt.Sprintf("Reconnect attempt %d successful", s.reconnectAttempts), 0)
 		s.reconnectMutex.Lock()
 		s.reconnectAttempts = 0
 		s.reconnectMutex.Unlock()
 	}
+}
+
+// getConnectedPath 获取已连接的路径（调用者必须已持有 s.reconnectMutex）
+func (s *SocketSDK) getConnectedPath() string {
+	s.reconnectMutex.Lock()
+	defer s.reconnectMutex.Unlock()
+	if s.connectedPath == "" {
+		return DefaultWsRoute
+	}
+	return s.connectedPath
 }
 
 // ForceReconnect 强制重新连接WebSocket，适用于连接异常恢复
@@ -998,12 +1030,9 @@ func (s *SocketSDK) ForceReconnect() error {
 	s.reconnectMutex.Lock()
 	s.reconnectAttempts = 0
 	s.lastReconnectTime = time.Time{}
-	path := s.connectedPath
-	if path == "" {
-		path = DefaultWsRoute // 使用默认路径
-	}
 	s.reconnectMutex.Unlock()
 
+	path := s.getConnectedPath()
 	return s.connectWebSocketInternal(path, false)
 }
 
@@ -1020,12 +1049,13 @@ func (s *SocketSDK) SetTokenExpiredCallback(callback func()) {
 }
 
 func (s *SocketSDK) triggerTokenExpiredCallback() {
-	if s.onTokenExpired != nil && !s.tokenExpiredCalled {
-		s.tokenExpiredCalled = true // 标记已调用
-		if zlog.IsDebug() {
-			zlog.Debug("Calling token expired callback", 0)
-		}
-		go s.onTokenExpired() // 在独立的goroutine中执行，避免阻塞
+	if s.onTokenExpired != nil {
+		s.tokenExpiredOnce.Do(func() {
+			if zlog.IsDebug() {
+				zlog.Debug("Calling token expired callback", 0)
+			}
+			go s.onTokenExpired()
+		})
 	}
 }
 
@@ -1067,9 +1097,6 @@ func (s *SocketSDK) DisableReconnect() {
 	s.reconnectMutex.Lock()
 	defer s.reconnectMutex.Unlock()
 	s.reconnectEnabled = false
-	if s.stopReconnect != nil {
-		s.stopReconnect()
-	}
 }
 
 func (s *SocketSDK) GetReconnectStatus() (enabled bool, attempts int, maxAttempts int, nextReconnectTime time.Time) {
@@ -1186,6 +1213,12 @@ func (s *SocketSDK) GetSubscriptions() map[string]*Subscription {
 	})
 
 	return result
+}
+
+// Close 主动关闭整个 SDK（停止所有重连和连接）
+func (s *SocketSDK) Close() {
+	s.DisconnectWebSocket()
+	s.rootCancel()
 }
 
 // 示例：如何使用消息订阅功能
