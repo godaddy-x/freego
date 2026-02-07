@@ -393,19 +393,50 @@ func (cm *ConnectionManager) Broadcast(data []byte) {
 }
 
 // SendToSubject 发送消息到指定主题的所有连接
-func (cm *ConnectionManager) SendToSubject(subject string, data []byte) {
-	cm.mu.RLock()
-	defer cm.mu.RUnlock()
-
-	if subjectConns, exists := cm.conns[subject]; exists {
-		for _, conn := range subjectConns {
-			conn.Send(data)
-		}
+func (cm *ConnectionManager) SendToSubject(subject, router string, data interface{}) error {
+	if router == "" {
+		return utils.Error("router is nil")
 	}
+	if data == nil {
+		return utils.Error("data is nil")
+	}
+
+	// 构造JsonResp格式的推送消息
+	jsonResp := GetJsonResp()
+	defer PutJsonResp(jsonResp) // 确保对象被回收
+
+	jsonResp.Code = 300 // 推送消息使用特殊code值300
+	jsonResp.Message = "push"
+	jsonResp.Router = router
+	jsonResp.Time = utils.UnixSecond()
+
+	// 序列化数据
+	dataBytes, err := utils.JsonMarshal(data)
+	if err != nil {
+		return utils.Error("data marshal failed: ", err.Error())
+	}
+
+	// 推送消息采用明文传输（Plan=0）
+	jsonResp.Data = utils.Base64Encode(dataBytes)
+	jsonResp.Plan = 0
+
+	// 推送消息也需要Nonce，便于追踪
+	pushNonce := utils.GetUUID(true)
+	jsonResp.Nonce = pushNonce
+
+	// 推送消息签名：与心跳响应不同，推送消息使用服务器专用密钥
+	// 因为推送消息没有用户请求上下文，无法使用connCtx.GetTokenSecret()
+	// 客户端通过预共享的服务器密钥进行验签
+	serverPushKey := []byte("server_push_secret_key") // 建议从配置中获取
+	signData := SignBodyMessage(router, jsonResp.Data, pushNonce, jsonResp.Time, jsonResp.Plan, 0, serverPushKey)
+	jsonResp.Sign = utils.Base64Encode(signData)
+
+	// 发送构造好的JsonResp
+	return cm.sendToSubjectByJsonResp(subject, jsonResp)
 }
 
-// SendToSubjectRes 发送结构化消息到指定主题的所有连接
-func (cm *ConnectionManager) SendToSubjectRes(subject string, res *JsonResp) error {
+// sendToSubjectByJsonResp 发送结构化消息到指定主题的所有连接
+func (cm *ConnectionManager) sendToSubjectByJsonResp(subject string, res *JsonResp) error {
 	if res.Router == "" {
 		return utils.Error("res.router is nil")
 	}

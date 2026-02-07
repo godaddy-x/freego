@@ -174,6 +174,56 @@ func (s *SocketSDK) getURI(path string) string {
 	return p
 }
 
+// verifyPushMessageSignature 验证推送消息的签名
+func (s *SocketSDK) verifyPushMessageSignature(res *node.JsonResp) error {
+	if res.Router == "" {
+		return utils.Error("push message router is empty")
+	}
+	if res.Data == "" {
+		return utils.Error("push message data is empty")
+	}
+	if res.Sign == "" {
+		return utils.Error("push message signature is empty")
+	}
+	if res.Nonce == "" {
+		return utils.Error("push message nonce is empty")
+	}
+
+	// 使用服务器推送专用签名密钥进行验证
+	// 注意：这与服务器端的签名逻辑保持一致
+	pushSignKey := []byte("server_push_secret_key")
+	expectedSign := node.SignBodyMessage(res.Router, res.Data, res.Nonce, res.Time, res.Plan, 0, pushSignKey)
+
+	if utils.Base64Encode(expectedSign) != res.Sign {
+		return utils.Error("push message signature verification failed")
+	}
+
+	return nil
+}
+
+// decryptPushMessageData 解密推送消息的数据
+func (s *SocketSDK) decryptPushMessageData(res *node.JsonResp) ([]byte, error) {
+	if res.Data == "" {
+		return nil, utils.Error("push message data is empty")
+	}
+	if res.Nonce == "" {
+		return nil, utils.Error("push message nonce is empty")
+	}
+
+	// 推送消息使用明文传输（Plan=0）
+	if res.Plan == 0 {
+		// 直接Base64解码
+		rawData := utils.Base64Decode(res.Data)
+		if len(rawData) == 0 {
+			return nil, utils.Error("push message base64 decode failed")
+		}
+		return rawData, nil
+	}
+
+	// 如果将来需要支持加密的推送消息，可以在这里添加解密逻辑
+	return nil, utils.Error("unsupported push message plan: ", res.Plan)
+}
+
 // valid 验证当前认证令牌是否有效
 // 检查令牌是否存在、secret是否存在，以及是否即将过期(提前1小时预警)
 // 返回: true表示令牌有效，false表示需要重新认证
@@ -805,10 +855,10 @@ func (s *SocketSDK) websocketMessageListenerHandle(body []byte) {
 
 	messageCopy := *res // 拷贝值
 
-	// 关键逻辑：判断是响应还是推送
-	if res.Nonce != "" {
-		// 有 UUID/Nonce：这是对某个请求的响应
-		zlog.Info("received response with nonce", 0, zlog.String("nonce", res.Nonce), zlog.String("data", res.Data))
+	// 通过code字段区分消息类型：200=响应消息，300=推送消息
+	if res.Code == 200 {
+		// 响应消息：这是对某个请求的响应
+		zlog.Info("received response message", 0, zlog.String("nonce", res.Nonce), zlog.String("data", res.Data))
 		respChanVal, loaded := s.responseMap.LoadAndDelete(res.Nonce)
 		if loaded {
 			respChan, ok := respChanVal.(chan *node.JsonResp)
@@ -823,17 +873,32 @@ func (s *SocketSDK) websocketMessageListenerHandle(body []byte) {
 		} else {
 			zlog.Warn("no waiting channel found for nonce", 0, zlog.String("nonce", res.Nonce))
 		}
-	} else {
-		// 无 UUID/Nonce：这是服务端主动推送的消息！
-		zlog.Info("received server push message", 0, zlog.String("router", res.Router), zlog.String("data", res.Data))
+	} else if res.Code == 300 {
+		// 推送消息：这是服务端主动推送的消息
+		zlog.Info("received server push message", 0, zlog.String("router", res.Router), zlog.String("nonce", res.Nonce), zlog.String("data", res.Data))
+
+		// 验证推送消息签名
+		if err := s.verifyPushMessageSignature(res); err != nil {
+			zlog.Error("push message signature verification failed", 0, zlog.AddError(err))
+			return
+		}
+
+		// 解密推送消息数据
+		pushData, err := s.decryptPushMessageData(res)
+		if err != nil {
+			zlog.Error("push message data decryption failed", 0, zlog.AddError(err))
+			return
+		}
 
 		// 调用推送回调
 		if s.onPushMessage != nil {
-			// 注意：这里传递的是原始 data 字符串的字节，也可以传递整个 res
-			go s.onPushMessage(res.Router, []byte(res.Data))
+			go s.onPushMessage(res.Router, pushData)
 		} else {
 			zlog.Debug("push message received but no callback set", 0)
 		}
+	} else {
+		// 未知消息类型
+		zlog.Warn("received unknown message type", 0, zlog.Int("code", res.Code), zlog.String("nonce", res.Nonce))
 	}
 }
 
@@ -979,13 +1044,6 @@ func (s *SocketSDK) startReconnectProcess() {
 	interval := s.calculateReconnectIntervalLocked()
 	s.lastReconnectTime = time.Now()
 	s.reconnectMutex.Unlock()
-
-	// 等待时监听 rootCtx（只有用户主动 Close 才退出）
-	select {
-	case <-time.After(interval):
-	case <-s.rootCtx.Done():
-		return
-	}
 
 	// 等待时监听 rootCtx（只有用户主动 Close 才退出）
 	select {

@@ -1366,6 +1366,16 @@ func TestWebSocketServer(t *testing.T) {
 		}
 	}()
 
+	time.Sleep(1 * time.Second)
+
+	go func() {
+		for {
+			// 2019955939305586689
+			_ = server.GetConnectionManager().SendToSubject("2019955939305586689", "test push", map[string]string{"push data": "hello tony!"})
+			time.Sleep(3 * time.Second)
+		}
+	}()
+
 	select {}
 
 }
@@ -1391,6 +1401,42 @@ func TestWebSocketClient(t *testing.T) {
 	wsSdk.SetClientNo(1)
 	wsSdk.SetECDSAObject(wsSdk.ClientNo, clientPrk, serverPub)
 	wsSdk.SetHealthPing(3) // 3秒心跳间隔，便于测试
+
+	// 设置推送消息回调 - 客户端通过code=300识别推送消息，已自动处理验签和解密
+	wsSdk.SetPushMessageCallback(func(router string, data []byte) {
+		fmt.Printf("📨 收到推送消息 - Router: %s\n", router)
+		fmt.Printf("📦 推送数据: %s\n", string(data))
+
+		// 示例：解析推送数据为结构化对象
+		var pushData map[string]interface{}
+		if err := utils.JsonUnmarshal(data, &pushData); err != nil {
+			fmt.Printf("❌ 解析推送数据失败: %v\n", err)
+			return
+		}
+
+		// 处理不同类型的推送消息
+		switch router {
+		case "/push/notification":
+			fmt.Printf("🔔 收到通知推送: %v\n", pushData)
+			// 处理通知逻辑...
+
+		case "/push/user/status":
+			fmt.Printf("👤 用户状态更新: %v\n", pushData)
+			// 处理用户状态逻辑...
+
+		case "/push/system/alert":
+			fmt.Printf("🚨 系统告警: %v\n", pushData)
+			// 处理系统告警逻辑...
+
+		default:
+			fmt.Printf("📬 收到未知类型推送: %s\n", router)
+			fmt.Printf("📋 数据内容: %v\n", pushData)
+		}
+	})
+
+	// 4. 启用自动重连
+	fmt.Println("4. 启用自动重连...")
+	wsSdk.EnableReconnect() // 启用重连，最大尝试10次，初始间隔1秒，最大间隔30秒
 
 	// 5. 尝试连接WebSocket（预期成功，因为服务器已启动）
 	fmt.Println("5. 尝试连接WebSocket（预期成功）...")
