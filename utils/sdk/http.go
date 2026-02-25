@@ -661,9 +661,6 @@ func (s *HttpSDK) checkAuth() error {
 	if s.valid() {
 		return nil
 	}
-	if s.authObject == nil { // 没授权对象则忽略
-		return nil
-	}
 	if len(s.Domain) == 0 {
 		return ex.Throw{Msg: "domain is nil"}
 	}
@@ -687,6 +684,32 @@ func (s *HttpSDK) checkAuth() error {
 	s.AuthToken(responseObj)
 	return nil
 }
+
+func (s *HttpSDK) ResetAuth() error {
+	if len(s.Domain) == 0 {
+		return ex.Throw{Msg: "domain is nil"}
+	}
+	if len(s.KeyPath) == 0 {
+		return ex.Throw{Msg: "keyPath is nil"}
+	}
+	if len(s.LoginPath) == 0 {
+		return ex.Throw{Msg: "loginPath is nil"}
+	}
+	if s.authObject == nil {
+		return ex.Throw{Msg: "authObject is nil"}
+	}
+	requestObject, err := s.authObject()
+	if err != nil {
+		return ex.Throw{Msg: "auth object error: " + err.Error()}
+	}
+	responseObj := AuthToken{}
+	if err := s.PostByECC(s.LoginPath, requestObject, &responseObj); err != nil {
+		return err
+	}
+	s.AuthToken(responseObj)
+	return nil
+}
+
 
 // PostByAuth 通过JWT认证+强制ECDSA模式发送POST请求
 // 适用于登录后的业务API调用，使用令牌进行身份认证

@@ -71,7 +71,7 @@ func createFilterChain(extFilters []*FilterObject) ([]*FilterObject, error) {
 	for _, f := range fs {
 		v := f.(*FilterObject)
 		filters = append(filters, v)
-		zlog.Printf("add filter [%s] successful", v.Name)
+		zlog.Info(fmt.Sprintf("add filter [%s] successful", v.Name), 0)
 	}
 	if len(filters) == 0 {
 		return nil, utils.Error("filter chain is nil")

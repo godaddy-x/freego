@@ -74,7 +74,7 @@ func (self *HttpNode) StartServerByTimeout(addr string, timeout int) {
 func (self *HttpNode) StartServer(addr string) {
 	// 防止重复启动
 	if self.server != nil {
-		zlog.Printf("http server has already been started")
+		zlog.Warn("http server has already been started", 0)
 		return
 	}
 
@@ -95,16 +95,16 @@ func (self *HttpNode) StartServer(addr string) {
 	if len(self.Context.Cipher) == 0 {
 		panic("ECDSA cipher not configured, bidirectional ECDSA signature is required for server")
 	}
-	zlog.Printf("ecdsa cipher configured for %d users", len(self.Context.Cipher))
+	zlog.Info("ecdsa cipher configured for users", 0, zlog.Int("users", len(self.Context.Cipher)))
 
 	if self.Context.RedisCacheAware != nil {
-		zlog.Printf("redis cache service has been started successful")
+		zlog.Info("redis cache service has been started successful", 0)
 	}
 	if self.Context.LocalCacheAware != nil {
-		zlog.Printf("local cache service has been started successful")
+		zlog.Info("local cache service has been started successful", 0)
 	}
 	if len(self.Context.Cipher) != 0 {
-		zlog.Printf("ECC certificate service has been started successful")
+		zlog.Info("ECC certificate service has been started successful", 0)
 	}
 
 	// 创建上下文用于优雅关闭
@@ -126,7 +126,7 @@ func (self *HttpNode) StartServer(addr string) {
 	}
 	self.listener = listener
 	go func() {
-		zlog.Printf("http【%s】service has been started successful", addr)
+		zlog.Info(fmt.Sprintf("http【%s】service has been started successful", addr), 0)
 		if err := self.server.Serve(self.listener); err != nil {
 			// 忽略已关闭的错误
 			if err.Error() != "use of closed network connection" {
@@ -139,7 +139,7 @@ func (self *HttpNode) StartServer(addr string) {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM, syscall.SIGQUIT)
 	<-quit
-	zlog.Printf("http server is shutting down...")
+	zlog.Info("http server is shutting down...", 0)
 
 	// 关闭数据库连接
 	zlog.Info("starting database connections close", 0)
@@ -194,7 +194,7 @@ func (self *HttpNode) StartServer(addr string) {
 		self.cancel()
 	}
 
-	zlog.Printf("http server has been stopped")
+	zlog.Info("http server has been stopped", 0)
 }
 
 func (self *HttpNode) checkContextReady(path string, routerConfig *RouterConfig) {
@@ -243,7 +243,7 @@ func (self *HttpNode) AddFilter(object *FilterObject) {
 		panic("filter object name/filter is nil")
 	}
 	self.filters = append(self.filters, object)
-	zlog.Printf("add filter [%s] successful", object.Name)
+	zlog.Info(fmt.Sprintf("add filter [%s] successful", object.Name), 0)
 }
 
 func (self *HttpNode) createCtxPool() sync.Pool {
@@ -338,21 +338,21 @@ func (self *HttpNode) AddLanguageByJson(langDs string, bs []byte) error {
 	if len(self.Context.configs.defaultLang) == 0 {
 		self.Context.configs.defaultLang = langDs
 	}
-	zlog.Printf("add lang [%s] successful", langDs)
+	zlog.Info(fmt.Sprintf("add lang [%s] successful", langDs), 0)
 	return nil
 }
 
 func (self *HttpNode) AddRoleRealm(roleRealm func(ctx *Context, onlyRole bool) (*Permission, error)) error {
 	self.readyContext()
 	self.Context.roleRealm = roleRealm
-	zlog.Printf("add permission realm successful")
+	zlog.Info("add permission realm successful", 0)
 	return nil
 }
 
 func (self *HttpNode) AddErrorHandle(errorHandle func(ctx *Context, throw ex.Throw) error) error {
 	self.readyContext()
 	self.Context.errorHandle = errorHandle
-	zlog.Printf("add error handle successful")
+	zlog.Info("add error handle successful", 0)
 	return nil
 }
 

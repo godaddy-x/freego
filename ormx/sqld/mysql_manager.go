@@ -209,7 +209,7 @@ func MysqlClose() {
 			if err := rdb.Db.Close(); err != nil {
 				zlog.Error("mysql close failed: "+name, 0, zlog.AddError(err))
 			} else {
-				zlog.Printf("mysql service【%s】has been closed successfully", name)
+				zlog.Info(fmt.Sprintf("mysql service【%s】has been closed successfully", name), 0)
 			}
 		}
 		delete(rdbs, name)

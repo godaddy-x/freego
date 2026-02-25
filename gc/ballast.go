@@ -5,6 +5,7 @@ package ballast
 
 import (
 	"fmt"
+	"github.com/godaddy-x/freego/zlog"
 	"runtime"
 	"runtime/debug"
 	"sync"
@@ -75,8 +76,8 @@ func GC(limit int, percent int) {
 		v := verbose
 		mu.Unlock()
 		if v {
-			fmt.Printf("GC ballast initialized: size=%dMB, gcPercent=%d%%\n",
-				limit/MB, actualPercent)
+			zlog.Info(fmt.Sprintf("GC ballast initialized: size=%dMB, gcPercent=%d%%\n",
+				limit/MB, actualPercent), 0)
 		}
 	})
 }

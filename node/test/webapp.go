@@ -10,6 +10,7 @@ import (
 	"github.com/godaddy-x/freego/utils/crypto"
 	"github.com/godaddy-x/freego/utils/jwt"
 	"github.com/godaddy-x/freego/utils/sdk"
+	"github.com/godaddy-x/freego/zlog"
 )
 
 type MyWebNode struct {
@@ -234,7 +235,7 @@ func configureRateLimiters(my *MyWebNode) {
 		Expire:      60000, // 60秒过期时间
 		Distributed: true,
 	})
-	fmt.Println("✅ Gateway rate limiter configured: 500 QPS, 2500 bucket")
+	zlog.Info("✅ Gateway rate limiter configured: 500 QPS, 2500 bucket", 0)
 
 	// 3. 覆盖默认方法级限流器配置（API接口保护）
 	my.SetDefaultMethodRateLimiter(rate.Option{
@@ -243,7 +244,7 @@ func configureRateLimiters(my *MyWebNode) {
 		Expire:      30000, // 30秒过期时间
 		Distributed: true,
 	})
-	fmt.Println("✅ Default method rate limiter configured: 50 QPS, 100 bucket")
+	zlog.Info("✅ Default method rate limiter configured: 50 QPS, 100 bucket", 0)
 
 	// 4. 为敏感接口设置专用限流器配置
 	// 登录接口：限制更严格，防止暴力破解
@@ -253,7 +254,7 @@ func configureRateLimiters(my *MyWebNode) {
 		Expire:      30000, // 30秒过期时间
 		Distributed: true,
 	})
-	fmt.Println("✅ Login endpoint rate limiter configured: 10 QPS, 20 bucket")
+	zlog.Info("✅ Login endpoint rate limiter configured: 10 QPS, 20 bucket", 0)
 
 	// 用户信息接口：中等限制
 	my.SetMethodRateLimiterByPath("/getUser", rate.Option{
@@ -262,7 +263,7 @@ func configureRateLimiters(my *MyWebNode) {
 		Expire:      30000, // 30秒过期时间
 		Distributed: true,
 	})
-	fmt.Println("✅ User info endpoint rate limiter configured: 30 QPS, 60 bucket")
+	zlog.Info("✅ User info endpoint rate limiter configured: 30 QPS, 60 bucket", 0)
 
 	// 公开接口：相对宽松
 	my.SetMethodRateLimiterByPath("/key", rate.Option{
@@ -271,7 +272,7 @@ func configureRateLimiters(my *MyWebNode) {
 		Expire:      30000, // 30秒过期时间
 		Distributed: true,
 	})
-	fmt.Println("✅ Public key endpoint rate limiter configured: 100 QPS, 200 bucket")
+	zlog.Info("✅ Public key endpoint rate limiter configured: 100 QPS, 200 bucket", 0)
 
 	// 5. 设置用户级限流器配置（防止单个用户刷接口）
 	my.SetUserRateLimiter(rate.Option{
@@ -280,7 +281,7 @@ func configureRateLimiters(my *MyWebNode) {
 		Expire:      30000, // 30秒过期时间
 		Distributed: true,
 	})
-	fmt.Println("✅ User-level rate limiter configured: 5 QPS per user, 10 bucket")
+	zlog.Info("✅ User-level rate limiter configured: 5 QPS per user, 10 bucket", 0)
 
 	// 6. 动态调整示例（可在运行时调用）
 	// 业务高峰期：提高网关限流阈值
@@ -292,10 +293,10 @@ func configureRateLimiters(my *MyWebNode) {
 	// 维护期间：严格限制所有接口
 	// my.SetGatewayRateLimiter(rate.Option{Limit: 10, Bucket: 50, Expire: 60000, Distributed: true})
 
-	fmt.Println("🎉 All rate limiters configured successfully!")
-	fmt.Println("📊 Rate limiting hierarchy:")
-	fmt.Println("   🌐 Gateway: 500 QPS (global protection)")
-	fmt.Println("   📍 Methods: 50 QPS default, custom limits per endpoint")
-	fmt.Println("   👤 Users: 5 QPS per user (anti-abuse)")
-	fmt.Println("   🔄 Distributed: Redis-backed (auto-fallback to local)")
+	//fmt.Println("🎉 All rate limiters configured successfully!")
+	//fmt.Println("📊 Rate limiting hierarchy:")
+	//fmt.Println("   🌐 Gateway: 500 QPS (global protection)")
+	//fmt.Println("   📍 Methods: 50 QPS default, custom limits per endpoint")
+	//fmt.Println("   👤 Users: 5 QPS per user (anti-abuse)")
+	//fmt.Println("   🔄 Distributed: Redis-backed (auto-fallback to local)")
 }
