@@ -4,6 +4,8 @@ package DIC
 // 注意：为避免循环依赖，这里重新定义了配置结构体
 // 这些结构体与各包中原有结构体字段相同，但为了YAML配置读取的便利性而存在
 type YamlConfig struct {
+	// 默认作为当前项目名称
+	defaultProject string
 	// RabbitMQ配置 - 支持多数据源，key为数据源名称
 	RabbitMQ map[string]*AmqpConfig `yaml:"rabbitmq,omitempty"`
 
@@ -289,4 +291,14 @@ func (c *YamlConfig) GetAllJwtConfigs() map[string]*JwtConfig {
 		return make(map[string]*JwtConfig)
 	}
 	return c.JWT
+}
+
+// SetDefaultProject 设置默认的项目名
+func (c *YamlConfig) SetDefaultProject(name string) {
+	c.defaultProject = name
+}
+
+// GetDefaultProject 获取默认的项目名
+func (c *YamlConfig) GetDefaultProject() string {
+	return c.defaultProject
 }
