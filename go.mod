@@ -1,8 +1,6 @@
 module github.com/godaddy-x/freego
 
-go 1.23.0
-
-toolchain go1.23.4
+go 1.26
 
 require (
 	github.com/andybalholm/cascadia v1.3.1
