@@ -710,6 +710,9 @@ func (s *HttpSDK) ResetAuth() error {
 	return nil
 }
 
+func (s *HttpSDK) GetAuth() AuthToken {
+	return AuthToken{Token: s.authToken.Token, Secret: s.authToken.Secret, Expired: s.authToken.Expired}
+}
 
 // PostByAuth 通过JWT认证+强制ECDSA模式发送POST请求
 // 适用于登录后的业务API调用，使用令牌进行身份认证

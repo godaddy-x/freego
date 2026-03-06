@@ -369,6 +369,41 @@ func (cm *ConnectionManager) Remove(subject, deviceKey string) *DevConn {
 	return nil
 }
 
+// GetAllSubjectDevices 获取所有用户连接subject
+func (cm *ConnectionManager) GetAllSubjectDevices() map[string][]string {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+	result := make(map[string][]string, len(cm.conns))
+	for k, v := range cm.conns {
+		vs := make([]string, 0, len(v))
+		for _, dev := range v {
+			vs = append(vs, dev.Dev)
+		}
+		result[k] = vs
+	}
+	return result
+}
+
+// GetSubjectDevices
+func (cm *ConnectionManager) GetSubjectDevices(subject string) map[string][]string {
+	cm.mu.RLock()
+	defer cm.mu.RUnlock()
+	if subject == "" {
+		return nil
+	}
+	pick, b := cm.conns[subject]
+	if !b {
+		return nil
+	}
+	result := make(map[string][]string, 1)
+	vs := make([]string, 0, len(pick))
+	for _, dev := range pick {
+		vs = append(vs, dev.Dev)
+	}
+	result[subject] = vs
+	return result
+}
+
 // Get 获取指定连接
 func (cm *ConnectionManager) Get(subject, deviceKey string) *DevConn {
 	cm.mu.RLock()

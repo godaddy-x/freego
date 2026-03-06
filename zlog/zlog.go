@@ -1,14 +1,15 @@
 package zlog
 
 import (
-	"github.com/godaddy-x/freego/utils"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
-	"gopkg.in/natefinch/lumberjack.v2"
 	stdlog "log"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/godaddy-x/freego/utils"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 const (
@@ -178,6 +179,9 @@ func buildLog(config *ZapConfig) *zap.Logger {
 
 // debug
 func Debug(msg string, start int64, fields ...zap.Field) {
+	if !IsDebug() {
+		return
+	}
 	if start > 0 {
 		fields = append(fields, zap.Int64("cost", utils.UnixMilli()-start))
 	}

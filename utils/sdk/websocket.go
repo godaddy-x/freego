@@ -457,9 +457,11 @@ func (s *SocketSDK) prepareHeartbeatMessage(router string, data interface{}) ([]
 		return nil, "", ex.Throw{Msg: "heartbeat jsonBody marshal failed"}
 	}
 
-	zlog.Info("prepared heartbeat data", 0,
-		zlog.String("data", utils.Bytes2Str(bytesData)),
-		zlog.String("uuid", heartbeatUUID))
+	if zlog.IsDebug() {
+		zlog.Debug("prepared heartbeat data", 0,
+			zlog.String("data", utils.Bytes2Str(bytesData)),
+			zlog.String("uuid", heartbeatUUID))
+	}
 
 	return bytesData, heartbeatUUID, nil
 }
@@ -819,12 +821,16 @@ func (s *SocketSDK) websocketHeartbeat() {
 				return
 			}
 
-			zlog.Info("heartbeat sent, waiting for pong", 0, zlog.String("uuid", heartbeatUUID))
+			if zlog.IsDebug() {
+				zlog.Info("heartbeat sent, waiting for pong", 0, zlog.String("uuid", heartbeatUUID))
+			}
 
 			select {
 			case resp := <-heartbeatChan:
 				if resp.Code == 200 {
-					zlog.Info("heartbeat pong received", 0, zlog.String("uuid", heartbeatUUID))
+					if zlog.IsDebug() {
+						zlog.Info("heartbeat pong received", 0, zlog.String("uuid", heartbeatUUID))
+					}
 				} else {
 					zlog.Warn("heartbeat pong error", 0, zlog.String("uuid", heartbeatUUID), zlog.Int("code", resp.Code))
 					s.disconnectWebSocket()
@@ -858,14 +864,18 @@ func (s *SocketSDK) websocketMessageListenerHandle(body []byte) {
 	// 通过code字段区分消息类型：200=响应消息，300=推送消息
 	if res.Code == 200 {
 		// 响应消息：这是对某个请求的响应
-		zlog.Info("received response message", 0, zlog.String("nonce", res.Nonce), zlog.String("data", res.Data))
+		if zlog.IsDebug() {
+			zlog.Debug("received response message", 0, zlog.String("nonce", res.Nonce), zlog.String("data", res.Data))
+		}
 		respChanVal, loaded := s.responseMap.LoadAndDelete(res.Nonce)
 		if loaded {
 			respChan, ok := respChanVal.(chan *node.JsonResp)
 			if ok {
 				select {
 				case respChan <- &messageCopy:
-					zlog.Info("response sent to waiting channel successfully", 0, zlog.String("nonce", res.Nonce))
+					if zlog.IsDebug() {
+						zlog.Debug("response sent to waiting channel successfully", 0, zlog.String("nonce", res.Nonce))
+					}
 				case <-time.After(100 * time.Millisecond):
 					zlog.Warn("response channel timeout, may be closed", 0, zlog.String("nonce", res.Nonce))
 				}
@@ -875,7 +885,9 @@ func (s *SocketSDK) websocketMessageListenerHandle(body []byte) {
 		}
 	} else if res.Code == 300 {
 		// 推送消息：这是服务端主动推送的消息
-		zlog.Info("received server push message", 0, zlog.String("router", res.Router), zlog.String("nonce", res.Nonce), zlog.String("data", res.Data))
+		if zlog.IsDebug() {
+			zlog.Debug("received server push message", 0, zlog.String("router", res.Router), zlog.String("nonce", res.Nonce), zlog.String("data", res.Data))
+		}
 
 		// 验证推送消息签名
 		if err := s.verifyPushMessageSignature(res); err != nil {
