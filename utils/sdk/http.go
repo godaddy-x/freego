@@ -632,7 +632,7 @@ func (s *HttpSDK) valid() bool {
 	if len(s.authToken.Secret) == 0 {
 		return false
 	}
-	if utils.UnixSecond() > s.authToken.Expired-600 {
+	if utils.UnixSecond() > s.authToken.Expired {
 		return false
 	}
 	return true

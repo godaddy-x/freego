@@ -234,7 +234,7 @@ func (s *SocketSDK) valid() bool {
 	if len(s.authToken.Secret) == 0 {
 		return false
 	}
-	if utils.UnixSecond() > s.authToken.Expired-3600 {
+	if utils.UnixSecond() > s.authToken.Expired {
 		return false
 	}
 	return true
@@ -629,14 +629,6 @@ func (s *SocketSDK) sendWebSocketAuthHandshake(conn *websocket.Conn, path string
 // timeout: 等待响应的超时时间(秒)
 // 返回: 发送成功返回nil，否则返回发送失败的错误信息
 func (s *SocketSDK) SendWebSocketMessage(router string, requestObj, responseObj interface{}, waitResponse, encryptRequest bool, timeout int64) error {
-	s.connMutex.Lock()
-	if !s.isConnected || s.conn == nil {
-		s.connMutex.Unlock()
-		return ex.Throw{Msg: "WebSocket not connected, call ConnectWebSocket first"}
-	}
-	conn := s.conn
-	s.connMutex.Unlock()
-
 	// 验证认证信息
 	if !s.valid() {
 		// 触发Token过期回调
@@ -676,6 +668,12 @@ func (s *SocketSDK) SendWebSocketMessage(router string, requestObj, responseObj 
 		}()
 	}
 
+	s.connMutex.Lock()
+	if !s.isConnected || s.conn == nil {
+		s.connMutex.Unlock()
+		return ex.Throw{Msg: "WebSocket not connected, call ConnectWebSocket first"}
+	}
+	conn := s.conn
 	// 发送消息
 	if timeout > 0 {
 		conn.SetWriteDeadline(time.Now().Add(time.Duration(timeout) * time.Second))
@@ -683,8 +681,10 @@ func (s *SocketSDK) SendWebSocketMessage(router string, requestObj, responseObj 
 		conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 	}
 	if err := conn.WriteMessage(websocket.TextMessage, bytesData); err != nil {
+		s.connMutex.Unlock()
 		return ex.Throw{Msg: "WebSocket message send failed: " + err.Error()}
 	}
+	s.connMutex.Unlock()
 
 	if zlog.IsDebug() {
 		zlog.Debug(fmt.Sprintf("WebSocket message sent to path: %s, msgID: %s", router, jsonBody.Nonce), 0)
