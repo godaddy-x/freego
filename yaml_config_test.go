@@ -2,10 +2,11 @@ package main
 
 import (
 	"fmt"
-	"github.com/godaddy-x/freego/utils/crypto"
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/godaddy-x/freego/utils/crypto"
 
 	"github.com/godaddy-x/freego/utils"
 )
@@ -243,50 +244,4 @@ func TestLoadYamlConfig(t *testing.T) {
 	if _, exists := allServers["production"]; !exists {
 		t.Error("GetAllServerConfigs() 应该包含 'production' 配置")
 	}
-}
-
-// ExampleGetServerConfig 演示GetServerConfig方法的使用
-func ExampleGetServerConfig() {
-	config, err := utils.LoadYamlConfigFromPath("resource/config.yaml")
-	if err != nil {
-		fmt.Printf("加载配置失败: %v\n", err)
-		return
-	}
-
-	// 获取默认环境配置
-	defaultServer := config.GetServerConfig("default")
-	if defaultServer != nil {
-		fmt.Printf("默认环境 - 应用名称: %s, 版本: %s, 环境: %s\n",
-			defaultServer.Name, defaultServer.Version, defaultServer.Env)
-
-		// 获取默认密钥对
-		defaultKeyPair := defaultServer.GetDefaultKeyPair()
-		if defaultKeyPair != nil {
-			fmt.Printf("默认密钥对: %d\n", defaultKeyPair.Name)
-		}
-
-		// 获取指定名称的密钥对
-		backupKeyPair := defaultServer.GetKeyPairByName(2)
-		if backupKeyPair != nil {
-			fmt.Printf("备份密钥对: %d\n", backupKeyPair.Name)
-		}
-	}
-
-	// 获取生产环境配置
-	prodServer := config.GetServerConfig("production")
-	if prodServer != nil {
-		fmt.Printf("生产环境 - 应用名称: %s, 版本: %s, 环境: %s\n",
-			prodServer.Name, prodServer.Version, prodServer.Env)
-	}
-
-	// 获取所有服务器配置
-	allServers := config.GetAllServerConfigs()
-	fmt.Printf("共有 %d 个服务器配置\n", len(allServers))
-
-	// Output:
-	// 默认环境 - 应用名称: MyApp, 版本: 1.0.0, 环境: development
-	// 默认密钥对: 1
-	// 备份密钥对: 2
-	// 生产环境 - 应用名称: MyApp-Prod, 版本: 1.0.0, 环境: production
-	// 共有 2 个服务器配置
 }

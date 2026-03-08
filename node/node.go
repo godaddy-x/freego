@@ -152,6 +152,10 @@ type Response struct {
 	ContentEntityByte bytes.Buffer // 24字节 - bytes.Buffer (包含内部字段)
 }
 
+func HKDFKey(shared []byte, nonce string) ([]byte, error) {
+	return hkdf.Key(sha256.New, shared, utils.Base64Decode(nonce), SharedInfo, 32)
+}
+
 func AppendBodyMessage(path, data, nonce string, time, plan, usr int64) []byte {
 	return utils.Str2Bytes(utils.AddStr(path, DIC.SEP, data, DIC.SEP, nonce, DIC.SEP, time, DIC.SEP, plan, DIC.SEP, usr))
 }
@@ -476,7 +480,7 @@ func (self *Context) validJsonBody() error {
 		if err != nil || len(shared) == 0 {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "shared key error", Err: err}
 		}
-		sharedKey, err = hkdf.Key(sha256.New, shared, utils.Base64Decode(prkObject.Noc), SharedInfo, 32)
+		sharedKey, err = HKDFKey(shared, prkObject.Noc)
 		defer DIC.ClearData(shared, sharedKey)
 		if err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "shared key kdf error", Err: err}

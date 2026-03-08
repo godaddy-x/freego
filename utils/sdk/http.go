@@ -2,14 +2,11 @@ package sdk
 
 import (
 	ecdh2 "crypto/ecdh"
-	"crypto/sha512"
 	"fmt"
 	"time"
 
 	DIC "github.com/godaddy-x/freego/common"
 	"github.com/godaddy-x/freego/utils/crypto"
-
-	"golang.org/x/crypto/pbkdf2"
 
 	ecc "github.com/godaddy-x/eccrypto"
 	"github.com/godaddy-x/freego/ex"
@@ -455,13 +452,17 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	}
 	prk, _ := ecdh.GetPrivateKey()
 	prkBytes := prk.(*ecdh2.PrivateKey).Bytes()
-	sharedKey, err := ecc.GenSharedKeyECDH(prk.(*ecdh2.PrivateKey), pub)
+	ecdhKey, err := ecc.GenSharedKeyECDH(prk.(*ecdh2.PrivateKey), pub)
 	if err != nil {
 		return ex.Throw{Msg: "ECC shared key failed"}
 	}
-	// 使用标准PBKDF2密钥派生（HMAC-SHA512，1024次迭代） 输出32字节密钥（SHA-512）
-	sharedKey = pbkdf2.Key(sharedKey, utils.Base64Decode(public.Noc), 1024, 32, sha512.New)
+	defer DIC.ClearData(ecdhKey)
+
+	sharedKey, err := node.HKDFKey(ecdhKey, public.Noc)
 	defer DIC.ClearData(prkBytes, sharedKey) // 同时清除ECDH私钥和派生密钥
+	if err != nil {
+		return ex.Throw{Msg: "HKDF shared key failed"}
+	}
 
 	jsonBody := node.GetJsonBody()
 	defer node.PutJsonBody(jsonBody)

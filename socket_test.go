@@ -81,7 +81,7 @@ func TestWebSocketSDKUsage(t *testing.T) {
 	server.AddJwtConfig(jwt.JwtConfig{
 		TokenTyp: jwt.JWT,
 		TokenAlg: jwt.HS256,
-		TokenKey: "123456" + utils.CreateLocalSecretKey(12, 45, 23, 60, 58, 30),
+		TokenKey: "123456",
 		TokenExp: jwt.TWO_WEEK,
 	})
 
@@ -480,7 +480,7 @@ func TestWebSocketMessageSubscription(t *testing.T) {
 	server.AddJwtConfig(jwt.JwtConfig{
 		TokenTyp: jwt.JWT,
 		TokenAlg: jwt.HS256,
-		TokenKey: "123456" + utils.CreateLocalSecretKey(12, 45, 23, 60, 58, 30),
+		TokenKey: "123456",
 		TokenExp: jwt.TWO_WEEK,
 	})
 
@@ -1238,7 +1238,7 @@ func TestWebSocketErrorHandling(t *testing.T) {
 	server.AddJwtConfig(jwt.JwtConfig{
 		TokenTyp: jwt.JWT,
 		TokenAlg: jwt.HS256,
-		TokenKey: "123456" + utils.CreateLocalSecretKey(12, 45, 23, 60, 58, 30),
+		TokenKey: "123456",
 		TokenExp: jwt.TWO_WEEK,
 	})
 
@@ -1316,7 +1316,7 @@ func TestWebSocketServer(t *testing.T) {
 	server.AddJwtConfig(jwt.JwtConfig{
 		TokenTyp: jwt.JWT,
 		TokenAlg: jwt.HS256,
-		TokenKey: "123456" + utils.CreateLocalSecretKey(12, 45, 23, 60, 58, 30),
+		TokenKey: "123456",
 		TokenExp: jwt.TWO_WEEK,
 	})
 
