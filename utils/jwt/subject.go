@@ -6,24 +6,23 @@ package jwt
  */
 
 import (
-	"crypto/sha512"
+	"crypto/hkdf"
+	"crypto/sha256"
 	"strings"
 
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/utils"
-	"github.com/godaddy-x/freego/zlog"
-	"golang.org/x/crypto/pbkdf2"
 )
 
 const (
-	JWT          = "JWT"
-	HS256        = "HS256"
-	SHA256       = "SHA256"
-	MD5          = "MD5"
-	AES          = "AES"
-	RSA          = "RSA"
-	FIVE_MINUTES = int64(300)
-	TWO_WEEK     = int64(1209600)
+	JWT                = "JWT"
+	HS256              = "HS256"
+	FIVE_MINUTES       = int64(300)
+	TWO_WEEK           = int64(1209600)
+	SubjectTokenSecret = "Subject-Token-Secret-V1"
+	SubjectTokenVerify = "Subject-Token-Verify-V1"
+	SubjectKDFSecret   = "Subject-KDF-Secret-V1"
+	SubjectKDFVerify   = "Subject-KDF-Verify-V1"
 )
 
 // JwtConfig 结构体 - 56字节 (4个字段，8字节对齐，无填充)
@@ -113,11 +112,7 @@ func (self *Subject) Generate(config JwtConfig) string {
 }
 
 func (self *Subject) Signature(text, key string) string {
-	return utils.HMAC_SHA256(text, utils.AddStr(utils.GetLocalSecretKey(), key), true)
-}
-
-func (self *Subject) GetTokenSecret(token, secret string) []byte {
-	return self.GetTokenSecretEnhanced(token, secret)
+	return utils.Base64Encode(self.GetTokenSecretExtract(text, key, SubjectKDFVerify, SubjectTokenVerify))
 }
 
 func (self *Subject) Verify(auth []byte, key string) error {
@@ -126,36 +121,6 @@ func (self *Subject) Verify(auth []byte, key string) error {
 	}
 
 	token := utils.Bytes2Str(auth)
-
-	// 1. 获取本地密钥
-	localKey := utils.GetLocalTokenSecretKey()
-
-	// 2. 从token中提取sub（JWT中已包含sub，不同用户的sub不同，token也不同）
-	//    token本身就包含了sub信息，所以使用token即可区分不同用户
-	password := utils.AddStr("TokenVerify", token, localKey, key)
-
-	// 3. 计算缓存键：基于password的SHA256
-	//    不同token（包含不同sub）产生不同的缓存键
-	cacheKey := utils.SHA256(password)
-
-	// 2. 尝试从缓存获取Payload指针（只有在缓存可用时才使用）
-	if self.cache != nil {
-		if value, b, err := self.cache.Get(cacheKey, nil); err == nil && b && value != nil {
-			simple := value.(*SimplePayload)
-			// 分布式系统时间同步缓冲区：提前300秒判断过期，避免时间同步误差
-			if simple.Exp <= utils.UnixSecond()-300 {
-				// 失效的token主动清退
-				_ = self.cache.Del(cacheKey)
-				return utils.Error("token expired")
-			}
-			if self.Payload == nil {
-				self.Payload = &Payload{}
-			}
-			self.Payload.Sub = simple.Sub
-			self.Payload.Exp = simple.Exp
-			return nil
-		}
-	}
 
 	part := strings.Split(token, ".")
 	if part == nil || len(part) != 3 {
@@ -174,8 +139,8 @@ func (self *Subject) Verify(auth []byte, key string) error {
 	if err := utils.JsonUnmarshal(decodeB64, self.Payload); err != nil {
 		return utils.Error("token part parse failed")
 	}
-	// 分布式系统时间同步缓冲区：提前300秒判断过期，避免时间同步误差
-	if self.Payload.Exp <= utils.UnixSecond()-300 {
+	// 分布式系统时间同步缓冲区：提前15秒判断过期，避免时间同步误差
+	if self.Payload.Exp <= utils.UnixSecond()-15 {
 		return utils.Error("token expired or invalid")
 	}
 
@@ -183,13 +148,6 @@ func (self *Subject) Verify(auth []byte, key string) error {
 	headerPayload := utils.AddStr(part0, ".", part1)
 	if self.Signature(headerPayload, key) != part2 {
 		return utils.Error("token signature invalid")
-	}
-
-	// 9. 缓存结果，1小时有效期（平衡性能和内存占用，只有在缓存可用时才写入）
-	if self.cache != nil {
-		if err := self.cache.Put(cacheKey, &SimplePayload{Sub: self.Payload.Sub, Exp: self.Payload.Exp}, 3600); err != nil {
-			zlog.Error("put localSubjectCache token verify failed", 0, zlog.AddError(err))
-		}
 	}
 
 	return nil
@@ -258,55 +216,18 @@ func (self *Subject) getInt64Value(k string, payload []byte) int64 {
 	return utils.GetJsonInt64(payload, k)
 }
 
-// GetTokenSecretEnhanced 获取token的私钥（增强版）
-// 使用标准PBKDF2密钥派生，确保安全性和性能
-func (self *Subject) GetTokenSecretEnhanced(token, secret string) []byte {
+// GetTokenSecret 最简单高效的派生密钥，因为token已经有足够的熵值
+func (self *Subject) GetTokenSecret(token, secret string) []byte {
+	return self.GetTokenSecretExtract(token, secret, SubjectKDFSecret, SubjectTokenSecret)
+}
 
-	// 1. 获取本地密钥
-	localKey := utils.GetLocalTokenSecretKey()
-
-	// 2. 从token中提取sub（JWT中已包含sub，不同用户的sub不同，token也不同）
-	//    token本身就包含了sub信息，所以使用token即可区分不同用户
-	password := utils.AddStr("GetTokenSecretEnhanced", token, localKey, secret)
-
-	// 3. 计算缓存键：基于password的SHA256
-	//    不同token（包含不同sub）产生不同的缓存键
-	cacheKey := utils.SHA256(password)
-
-	// 4. 尝试从缓存获取结果（只有在缓存可用时才使用）
-	if self.cache != nil {
-		if value, err := self.cache.GetString(cacheKey); err == nil && len(value) > 0 {
-			result, err := utils.AesGCMDecryptBase(value, utils.GetAesKeySecure(secret), utils.GetAesKeySecure(token))
-			if err != nil {
-				zlog.Error("put localSubjectCache token secret decrypt failed", 0, zlog.AddError(err))
-			}
-			return result
-		}
+// GetTokenSecretExtract 最简单高效的派生密钥，因为token已经有足够的熵值
+func (self *Subject) GetTokenSecretExtract(token, secret, kdfType, msgType string) []byte {
+	localKey := utils.Str2Bytes(utils.GetLocalDynamicSecretKey())
+	serverKey := utils.Str2Bytes(secret)
+	if len(localKey) > 0 {
+		serverKey, _ = hkdf.Key(sha256.New, serverKey, localKey, kdfType, 32)
 	}
-
-	// 5. 计算盐值：使用不同顺序的参数组合（顺序：token, secret, localKey）
-	//    与password顺序不同，确保缓存键和盐值不同，提升安全性
-	//    即使缓存键泄露，攻击者也无法直接获得盐值
-	salt := utils.SHA256_BASE(utils.Str2Bytes(utils.AddStr(token, secret, localKey)))
-
-	// 6. 使用标准PBKDF2密钥派生（HMAC-SHA512，10,000次迭代）
-	//    输出64字节密钥（SHA-512）
-	derivedKey := pbkdf2.Key(utils.Str2Bytes(password), salt, 10000, 64, sha512.New)
-
-	// 7. HMAC-SHA512增强
-	localKeyBytes := utils.Str2Bytes(localKey)
-	enhancedHashBytes := utils.HMAC_SHA512_BASE(derivedKey, localKeyBytes)
-
-	// 8. 缓存结果，1小时有效期（平衡性能和内存占用，只有在缓存可用时才写入）
-	if self.cache != nil {
-		// 加密缓存数据
-		result, err := utils.AesGCMEncryptBase(enhancedHashBytes, utils.GetAesKeySecure(secret), utils.GetAesKeySecure(token))
-		if err != nil {
-			zlog.Error("put localSubjectCache token secret encrypt failed", 0, zlog.AddError(err))
-		}
-		if err := self.cache.Put(cacheKey, result, 3600); err != nil {
-			zlog.Error("put localSubjectCache token secret failed", 0, zlog.AddError(err))
-		}
-	}
-	return enhancedHashBytes
+	message := utils.Str2Bytes(utils.AddStr(msgType, token))
+	return utils.HMAC_SHA256_BASE(message, serverKey)
 }

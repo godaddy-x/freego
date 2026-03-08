@@ -15,8 +15,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	DIC "github.com/godaddy-x/freego/common"
-	"golang.org/x/crypto/pbkdf2"
 	"hash/fnv"
 	"io/ioutil"
 	"log"
@@ -29,6 +27,9 @@ import (
 	"unicode/utf8"
 	"unsafe"
 
+	DIC "github.com/godaddy-x/freego/common"
+	"golang.org/x/crypto/pbkdf2"
+
 	"github.com/godaddy-x/freego/utils/decimal"
 	"github.com/godaddy-x/freego/utils/snowflake"
 	"github.com/google/uuid"
@@ -37,10 +38,7 @@ import (
 
 var (
 	CstSH, _                 = time.LoadLocation("Asia/Shanghai") //上海
-	random_byte_sp           = Str2Bytes("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!@#$%^*+-_=")
-	local_secret_key         = createDefaultLocalSecretKey()
-	local_dynamic_secret_key = GetRandomSecure(32)
-	local_token_secret_key   = createLocalTokenSecretKey()
+	local_dynamic_secret_key = ""
 	snowflake_node           = GetSnowflakeNode(0)
 )
 
@@ -64,45 +62,15 @@ func GetSnowflakeNode(n int64) *snowflake.Node {
 	return node
 }
 
-func SetLocalSecretKey(key string) {
+func SetDynamicSecretKey(key string) {
 	if len(key) < 24 {
-		panic("local secret length < 24")
+		panic("dynamic secret length < 24")
 	}
-	local_secret_key = key
+	local_dynamic_secret_key = key
 }
 
-func GetLocalSecretKey() string {
-	return local_secret_key
-}
-
-func GetLocalDynamicSecretKey() []byte {
+func GetLocalDynamicSecretKey() string {
 	return local_dynamic_secret_key
-}
-
-func GetLocalTokenSecretKey() string {
-	return local_token_secret_key
-}
-
-func createDefaultLocalSecretKey() string {
-	arr := []int{65, 68, 45, 34, 67, 23, 53, 61, 12, 69, 23, 42, 24, 66, 29, 39, 10, 1, 8, 55, 60, 40, 64, 62}
-	return CreateLocalSecretKey(arr...)
-}
-
-func createLocalTokenSecretKey() string {
-	arr := []int{69, 63, 72, 43, 34, 68, 20, 55, 67, 19, 64, 21, 46, 62, 61, 38, 63, 13, 18, 52, 61, 44, 65, 66}
-	return CreateLocalSecretKey(arr...)
-}
-
-func CreateLocalSecretKey(arr ...int) string {
-	l := len(random_byte_sp)
-	var result []byte
-	for _, v := range arr {
-		if v > l {
-			panic("key arr value > random length")
-		}
-		result = append(result, random_byte_sp[v])
-	}
-	return Bytes2Str(result)
 }
 
 // 对象转对象
@@ -1112,4 +1080,3 @@ func NewShortPassword(pwd, salt string) []byte {
 func NewDeepPassword(pwd, salt string) []byte {
 	return NewPasswordBase(Str2Bytes(pwd), Str2Bytes(salt), 20480)
 }
-

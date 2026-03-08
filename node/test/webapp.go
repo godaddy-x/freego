@@ -2,6 +2,7 @@ package http_web
 
 import (
 	"fmt"
+
 	rate "github.com/godaddy-x/freego/cache/limiter"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/geetest"
@@ -162,7 +163,7 @@ func NewHTTP() *MyWebNode {
 	my.AddJwtConfig(jwt.JwtConfig{
 		TokenTyp: jwt.JWT,
 		TokenAlg: jwt.HS256,
-		TokenKey: "123456" + utils.CreateLocalSecretKey(12, 45, 23, 60, 58, 30),
+		TokenKey: "123456",
 		TokenExp: jwt.TWO_WEEK * 10,
 	})
 

@@ -172,9 +172,9 @@ func (self *HttpNode) SetLengthCheck(bodyLen, tokenLen, codeLen int) {
 	}
 }
 
-// SetLocalSecret 增加本地secret定义，最少24个字符长度
-func (self *HttpNode) SetLocalSecret(key string) {
-	utils.SetLocalSecretKey(key)
+// SetDynamicSecretKey 增加本地secret定义，最少24个字符长度
+func (self *HttpNode) SetDynamicSecretKey(key string) {
+	utils.SetDynamicSecretKey(key)
 }
 
 func (self *JsonBody) ParseData(dst interface{}) error {
