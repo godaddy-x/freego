@@ -8,7 +8,7 @@ require (
 	github.com/buaazp/fasthttprouter v0.1.1
 	github.com/fasthttp/websocket v1.5.12
 	github.com/go-sql-driver/mysql v1.6.0
-	github.com/godaddy-x/eccrypto v1.1.13
+	github.com/godaddy-x/eccrypto v1.1.14
 	github.com/google/uuid v1.6.0
 	github.com/mailru/easyjson v0.9.1
 	github.com/patrickmn/go-cache v2.1.0+incompatible

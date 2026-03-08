@@ -62,7 +62,7 @@ func (self *EcdhObject) Decrypt(msg string, aad []byte) ([]byte, error) {
 	if len(bs) == 0 {
 		return nil, errors.New("base64 parse failed")
 	}
-	r, err := ecc.Decrypt(self.privateKey, bs, aad)
+	r, err := ecc.Decrypt(self.privateKey, bs, aad, nil)
 	if err != nil {
 		return nil, err
 	}

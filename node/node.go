@@ -2,19 +2,19 @@ package node
 
 import (
 	"bytes"
-	"crypto/sha512"
-	rate "github.com/godaddy-x/freego/cache/limiter"
+	"crypto/hkdf"
+	"crypto/sha256"
 	"net"
 	"net/http"
 	"strings"
 	"unsafe"
 
-	ecc "github.com/godaddy-x/eccrypto"
-	DIC "github.com/godaddy-x/freego/common"
-	"golang.org/x/crypto/pbkdf2"
+	rate "github.com/godaddy-x/freego/cache/limiter"
 
 	"github.com/buaazp/fasthttprouter"
+	ecc "github.com/godaddy-x/eccrypto"
 	"github.com/godaddy-x/freego/cache"
+	DIC "github.com/godaddy-x/freego/common"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/node/common"
 	"github.com/godaddy-x/freego/utils"
@@ -46,6 +46,8 @@ const (
 	Authorization = "Authorization"
 	SharedKey     = "SharedKey"
 	Cipher        = "Cipher"
+
+	SharedInfo = "freego-ecdh-aes-gcm"
 )
 
 var (
@@ -474,8 +476,11 @@ func (self *Context) validJsonBody() error {
 		if err != nil || len(shared) == 0 {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "shared key error", Err: err}
 		}
-		sharedKey = pbkdf2.Key(shared, utils.Base64Decode(prkObject.Noc), 1024, 32, sha512.New)
+		sharedKey, err = hkdf.Key(sha256.New, shared, utils.Base64Decode(prkObject.Noc), SharedInfo, 32)
 		defer DIC.ClearData(shared, sharedKey)
+		if err != nil {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "shared key kdf error", Err: err}
+		}
 	}
 
 	// 签名验证：Plan 0/1使用token secret，Plan 2使用sharedKey
