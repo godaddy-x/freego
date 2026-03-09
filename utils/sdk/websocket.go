@@ -791,14 +791,6 @@ func (s *SocketSDK) websocketHeartbeat() {
 		case <-s.connCtx.Done(): // 监听当前连接上下文
 			return
 		case <-ticker.C:
-			s.connMutex.Lock()
-			if !s.isConnected || s.conn == nil {
-				s.connMutex.Unlock()
-				return
-			}
-			conn := s.conn
-			s.connMutex.Unlock()
-
 			bytesData, heartbeatUUID, err := s.prepareHeartbeatMessage("/ws/ping", "ping")
 			if err != nil {
 				if zlog.IsDebug() {
@@ -807,6 +799,12 @@ func (s *SocketSDK) websocketHeartbeat() {
 				continue
 			}
 
+			s.connMutex.Lock()
+			if !s.isConnected || s.conn == nil {
+				s.connMutex.Unlock()
+				return
+			}
+			conn := s.conn
 			heartbeatChan := make(chan *node.JsonResp, 1)
 			s.responseMap.Store(heartbeatUUID, heartbeatChan)
 
@@ -818,8 +816,10 @@ func (s *SocketSDK) websocketHeartbeat() {
 					zlog.Debug("heartbeat send failed, connection may be lost", 0)
 				}
 				s.disconnectWebSocket()
+				s.connMutex.Unlock()
 				return
 			}
+			s.connMutex.Unlock()
 
 			if zlog.IsDebug() {
 				zlog.Info("heartbeat sent, waiting for pong", 0, zlog.String("uuid", heartbeatUUID))
