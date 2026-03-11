@@ -95,11 +95,12 @@ func (cc *ConnectionContext) GetTokenSecret() []byte {
 
 // ConnectionManager 连接管理器：线程安全的连接管理，支持广播、房间、过期清理
 type ConnectionManager struct {
-	mu        sync.RWMutex
-	conns     map[string]map[string]*DevConn // subject -> deviceKey -> connection
-	max       int                            // 最大连接数
-	totalConn int32                          // 原子计数器：当前总连接数（性能优化）
-	mode      ConnectionUniquenessMode       // 连接唯一性模式
+	mu           sync.RWMutex
+	conns        map[string]map[string]*DevConn // subject -> deviceKey -> connection
+	max          int                            // 最大连接数
+	totalConn    int32                          // 原子计数器：当前总连接数（性能优化）
+	mode         ConnectionUniquenessMode       // 连接唯一性模式
+	broadcastKey string                         // 广播密钥
 }
 
 // MessageHandler 消息处理器：统一处理消息校验、解码、路由
@@ -178,6 +179,8 @@ type WsServer struct {
 	routes       map[string]*RouteInfo // 路由映射：path -> 路由信息 (启动后只读)
 	connManager  *ConnectionManager
 	heartbeatSvc *HeartbeatService
+
+	broadcastKey string
 
 	// 配置项
 	ping         int           // 心跳间隔（秒）
@@ -297,11 +300,12 @@ func (cv *ConfigValidator) validatePoolConfig(maxConn, limit, bucket, ping int) 
 // -------------------------- ConnectionManager 实现 --------------------------
 
 // NewConnectionManager 创建连接管理器
-func NewConnectionManager(maxConn int, mode ConnectionUniquenessMode) *ConnectionManager {
+func NewConnectionManager(maxConn int, mode ConnectionUniquenessMode, broadcastKey string) *ConnectionManager {
 	return &ConnectionManager{
-		conns: make(map[string]map[string]*DevConn),
-		max:   maxConn,
-		mode:  mode,
+		conns:        make(map[string]map[string]*DevConn),
+		max:          maxConn,
+		mode:         mode,
+		broadcastKey: broadcastKey,
 	}
 }
 
@@ -462,7 +466,7 @@ func (cm *ConnectionManager) SendToSubject(subject, router string, data interfac
 	// 推送消息签名：与心跳响应不同，推送消息使用服务器专用密钥
 	// 因为推送消息没有用户请求上下文，无法使用connCtx.GetTokenSecret()
 	// 客户端通过预共享的服务器密钥进行验签
-	serverPushKey := []byte("server_push_secret_key") // 建议从配置中获取
+	serverPushKey := utils.Str2Bytes(cm.broadcastKey) // 建议从配置中获取
 	signData := SignBodyMessage(router, jsonResp.Data, pushNonce, jsonResp.Time, jsonResp.Plan, 0, serverPushKey)
 	jsonResp.Sign = utils.Base64Encode(signData)
 
@@ -987,7 +991,7 @@ func (s *WsServer) NewPool(maxConn, limit, bucket, ping int) error {
 	s.maxConn = maxConn
 	s.ping = ping
 
-	s.connManager = NewConnectionManager(maxConn, s.connUniquenessMode)
+	s.connManager = NewConnectionManager(maxConn, s.connUniquenessMode, s.broadcastKey)
 	s.limiter = rate.NewLimiter(rate.Limit(limit), bucket)
 
 	pingDuration := time.Duration(ping) * time.Second
@@ -998,6 +1002,11 @@ func (s *WsServer) NewPool(maxConn, limit, bucket, ping int) error {
 // SetIdleTimeout 设置连接空闲超时时间
 func (s *WsServer) SetIdleTimeout(timeout time.Duration) {
 	s.idleTimeout = timeout
+}
+
+// SetBroadcastKey 广播数据密钥
+func (s *WsServer) SetBroadcastKey(key string) {
+	s.broadcastKey = key
 }
 
 func (s *WsServer) StartWebsocket(addr string) error {

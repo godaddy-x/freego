@@ -71,15 +71,16 @@ type Subscription struct {
 }
 
 type SocketSDK struct {
-	Domain      string                  // API域名 (如:api.example.com)
-	language    string                  // 语言设置 (HTTP头)
-	timeout     int64                   // 请求超时时间(秒)
-	authObject  interface{}             // 登录认证对象 (用户名+密码等)
-	authToken   AuthToken               // JWT认证令牌
-	SSL         bool                    // 是否启用https
-	ClientNo    int64                   // 客户端ID
-	ecdsaObject map[int64]crypto.Cipher // ECDSA签名验证对象列表
-	HealthPing  int                     // 健康PING间隔时间/秒
+	Domain       string                  // API域名 (如:api.example.com)
+	language     string                  // 语言设置 (HTTP头)
+	timeout      int64                   // 请求超时时间(秒)
+	authObject   interface{}             // 登录认证对象 (用户名+密码等)
+	authToken    AuthToken               // JWT认证令牌
+	broadcastKey string                  // 广播数据签名密钥
+	SSL          bool                    // 是否启用https
+	ClientNo     int64                   // 客户端ID
+	ecdsaObject  map[int64]crypto.Cipher // ECDSA签名验证对象列表
+	HealthPing   int                     // 健康PING间隔时间/秒
 
 	// WebSocket连接相关
 	conn        *websocket.Conn // WebSocket连接
@@ -137,6 +138,11 @@ func (s *SocketSDK) SetTimeout(timeout int64) {
 	s.timeout = timeout
 }
 
+// SetBroadcastKey 广播数据密钥
+func (s *SocketSDK) SetBroadcastKey(key string) {
+	s.broadcastKey = key
+}
+
 func (s *SocketSDK) SetHealthPing(t int) {
 	if t <= 0 {
 		t = 30
@@ -191,8 +197,7 @@ func (s *SocketSDK) verifyPushMessageSignature(res *node.JsonResp) error {
 
 	// 使用服务器推送专用签名密钥进行验证
 	// 注意：这与服务器端的签名逻辑保持一致
-	pushSignKey := []byte("server_push_secret_key")
-	expectedSign := node.SignBodyMessage(res.Router, res.Data, res.Nonce, res.Time, res.Plan, 0, pushSignKey)
+	expectedSign := node.SignBodyMessage(res.Router, res.Data, res.Nonce, res.Time, res.Plan, 0, utils.Str2Bytes(s.broadcastKey))
 
 	if utils.Base64Encode(expectedSign) != res.Sign {
 		return utils.Error("push message signature verification failed")
