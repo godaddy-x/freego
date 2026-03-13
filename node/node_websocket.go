@@ -128,6 +128,7 @@ type DevConn struct {
 	sendMu sync.Mutex         // 发送消息互斥锁（避免并发写冲突）
 	ctx    context.Context    // 用于取消该连接的相关goroutine
 	cancel context.CancelFunc // 上下文取消函数，用于终止相关goroutine
+	closed int32              // 连接是否已关闭（0=未关闭，1=已关闭）
 }
 
 // IsActive 检查连接是否活跃（通过发送ping消息）
@@ -983,6 +984,10 @@ func (s *WsServer) AddRouter(path string, handle Handle, routerConfig *RouterCon
 	return nil
 }
 
+//maxConn   = 300          // 允许的最大并发连接数
+//limit     = 20           // 每秒允许的平均消息数（令牌桶速率）
+//bucket    = 100          // 令牌桶容量（突发消息缓冲）
+//ping      = 15           // 心跳间隔（秒）
 func (s *WsServer) NewPool(maxConn, limit, bucket, ping int) error {
 	if err := s.configValidator.validatePoolConfig(maxConn, limit, bucket, ping); err != nil {
 		return err
@@ -1622,16 +1627,36 @@ func closeConn(conn *DevConn, reason string) {
 		return
 	}
 
-	// 先取消上下文，终止相关goroutine
+	// 幂等关闭：避免多处并发触发 close 导致 panic
+	if !atomic.CompareAndSwapInt32(&conn.closed, 0, 1) {
+		return
+	}
+
+	// 先取消上下文，终止相关goroutine（cancel 本身是幂等的）
 	if conn.cancel != nil {
 		conn.cancel()
 	}
 
-	// 再关闭WebSocket连接
-	if conn.Conn != nil {
-		closeMsg := fasthttpWs.FormatCloseMessage(fasthttpWs.CloseNormalClosure, reason)
-		// 使用带超时的写控制
-		conn.Conn.WriteControl(fasthttpWs.CloseMessage, closeMsg, time.Now().Add(1*time.Second))
-		conn.Conn.Close()
+	// 避免与 Send/IsActive 并发写导致 websocket 库 panic
+	conn.sendMu.Lock()
+	defer conn.sendMu.Unlock()
+
+	ws := conn.Conn
+	conn.Conn = nil
+	if ws == nil {
+		return
 	}
+
+	// websocket 库在极端竞态（尤其 debug 暂停）下可能 panic，这里兜底不让服务崩溃
+	defer func() {
+		if r := recover(); r != nil {
+			zlog.Error("websocket_close_panic_recovered", 0,
+				zlog.Any("panic", r),
+				zlog.String("reason", reason))
+		}
+	}()
+
+	closeMsg := fasthttpWs.FormatCloseMessage(fasthttpWs.CloseNormalClosure, reason)
+	_ = ws.WriteControl(fasthttpWs.CloseMessage, closeMsg, time.Now().Add(1*time.Second))
+	_ = ws.Close()
 }
