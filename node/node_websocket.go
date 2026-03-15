@@ -235,6 +235,9 @@ type WsServer struct {
 	// JWT配置
 	jwtConfig jwt.JwtConfig
 
+	// 是否在每条消息时校验 token 有效期（默认 false：仅建连时校验；true：每条消息校验，过期即 401）
+	validateTokenPerMessage bool
+
 	// ECC和缓存配置（用于Plan 2）
 	// 8字节函数指针字段组 (5个字段，40字节)
 	Cipher          map[int64]crypto.Cipher                 // 8字节 - RSA/ECDSA加密解密对象列表
@@ -811,6 +814,16 @@ func (mh *MessageHandler) validWebSocketBody(connCtx *ConnectionContext) (crypto
 		return nil, ex.Throw{Code: fasthttp.StatusBadRequest, Msg: "websocket header token is nil"}
 	}
 
+	// 可选：每条消息校验 token 有效期（与 jwt.Verify 一致：提前 15 秒视为过期）
+	if connCtx.Server.validateTokenPerMessage {
+		if connCtx.Subject == nil || connCtx.Subject.Payload == nil {
+			return nil, ex.Throw{Code: fasthttp.StatusUnauthorized, Msg: "token not ready"}
+		}
+		if connCtx.Subject.Payload.Exp <= utils.UnixSecond()-15 {
+			return nil, ex.Throw{Code: fasthttp.StatusUnauthorized, Msg: "token expired or invalid"}
+		}
+	}
+
 	var sharedKey []byte
 
 	// Plan 0/1使用token secret
@@ -1026,6 +1039,13 @@ func (s *WsServer) NewPool(maxConn, limit, bucket, ping int) error {
 // SetIdleTimeout 设置连接空闲超时时间
 func (s *WsServer) SetIdleTimeout(timeout time.Duration) {
 	s.idleTimeout = timeout
+}
+
+// SetValidateTokenPerMessage 设置是否在每条消息时校验 token 有效期。
+// false（默认）：仅建连时校验，连接期间 token 过期不踢线；
+// true：每条消息都校验，token 过期返回 401，适合强安全/合规场景。
+func (s *WsServer) SetValidateTokenPerMessage(validate bool) {
+	s.validateTokenPerMessage = validate
 }
 
 // SetMaxBodyLen 设置单条消息体最大长度（字节），需在 StartWebsocket 前调用；若已创建 Server 则同步更新 MaxRequestBodySize
