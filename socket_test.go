@@ -1122,11 +1122,11 @@ func TestWebSocketConnectionHealthCheck(t *testing.T) {
 		t.Error("Expected health check to return stats")
 	}
 
-	// test_subject应该有0个活跃连接（因为Conn为nil）
+	// HealthCheck 返回各 subject 的连接数
 	if count, exists := healthStats["test_subject"]; !exists {
 		t.Error("Expected test_subject in health stats")
-	} else if count != 0 {
-		t.Errorf("Expected 0 active connections for test_subject, got %d", count)
+	} else if count != 1 {
+		t.Errorf("Expected 1 connection for test_subject, got %d", count)
 	}
 
 	t.Logf("✓ Connection health check completed successfully")
@@ -1171,61 +1171,51 @@ func TestRemoteIPSecurity(t *testing.T) {
 	t.Logf("✓ RemoteIP security test completed - IP spoofing protection working")
 }
 
-// TestDevConnConcurrentSafety 测试DevConn的并发安全性
+// TestDevConnConcurrentSafety 测试 DevConn 的并发安全性（Send / UpdateLast / LastSeen）
 func TestDevConnConcurrentSafety(t *testing.T) {
-	// 创建一个模拟的DevConn（Conn为nil，用于测试锁机制）
 	devConn := &node.DevConn{
 		Sub:  "test_subject",
 		Dev:  "test_device",
 		Last: utils.UnixSecond(),
-		Conn: nil, // 设置为nil，IsActive会直接返回false，但会执行锁逻辑
+		Conn: nil,
 	}
 
-	// 并发测试：多个goroutine同时调用IsActive
 	const numGoroutines = 10
 	const numCalls = 100
-
 	done := make(chan bool, numGoroutines)
 	errorChan := make(chan error, numGoroutines*numCalls)
 
 	for i := 0; i < numGoroutines; i++ {
 		go func(id int) {
 			defer func() { done <- true }()
-
 			for j := 0; j < numCalls; j++ {
-				// 调用IsActive，会尝试获取sendMu锁
-				active := devConn.IsActive()
-				// 由于Conn为nil，IsActive应该返回false
-				if active {
-					errorChan <- fmt.Errorf("goroutine %d call %d: expected false but got true", id, j)
+				// Send(Conn==nil) 应安全返回错误
+				if err := devConn.Send([]byte("x")); err == nil {
+					errorChan <- fmt.Errorf("goroutine %d call %d: expected Send to fail when Conn is nil", id, j)
 					return
 				}
-
-				// 模拟一些处理时间
+				devConn.UpdateLast()
+				_ = devConn.LastSeen()
 				time.Sleep(time.Microsecond)
 			}
 		}(i)
 	}
 
-	// 等待所有goroutine完成
 	for i := 0; i < numGoroutines; i++ {
 		<-done
 	}
-
-	// 检查是否有错误
 	close(errorChan)
 	var errors []error
 	for err := range errorChan {
 		errors = append(errors, err)
 	}
-
 	if len(errors) > 0 {
-		t.Errorf("Concurrent IsActive calls failed with %d errors:", len(errors))
+		t.Errorf("Concurrent DevConn ops failed with %d errors:", len(errors))
 		for i, err := range errors {
 			t.Errorf("  Error %d: %v", i+1, err)
 		}
 	} else {
-		t.Logf("✓ %d goroutines with %d calls each completed successfully without race conditions", numGoroutines, numCalls)
+		t.Logf("✓ %d goroutines with %d calls each completed without race conditions", numGoroutines, numCalls)
 	}
 }
 

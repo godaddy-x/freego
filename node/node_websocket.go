@@ -25,11 +25,15 @@ import (
 )
 
 // WebSocket服务器实现
-
+//
+// 错误类型约定：
+//   - 协议错误（客户端请求不合法、鉴权失败等）：使用 ex.Throw{Code, Msg[, Err]}，便于上层按 HTTP 状态码处理或回写。
+//   - 配置/内部错误（校验配置、连接池、调用方参数等）：使用 utils.Error，仅作日志或返回给调用方，无状态码需求。
+//
 // WebSocket专用常量
 const (
-	DefaultWsRoute  = "/ws"       // 默认WebSocket路由路径
-	WS_MAX_BODY_LEN = 1024 * 1024 // 1MB
+	DefaultWsRoute       = "/ws"       // 默认WebSocket路由路径
+	DefaultWsMaxBodyLen  = 1024 * 1024 // 默认单条消息体最大 1MB，可通过 WsServer.SetMaxBodyLen 覆盖
 )
 
 // ConnectionUniquenessMode 连接唯一性模式
@@ -47,7 +51,9 @@ const (
 )
 
 // 核心类型定义
-type Handle func(ctx context.Context, connCtx *ConnectionContext, body []byte) (interface{}, error) // 业务处理函数，返回nil则不回复
+// Handle 业务处理函数，返回 nil 则不回复。
+// 对象池约束：返回的 *JsonResp 等由框架在 replyData 内统一 Put 回池；handler 不得在返回后继续持有或异步使用 connCtx.JsonBody/GetJsonResp 等池对象，应同步处理完毕。
+type Handle func(ctx context.Context, connCtx *ConnectionContext, body []byte) (interface{}, error)
 
 // ConnectionContext 每个WebSocket连接的上下文，包含连接相关的所有信息
 type ConnectionContext struct {
@@ -88,6 +94,17 @@ func (cc *ConnectionContext) GetUserIDString() string {
 	return cc.Subject.Payload.Sub
 }
 
+// getDeviceID 获取设备 ID，用于日志上下文
+func (cc *ConnectionContext) getDeviceID() string {
+	if cc.DevConn != nil {
+		return cc.DevConn.Dev
+	}
+	if cc.Subject != nil {
+		return cc.Subject.GetDev(nil)
+	}
+	return ""
+}
+
 // GetTokenSecret 获取WebSocket连接的token密钥
 func (cc *ConnectionContext) GetTokenSecret() []byte {
 	return cc.Subject.GetTokenSecret(utils.Bytes2Str(cc.GetRawTokenBytes()), cc.Server.jwtConfig.TokenKey)
@@ -121,28 +138,42 @@ type HeartbeatService struct {
 
 // DevConn 设备连接实体：存储单连接的核心信息
 type DevConn struct {
-	Sub    string
-	Dev    string
-	Last   int64              // 最后心跳时间（时间戳）
-	Conn   *fasthttpWs.Conn   // WebSocket连接
-	sendMu sync.Mutex         // 发送消息互斥锁（避免并发写冲突）
-	ctx    context.Context    // 用于取消该连接的相关goroutine
-	cancel context.CancelFunc // 上下文取消函数，用于终止相关goroutine
-	closed int32              // 连接是否已关闭（0=未关闭，1=已关闭）
+	Sub       string
+	Dev       string
+	Last      int64              // 最后心跳时间（时间戳）
+	Conn      *fasthttpWs.Conn   // WebSocket连接
+	sendMu    sync.Mutex         // 发送消息互斥锁（避免并发写冲突）
+	ctx       context.Context    // 用于取消该连接的相关goroutine
+	cancel    context.CancelFunc // 上下文取消函数，用于终止相关goroutine
+	closed    int32              // 连接是否已关闭（0=未关闭，1=已关闭）
+	closeOnce sync.Once          // 确保 ws.Close() 只执行一次
 }
 
-// IsActive 检查连接是否活跃（通过发送ping消息）
-func (dc *DevConn) IsActive() bool {
-	dc.sendMu.Lock()
-	defer dc.sendMu.Unlock() // 确保锁释放，即使WriteControl报错
-
-	if dc.Conn == nil {
-		return false
+// UpdateLast 更新连接最后活跃时间。
+// Last 的读写统一受 sendMu 保护，避免与关闭/发送路径产生数据竞争。
+func (dc *DevConn) UpdateLast() {
+	if dc == nil {
+		return
 	}
 
-	// 发送ping消息检查连接活性，1秒超时
-	err := dc.Conn.WriteControl(fasthttpWs.PingMessage, nil, time.Now().Add(1*time.Second))
-	return err == nil
+	dc.sendMu.Lock()
+	defer dc.sendMu.Unlock()
+
+	if atomic.LoadInt32(&dc.closed) == 0 {
+		dc.Last = utils.UnixSecond()
+	}
+}
+
+// LastSeen 返回最近一次活跃时间。
+func (dc *DevConn) LastSeen() int64 {
+	if dc == nil {
+		return 0
+	}
+
+	dc.sendMu.Lock()
+	defer dc.sendMu.Unlock()
+
+	return dc.Last
 }
 
 // RouteInfo WebSocket路由信息结构体
@@ -186,6 +217,7 @@ type WsServer struct {
 	// 配置项
 	ping         int           // 心跳间隔（秒）
 	maxConn      int           // 最大连接数
+	maxBodyLen   int           // 单条消息体最大长度（字节），默认 DefaultWsMaxBodyLen
 	limiter      *rate.Limiter // 连接限流器
 	idleTimeout  time.Duration // 连接空闲超时时间
 	globalCtx    context.Context
@@ -211,6 +243,8 @@ type WsServer struct {
 
 	// 用于确保 Stop 只执行一次
 	shutdownOnce sync.Once
+	// 确保信号监听只注册一次，避免重复调用 StartWebsocket 时重复 Notify
+	signalOnce sync.Once
 }
 
 // ErrorHandler WebSocket错误处理器（统一错误处理）
@@ -245,17 +279,23 @@ func (eh *ErrorHandler) handleConnectionError(connCtx *ConnectionContext, err er
 		resp.Code = ex.WS_SEND
 		resp.Message = "websocket error: " + operation
 		resp.Time = utils.UnixSecond()
-		defer PutJsonResp(resp)
 
-		if len(connCtx.Subject.Payload.Sub) == 0 {
+		if connCtx.Subject == nil || connCtx.Subject.Payload == nil || len(connCtx.Subject.Payload.Sub) == 0 {
 			resp.Nonce = utils.GetUUID(true)
 		} else if connCtx.JsonBody != nil {
 			resp.Nonce = connCtx.JsonBody.Nonce
 		}
 
-		if result, marshalErr := utils.JsonMarshal(resp); marshalErr == nil {
-			// 捕获 WriteControl 错误，仅在 debug 级别记录，避免连接关闭时的无效错误日志
-			if err := ws.WriteControl(fasthttpWs.TextMessage, result, time.Now().Add(1*time.Second)); err != nil {
+		result, marshalErr := utils.JsonMarshal(resp)
+		PutJsonResp(resp)
+		if marshalErr == nil {
+			if connCtx.DevConn != nil {
+				if err := connCtx.DevConn.Send(result); err != nil {
+					if zlog.IsDebug() {
+						zlog.Debug("failed to send error response to closed connection", 0, zlog.AddError(err))
+					}
+				}
+			} else if err := ws.WriteMessage(fasthttpWs.TextMessage, result); err != nil {
 				if zlog.IsDebug() {
 					zlog.Debug("failed to send error response to closed connection", 0, zlog.AddError(err))
 				}
@@ -374,6 +414,29 @@ func (cm *ConnectionManager) Remove(subject, deviceKey string) *DevConn {
 	return nil
 }
 
+// RemoveByConn 按连接指针从管理器中移除该连接，避免替换连接时误删新连接。
+// 返回是否成功移除（若连接已被替换则可能未找到）。
+func (cm *ConnectionManager) RemoveByConn(conn *DevConn) bool {
+	if conn == nil {
+		return false
+	}
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	for subject, subjectConns := range cm.conns {
+		for deviceKey, c := range subjectConns {
+			if c == conn {
+				delete(subjectConns, deviceKey)
+				atomic.AddInt32(&cm.totalConn, -1)
+				if len(subjectConns) == 0 {
+					delete(cm.conns, subject)
+				}
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // GetAllSubjectDevices 获取所有用户连接subject
 func (cm *ConnectionManager) GetAllSubjectDevices() map[string][]string {
 	cm.mu.RLock()
@@ -420,14 +483,15 @@ func (cm *ConnectionManager) Get(subject, deviceKey string) *DevConn {
 	return nil
 }
 
-// Broadcast 广播消息到所有连接
+// Broadcast 广播消息到所有连接。
+// 连接活性由 LastSeen 与 CleanupExpired 维护；Send 内部会检查 closed 并安全返回错误。
 func (cm *ConnectionManager) Broadcast(data []byte) {
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
 
 	for _, subjectConns := range cm.conns {
 		for _, conn := range subjectConns {
-			conn.Send(data)
+			_ = conn.Send(data)
 		}
 	}
 }
@@ -443,7 +507,6 @@ func (cm *ConnectionManager) SendToSubject(subject, router string, data interfac
 
 	// 构造JsonResp格式的推送消息
 	jsonResp := GetJsonResp()
-	defer PutJsonResp(jsonResp) // 确保对象被回收
 
 	jsonResp.Code = 300 // 推送消息使用特殊code值300
 	jsonResp.Message = "push"
@@ -453,6 +516,7 @@ func (cm *ConnectionManager) SendToSubject(subject, router string, data interfac
 	// 序列化数据
 	dataBytes, err := utils.JsonMarshal(data)
 	if err != nil {
+		PutJsonResp(jsonResp)
 		return utils.Error("data marshal failed: ", err.Error())
 	}
 
@@ -472,7 +536,9 @@ func (cm *ConnectionManager) SendToSubject(subject, router string, data interfac
 	jsonResp.Sign = utils.Base64Encode(signData)
 
 	// 发送构造好的JsonResp
-	return cm.sendToSubjectByJsonResp(subject, jsonResp)
+	err = cm.sendToSubjectByJsonResp(subject, jsonResp)
+	PutJsonResp(jsonResp)
+	return err
 }
 
 // sendToSubjectByJsonResp 发送结构化消息到指定主题的所有连接
@@ -483,31 +549,31 @@ func (cm *ConnectionManager) sendToSubjectByJsonResp(subject string, res *JsonRe
 	if res.Data == "" {
 		return utils.Error("res.data is nil")
 	}
-	cm.mu.RLock()
-	defer cm.mu.RUnlock()
 	data, err := utils.JsonMarshal(res)
 	if err != nil {
 		return err
 	}
+
+	var targets []*DevConn
+	cm.mu.RLock()
 	if subject != "" { // 指定subject
 		if subjectConns, exists := cm.conns[subject]; exists {
 			for _, conn := range subjectConns {
-				if err := conn.Send(data); err != nil {
-					if zlog.IsDebug() {
-						zlog.Debug("push send error", 0, zlog.String("subject", subject), zlog.String("errMsg", err.Error()))
-					}
-				}
+				targets = append(targets, conn)
 			}
 		}
 	} else {
 		for _, conn := range cm.conns {
 			for _, v := range conn {
-				if err := v.Send(data); err != nil {
-					if zlog.IsDebug() {
-						zlog.Debug("push send error", 0, zlog.String("subject", subject), zlog.String("errMsg", err.Error()))
-					}
-				}
+				targets = append(targets, v)
 			}
+		}
+	}
+	cm.mu.RUnlock()
+
+	for _, conn := range targets {
+		if err := conn.Send(data); err != nil && zlog.IsDebug() {
+			zlog.Debug("push send error", 0, zlog.String("subject", subject), zlog.String("errMsg", err.Error()))
 		}
 	}
 	return nil
@@ -533,20 +599,15 @@ func (cm *ConnectionManager) RemoveWithCallback(subject, deviceKey string, callb
 	return cm.Remove(subject, deviceKey) // callback 由调用方在锁外执行
 }
 
-// HealthCheck 健康检查：返回每个subject的活跃连接数统计
+// HealthCheck 健康检查：返回每个 subject 的连接数。
+// 活性由 LastSeen 与 CleanupExpired 维护。
 func (cm *ConnectionManager) HealthCheck() map[string]int {
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
 
-	stats := make(map[string]int)
+	stats := make(map[string]int, len(cm.conns))
 	for subject, conns := range cm.conns {
-		active := 0
-		for _, conn := range conns {
-			if conn.IsActive() {
-				active++
-			}
-		}
-		stats[subject] = active
+		stats[subject] = len(conns)
 	}
 	return stats
 }
@@ -565,68 +626,44 @@ func (cm *ConnectionManager) AddTestConnection(subject, deviceKey string, conn *
 	cm.conns[subject][deviceKey] = conn
 }
 
-// CleanupExpired 清理过期连接
+// CleanupExpired 清理过期连接。
+// 在 RLock 内收集过期 conn 指针，避免 RUnlock 后 Get 拿到已被替换的新连接导致误关。
 func (cm *ConnectionManager) CleanupExpired(timeoutSeconds int64) int {
 	cleaned := 0
 	currentTime := utils.UnixSecond()
 
-	// 收集需要清理的连接（无锁操作，提高并发性）
 	cm.mu.RLock()
-	var toRemove []struct {
-		subject   string
-		deviceKey string
-	}
-
-	for subject, subjectConns := range cm.conns {
-		for deviceKey, conn := range subjectConns {
-			if currentTime-atomic.LoadInt64(&conn.Last) > timeoutSeconds {
-				toRemove = append(toRemove, struct {
-					subject   string
-					deviceKey string
-				}{subject, deviceKey})
+	var toClose []*DevConn
+	for _, subjectConns := range cm.conns {
+		for _, conn := range subjectConns {
+			if currentTime-conn.LastSeen() > timeoutSeconds {
+				toClose = append(toClose, conn)
 			}
 		}
 	}
 	cm.mu.RUnlock()
 
-	// 执行清理（使用标准接口，保持设计一致性）
-	for _, item := range toRemove {
-		conn := cm.Remove(item.subject, item.deviceKey)
-		if conn != nil {
-			closeConn(conn, "expired")
-			cleaned++
-		}
+	for _, conn := range toClose {
+		closeConn(conn, "expired")
+		cleaned++
 	}
-
 	return cleaned
 }
 
-// CleanupAll 清理所有连接
+// CleanupAll 清理所有连接。收集 conn 指针后统一发关闭信号，由各消息循环执行 RemoveByConn + ws.Close()。
 func (cm *ConnectionManager) CleanupAll() {
-	// 收集所有连接信息（使用读锁，提高并发性）
 	cm.mu.RLock()
-	var toRemove []struct {
-		subject   string
-		deviceKey string
-	}
-
-	for subject, subjectConns := range cm.conns {
-		for deviceKey := range subjectConns {
-			toRemove = append(toRemove, struct {
-				subject   string
-				deviceKey string
-			}{subject, deviceKey})
+	var toClose []*DevConn
+	for _, subjectConns := range cm.conns {
+		for _, conn := range subjectConns {
+			toClose = append(toClose, conn)
 		}
 	}
 	cm.mu.RUnlock()
 
-	// 执行清理（使用标准接口，保持设计一致性）
-	for _, item := range toRemove {
-		cm.RemoveWithCallback(item.subject, item.deviceKey, nil)
+	for _, conn := range toClose {
+		closeConn(conn, "cleanup all")
 	}
-
-	// 确保计数器清零
-	atomic.StoreInt32(&cm.totalConn, 0)
 }
 
 // Count 获取当前连接数
@@ -643,9 +680,13 @@ func NewMessageHandler(cipher map[int64]crypto.Cipher, handle Handle) *MessageHa
 	}
 }
 
-// validateMessageSize 验证消息大小，防止恶意消息攻击
-func (mh *MessageHandler) validateMessageSize(body []byte) error {
-	if len(body) > WS_MAX_BODY_LEN {
+// validateMessageSize 验证消息大小，防止恶意消息攻击，使用 WsServer 配置的 maxBodyLen
+func (mh *MessageHandler) validateMessageSize(connCtx *ConnectionContext, body []byte) error {
+	maxLen := DefaultWsMaxBodyLen
+	if connCtx != nil && connCtx.Server != nil {
+		maxLen = connCtx.Server.maxBodyLen
+	}
+	if len(body) > maxLen {
 		return ex.Throw{Code: fasthttp.StatusRequestEntityTooLarge, Msg: "message too large"}
 	}
 	return nil
@@ -653,7 +694,7 @@ func (mh *MessageHandler) validateMessageSize(body []byte) error {
 
 func (mh *MessageHandler) Process(connCtx *ConnectionContext, body []byte) (crypto.Cipher, interface{}, error) {
 	// 验证消息大小，防止恶意消息攻击
-	if err := mh.validateMessageSize(body); err != nil {
+	if err := mh.validateMessageSize(connCtx, body); err != nil {
 		return nil, nil, err
 	}
 
@@ -680,8 +721,8 @@ func (mh *MessageHandler) Process(connCtx *ConnectionContext, body []byte) (cryp
 
 	// 检查是否是新的结构化心跳包
 	if connCtx.JsonBody.Router == "/ws/ping" {
-		// 是心跳包，直接更新当前连接的心跳时间
-		atomic.StoreInt64(&connCtx.DevConn.Last, utils.UnixSecond())
+		// 是心跳包，直接更新当前连接的心跳时间（不回 PONG，仅依赖客户端 ping 防服务端性能爆炸）
+		connCtx.DevConn.UpdateLast()
 
 		// 记录心跳成功指标（心跳包通过验证后基本不会失败）
 		connCtx.Server.recordHeartbeat(true)
@@ -694,32 +735,8 @@ func (mh *MessageHandler) Process(connCtx *ConnectionContext, body []byte) (cryp
 				zlog.String("nonce", connCtx.JsonBody.Nonce))
 		}
 
-		// 返回 pong 响应 - 直接构造完整的JsonResp对象
-		pongResp := GetJsonResp()
-		pongResp.Code = 200
-		pongResp.Message = "pong"
-		pongResp.Data = utils.Base64Encode("{}") // 空对象
-		pongResp.Router = connCtx.JsonBody.Router
-		pongResp.Nonce = connCtx.JsonBody.Nonce
-		pongResp.Time = utils.UnixSecond()
-		pongResp.Plan = connCtx.JsonBody.Plan
-
-		// 生成签名
-		sign := SignBodyMessage(pongResp.Router, pongResp.Data, pongResp.Nonce, pongResp.Time, pongResp.Plan, connCtx.JsonBody.User, connCtx.GetTokenSecret())
-		pongResp.Sign = utils.Base64Encode(sign)
-
-		// 生成ECDSA签名
-		if cipher != nil {
-			ecdsaResult, err := cipher.Sign(sign)
-			if err != nil {
-				zlog.Error("failed_to_ecdsa_sign_pong", 0, zlog.AddError(err))
-				PutJsonResp(pongResp)
-				return nil, nil, err
-			}
-			pongResp.Valid = utils.Base64Encode(ecdsaResult)
-		}
-
-		return cipher, pongResp, nil
+		// 不返回 pong：仅依赖客户端发 ping 维持连接，避免服务端大量回 pong 导致性能问题
+		return cipher, nil, nil
 	}
 
 	// 解密业务数据
@@ -905,15 +922,16 @@ func (hs *HeartbeatService) run() {
 
 // -------------------------- DevConn 实现 --------------------------
 
+// Send 所有对 Conn 与 closed 的访问均在 sendMu 内，避免与 closeConnFromLoop 竞态导致空指针或重复写。
 func (dc *DevConn) Send(data []byte) error {
-	dc.sendMu.Lock()
-	defer dc.sendMu.Unlock()
-
-	if dc.Conn == nil {
+	if dc == nil {
 		return utils.Error("connection is closed")
 	}
-
-	// 使用非阻塞的Send，fasthttpWs内部会处理缓冲区
+	dc.sendMu.Lock()
+	defer dc.sendMu.Unlock()
+	if atomic.LoadInt32(&dc.closed) == 1 || dc.Conn == nil {
+		return utils.Error("connection is closed")
+	}
 	return dc.Conn.WriteMessage(fasthttpWs.TextMessage, data)
 }
 
@@ -931,6 +949,7 @@ func NewWsServer(connUniquenessMode ConnectionUniquenessMode) *WsServer {
 		globalCtx:          globalCtx,
 		globalCancel:       globalCancel,
 		connUniquenessMode: connUniquenessMode,
+		maxBodyLen:         DefaultWsMaxBodyLen,
 		idleTimeout:        3600 * time.Second, // 默认1小时空闲超时
 		errorHandler:       &ErrorHandler{},
 		configValidator:    &ConfigValidator{},
@@ -961,7 +980,7 @@ func NewWsServer(connUniquenessMode ConnectionUniquenessMode) *WsServer {
 		ReadTimeout:        30 * time.Second,
 		WriteTimeout:       30 * time.Second,
 		IdleTimeout:        60 * time.Second,
-		MaxRequestBodySize: WS_MAX_BODY_LEN,
+		MaxRequestBodySize: s.maxBodyLen,
 	}
 
 	return s
@@ -1009,6 +1028,17 @@ func (s *WsServer) SetIdleTimeout(timeout time.Duration) {
 	s.idleTimeout = timeout
 }
 
+// SetMaxBodyLen 设置单条消息体最大长度（字节），需在 StartWebsocket 前调用；若已创建 Server 则同步更新 MaxRequestBodySize
+func (s *WsServer) SetMaxBodyLen(n int) {
+	if n <= 0 {
+		return
+	}
+	s.maxBodyLen = n
+	if s.server != nil {
+		s.server.MaxRequestBodySize = n
+	}
+}
+
 // SetBroadcastKey 广播数据密钥
 func (s *WsServer) SetBroadcastKey(key string) {
 	s.broadcastKey = key
@@ -1027,8 +1057,8 @@ func (s *WsServer) StartWebsocket(addr string) error {
 	// 启动指标记录定时器（每分钟记录一次）
 	go s.startMetricsLogger()
 
-	// 监听中断信号
-	go s.gracefulShutdown()
+	// 监听中断信号（仅注册一次，避免重复调用 StartWebsocket 时重复 Notify）
+	s.signalOnce.Do(func() { go s.gracefulShutdown() })
 
 	// 如无设定本地缓存，则使用默认缓存
 	if s.LocalCacheAware == nil {
@@ -1045,11 +1075,10 @@ func (s *WsServer) StartWebsocket(addr string) error {
 	return nil
 }
 
-// GetMetrics 获取监控指标快照
+// GetMetrics 获取监控指标快照（所有计数器均用 atomic 读取）
 func (s *WsServer) GetMetrics() *WebSocketMetrics {
-	// 创建指标快照，避免并发访问问题
 	metrics := &WebSocketMetrics{
-		connectionsTotal:  s.metrics.connectionsTotal,
+		connectionsTotal:  atomic.LoadInt64(&s.metrics.connectionsTotal),
 		connectionsActive: atomic.LoadInt64(&s.metrics.connectionsActive),
 		connectionsPeak:   atomic.LoadInt64(&s.metrics.connectionsPeak),
 		messagesTotal:     atomic.LoadInt64(&s.metrics.messagesTotal),
@@ -1279,7 +1308,7 @@ func (s *WsServer) initializeConnection(httpCtx *fasthttp.RequestCtx, ws *fastht
 	// 检查认证头（非游客模式需要认证）
 	if len(authHeader) == 0 {
 		zlog.Error("MISSING_AUTH_HEADER", 0, zlog.String("client_ip", httpCtx.RemoteIP().String()))
-		return nil, utils.Error("missing authorization header")
+		return nil, ex.Throw{Code: http.StatusUnauthorized, Msg: "missing authorization header"}
 	}
 
 	if zlog.IsDebug() {
@@ -1296,24 +1325,24 @@ func (s *WsServer) initializeConnection(httpCtx *fasthttp.RequestCtx, ws *fastht
 	if s.LocalCacheAware != nil {
 		c, err = s.LocalCacheAware()
 		if err != nil {
-			return nil, utils.Error("missing cache object: ", err.Error())
+			return nil, ex.Throw{Code: http.StatusServiceUnavailable, Msg: "missing cache object", Err: err}
 		}
 	}
 
 	subject.SetCache(c)
 
 	if len(authHeader) == 0 {
-		return nil, utils.Error("empty authorization header")
+		return nil, ex.Throw{Code: http.StatusUnauthorized, Msg: "empty authorization header"}
 	}
 
 	// 验证token (使用配置的JWT密钥)
 	if err := subject.Verify(authHeader, s.jwtConfig.TokenKey); err != nil {
-		return nil, utils.Error("invalid or expired token: %v", err)
+		return nil, ex.Throw{Code: http.StatusUnauthorized, Msg: "invalid or expired token", Err: err}
 	}
 
 	// 检查token是否有效
 	if !subject.CheckReady() {
-		return nil, utils.Error("token not ready")
+		return nil, ex.Throw{Code: http.StatusUnauthorized, Msg: "token not ready"}
 	}
 
 	connCtx, devConn := s.createConnectionContext(subject, ws, path, routerConfig, authHeader)
@@ -1372,45 +1401,77 @@ func (s *WsServer) handleConnectionLoop(connCtx *ConnectionContext, handle Handl
 	defer PutMessageHandler(messageHandler) // 连接结束时释放MessageHandler
 
 	for {
-		select {
-		case <-connCtx.ctx.Done():
+		if err := connCtx.ctx.Err(); err != nil {
 			if zlog.IsDebug() {
-				zlog.Debug("connection context cancelled", 0)
+				zlog.Debug("connection context cancelled", 0,
+					zlog.AddError(err),
+					zlog.String("user_id", connCtx.GetUserIDString()),
+					zlog.String("device_id", connCtx.getDeviceID()),
+					zlog.String("connection_path", connCtx.Path))
 			}
 			return
-		default:
-			// 设置读取超时，防止死连接
-			connCtx.WsConn.SetReadDeadline(time.Now().Add(time.Duration(s.ping) * 3 * time.Second))
+		}
 
-			messageType, message, err := connCtx.WsConn.ReadMessage()
-			if err != nil {
-				zlog.Error("READ_MESSAGE_FAILED", 0,
-					zlog.AddError(err),
-					zlog.String("client", connCtx.WsConn.RemoteAddr().String()))
-				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
-					zlog.Error("read_message_error", 0, zlog.AddError(err))
-				} else {
-					zlog.Info("connection_closed_by_client", 0, zlog.AddError(err))
+		// 设置读取超时，防止死连接
+		connCtx.WsConn.SetReadDeadline(time.Now().Add(time.Duration(s.ping) * 3 * time.Second))
+
+		messageType, message, err := connCtx.WsConn.ReadMessage()
+		if err != nil {
+			if connCtx.ctx.Err() != nil || atomic.LoadInt32(&connCtx.DevConn.closed) == 1 {
+				if zlog.IsDebug() {
+					zlog.Debug("connection loop stopped after cancellation", 0,
+						zlog.AddError(err),
+						zlog.String("user_id", connCtx.GetUserIDString()),
+						zlog.String("device_id", connCtx.getDeviceID()),
+						zlog.String("connection_path", connCtx.Path))
 				}
 				return
 			}
 
-			if zlog.IsDebug() {
-				zlog.Debug("MESSAGE_RECEIVED", 0,
-					zlog.Int("message_type", messageType),
-					zlog.Int("message_length", len(message)),
-					zlog.String("raw_message", string(message)),
-					zlog.String("client", connCtx.WsConn.RemoteAddr().String()))
+			zlog.Error("READ_MESSAGE_FAILED", 0,
+				zlog.AddError(err),
+				zlog.String("client", connCtx.WsConn.RemoteAddr().String()),
+				zlog.String("user_id", connCtx.GetUserIDString()),
+				zlog.String("device_id", connCtx.getDeviceID()),
+				zlog.String("connection_path", connCtx.Path))
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
+				zlog.Error("read_message_error", 0,
+					zlog.AddError(err),
+					zlog.String("user_id", connCtx.GetUserIDString()),
+					zlog.String("device_id", connCtx.getDeviceID()),
+					zlog.String("connection_path", connCtx.Path))
+			} else {
+				zlog.Info("connection_closed_by_client", 0,
+					zlog.AddError(err),
+					zlog.String("user_id", connCtx.GetUserIDString()),
+					zlog.String("device_id", connCtx.getDeviceID()),
+					zlog.String("connection_path", connCtx.Path))
 			}
-
-			if messageType != fasthttpWs.TextMessage {
-				zlog.Warn("unsupported_message_type", 0, zlog.Int("type", messageType))
-				continue
-			}
-
-			s.processMessage(messageHandler, connCtx, message)
-
+			return
 		}
+
+		if zlog.IsDebug() {
+			zlog.Debug("MESSAGE_RECEIVED", 0,
+				zlog.Int("message_type", messageType),
+				zlog.Int("message_length", len(message)),
+				zlog.String("raw_message", string(message)),
+				zlog.String("client", connCtx.WsConn.RemoteAddr().String()),
+				zlog.String("user_id", connCtx.GetUserIDString()),
+				zlog.String("device_id", connCtx.getDeviceID()),
+				zlog.String("connection_path", connCtx.Path))
+		}
+
+		if messageType != fasthttpWs.TextMessage {
+			zlog.Warn("unsupported_message_type", 0,
+				zlog.Int("type", messageType),
+				zlog.String("user_id", connCtx.GetUserIDString()),
+				zlog.String("device_id", connCtx.getDeviceID()),
+				zlog.String("connection_path", connCtx.Path))
+			continue
+		}
+
+		connCtx.DevConn.UpdateLast()
+		s.processMessage(messageHandler, connCtx, message)
 	}
 }
 
@@ -1421,7 +1482,11 @@ func (s *WsServer) processMessage(messageHandler *MessageHandler, connCtx *Conne
 	defer PutJsonBody(jsonBody)
 
 	if zlog.IsDebug() {
-		zlog.Debug("processing message", 0, zlog.String("message", string(message)))
+		zlog.Debug("processing message", 0,
+			zlog.String("message", string(message)),
+			zlog.String("user_id", connCtx.GetUserIDString()),
+			zlog.String("device_id", connCtx.getDeviceID()),
+			zlog.String("connection_path", connCtx.Path))
 	}
 
 	cipher, reply, err := messageHandler.Process(connCtx, message)
@@ -1444,22 +1509,28 @@ func replyData(connCtx *ConnectionContext, cipher crypto.Cipher, reply interface
 		return
 	}
 
-	// 检查reply是否已经是JsonResp对象（性能优化：避免重复序列化）
-	//if jsonResp, ok := reply.(*JsonResp); ok {
-	//	// 直接使用已构造的JsonResp对象，避免重复处理
-	//	defer PutJsonResp(jsonResp)
-	//
-	//	bytesData, err := utils.JsonMarshal(jsonResp)
-	//	if err != nil {
-	//		zlog.Error("failed_to_marshal_jsonresp", 0, zlog.AddError(err))
-	//		return
-	//	}
-	//
-	//	if err := connCtx.DevConn.Send(bytesData); err != nil {
-	//		zlog.Error("failed_to_send_response", 0, zlog.AddError(err))
-	//	}
-	//	return
-	//}
+	// 直接返回已构造好的 JsonResp，避免心跳等响应被二次包装
+	if jsonResp, ok := reply.(*JsonResp); ok {
+		bytesData, err := utils.JsonMarshal(jsonResp)
+		PutJsonResp(jsonResp)
+		if err != nil {
+			zlog.Error("failed_to_marshal_jsonresp", 0,
+				zlog.AddError(err),
+				zlog.String("user_id", connCtx.GetUserIDString()),
+				zlog.String("device_id", connCtx.getDeviceID()),
+				zlog.String("connection_path", connCtx.Path))
+			return
+		}
+
+		if err := connCtx.DevConn.Send(bytesData); err != nil {
+			zlog.Error("failed_to_send_response", 0,
+				zlog.AddError(err),
+				zlog.String("user_id", connCtx.GetUserIDString()),
+				zlog.String("device_id", connCtx.getDeviceID()),
+				zlog.String("connection_path", connCtx.Path))
+		}
+		return
+	}
 
 	// 原有的逻辑：构造新的JsonResp并序列化reply
 	jsonResp := GetJsonResp()
@@ -1470,13 +1541,15 @@ func replyData(connCtx *ConnectionContext, cipher crypto.Cipher, reply interface
 	jsonResp.Time = utils.UnixSecond()
 	jsonResp.Plan = connCtx.JsonBody.Plan // 使用请求的plan
 
-	// 发送完成后释放对象回到池中
-	defer PutJsonResp(jsonResp)
-
 	// 序列化响应数据
 	respData, err := utils.JsonMarshal(reply)
 	if err != nil {
-		zlog.Error("failed_to_marshal_reply_data", 0, zlog.AddError(err))
+		PutJsonResp(jsonResp)
+		zlog.Error("failed_to_marshal_reply_data", 0,
+			zlog.AddError(err),
+			zlog.String("user_id", connCtx.GetUserIDString()),
+			zlog.String("device_id", connCtx.getDeviceID()),
+			zlog.String("connection_path", connCtx.Path))
 		return
 	}
 
@@ -1485,14 +1558,23 @@ func replyData(connCtx *ConnectionContext, cipher crypto.Cipher, reply interface
 		// AES加密响应数据
 		secret := connCtx.GetTokenSecret()
 		if len(secret) == 0 {
-			zlog.Error("response_aes_secret_missing", 0)
+			PutJsonResp(jsonResp)
+			zlog.Error("response_aes_secret_missing", 0,
+				zlog.String("user_id", connCtx.GetUserIDString()),
+				zlog.String("device_id", connCtx.getDeviceID()),
+				zlog.String("connection_path", connCtx.Path))
 			return
 		}
 		defer DIC.ClearData(secret)
 
 		encryptedData, err := utils.AesGCMEncryptBase(respData, secret[:32], AppendBodyMessage(connCtx.JsonBody.Router, "", jsonResp.Nonce, jsonResp.Time, jsonResp.Plan, connCtx.JsonBody.User))
 		if err != nil {
-			zlog.Error("response_data_encrypt_failed", 0, zlog.AddError(err))
+			PutJsonResp(jsonResp)
+			zlog.Error("response_data_encrypt_failed", 0,
+				zlog.AddError(err),
+				zlog.String("user_id", connCtx.GetUserIDString()),
+				zlog.String("device_id", connCtx.getDeviceID()),
+				zlog.String("connection_path", connCtx.Path))
 			return
 		}
 		jsonResp.Data = encryptedData
@@ -1504,46 +1586,61 @@ func replyData(connCtx *ConnectionContext, cipher crypto.Cipher, reply interface
 	sign := SignBodyMessage(connCtx.JsonBody.Router, jsonResp.Data, jsonResp.Nonce, jsonResp.Time, jsonResp.Plan, connCtx.JsonBody.User, connCtx.GetTokenSecret())
 	jsonResp.Sign = utils.Base64Encode(sign)
 
-	result, err := cipher.Sign(sign)
-	if err != nil {
-		zlog.Error("failed_to_ecdsa_sign_data", 0, zlog.AddError(err))
-		return
+	var validBytes []byte
+	if cipher != nil {
+		var err error
+		validBytes, err = cipher.Sign(sign)
+		if err != nil {
+			PutJsonResp(jsonResp)
+			zlog.Error("failed_to_ecdsa_sign_data", 0,
+				zlog.AddError(err),
+				zlog.String("user_id", connCtx.GetUserIDString()),
+				zlog.String("device_id", connCtx.getDeviceID()),
+				zlog.String("connection_path", connCtx.Path))
+			return
+		}
 	}
-	jsonResp.Valid = utils.Base64Encode(result)
+	jsonResp.Valid = utils.Base64Encode(validBytes)
 
 	// 发送JsonResp格式的响应
 	replyBytes, err := utils.JsonMarshal(jsonResp)
+	PutJsonResp(jsonResp)
 	if err != nil {
-		zlog.Error("failed_to_marshal_jsonresp", 0, zlog.AddError(err))
+		zlog.Error("failed_to_marshal_jsonresp", 0,
+			zlog.AddError(err),
+			zlog.String("user_id", connCtx.GetUserIDString()),
+			zlog.String("device_id", connCtx.getDeviceID()),
+			zlog.String("connection_path", connCtx.Path))
 		return
 	}
 
 	if err := connCtx.DevConn.Send(replyBytes); err != nil {
-		zlog.Error("failed_to_send_reply", 0, zlog.AddError(err))
+		zlog.Error("failed_to_send_reply", 0,
+			zlog.AddError(err),
+			zlog.String("user_id", connCtx.GetUserIDString()),
+			zlog.String("device_id", connCtx.getDeviceID()),
+			zlog.String("connection_path", connCtx.Path))
 		return // 发送失败通常意味着连接已断开
 	}
 
 }
 
 func (s *WsServer) cleanupConnection(connCtx *ConnectionContext) {
-	connCtx.cancel()
-
-	// 注意：JsonBody在processMessage中通过defer释放，这里不需要重复释放
+	// 先发关闭信号，阻止任何新 Send
+	closeConn(connCtx.DevConn, "cleanup")
 
 	if s.connManager != nil {
-		var deviceKey string
-		if s.connUniquenessMode == SubjectUnique {
-			deviceKey = connCtx.DevConn.Sub
-		} else {
-			deviceKey = utils.AddStr(connCtx.DevConn.Sub, "_", connCtx.DevConn.Dev)
+		if s.connManager.RemoveByConn(connCtx.DevConn) {
+			deviceKey := connCtx.DevConn.Sub
+			if s.connUniquenessMode == SubjectDeviceUnique {
+				deviceKey = utils.AddStr(connCtx.DevConn.Sub, "_", connCtx.DevConn.Dev)
+			}
+			zlog.Info("client_disconnected", 0, zlog.String("subject", deviceKey))
 		}
-
-		conn := s.connManager.Remove(connCtx.DevConn.Sub, deviceKey)
-		if conn != nil {
-			closeConn(conn, "client disconnected")
-		}
-		zlog.Info("client_disconnected", 0, zlog.String("subject", deviceKey))
 	}
+
+	// 最后由 loop 执行实际 Close
+	closeConnFromLoop(connCtx.DevConn)
 }
 
 func (s *WsServer) gracefulShutdown() {
@@ -1621,42 +1718,43 @@ func (self *WsServer) AddJwtConfig(config jwt.JwtConfig) error {
 	return nil
 }
 
-// closeConn 安全关闭连接
+// closeConn 仅发关闭信号（CAS + cancel），不调用 ws.Close()。
+// 所有对 ws 的 Close 必须由消息循环 goroutine 在 closeConnFromLoop 中执行，避免与 ReadMessage 并发导致 panic。
 func closeConn(conn *DevConn, reason string) {
 	if conn == nil {
 		return
 	}
-
-	// 幂等关闭：避免多处并发触发 close 导致 panic
 	if !atomic.CompareAndSwapInt32(&conn.closed, 0, 1) {
 		return
 	}
-
-	// 先取消上下文，终止相关goroutine（cancel 本身是幂等的）
 	if conn.cancel != nil {
 		conn.cancel()
 	}
+}
 
-	// 避免与 Send/IsActive 并发写导致 websocket 库 panic
-	conn.sendMu.Lock()
-	defer conn.sendMu.Unlock()
-
-	ws := conn.Conn
-	conn.Conn = nil
-	if ws == nil {
+// closeConnFromLoop 由消息循环 goroutine 在退出时调用，执行实际 ws.Close()。
+// 禁止在其他 goroutine 中调用。仅当 Conn 已为 nil（已关闭）时跳过；closed==1 不影响执行，因 cleanupConnection 会先 closeConn 再调用本函数，必须在本函数内执行 Close。
+func closeConnFromLoop(conn *DevConn) {
+	if conn == nil {
 		return
 	}
-
-	// websocket 库在极端竞态（尤其 debug 暂停）下可能 panic，这里兜底不让服务崩溃
-	defer func() {
-		if r := recover(); r != nil {
-			zlog.Error("websocket_close_panic_recovered", 0,
-				zlog.Any("panic", r),
-				zlog.String("reason", reason))
-		}
-	}()
-
-	closeMsg := fasthttpWs.FormatCloseMessage(fasthttpWs.CloseNormalClosure, reason)
-	_ = ws.WriteControl(fasthttpWs.CloseMessage, closeMsg, time.Now().Add(1*time.Second))
-	_ = ws.Close()
+	if conn.cancel != nil {
+		conn.cancel()
+	}
+	conn.sendMu.Lock()
+	defer conn.sendMu.Unlock()
+	if conn.Conn == nil {
+		return
+	}
+	atomic.StoreInt32(&conn.closed, 1)
+	ws := conn.Conn
+	conn.Conn = nil
+	conn.closeOnce.Do(func() {
+		defer func() {
+			if r := recover(); r != nil {
+				zlog.Error("websocket_close_panic_recovered", 0, zlog.Any("panic", r))
+			}
+		}()
+		_ = ws.Close()
+	})
 }
