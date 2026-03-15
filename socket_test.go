@@ -54,14 +54,6 @@ func (h *testMessageHandler) HandleMessage(message *node.JsonResp) error {
 	return nil
 }
 
-func NewSocketSDK() *sdk.SocketSDK {
-	newObject := &sdk.SocketSDK{
-		Domain: "localhost:8088",
-	}
-	_ = newObject.SetECDSAObject(1, clientPrk, serverPub)
-	return newObject
-}
-
 // TestWebSocketSDKUsage 测试完整的SDK使用流程（包含服务器管理）
 func TestWebSocketSDKUsage(t *testing.T) {
 	if testing.Short() {
@@ -149,13 +141,14 @@ func TestWebSocketSDKUsage(t *testing.T) {
 		}
 	}()
 
-	access_token := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxOTkyODAwOTk4Mzg4NjYyMjczIiwiYXVkIjoiIiwiaXNzIjoiIiwiZGV2IjoiQVBQIiwianRpIjoiMjgyZjAwMmQtNTY3MS00YTlhLTgwMDMtMzA5ZmI0ZGNkNTZjIiwiZXh0IjoiIiwiaWF0IjowLCJleHAiOjE3NjUxNjUzNTd9.tbuDc+g0Scge9WNRDESF/acdMG7Fqwgu6F4vWgv69WQ="
-	token_secret := "nt/YcHhS6Y8npXInAhBr9PMdSNLZlGbNCfnqaQWo09HNd67Swoy0qHZeVqN2A42g/SHVoTWkLs3XQna8bEUxeA=="
-	token_expire := int64(1765165357)
+	access_token := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyMDMyOTk2NTg1Mjg5Mjg1NjMzIiwiYXVkIjoiIiwiaXNzIjoiIiwiZGV2IjoiQVBQIiwianRpIjoiZmQwMjAyZmI0NGI2NDNkODgzZGE3NGE4ODY3NGEyMDMiLCJleHQiOiIiLCJpYXQiOjAsImV4cCI6MTc4NTYzNTEzMX0=.OZpZC5/pFqm9H+PiolACHj0sP0SrTZrakhPz0FSWEFU="
+	token_secret := "DjPI2P8Pud2dVUKfKCuAqu20/JC+7xIE3jECeID9vfU="
+	token_expire := int64(1785635131)
 
+	// {eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyMDMyOTk2NTg1Mjg5Mjg1NjMzIiwiYXVkIjoiIiwiaXNzIjoiIiwiZGV2IjoiQVBQIiwianRpIjoiZmQwMjAyZmI0NGI2NDNkODgzZGE3NGE4ODY3NGEyMDMiLCJleHQiOiIiLCJpYXQiOjAsImV4cCI6MTc4NTYzNTEzMX0=.OZpZC5/pFqm9H+PiolACHj0sP0SrTZrakhPz0FSWEFU= DjPI2P8Pud2dVUKfKCuAqu20/JC+7xIE3jECeID9vfU= 1785635131}
 	// 1. 初始化SDK
 	fmt.Println("1. 初始化SDK...")
-	wsSdk := NewSocketSDK()
+	wsSdk := sdk.NewSocketSDK(serverAddr)
 
 	// 2. 设置认证Token
 	fmt.Println("2. 设置认证Token...")
@@ -168,7 +161,7 @@ func TestWebSocketSDKUsage(t *testing.T) {
 
 	wsSdk.SetClientNo(1)
 	wsSdk.SetECDSAObject(wsSdk.ClientNo, clientPrk, serverPub)
-	wsSdk.SetHealthPing(10)
+	wsSdk.SetHealthPing(5)
 
 	// 5. 尝试连接WebSocket（预期成功，因为服务器已启动）
 	fmt.Println("5. 尝试连接WebSocket（预期成功）...")
@@ -371,8 +364,7 @@ func TestWebSocketTokenExpiredCallback(t *testing.T) {
 	}
 
 	// 创建SDK实例
-	wsSdk := NewSocketSDK()
-	wsSdk.Domain = serverAddr
+	wsSdk := sdk.NewSocketSDK(serverAddr)
 
 	// 确保ECDSA密钥设置正确
 	if err := wsSdk.SetECDSAObject(1, clientPrk, serverPub); err != nil {
@@ -710,8 +702,7 @@ func TestWebSocketMessageSubscription(t *testing.T) {
 	}
 
 	// 2. 创建SDK实例并连接到测试服务器
-	wsSdk := NewSocketSDK()
-	wsSdk.Domain = serverAddr
+	wsSdk := sdk.NewSocketSDK(serverAddr)
 
 	handler := &testMessageHandler{
 		receivedMessages: make([]*node.JsonResp, 0),
@@ -1025,7 +1016,7 @@ func TestWebSocketMessageSizeLimit(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// 初始化SDK
-	wsSdk := NewSocketSDK()
+	wsSdk := sdk.NewSocketSDK(serverAddr)
 
 	// 设置认证Token
 	authToken := sdk.AuthToken{
@@ -1260,8 +1251,7 @@ func TestWebSocketErrorHandling(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	// 初始化SDK并建立连接
-	wsSdk := NewSocketSDK()
-	wsSdk.Domain = serverAddr
+	wsSdk := sdk.NewSocketSDK(serverAddr)
 	authToken := sdk.AuthToken{
 		Token:   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxOTkyODAwOTk4Mzg4NjYyMjczIiwiYXVkIjoiIiwiaXNzIjoiIiwiZGV2IjoiQVBQIiwianRpIjoiMjgyZjAwMmQtNTY3MS00YTlhLTgwMDMtMzA5ZmI0ZGNkNTZjIiwiZXh0IjoiIiwiaWF0IjowLCJleHAiOjE3NjUxNjUzNTd9.tbuDc+g0Scge9WNRDESF/acdMG7Fqwgu6F4vWgv69WQ=",
 		Secret:  "nt/YcHhS6Y8npXInAhBr9PMdSNLZlGbNCfnqaQWo09HNd67Swoy0qHZeVqN2A42g/SHVoTWkLs3XQna8bEUxeA==",

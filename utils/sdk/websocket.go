@@ -782,7 +782,8 @@ func (s *SocketSDK) verifyWebSocketResponseFromJsonResp(path string, result inte
 	return nil
 }
 
-// websocketHeartbeat WebSocket心跳机制，保持连接活跃状态
+// websocketHeartbeat WebSocket心跳机制，保持连接活跃状态。
+// 仅发送 ping，不等待 pong（服务端不回 pong 以降低性能开销）；WriteMessage 失败时判定连接断开。
 func (s *SocketSDK) websocketHeartbeat() {
 	healthPing := s.HealthPing
 	if healthPing <= 0 {
@@ -793,10 +794,10 @@ func (s *SocketSDK) websocketHeartbeat() {
 
 	for {
 		select {
-		case <-s.connCtx.Done(): // 监听当前连接上下文
+		case <-s.connCtx.Done():
 			return
 		case <-ticker.C:
-			bytesData, heartbeatUUID, err := s.prepareHeartbeatMessage("/ws/ping", "ping")
+			bytesData, _, err := s.prepareHeartbeatMessage("/ws/ping", "ping")
 			if err != nil {
 				if zlog.IsDebug() {
 					zlog.Debug("heartbeat prepare failed", 0)
@@ -810,13 +811,8 @@ func (s *SocketSDK) websocketHeartbeat() {
 				return
 			}
 			conn := s.conn
-			heartbeatChan := make(chan *node.JsonResp, 1)
-			s.responseMap.Store(heartbeatUUID, heartbeatChan)
-
 			conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 			if err := conn.WriteMessage(websocket.TextMessage, bytesData); err != nil {
-				s.responseMap.Delete(heartbeatUUID)
-				close(heartbeatChan)
 				if zlog.IsDebug() {
 					zlog.Debug("heartbeat send failed, connection may be lost", 0)
 				}
@@ -827,26 +823,7 @@ func (s *SocketSDK) websocketHeartbeat() {
 			s.connMutex.Unlock()
 
 			if zlog.IsDebug() {
-				zlog.Info("heartbeat sent, waiting for pong", 0, zlog.String("uuid", heartbeatUUID))
-			}
-
-			select {
-			case resp := <-heartbeatChan:
-				if resp.Code == 200 {
-					if zlog.IsDebug() {
-						zlog.Info("heartbeat pong received", 0, zlog.String("uuid", heartbeatUUID))
-					}
-				} else {
-					zlog.Warn("heartbeat pong error", 0, zlog.String("uuid", heartbeatUUID), zlog.Int("code", resp.Code))
-					s.disconnectWebSocket()
-					return
-				}
-			case <-time.After(5 * time.Second):
-				s.responseMap.Delete(heartbeatUUID)
-				close(heartbeatChan)
-				zlog.Error("heartbeat pong timeout", 0, zlog.String("uuid", heartbeatUUID))
-				s.disconnectWebSocket()
-				return
+				zlog.Debug("heartbeat sent", 0)
 			}
 		}
 	}
@@ -934,7 +911,8 @@ func (s *SocketSDK) websocketMessageListener() {
 			conn := s.conn
 			s.connMutex.Unlock()
 
-			conn.SetReadDeadline(time.Now().Add(60 * time.Second)) // 60秒超时
+			// 不设置读超时：服务端不回 pong，长时间无数据会触发读超时导致误断。连接存活由心跳 WriteMessage 失败判定。
+			conn.SetReadDeadline(time.Time{})
 			_, body, err := conn.ReadMessage()
 			if err != nil {
 				// 检测是否是意外的连接关闭错误
