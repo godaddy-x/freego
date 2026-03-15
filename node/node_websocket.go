@@ -10,13 +10,13 @@ import (
 	"syscall"
 	"time"
 
+	DIC "github.com/godaddy-x/freego/common"
 	"github.com/godaddy-x/freego/zlog"
 
 	"github.com/fasthttp/websocket"
 	fasthttpWs "github.com/fasthttp/websocket"
 	"github.com/godaddy-x/freego/cache"
 	rate "github.com/godaddy-x/freego/cache/limiter"
-	DIC "github.com/godaddy-x/freego/common"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/crypto"
@@ -57,9 +57,7 @@ type Handle func(ctx context.Context, connCtx *ConnectionContext, body []byte) (
 
 // ConnectionContext 每个WebSocket连接的上下文，包含连接相关的所有信息。
 //
-// 设计要点：
-// - JsonBody 由 processMessage 从对象池获取并注入，业务 Handle 只读使用，不得在返回后继续持有。
-// - cachedTokenSecret：同一连接上 token 不变，派生密钥按连接缓存，避免每条消息重复 HKDF+HMAC，降低 CPU 与分配。
+// 设计要点：JsonBody 由 processMessage 从对象池获取并注入，业务 Handle 只读使用，不得在返回后继续持有。
 type ConnectionContext struct {
 	Subject      *jwt.Subject
 	JsonBody     *JsonBody
@@ -71,10 +69,6 @@ type ConnectionContext struct {
 	RawToken     []byte        // 原始JWT token字节，用于签名验证
 	ctx          context.Context
 	cancel       context.CancelFunc
-
-	// 派生密钥缓存：sync.Once 保证只派生一次，GetTokenSecret() 后续调用直接返回，避免重复哈希。
-	cachedTokenSecret []byte
-	tokenSecretOnce   sync.Once
 }
 
 // GetRawTokenBytes 获取原始JWT token字节
@@ -113,15 +107,12 @@ func (cc *ConnectionContext) getDeviceID() string {
 	return ""
 }
 
-// GetTokenSecret 获取WebSocket连接的 token 派生密钥。
-// 按连接缓存：同一连接只做一次 HKDF+HMAC，后续请求直接返回缓存，调用方不得修改返回的 []byte。
+// GetTokenSecret 获取WebSocket连接的 token 派生密钥（每次调用重新派生）。使用完毕后调用方应 DIC.ClearData(secret) 清理敏感数据。
 func (cc *ConnectionContext) GetTokenSecret() []byte {
-	cc.tokenSecretOnce.Do(func() {
-		if cc.Subject != nil && len(cc.GetRawTokenBytes()) > 0 && cc.Server != nil {
-			cc.cachedTokenSecret = cc.Subject.GetTokenSecret(utils.Bytes2Str(cc.GetRawTokenBytes()), cc.Server.jwtConfig.TokenKey)
-		}
-	})
-	return cc.cachedTokenSecret
+	if cc.Subject == nil || len(cc.GetRawTokenBytes()) == 0 || cc.Server == nil {
+		return nil
+	}
+	return cc.Subject.GetTokenSecret(utils.Bytes2Str(cc.GetRawTokenBytes()), cc.Server.jwtConfig.TokenKey)
 }
 
 // ConnectionManager 连接管理器：线程安全的连接管理，支持广播、按 subject 推送、过期清理。
@@ -806,7 +797,6 @@ func (self *MessageHandler) CheckECDSASign(usr int64, msg, sign []byte) (crypto.
 }
 
 // validWebSocketBody 验证 WebSocket 消息体（签名、时间窗、可选 token 有效期）。
-// 设计要点：GetTokenSecret() 使用 ConnectionContext 内缓存，同一连接只派生一次密钥。
 func (mh *MessageHandler) validWebSocketBody(connCtx *ConnectionContext) (crypto.Cipher, error) {
 	body := connCtx.JsonBody
 	d := body.Data
@@ -1617,7 +1607,6 @@ func replyData(connCtx *ConnectionContext, cipher crypto.Cipher, reply interface
 
 	// 根据plan决定是否加密
 	if connCtx.JsonBody.Plan == 1 {
-		// AES加密响应数据
 		secret := connCtx.GetTokenSecret()
 		if len(secret) == 0 {
 			PutJsonResp(jsonResp)
@@ -1628,7 +1617,6 @@ func replyData(connCtx *ConnectionContext, cipher crypto.Cipher, reply interface
 			return
 		}
 		defer DIC.ClearData(secret)
-
 		encryptedData, err := utils.AesGCMEncryptBase(respData, secret[:32], AppendBodyMessage(connCtx.JsonBody.Router, "", jsonResp.Nonce, jsonResp.Time, jsonResp.Plan, connCtx.JsonBody.User))
 		if err != nil {
 			PutJsonResp(jsonResp)
