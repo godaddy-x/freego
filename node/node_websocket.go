@@ -107,7 +107,8 @@ func (cc *ConnectionContext) getDeviceID() string {
 	return ""
 }
 
-// GetTokenSecret 获取WebSocket连接的 token 派生密钥（每次调用重新派生）。使用完毕后调用方应 DIC.ClearData(secret) 清理敏感数据。
+// GetTokenSecret 获取WebSocket连接的 token 派生密钥（每次调用重新派生，不缓存）。
+// 为保证安全需在用毕后 DIC.ClearData(secret)；为此接受每次 HMAC 派生的性能损耗。
 func (cc *ConnectionContext) GetTokenSecret() []byte {
 	if cc.Subject == nil || len(cc.GetRawTokenBytes()) == 0 || cc.Server == nil {
 		return nil
@@ -845,11 +846,12 @@ func (mh *MessageHandler) validWebSocketBody(connCtx *ConnectionContext) (crypto
 
 	var sharedKey []byte
 
-	// Plan 0/1使用token secret
+	// Plan 0/1使用token secret，用毕清理
 	sharedKey = connCtx.GetTokenSecret()
 	if len(sharedKey) == 0 {
 		return nil, ex.Throw{Code: fasthttp.StatusBadRequest, Msg: "websocket secret is nil"}
 	}
+	defer DIC.ClearData(sharedKey)
 
 	// 构建签名字符串
 	// 使用从header获取的路由标识进行签名验证，支持通过header指定路由
@@ -1605,18 +1607,19 @@ func replyData(connCtx *ConnectionContext, cipher crypto.Cipher, reply interface
 		return
 	}
 
-	// 根据plan决定是否加密
+	// 派生密钥：用于响应加密(Plan==1)与签名，用毕统一清理以降低驻留风险
+	secret := connCtx.GetTokenSecret()
+	if len(secret) == 0 {
+		PutJsonResp(jsonResp)
+		zlog.Error("response_secret_missing", 0,
+			zlog.String("user_id", connCtx.GetUserIDString()),
+			zlog.String("device_id", connCtx.getDeviceID()),
+			zlog.String("connection_path", connCtx.Path))
+		return
+	}
+	defer DIC.ClearData(secret)
+
 	if connCtx.JsonBody.Plan == 1 {
-		secret := connCtx.GetTokenSecret()
-		if len(secret) == 0 {
-			PutJsonResp(jsonResp)
-			zlog.Error("response_aes_secret_missing", 0,
-				zlog.String("user_id", connCtx.GetUserIDString()),
-				zlog.String("device_id", connCtx.getDeviceID()),
-				zlog.String("connection_path", connCtx.Path))
-			return
-		}
-		defer DIC.ClearData(secret)
 		encryptedData, err := utils.AesGCMEncryptBase(respData, secret[:32], AppendBodyMessage(connCtx.JsonBody.Router, "", jsonResp.Nonce, jsonResp.Time, jsonResp.Plan, connCtx.JsonBody.User))
 		if err != nil {
 			PutJsonResp(jsonResp)
@@ -1632,8 +1635,8 @@ func replyData(connCtx *ConnectionContext, cipher crypto.Cipher, reply interface
 		jsonResp.Data = utils.Base64Encode(utils.Bytes2Str(respData))
 	}
 
-	// 生成响应签名
-	sign := SignBodyMessage(connCtx.JsonBody.Router, jsonResp.Data, jsonResp.Nonce, jsonResp.Time, jsonResp.Plan, connCtx.JsonBody.User, connCtx.GetTokenSecret())
+	// 生成响应签名（使用同一 secret，避免二次派生）
+	sign := SignBodyMessage(connCtx.JsonBody.Router, jsonResp.Data, jsonResp.Nonce, jsonResp.Time, jsonResp.Plan, connCtx.JsonBody.User, secret)
 	jsonResp.Sign = utils.Base64Encode(sign)
 
 	var validBytes []byte
