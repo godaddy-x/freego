@@ -782,8 +782,8 @@ func (s *SocketSDK) verifyWebSocketResponseFromJsonResp(path string, result inte
 	return nil
 }
 
-// websocketHeartbeat WebSocket心跳机制，保持连接活跃状态。
-// 仅发送 ping，不等待 pong（服务端不回 pong 以降低性能开销）；WriteMessage 失败时判定连接断开。
+// websocketHeartbeat 心跳协程：周期发送 /ws/ping，不等待 pong（与服务端“不回 pong”策略一致）。
+// 设计要点：fire-and-forget，不占 responseMap、不阻塞；连接存活以 WriteMessage 失败为准，失败则 disconnectWebSocket。
 func (s *SocketSDK) websocketHeartbeat() {
 	healthPing := s.HealthPing
 	if healthPing <= 0 {
@@ -896,11 +896,12 @@ func (s *SocketSDK) websocketMessageListenerHandle(body []byte) {
 	}
 }
 
-// websocketMessageListener WebSocket消息监听器，持续接收和处理服务端推送的消息
+// websocketMessageListener 读循环：阻塞 ReadMessage，将收包交给 websocketMessageListenerHandle。
+// 设计要点：不设置读超时（SetReadDeadline(time.Time{})），避免因服务端不回 pong 导致长时间无数据触发 i/o timeout 误断；断线由写失败（如心跳 WriteMessage）或对端关闭检测。
 func (s *SocketSDK) websocketMessageListener() {
 	for {
 		select {
-		case <-s.connCtx.Done(): // 监听当前连接上下文
+		case <-s.connCtx.Done():
 			return
 		default:
 			s.connMutex.Lock()
@@ -911,7 +912,6 @@ func (s *SocketSDK) websocketMessageListener() {
 			conn := s.conn
 			s.connMutex.Unlock()
 
-			// 不设置读超时：服务端不回 pong，长时间无数据会触发读超时导致误断。连接存活由心跳 WriteMessage 失败判定。
 			conn.SetReadDeadline(time.Time{})
 			_, body, err := conn.ReadMessage()
 			if err != nil {

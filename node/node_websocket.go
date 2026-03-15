@@ -55,7 +55,11 @@ const (
 // 对象池约束：返回的 *JsonResp 等由框架在 replyData 内统一 Put 回池；handler 不得在返回后继续持有或异步使用 connCtx.JsonBody/GetJsonResp 等池对象，应同步处理完毕。
 type Handle func(ctx context.Context, connCtx *ConnectionContext, body []byte) (interface{}, error)
 
-// ConnectionContext 每个WebSocket连接的上下文，包含连接相关的所有信息
+// ConnectionContext 每个WebSocket连接的上下文，包含连接相关的所有信息。
+//
+// 设计要点：
+// - JsonBody 由 processMessage 从对象池获取并注入，业务 Handle 只读使用，不得在返回后继续持有。
+// - cachedTokenSecret：同一连接上 token 不变，派生密钥按连接缓存，避免每条消息重复 HKDF+HMAC，降低 CPU 与分配。
 type ConnectionContext struct {
 	Subject      *jwt.Subject
 	JsonBody     *JsonBody
@@ -68,7 +72,7 @@ type ConnectionContext struct {
 	ctx          context.Context
 	cancel       context.CancelFunc
 
-	// 派生密钥缓存：同一连接上 token 不变，避免每条消息重复 HKDF+HMAC
+	// 派生密钥缓存：sync.Once 保证只派生一次，GetTokenSecret() 后续调用直接返回，避免重复哈希。
 	cachedTokenSecret []byte
 	tokenSecretOnce   sync.Once
 }
@@ -109,7 +113,8 @@ func (cc *ConnectionContext) getDeviceID() string {
 	return ""
 }
 
-// GetTokenSecret 获取WebSocket连接的token密钥（按连接缓存，同一连接只做一次 HKDF+HMAC 派生）
+// GetTokenSecret 获取WebSocket连接的 token 派生密钥。
+// 按连接缓存：同一连接只做一次 HKDF+HMAC，后续请求直接返回缓存，调用方不得修改返回的 []byte。
 func (cc *ConnectionContext) GetTokenSecret() []byte {
 	cc.tokenSecretOnce.Do(func() {
 		if cc.Subject != nil && len(cc.GetRawTokenBytes()) > 0 && cc.Server != nil {
@@ -119,12 +124,17 @@ func (cc *ConnectionContext) GetTokenSecret() []byte {
 	return cc.cachedTokenSecret
 }
 
-// ConnectionManager 连接管理器：线程安全的连接管理，支持广播、房间、过期清理
+// ConnectionManager 连接管理器：线程安全的连接管理，支持广播、按 subject 推送、过期清理。
+//
+// 设计要点：
+// - conns：二级 map subject -> deviceKey -> *DevConn，deviceKey 由 mode 决定（SubjectUnique 时为 sub，SubjectDeviceUnique 时为 sub_dev）。
+// - totalConn：原子计数，用于限流、Count()、以及 CleanupExpired/sendToSubjectByJsonResp 的 slice 预分配容量，避免在 RLock 内做重逻辑。
+// - 所有“收集 conn 再关闭/发送”的路径均在 RLock 内只收集指针，在锁外执行 I/O，避免持锁时间过长。
 type ConnectionManager struct {
 	mu           sync.RWMutex
 	conns        map[string]map[string]*DevConn // subject -> deviceKey -> connection
 	max          int                            // 最大连接数
-	totalConn    int32                          // 原子计数器：当前总连接数（性能优化）
+	totalConn    int32                          // 原子计数器：当前总连接数（限流 + 预分配容量）
 	mode         ConnectionUniquenessMode       // 连接唯一性模式
 	broadcastKey string                         // 广播密钥
 }
@@ -145,21 +155,25 @@ type HeartbeatService struct {
 	mu       sync.Mutex
 }
 
-// DevConn 设备连接实体：存储单连接的核心信息
+// DevConn 设备连接实体：存储单连接的核心信息。
+//
+// 设计要点：
+// - Last：使用原子读写（UpdateLast 写、LastSeen 读），使 CleanupExpired 遍历时无需对每条连接加 sendMu，降低高连接数下的锁竞争。
+// - sendMu：仅保护 Conn 的写与 closed 的可见性，Send/关闭路径使用；Last 不再依赖 sendMu。
+// - closeOnce：保证 ws.Close() 只执行一次，避免重复关闭导致 panic。
 type DevConn struct {
 	Sub       string
 	Dev       string
-	Last      int64              // 最后心跳时间（时间戳）
+	Last      int64              // 最后活跃时间戳，原子读写，供 CleanupExpired 无锁判断
 	Conn      *fasthttpWs.Conn   // WebSocket连接
-	sendMu    sync.Mutex         // 发送消息互斥锁（避免并发写冲突）
-	ctx       context.Context    // 用于取消该连接的相关goroutine
-	cancel    context.CancelFunc // 上下文取消函数，用于终止相关goroutine
-	closed    int32              // 连接是否已关闭（0=未关闭，1=已关闭）
+	sendMu    sync.Mutex         // 发送与关闭路径互斥，避免并发写与空指针
+	ctx       context.Context
+	cancel    context.CancelFunc
+	closed    int32              // 0=未关闭，1=已关闭，原子读写
 	closeOnce sync.Once          // 确保 ws.Close() 只执行一次
 }
 
-// UpdateLast 更新连接最后活跃时间。
-// 使用原子操作，避免 CleanupExpired 遍历时对每条连接加 sendMu 造成锁竞争。
+// UpdateLast 更新连接最后活跃时间。原子写，无锁，便于消息循环中高频调用且不影响 CleanupExpired 遍历。
 func (dc *DevConn) UpdateLast() {
 	if dc == nil {
 		return
@@ -169,7 +183,7 @@ func (dc *DevConn) UpdateLast() {
 	}
 }
 
-// LastSeen 返回最近一次活跃时间（原子读，无锁，便于 CleanupExpired 批量遍历）。
+// LastSeen 返回最近一次活跃时间。原子读、无锁，供 CleanupExpired 在 RLock 内批量调用而不产生 sendMu 竞争。
 func (dc *DevConn) LastSeen() int64 {
 	if dc == nil {
 		return 0
@@ -236,7 +250,7 @@ type WsServer struct {
 	// JWT配置
 	jwtConfig jwt.JwtConfig
 
-	// 是否在每条消息时校验 token 有效期（默认 false：仅建连时校验；true：每条消息校验，过期即 401）
+	// validateTokenPerMessage：false=仅建连时校验 token，连接期间过期不踢线；true=每条消息校验 exp，过期即 401，适合强安全/合规。
 	validateTokenPerMessage bool
 
 	// ECC和缓存配置（用于Plan 2）
@@ -355,10 +369,12 @@ func NewConnectionManager(maxConn int, mode ConnectionUniquenessMode, broadcastK
 }
 
 // Add 添加连接
-// 根据连接唯一性模式决定连接的处理策略：
-// - SubjectUnique: 替换同subject的所有连接，只保留一个
-// - SubjectDeviceUnique: 替换同subject+device的连接，允许多设备同时在线
+// Add 将连接加入管理器。根据连接唯一性模式决定策略：
+// - SubjectUnique: 替换同 subject 的所有连接，只保留一个。
+// - SubjectDeviceUnique: 替换同 subject+device 的连接，允许多设备同时在线。
 // 设备键格式：subject_device (如: user123_web, user123_app)
+//
+// 设计要点：若存在旧连接，先从 map 移除并减 totalConn，再在 goroutine 中 closeConn，避免锁内 I/O 阻塞。
 func (cm *ConnectionManager) Add(conn *DevConn) error {
 	if cm == nil || cm.conns == nil || conn == nil {
 		return utils.Error("invalid connection or manager")
@@ -374,10 +390,8 @@ func (cm *ConnectionManager) Add(conn *DevConn) error {
 
 	var uniqueKey string
 	if cm.mode == SubjectUnique {
-		// Subject唯一模式：使用subject作为唯一键
 		uniqueKey = conn.Sub
 	} else {
-		// Subject+Device唯一模式：使用subject+device作为唯一键
 		uniqueKey = utils.AddStr(conn.Sub, "_", conn.Dev)
 	}
 
@@ -385,11 +399,10 @@ func (cm *ConnectionManager) Add(conn *DevConn) error {
 		cm.conns[conn.Sub] = make(map[string]*DevConn)
 	}
 
-	// 替换旧连接：先移除引用，并安排关闭
+	// 替换旧连接：先移除引用并减计数，再在锁外关闭，避免锁内 I/O
 	if oldConn, exists := cm.conns[conn.Sub][uniqueKey]; exists {
 		delete(cm.conns[conn.Sub], uniqueKey)
 		atomic.AddInt32(&cm.totalConn, -1)
-		// 在 goroutine 中关闭旧连接，避免锁内 I/O
 		go func() {
 			closeConn(oldConn, "replaced by new connection")
 		}()
@@ -418,8 +431,9 @@ func (cm *ConnectionManager) Remove(subject, deviceKey string) *DevConn {
 	return nil
 }
 
-// RemoveByConn 按连接指针从管理器中移除该连接，避免替换连接时误删新连接。
-// 返回是否成功移除（若连接已被替换则可能未找到）。
+// RemoveByConn 按连接指针从管理器中移除该连接。
+// 设计要点：必须用指针精确匹配，避免“新连接已替换旧连接”时误把新连接从 map 删掉；关闭由 closeConnFromLoop 等调用方负责。
+// 返回是否成功移除（若连接已被替换则未找到，返回 false）。
 func (cm *ConnectionManager) RemoveByConn(conn *DevConn) bool {
 	if conn == nil {
 		return false
@@ -558,13 +572,14 @@ func (cm *ConnectionManager) sendToSubjectByJsonResp(subject string, res *JsonRe
 		return err
 	}
 
+	// 按 totalConn 预分配，减少 append 扩容；RLock 内只收集指针，锁外再 Send，避免持锁 I/O
 	n := atomic.LoadInt32(&cm.totalConn)
 	if n < 0 {
 		n = 0
 	}
 	targets := make([]*DevConn, 0, n)
 	cm.mu.RLock()
-	if subject != "" { // 指定subject
+	if subject != "" {
 		if subjectConns, exists := cm.conns[subject]; exists {
 			for _, conn := range subjectConns {
 				targets = append(targets, conn)
@@ -634,8 +649,12 @@ func (cm *ConnectionManager) AddTestConnection(subject, deviceKey string, conn *
 	cm.conns[subject][deviceKey] = conn
 }
 
-// CleanupExpired 清理过期连接。
-// 在 RLock 内收集过期 conn 指针，避免 RUnlock 后 Get 拿到已被替换的新连接导致误关。
+// CleanupExpired 清理空闲超过 timeoutSeconds 的连接。
+//
+// 设计要点：
+// - 在 RLock 内仅收集过期 conn 指针（LastSeen 为原子读无锁），RUnlock 后再 closeConn，避免持锁做 I/O。
+// - toClose 按 totalConn 预分配容量，减少 append 扩容与 GC。
+// - 超时判断依赖 DevConn.Last（每次收包/心跳 UpdateLast），由 HeartbeatService 按 idleTimeout 周期性调用。
 func (cm *ConnectionManager) CleanupExpired(timeoutSeconds int64) int {
 	cleaned := 0
 	currentTime := utils.UnixSecond()
@@ -661,7 +680,7 @@ func (cm *ConnectionManager) CleanupExpired(timeoutSeconds int64) int {
 	return cleaned
 }
 
-// CleanupAll 清理所有连接。收集 conn 指针后统一发关闭信号，由各消息循环执行 RemoveByConn + ws.Close()。
+// CleanupAll 关闭所有连接。先 RLock 内收集全部 conn 指针并预分配 slice，锁外再统一 closeConn，由各连接循环执行 RemoveByConn + ws.Close()。
 func (cm *ConnectionManager) CleanupAll() {
 	n := atomic.LoadInt32(&cm.totalConn)
 	if n < 0 {
@@ -734,12 +753,10 @@ func (mh *MessageHandler) Process(connCtx *ConnectionContext, body []byte) (cryp
 		return nil, nil, err
 	}
 
-	// 检查是否是新的结构化心跳包
+	// 心跳包 /ws/ping：只更新 Last 与指标，不返回 PONG。
+	// 设计要点：服务端不回 pong，降低服务端写压力；连接活性靠客户端定时 ping + 服务端读超时与 CleanupExpired 判定。
 	if connCtx.JsonBody.Router == "/ws/ping" {
-		// 是心跳包，直接更新当前连接的心跳时间（不回 PONG，仅依赖客户端 ping 防服务端性能爆炸）
 		connCtx.DevConn.UpdateLast()
-
-		// 记录心跳成功指标（心跳包通过验证后基本不会失败）
 		connCtx.Server.recordHeartbeat(true)
 
 		if zlog.IsDebug() {
@@ -750,7 +767,6 @@ func (mh *MessageHandler) Process(connCtx *ConnectionContext, body []byte) (cryp
 				zlog.String("nonce", connCtx.JsonBody.Nonce))
 		}
 
-		// 不返回 pong：仅依赖客户端发 ping 维持连接，避免服务端大量回 pong 导致性能问题
 		return cipher, nil, nil
 	}
 
@@ -789,7 +805,8 @@ func (self *MessageHandler) CheckECDSASign(usr int64, msg, sign []byte) (crypto.
 	return cipher, nil
 }
 
-// validWebSocketBody 验证WebSocket消息体（参考HTTP协议）
+// validWebSocketBody 验证 WebSocket 消息体（签名、时间窗、可选 token 有效期）。
+// 设计要点：GetTokenSecret() 使用 ConnectionContext 内缓存，同一连接只派生一次密钥。
 func (mh *MessageHandler) validWebSocketBody(connCtx *ConnectionContext) (crypto.Cipher, error) {
 	body := connCtx.JsonBody
 	d := body.Data
@@ -797,7 +814,7 @@ func (mh *MessageHandler) validWebSocketBody(connCtx *ConnectionContext) (crypto
 		return nil, ex.Throw{Code: fasthttp.StatusBadRequest, Msg: "websocket data is nil"}
 	}
 
-	// 只支持Plan 0和1，不再支持Plan 2
+	// 只支持 Plan 0（明文）和 1（AES），不再支持 Plan 2
 	if !utils.CheckInt64(body.Plan, 0, 1) {
 		return nil, ex.Throw{Code: fasthttp.StatusBadRequest, Msg: "websocket plan invalid"}
 	}
@@ -925,6 +942,7 @@ func (hs *HeartbeatService) Stop() {
 	close(hs.stopCh)
 }
 
+// run 周期性执行：按 idleTimeout 清理空闲连接，不在锁内做 I/O。
 func (hs *HeartbeatService) run() {
 	ticker := time.NewTicker(hs.interval)
 	defer ticker.Stop()
@@ -947,7 +965,7 @@ func (hs *HeartbeatService) run() {
 
 // -------------------------- DevConn 实现 --------------------------
 
-// Send 所有对 Conn 与 closed 的访问均在 sendMu 内，避免与 closeConnFromLoop 竞态导致空指针或重复写。
+// Send 向连接写入一条文本消息。所有对 Conn 与 closed 的访问均在 sendMu 内，避免与 closeConnFromLoop 竞态导致空指针或重复写。
 func (dc *DevConn) Send(data []byte) error {
 	if dc == nil {
 		return utils.Error("connection is closed")
@@ -1011,12 +1029,13 @@ func NewWsServer(connUniquenessMode ConnectionUniquenessMode) *WsServer {
 	return s
 }
 
+// AddRouter 注册路由：path -> Handle。应在 StartWebsocket 之前完成所有注册。
+// 不支持在服务启动后动态添加：消息循环中会无锁读 s.routes，动态添加会产生并发读写风险。
 func (s *WsServer) AddRouter(path string, handle Handle, routerConfig *RouterConfig) error {
 	if err := s.configValidator.validateRouterConfig(path, handle); err != nil {
 		return err
 	}
 
-	// 如果没有提供RouterConfig，使用默认配置
 	if routerConfig == nil {
 		routerConfig = &RouterConfig{}
 	}
@@ -1053,9 +1072,9 @@ func (s *WsServer) SetIdleTimeout(timeout time.Duration) {
 	s.idleTimeout = timeout
 }
 
-// SetValidateTokenPerMessage 设置是否在每条消息时校验 token 有效期。
-// false（默认）：仅建连时校验，连接期间 token 过期不踢线；
-// true：每条消息都校验，token 过期返回 401，适合强安全/合规场景。
+// SetValidateTokenPerMessage 设置是否在每条消息时校验 token 有效期（validWebSocketBody 内生效）。
+// false（默认）：仅建连时校验，连接期间 token 过期不踢线，性能更好；
+// true：每条消息校验 exp，过期即 401，适合强安全/合规场景。
 func (s *WsServer) SetValidateTokenPerMessage(validate bool) {
 	s.validateTokenPerMessage = validate
 }
@@ -1328,6 +1347,8 @@ func (s *WsServer) serveHTTP(ctx *fasthttp.RequestCtx) {
 	}
 }
 
+// initializeConnection 建连时认证：校验 JWT（含过期）、CheckReady，创建 ConnectionContext 与 DevConn 并加入 connManager。
+// 设计要点：token 有效期仅在此处校验；若未开启 validateTokenPerMessage，连接建立后 token 过期也不会被踢线。
 func (s *WsServer) initializeConnection(httpCtx *fasthttp.RequestCtx, ws *fasthttpWs.Conn, path string, routerConfig *RouterConfig) (*ConnectionContext, error) {
 	authHeader := httpCtx.Request.Header.Peek("Authorization")
 	if zlog.IsDebug() {
@@ -1337,7 +1358,6 @@ func (s *WsServer) initializeConnection(httpCtx *fasthttp.RequestCtx, ws *fastht
 			zlog.Bool("auth_header_present", len(authHeader) > 0))
 	}
 
-	// 检查认证头（非游客模式需要认证）
 	if len(authHeader) == 0 {
 		zlog.Error("MISSING_AUTH_HEADER", 0, zlog.String("client_ip", httpCtx.RemoteIP().String()))
 		return nil, ex.Throw{Code: http.StatusUnauthorized, Msg: "missing authorization header"}
@@ -1393,13 +1413,14 @@ func (s *WsServer) createConnectionContext(subject *jwt.Subject, ws *fasthttpWs.
 	devID := subject.GetDev(nil)
 	subID := subject.GetSub(nil)
 
+	// Last 使用原子写入，与 UpdateLast/LastSeen 一致，便于 CleanupExpired 无锁读取
 	now := utils.UnixSecond()
 	devConn := &DevConn{
 		Sub:    subID,
 		Dev:    devID,
 		Conn:   ws,
 		ctx:    connCtx,
-		cancel: cancel, // 保存取消函数，用于终止相关goroutine
+		cancel: cancel,
 	}
 	atomic.StoreInt64(&devConn.Last, now)
 
@@ -1416,10 +1437,10 @@ func (s *WsServer) createConnectionContext(subject *jwt.Subject, ws *fasthttpWs.
 	}, devConn
 }
 
+// handleConnectionLoop 单连接的消息循环：读消息 → 校验 → 路由 → 业务 → 回包；退出时从管理器移除并关闭连接。
+// 设计要点：读超时按 ping*3 设置，每 N 条消息刷新一次以降低 time.Now 调用；UpdateLast 与 LastSeen 使用原子操作，避免与 CleanupExpired 争用 sendMu。
 func (s *WsServer) handleConnectionLoop(connCtx *ConnectionContext, handle Handle) {
-	// 记录连接建立指标
 	s.recordConnectionAdded()
-	// 确保在函数退出时（无论何种原因）记录连接移除指标
 	defer s.recordConnectionRemoved()
 
 	zlog.Info("CLIENT_CONNECTED", 0,
@@ -1433,9 +1454,10 @@ func (s *WsServer) handleConnectionLoop(connCtx *ConnectionContext, handle Handl
 	messageHandler := GetMessageHandler(s.Cipher, handle)
 	defer PutMessageHandler(messageHandler) // 连接结束时释放MessageHandler
 
+	// 读超时：ping*3 秒内无数据则断开；每 readDeadlineRefreshEvery 条消息才刷新一次 deadline，减少 time.Now() 与 SetReadDeadline 调用。
 	readDeadlineDur := time.Duration(s.ping) * 3 * time.Second
 	messageCount := 0
-	const readDeadlineRefreshEvery = 32 // 每 N 条消息刷新一次读 deadline，减少 time.Now() 调用
+	const readDeadlineRefreshEvery = 32
 
 	for {
 		if err := connCtx.ctx.Err(); err != nil {
@@ -1449,7 +1471,6 @@ func (s *WsServer) handleConnectionLoop(connCtx *ConnectionContext, handle Handl
 			return
 		}
 
-		// 设置读取超时，防止死连接；每 readDeadlineRefreshEvery 条消息刷新一次，减少 time.Now() syscall
 		if messageCount%readDeadlineRefreshEvery == 0 {
 			connCtx.WsConn.SetReadDeadline(time.Now().Add(readDeadlineDur))
 		}
@@ -1515,7 +1536,8 @@ func (s *WsServer) handleConnectionLoop(connCtx *ConnectionContext, handle Handl
 	}
 }
 
-// processMessage 消息处理逻辑，包含释放JsonBody对象
+// processMessage 单条消息处理：从池中取 JsonBody 注入 connCtx，校验→路由→业务→replyData，最后 Put 回池。
+// 设计要点：JsonBody 仅在本调用栈内有效，业务 Handle 不得在返回后继续持有或异步使用。
 func (s *WsServer) processMessage(messageHandler *MessageHandler, connCtx *ConnectionContext, message []byte) {
 	jsonBody := GetJsonBody()
 	connCtx.JsonBody = jsonBody
@@ -1543,13 +1565,13 @@ func (s *WsServer) processMessage(messageHandler *MessageHandler, connCtx *Conne
 	replyData(connCtx, cipher, reply)
 }
 
-// replyData 回复数据
+// replyData 将业务返回值写回客户端。
+// 设计要点：若 Handle 返回 *JsonResp（如某些中间件已构造），直接序列化发送并 Put 回池；否则构造 Code=200 的 JsonResp，按 Plan 加密与签名后发送，所有 JsonResp 均由本函数或调用方 Put 回池。
 func replyData(connCtx *ConnectionContext, cipher crypto.Cipher, reply interface{}) {
 	if reply == nil {
 		return
 	}
 
-	// 直接返回已构造好的 JsonResp，避免心跳等响应被二次包装
 	if jsonResp, ok := reply.(*JsonResp); ok {
 		bytesData, err := utils.JsonMarshal(jsonResp)
 		PutJsonResp(jsonResp)
@@ -1731,7 +1753,8 @@ func (self *WsServer) AddLocalCache(cacheAware CacheAware) {
 	}
 }
 
-// AddCipher 增加RSA/ECDSA加密解密对象
+// AddCipher 注册 ECDSA/RSA 加解密对象，用于 Plan 1 等场景的请求验签与响应签名。
+// 应在 StartWebsocket 之前完成所有注册。不支持在服务启动后动态添加：MessageHandler 会无锁读 Cipher，动态添加会产生并发读写风险。
 func (self *WsServer) AddCipher(usr int64, cipher crypto.Cipher) error {
 	if self.Cipher == nil {
 		self.Cipher = make(map[int64]crypto.Cipher)
