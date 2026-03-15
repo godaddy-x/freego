@@ -67,6 +67,10 @@ type ConnectionContext struct {
 	RawToken     []byte        // 原始JWT token字节，用于签名验证
 	ctx          context.Context
 	cancel       context.CancelFunc
+
+	// 派生密钥缓存：同一连接上 token 不变，避免每条消息重复 HKDF+HMAC
+	cachedTokenSecret []byte
+	tokenSecretOnce   sync.Once
 }
 
 // GetRawTokenBytes 获取原始JWT token字节
@@ -105,9 +109,14 @@ func (cc *ConnectionContext) getDeviceID() string {
 	return ""
 }
 
-// GetTokenSecret 获取WebSocket连接的token密钥
+// GetTokenSecret 获取WebSocket连接的token密钥（按连接缓存，同一连接只做一次 HKDF+HMAC 派生）
 func (cc *ConnectionContext) GetTokenSecret() []byte {
-	return cc.Subject.GetTokenSecret(utils.Bytes2Str(cc.GetRawTokenBytes()), cc.Server.jwtConfig.TokenKey)
+	cc.tokenSecretOnce.Do(func() {
+		if cc.Subject != nil && len(cc.GetRawTokenBytes()) > 0 && cc.Server != nil {
+			cc.cachedTokenSecret = cc.Subject.GetTokenSecret(utils.Bytes2Str(cc.GetRawTokenBytes()), cc.Server.jwtConfig.TokenKey)
+		}
+	})
+	return cc.cachedTokenSecret
 }
 
 // ConnectionManager 连接管理器：线程安全的连接管理，支持广播、房间、过期清理
@@ -150,30 +159,22 @@ type DevConn struct {
 }
 
 // UpdateLast 更新连接最后活跃时间。
-// Last 的读写统一受 sendMu 保护，避免与关闭/发送路径产生数据竞争。
+// 使用原子操作，避免 CleanupExpired 遍历时对每条连接加 sendMu 造成锁竞争。
 func (dc *DevConn) UpdateLast() {
 	if dc == nil {
 		return
 	}
-
-	dc.sendMu.Lock()
-	defer dc.sendMu.Unlock()
-
 	if atomic.LoadInt32(&dc.closed) == 0 {
-		dc.Last = utils.UnixSecond()
+		atomic.StoreInt64(&dc.Last, utils.UnixSecond())
 	}
 }
 
-// LastSeen 返回最近一次活跃时间。
+// LastSeen 返回最近一次活跃时间（原子读，无锁，便于 CleanupExpired 批量遍历）。
 func (dc *DevConn) LastSeen() int64 {
 	if dc == nil {
 		return 0
 	}
-
-	dc.sendMu.Lock()
-	defer dc.sendMu.Unlock()
-
-	return dc.Last
+	return atomic.LoadInt64(&dc.Last)
 }
 
 // RouteInfo WebSocket路由信息结构体
@@ -557,7 +558,11 @@ func (cm *ConnectionManager) sendToSubjectByJsonResp(subject string, res *JsonRe
 		return err
 	}
 
-	var targets []*DevConn
+	n := atomic.LoadInt32(&cm.totalConn)
+	if n < 0 {
+		n = 0
+	}
+	targets := make([]*DevConn, 0, n)
 	cm.mu.RLock()
 	if subject != "" { // 指定subject
 		if subjectConns, exists := cm.conns[subject]; exists {
@@ -634,9 +639,12 @@ func (cm *ConnectionManager) AddTestConnection(subject, deviceKey string, conn *
 func (cm *ConnectionManager) CleanupExpired(timeoutSeconds int64) int {
 	cleaned := 0
 	currentTime := utils.UnixSecond()
-
+	n := atomic.LoadInt32(&cm.totalConn)
+	if n < 0 {
+		n = 0
+	}
 	cm.mu.RLock()
-	var toClose []*DevConn
+	toClose := make([]*DevConn, 0, n)
 	for _, subjectConns := range cm.conns {
 		for _, conn := range subjectConns {
 			if currentTime-conn.LastSeen() > timeoutSeconds {
@@ -655,8 +663,12 @@ func (cm *ConnectionManager) CleanupExpired(timeoutSeconds int64) int {
 
 // CleanupAll 清理所有连接。收集 conn 指针后统一发关闭信号，由各消息循环执行 RemoveByConn + ws.Close()。
 func (cm *ConnectionManager) CleanupAll() {
+	n := atomic.LoadInt32(&cm.totalConn)
+	if n < 0 {
+		n = 0
+	}
 	cm.mu.RLock()
-	var toClose []*DevConn
+	toClose := make([]*DevConn, 0, n)
 	for _, subjectConns := range cm.conns {
 		for _, conn := range subjectConns {
 			toClose = append(toClose, conn)
@@ -1381,14 +1393,15 @@ func (s *WsServer) createConnectionContext(subject *jwt.Subject, ws *fasthttpWs.
 	devID := subject.GetDev(nil)
 	subID := subject.GetSub(nil)
 
+	now := utils.UnixSecond()
 	devConn := &DevConn{
 		Sub:    subID,
 		Dev:    devID,
-		Last:   utils.UnixSecond(),
 		Conn:   ws,
 		ctx:    connCtx,
 		cancel: cancel, // 保存取消函数，用于终止相关goroutine
 	}
+	atomic.StoreInt64(&devConn.Last, now)
 
 	return &ConnectionContext{
 		Subject:      subject,
@@ -1420,6 +1433,10 @@ func (s *WsServer) handleConnectionLoop(connCtx *ConnectionContext, handle Handl
 	messageHandler := GetMessageHandler(s.Cipher, handle)
 	defer PutMessageHandler(messageHandler) // 连接结束时释放MessageHandler
 
+	readDeadlineDur := time.Duration(s.ping) * 3 * time.Second
+	messageCount := 0
+	const readDeadlineRefreshEvery = 32 // 每 N 条消息刷新一次读 deadline，减少 time.Now() 调用
+
 	for {
 		if err := connCtx.ctx.Err(); err != nil {
 			if zlog.IsDebug() {
@@ -1432,8 +1449,10 @@ func (s *WsServer) handleConnectionLoop(connCtx *ConnectionContext, handle Handl
 			return
 		}
 
-		// 设置读取超时，防止死连接
-		connCtx.WsConn.SetReadDeadline(time.Now().Add(time.Duration(s.ping) * 3 * time.Second))
+		// 设置读取超时，防止死连接；每 readDeadlineRefreshEvery 条消息刷新一次，减少 time.Now() syscall
+		if messageCount%readDeadlineRefreshEvery == 0 {
+			connCtx.WsConn.SetReadDeadline(time.Now().Add(readDeadlineDur))
+		}
 
 		messageType, message, err := connCtx.WsConn.ReadMessage()
 		if err != nil {
@@ -1492,6 +1511,7 @@ func (s *WsServer) handleConnectionLoop(connCtx *ConnectionContext, handle Handl
 
 		connCtx.DevConn.UpdateLast()
 		s.processMessage(messageHandler, connCtx, message)
+		messageCount++
 	}
 }
 
