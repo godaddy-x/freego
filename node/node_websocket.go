@@ -32,8 +32,8 @@ import (
 //
 // WebSocket专用常量
 const (
-	DefaultWsRoute       = "/ws"       // 默认WebSocket路由路径
-	DefaultWsMaxBodyLen  = 1024 * 1024 // 默认单条消息体最大 1MB，可通过 WsServer.SetMaxBodyLen 覆盖
+	DefaultWsRoute      = "/ws"       // 默认WebSocket路由路径
+	DefaultWsMaxBodyLen = 1024 * 1024 // 默认单条消息体最大 1MB，可通过 WsServer.SetMaxBodyLen 覆盖
 )
 
 // ConnectionUniquenessMode 连接唯一性模式
@@ -164,13 +164,13 @@ type HeartbeatService struct {
 type DevConn struct {
 	Sub       string
 	Dev       string
-	Last      int64              // 最后活跃时间戳，原子读写，供 CleanupExpired 无锁判断
-	Conn      *fasthttpWs.Conn   // WebSocket连接
-	sendMu    sync.Mutex         // 发送与关闭路径互斥，避免并发写与空指针
+	Last      int64            // 最后活跃时间戳，原子读写，供 CleanupExpired 无锁判断
+	Conn      *fasthttpWs.Conn // WebSocket连接
+	sendMu    sync.Mutex       // 发送与关闭路径互斥，避免并发写与空指针
 	ctx       context.Context
 	cancel    context.CancelFunc
-	closed    int32              // 0=未关闭，1=已关闭，原子读写
-	closeOnce sync.Once          // 确保 ws.Close() 只执行一次
+	closed    int32     // 0=未关闭，1=已关闭，原子读写
+	closeOnce sync.Once // 确保 ws.Close() 只执行一次
 }
 
 // UpdateLast 更新连接最后活跃时间。原子写，无锁，便于消息循环中高频调用且不影响 CleanupExpired 遍历。
@@ -1754,7 +1754,7 @@ func (self *WsServer) AddLocalCache(cacheAware CacheAware) {
 }
 
 // AddCipher 注册 ECDSA/RSA 加解密对象，用于 Plan 1 等场景的请求验签与响应签名。
-// 应在 StartWebsocket 之前完成所有注册。不支持在服务启动后动态添加：MessageHandler 会无锁读 Cipher，动态添加会产生并发读写风险。
+// 应在 StartWebsocket 之前完成所有注册。不支持运行期动态添加（MessageHandler 无锁读 Cipher，动态添加有并发风险）；若以后需要运行期扩展再考虑加锁或 copy-on-write 等方案。
 func (self *WsServer) AddCipher(usr int64, cipher crypto.Cipher) error {
 	if self.Cipher == nil {
 		self.Cipher = make(map[int64]crypto.Cipher)
