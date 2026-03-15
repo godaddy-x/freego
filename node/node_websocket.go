@@ -984,10 +984,10 @@ func (s *WsServer) AddRouter(path string, handle Handle, routerConfig *RouterCon
 	return nil
 }
 
-//maxConn   = 300          // 允许的最大并发连接数
-//limit     = 20           // 每秒允许的平均消息数（令牌桶速率）
-//bucket    = 100          // 令牌桶容量（突发消息缓冲）
-//ping      = 15           // 心跳间隔（秒）
+// maxConn   = 300          // 允许的最大并发连接数
+// limit     = 20           // 每秒允许的平均消息数（令牌桶速率）
+// bucket    = 100          // 令牌桶容量（突发消息缓冲）
+// ping      = 15           // 心跳间隔（秒）
 func (s *WsServer) NewPool(maxConn, limit, bucket, ping int) error {
 	if err := s.configValidator.validatePoolConfig(maxConn, limit, bucket, ping); err != nil {
 		return err
@@ -1445,21 +1445,21 @@ func replyData(connCtx *ConnectionContext, cipher crypto.Cipher, reply interface
 	}
 
 	// 检查reply是否已经是JsonResp对象（性能优化：避免重复序列化）
-	if jsonResp, ok := reply.(*JsonResp); ok {
-		// 直接使用已构造的JsonResp对象，避免重复处理
-		defer PutJsonResp(jsonResp)
-
-		bytesData, err := utils.JsonMarshal(jsonResp)
-		if err != nil {
-			zlog.Error("failed_to_marshal_jsonresp", 0, zlog.AddError(err))
-			return
-		}
-
-		if err := connCtx.DevConn.Send(bytesData); err != nil {
-			zlog.Error("failed_to_send_response", 0, zlog.AddError(err))
-		}
-		return
-	}
+	//if jsonResp, ok := reply.(*JsonResp); ok {
+	//	// 直接使用已构造的JsonResp对象，避免重复处理
+	//	defer PutJsonResp(jsonResp)
+	//
+	//	bytesData, err := utils.JsonMarshal(jsonResp)
+	//	if err != nil {
+	//		zlog.Error("failed_to_marshal_jsonresp", 0, zlog.AddError(err))
+	//		return
+	//	}
+	//
+	//	if err := connCtx.DevConn.Send(bytesData); err != nil {
+	//		zlog.Error("failed_to_send_response", 0, zlog.AddError(err))
+	//	}
+	//	return
+	//}
 
 	// 原有的逻辑：构造新的JsonResp并序列化reply
 	jsonResp := GetJsonResp()
