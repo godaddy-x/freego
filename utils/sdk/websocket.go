@@ -4,14 +4,18 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"io"
 	"math/big"
+	"net"
+	"net/http"
 	"net/url"
 	"sync"
 	"time"
 
+	"github.com/gobwas/ws"
+	"github.com/gobwas/ws/wsutil"
 	"github.com/godaddy-x/freego/utils/crypto"
 
-	"github.com/fasthttp/websocket"
 	DIC "github.com/godaddy-x/freego/common"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/node"
@@ -33,7 +37,7 @@ const (
 // - maxReconnectAttempts: 10
 // - reconnectInterval: 1秒
 // - maxReconnectInterval: 30秒
-// - HealthPing: 30秒
+// - HealthPing: 15秒（建议 10–15，内部不超过 15）
 //
 // 返回值:
 //   - *SocketSDK: 初始化的WebSocket SDK实例
@@ -51,7 +55,7 @@ func NewSocketSDK(domain string) *SocketSDK {
 		maxReconnectAttempts: 10,
 		reconnectInterval:    time.Second,
 		maxReconnectInterval: 30 * time.Second,
-		HealthPing:           30,
+		HealthPing:           15,
 		rootCtx:              rootCtx,
 		rootCancel:           rootCancel,
 	}
@@ -80,12 +84,12 @@ type SocketSDK struct {
 	SSL          bool                    // 是否启用https
 	ClientNo     int64                   // 客户端ID
 	ecdsaObject  map[int64]crypto.Cipher // ECDSA签名验证对象列表
-	HealthPing   int                     // 健康PING间隔时间/秒
+	HealthPing   int                     // 心跳间隔/秒，建议 10–15，内部最大 15
 
-	// WebSocket连接相关
-	conn        *websocket.Conn // WebSocket连接
-	connMutex   sync.Mutex      // 连接互斥锁
-	isConnected bool            // 连接状态
+	// WebSocket连接相关（gobwas/ws 使用 net.Conn）
+	conn        net.Conn
+	connMutex   sync.Mutex
+	isConnected bool // 连接状态
 
 	// 上下文管理（关键修复）
 	rootCtx    context.Context    // SDK全局上下文（用于Close）
@@ -143,9 +147,14 @@ func (s *SocketSDK) SetBroadcastKey(key string) {
 	s.broadcastKey = key
 }
 
+// SetHealthPing 设置心跳间隔（秒）。建议 10–15 秒，与服务端读超时策略匹配；内部限制最大 15 秒，超过则按 15 秒生效。
 func (s *SocketSDK) SetHealthPing(t int) {
+	const maxHealthPing = 15
 	if t <= 0 {
-		t = 30
+		t = 15
+	}
+	if t > maxHealthPing {
+		t = maxHealthPing
 	}
 	s.HealthPing = t
 }
@@ -350,17 +359,19 @@ func (s *SocketSDK) connectWebSocketInternal(path string, isInitial bool) error 
 	// 构建WebSocket URL
 	wsURL := s.getURI(path)
 
-	// 创建WebSocket拨号器
-	dialer := websocket.DefaultDialer
-	dialer.HandshakeTimeout = 30 * time.Second
-	if s.timeout > 0 {
-		dialer.HandshakeTimeout = time.Duration(s.timeout) * time.Second
-	}
+	// 设置认证头（gobwas Dialer）
+	header := http.Header{}
+	header.Set("Authorization", s.authToken.Token)
+	header.Set("Language", s.language)
 
-	// 设置认证头
-	header := make(map[string][]string)
-	header["Authorization"] = []string{s.authToken.Token}
-	header["Language"] = []string{s.language}
+	timeout := 30 * time.Second
+	if s.timeout > 0 {
+		timeout = time.Duration(s.timeout) * time.Second
+	}
+	dialer := ws.Dialer{
+		Timeout: timeout,
+		Header:  ws.HandshakeHeaderHTTP(header),
+	}
 
 	if zlog.IsDebug() {
 		if isInitial {
@@ -370,8 +381,8 @@ func (s *SocketSDK) connectWebSocketInternal(path string, isInitial bool) error 
 		}
 	}
 
-	// 建立WebSocket连接
-	conn, _, err := dialer.Dial(wsURL, header)
+	// 建立WebSocket连接（gobwas）
+	conn, _, _, err := dialer.Dial(s.connCtx, wsURL)
 	if err != nil {
 		if zlog.IsDebug() {
 			zlog.Debug(fmt.Sprintf("WebSocket connection failed: %v", err), 0)
@@ -529,10 +540,10 @@ func (s *SocketSDK) prepareWebSocketMessage(jsonBody *node.JsonBody, data interf
 }
 
 // sendWebSocketAuthHandshake 发送WebSocket认证握手消息
-// conn: WebSocket连接对象
+// conn: WebSocket 连接（gobwas 使用 net.Conn）
 // path: 连接路径
 // 返回: 握手成功返回nil，否则返回握手失败的错误信息
-func (s *SocketSDK) sendWebSocketAuthHandshake(conn *websocket.Conn, path string) error {
+func (s *SocketSDK) sendWebSocketAuthHandshake(conn net.Conn, path string) error {
 	// 使用通用方法准备握手数据
 	jsonBody := node.GetJsonBody()
 	defer node.PutJsonBody(jsonBody)
@@ -547,15 +558,15 @@ func (s *SocketSDK) sendWebSocketAuthHandshake(conn *websocket.Conn, path string
 	}
 	defer DIC.ClearData(bytesData)
 
-	// 直接发送JsonBody格式的握手消息
-	conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	if err := conn.WriteMessage(websocket.TextMessage, bytesData); err != nil {
+	// 直接发送 JsonBody 格式的握手消息（gobwas）
+	_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	if err := wsutil.WriteClientMessage(conn, ws.OpText, bytesData); err != nil {
 		return ex.Throw{Msg: "handshake message send failed: " + err.Error()}
 	}
 
 	// 同步等待服务端握手响应（认证必须同步确认）
-	conn.SetReadDeadline(time.Now().Add(5 * time.Second)) // 缩短超时时间
-	_, responseBytes, err := conn.ReadMessage()
+	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	responseBytes, _, err := wsutil.ReadServerData(conn)
 	if err != nil {
 		return ex.Throw{Msg: "handshake response read failed (auth sync required): " + err.Error()}
 	}
@@ -679,13 +690,12 @@ func (s *SocketSDK) SendWebSocketMessage(router string, requestObj, responseObj 
 		return ex.Throw{Msg: "WebSocket not connected, call ConnectWebSocket first"}
 	}
 	conn := s.conn
-	// 发送消息
 	if timeout > 0 {
-		conn.SetWriteDeadline(time.Now().Add(time.Duration(timeout) * time.Second))
+		_ = conn.SetWriteDeadline(time.Now().Add(time.Duration(timeout) * time.Second))
 	} else {
-		conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+		_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 	}
-	if err := conn.WriteMessage(websocket.TextMessage, bytesData); err != nil {
+	if err := wsutil.WriteClientMessage(conn, ws.OpText, bytesData); err != nil {
 		s.connMutex.Unlock()
 		return ex.Throw{Msg: "WebSocket message send failed: " + err.Error()}
 	}
@@ -784,10 +794,15 @@ func (s *SocketSDK) verifyWebSocketResponseFromJsonResp(path string, result inte
 
 // websocketHeartbeat 心跳协程：周期发送 /ws/ping，不等待 pong（与服务端“不回 pong”策略一致）。
 // 设计要点：fire-and-forget，不占 responseMap、不阻塞；连接存活以 WriteMessage 失败为准，失败则 disconnectWebSocket。
+// 心跳间隔建议 10–15 秒，内部上限 15 秒（与 SetHealthPing 一致）。
 func (s *SocketSDK) websocketHeartbeat() {
+	const maxHealthPing = 15
 	healthPing := s.HealthPing
 	if healthPing <= 0 {
-		healthPing = 30
+		healthPing = 15
+	}
+	if healthPing > maxHealthPing {
+		healthPing = maxHealthPing
 	}
 	ticker := time.NewTicker(time.Duration(healthPing) * time.Second)
 	defer ticker.Stop()
@@ -811,8 +826,8 @@ func (s *SocketSDK) websocketHeartbeat() {
 				return
 			}
 			conn := s.conn
-			conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-			if err := conn.WriteMessage(websocket.TextMessage, bytesData); err != nil {
+			_ = conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+			if err := wsutil.WriteClientMessage(conn, ws.OpText, bytesData); err != nil {
 				if zlog.IsDebug() {
 					zlog.Debug("heartbeat send failed, connection may be lost", 0)
 				}
@@ -912,19 +927,11 @@ func (s *SocketSDK) websocketMessageListener() {
 			conn := s.conn
 			s.connMutex.Unlock()
 
-			conn.SetReadDeadline(time.Time{})
-			_, body, err := conn.ReadMessage()
+			_ = conn.SetReadDeadline(time.Time{})
+			body, _, err := wsutil.ReadServerData(conn)
 			if err != nil {
-				// 检测是否是意外的连接关闭错误
-				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) ||
-					websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseNoStatusReceived) {
-					if zlog.IsDebug() {
-						zlog.Debug(fmt.Sprintf("WebSocket connection lost: %v", err), 0)
-					}
-				} else {
-					if zlog.IsDebug() {
-						zlog.Debug(fmt.Sprintf("WebSocket read error: %v", err), 0)
-					}
+				if err != io.EOF && zlog.IsDebug() {
+					zlog.Debug(fmt.Sprintf("WebSocket read error: %v", err), 0)
 				}
 				s.disconnectWebSocket() // 触发重连逻辑
 				return

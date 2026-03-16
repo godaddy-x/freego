@@ -1,7 +1,12 @@
 package node
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha1"
+	"encoding/base64"
+	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -13,8 +18,8 @@ import (
 	DIC "github.com/godaddy-x/freego/common"
 	"github.com/godaddy-x/freego/zlog"
 
-	"github.com/fasthttp/websocket"
-	fasthttpWs "github.com/fasthttp/websocket"
+	"github.com/gobwas/ws"
+	"github.com/gobwas/ws/wsutil"
 	"github.com/godaddy-x/freego/cache"
 	rate "github.com/godaddy-x/freego/cache/limiter"
 	"github.com/godaddy-x/freego/ex"
@@ -61,7 +66,7 @@ type Handle func(ctx context.Context, connCtx *ConnectionContext, body []byte) (
 type ConnectionContext struct {
 	Subject      *jwt.Subject
 	JsonBody     *JsonBody
-	WsConn       *fasthttpWs.Conn
+	WsConn       net.Conn // WebSocket 连接（gobwas/ws 使用 net.Conn）
 	DevConn      *DevConn
 	Server       *WsServer
 	RouterConfig *RouterConfig // 路由配置
@@ -156,9 +161,9 @@ type HeartbeatService struct {
 type DevConn struct {
 	Sub       string
 	Dev       string
-	Last      int64            // 最后活跃时间戳，原子读写，供 CleanupExpired 无锁判断
-	Conn      *fasthttpWs.Conn // WebSocket连接
-	sendMu    sync.Mutex       // 发送与关闭路径互斥，避免并发写与空指针
+	Last      int64      // 最后活跃时间戳，原子读写，供 CleanupExpired 无锁判断
+	Conn      net.Conn   // WebSocket 连接（gobwas/ws）
+	sendMu    sync.Mutex // 发送与关闭路径互斥，避免并发写与空指针
 	ctx       context.Context
 	cancel    context.CancelFunc
 	closed    int32     // 0=未关闭，1=已关闭，原子读写
@@ -214,7 +219,6 @@ type WebSocketMetrics struct {
 // WsServer WebSocket服务器核心结构体
 type WsServer struct {
 	server       *fasthttp.Server
-	upgrader     *fasthttpWs.FastHTTPUpgrader
 	routes       map[string]*RouteInfo // 路由映射：path -> 路由信息 (启动后只读)
 	connManager  *ConnectionManager
 	heartbeatSvc *HeartbeatService
@@ -284,7 +288,7 @@ func (eh *ErrorHandler) handleConnectionError(connCtx *ConnectionContext, err er
 		zlog.String("connection_path", connectionPath))
 
 	// 尝试发送错误响应
-	if ws := connCtx.WsConn; ws != nil {
+	if conn := connCtx.WsConn; conn != nil {
 		resp := GetJsonResp()
 		resp.Code = ex.WS_SEND
 		resp.Message = "websocket error: " + operation
@@ -305,7 +309,7 @@ func (eh *ErrorHandler) handleConnectionError(connCtx *ConnectionContext, err er
 						zlog.Debug("failed to send error response to closed connection", 0, zlog.AddError(err))
 					}
 				}
-			} else if err := ws.WriteMessage(fasthttpWs.TextMessage, result); err != nil {
+			} else if err := wsutil.WriteServerMessage(conn, ws.OpText, result); err != nil {
 				if zlog.IsDebug() {
 					zlog.Debug("failed to send error response to closed connection", 0, zlog.AddError(err))
 				}
@@ -313,6 +317,22 @@ func (eh *ErrorHandler) handleConnectionError(connCtx *ConnectionContext, err er
 		}
 
 	}
+}
+
+// setWebSocket101Response 在 RequestCtx 上设置 RFC6455 的 101 握手响应。fasthttp 会在 handler return 后发送该响应，再调用 Hijack 回调。
+func setWebSocket101Response(ctx *fasthttp.RequestCtx, secWebSocketKey []byte) error {
+	key := bytes.TrimSpace(secWebSocketKey)
+	// RFC 6455 官方规定的固定 GUID（Section 4.1 / 4.2.2）。E109-11D0... 为草案时代错误流传版本。
+	const guid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+	h := sha1.New()
+	h.Write(key)
+	h.Write(utils.Str2Bytes(guid))
+	accept := base64.StdEncoding.EncodeToString(h.Sum(nil))
+	ctx.SetStatusCode(fasthttp.StatusSwitchingProtocols)
+	ctx.Response.Header.Set("Upgrade", "websocket")
+	ctx.Response.Header.Set("Connection", "Upgrade")
+	ctx.Response.Header.Set("Sec-WebSocket-Accept", accept)
+	return nil
 }
 
 // ConfigValidator 配置验证器（统一配置检查）
@@ -967,7 +987,7 @@ func (dc *DevConn) Send(data []byte) error {
 	if atomic.LoadInt32(&dc.closed) == 1 || dc.Conn == nil {
 		return utils.Error("connection is closed")
 	}
-	return dc.Conn.WriteMessage(fasthttpWs.TextMessage, data)
+	return wsutil.WriteServerMessage(dc.Conn, ws.OpText, data)
 }
 
 // -------------------------- WsServer 实现 --------------------------
@@ -989,14 +1009,6 @@ func NewWsServer(connUniquenessMode ConnectionUniquenessMode) *WsServer {
 		errorHandler:       &ErrorHandler{},
 		configValidator:    &ConfigValidator{},
 		metrics:            &WebSocketMetrics{startTime: time.Now()},
-		upgrader: &fasthttpWs.FastHTTPUpgrader{
-			ReadBufferSize:  1024 * 4,
-			WriteBufferSize: 1024 * 4,
-			CheckOrigin: func(ctx *fasthttp.RequestCtx) bool {
-				// 生产环境应配置具体的Origin白名单
-				return true
-			},
-		},
 	}
 
 	// 自动添加默认的连接路由处理器
@@ -1049,7 +1061,11 @@ func (s *WsServer) NewPool(maxConn, limit, bucket, ping int) error {
 	}
 
 	s.maxConn = maxConn
-	s.ping = ping
+	if utils.CheckRangeInt(ping, 15, 30) {
+		s.ping = ping
+	} else {
+		s.ping = 30
+	}
 
 	s.connManager = NewConnectionManager(maxConn, s.connUniquenessMode, s.broadcastKey)
 	s.limiter = rate.NewLimiter(rate.Limit(limit), bucket)
@@ -1321,27 +1337,47 @@ func (s *WsServer) serveHTTP(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	if err := s.upgrader.Upgrade(ctx, func(ws *fasthttpWs.Conn) {
-		// 使用默认配置，因为路由现在在消息级别确定
+	// 在 Hijack 前完成 JWT 校验（Hijack 后无法再读 RequestCtx）
+	subject, rawToken, err := s.validateTokenFromRequestCtx(ctx, path)
+	if err != nil {
+		if exErr, ok := err.(ex.Throw); ok {
+			ctx.SetStatusCode(exErr.Code)
+			ctx.SetBodyString(exErr.Msg)
+		} else {
+			ctx.SetStatusCode(fasthttp.StatusUnauthorized)
+			ctx.SetBodyString("unauthorized")
+		}
+		return
+	}
+	secKey := ctx.Request.Header.Peek("Sec-WebSocket-Key")
+	if len(secKey) == 0 {
+		ctx.SetStatusCode(fasthttp.StatusBadRequest)
+		ctx.SetBodyString("missing Sec-WebSocket-Key")
+		return
+	}
+	// fasthttp 在 return 后先发送 HTTP 响应，再调用 Hijack 回调；因此必须在 handler 内设置 101 响应，这样客户端收到的才是 101。
+	if err := setWebSocket101Response(ctx, secKey); err != nil {
+		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+		ctx.SetBodyString("websocket handshake failed")
+		return
+	}
+
+	ctx.Hijack(func(conn net.Conn) {
 		defaultConfig := &RouterConfig{}
-		connCtx, err := s.initializeConnection(ctx, ws, path, defaultConfig)
-		if err != nil {
-			zlog.Error("failed to initialize connection", 0, zlog.AddError(err))
-			ws.Close() // 关闭WebSocket连接
+		connCtx, devConn := s.createConnectionContext(subject, conn, path, defaultConfig, rawToken)
+		if err := s.connManager.Add(devConn); err != nil {
+			connCtx.cancel()
+			conn.Close()
+			zlog.Error("conn_manager_add_failed", 0, zlog.String("path", path), zlog.AddError(err))
 			return
 		}
 		defer s.cleanupConnection(connCtx)
-
-		// 使用统一的处理器，实际路由在消息处理时根据Router字段确定
 		s.handleConnectionLoop(connCtx, defaultHandle)
-	}); err != nil {
-		zlog.Error("websocket_upgrade_failed", 0, zlog.String("path", path), zlog.AddError(err))
-	}
+	})
 }
 
-// initializeConnection 建连时认证：校验 JWT（含过期）、CheckReady，创建 ConnectionContext 与 DevConn 并加入 connManager。
-// 设计要点：token 有效期仅在此处校验；若未开启 validateTokenPerMessage，连接建立后 token 过期也不会被踢线。
-func (s *WsServer) initializeConnection(httpCtx *fasthttp.RequestCtx, ws *fasthttpWs.Conn, path string, routerConfig *RouterConfig) (*ConnectionContext, error) {
+// validateTokenFromRequestCtx 在 Hijack 前校验 JWT，返回 subject 与 rawToken 供后续建连使用。
+func (s *WsServer) validateTokenFromRequestCtx(httpCtx *fasthttp.RequestCtx, path string) (*jwt.Subject, []byte, error) {
 	authHeader := httpCtx.Request.Header.Peek("Authorization")
 	if zlog.IsDebug() {
 		zlog.Debug("WEBSOCKET_UPGRADE_ATTEMPT", 0,
@@ -1349,57 +1385,30 @@ func (s *WsServer) initializeConnection(httpCtx *fasthttp.RequestCtx, ws *fastht
 			zlog.String("client_ip", httpCtx.RemoteIP().String()),
 			zlog.Bool("auth_header_present", len(authHeader) > 0))
 	}
-
 	if len(authHeader) == 0 {
 		zlog.Error("MISSING_AUTH_HEADER", 0, zlog.String("client_ip", httpCtx.RemoteIP().String()))
-		return nil, ex.Throw{Code: http.StatusUnauthorized, Msg: "missing authorization header"}
+		return nil, nil, ex.Throw{Code: http.StatusUnauthorized, Msg: "missing authorization header"}
 	}
-
-	if zlog.IsDebug() {
-		zlog.Debug("WEBSOCKET_CONNECTION_INIT", 0,
-			zlog.String("connection_path", path))
-	}
-
-	// 认证模式：验证JWT token
 	subject := &jwt.Subject{Payload: &jwt.Payload{}}
-
-	var c cache.Cache
-	var err error
-	// 设置Subject的cache字段，与HTTP流程保持一致
 	if s.LocalCacheAware != nil {
-		c, err = s.LocalCacheAware()
+		c, err := s.LocalCacheAware()
 		if err != nil {
-			return nil, ex.Throw{Code: http.StatusServiceUnavailable, Msg: "missing cache object", Err: err}
+			return nil, nil, ex.Throw{Code: http.StatusServiceUnavailable, Msg: "missing cache object", Err: err}
 		}
+		subject.SetCache(c)
 	}
-
-	subject.SetCache(c)
-
-	if len(authHeader) == 0 {
-		return nil, ex.Throw{Code: http.StatusUnauthorized, Msg: "empty authorization header"}
-	}
-
-	// 验证token (使用配置的JWT密钥)
 	if err := subject.Verify(authHeader, s.jwtConfig.TokenKey); err != nil {
-		return nil, ex.Throw{Code: http.StatusUnauthorized, Msg: "invalid or expired token", Err: err}
+		return nil, nil, ex.Throw{Code: http.StatusUnauthorized, Msg: "invalid or expired token", Err: err}
 	}
-
-	// 检查token是否有效
 	if !subject.CheckReady() {
-		return nil, ex.Throw{Code: http.StatusUnauthorized, Msg: "token not ready"}
+		return nil, nil, ex.Throw{Code: http.StatusUnauthorized, Msg: "token not ready"}
 	}
-
-	connCtx, devConn := s.createConnectionContext(subject, ws, path, routerConfig, authHeader)
-
-	if err := s.connManager.Add(devConn); err != nil {
-		connCtx.cancel()
-		return nil, err
-	}
-
-	return connCtx, nil
+	rawToken := make([]byte, len(authHeader))
+	copy(rawToken, authHeader)
+	return subject, rawToken, nil
 }
 
-func (s *WsServer) createConnectionContext(subject *jwt.Subject, ws *fasthttpWs.Conn, path string, routerConfig *RouterConfig, rawToken []byte) (*ConnectionContext, *DevConn) {
+func (s *WsServer) createConnectionContext(subject *jwt.Subject, conn net.Conn, path string, routerConfig *RouterConfig, rawToken []byte) (*ConnectionContext, *DevConn) {
 	connCtx, cancel := context.WithCancel(s.globalCtx)
 
 	devID := subject.GetDev(nil)
@@ -1410,7 +1419,7 @@ func (s *WsServer) createConnectionContext(subject *jwt.Subject, ws *fasthttpWs.
 	devConn := &DevConn{
 		Sub:    subID,
 		Dev:    devID,
-		Conn:   ws,
+		Conn:   conn,
 		ctx:    connCtx,
 		cancel: cancel,
 	}
@@ -1418,7 +1427,7 @@ func (s *WsServer) createConnectionContext(subject *jwt.Subject, ws *fasthttpWs.
 
 	return &ConnectionContext{
 		Subject:      subject,
-		WsConn:       ws,
+		WsConn:       conn,
 		DevConn:      devConn,
 		Server:       s,
 		RouterConfig: routerConfig, // 使用传入的路由配置
@@ -1446,10 +1455,11 @@ func (s *WsServer) handleConnectionLoop(connCtx *ConnectionContext, handle Handl
 	messageHandler := GetMessageHandler(s.Cipher, handle)
 	defer PutMessageHandler(messageHandler) // 连接结束时释放MessageHandler
 
-	// 读超时：ping*3 秒内无数据则断开；每 readDeadlineRefreshEvery 条消息才刷新一次 deadline，减少 time.Now() 与 SetReadDeadline 调用。
+	// 读超时：ping*3 秒内无数据则断开。刷新间隔须保证在 readDeadlineDur 内至少刷新一次，即 readDeadlineRefreshEvery <= readDeadlineDur/心跳间隔。
+	// 例：ping=30 → readDeadlineDur=90s；心跳 30s 时 90s 内仅 3 条，故 readDeadlineRefreshEvery 须 <=3；取 2 可兼容 10/15/30s 心跳。
 	readDeadlineDur := time.Duration(s.ping) * 3 * time.Second
 	messageCount := 0
-	const readDeadlineRefreshEvery = 32
+	const readDeadlineRefreshEvery = 2
 
 	for {
 		if err := connCtx.ctx.Err(); err != nil {
@@ -1464,10 +1474,10 @@ func (s *WsServer) handleConnectionLoop(connCtx *ConnectionContext, handle Handl
 		}
 
 		if messageCount%readDeadlineRefreshEvery == 0 {
-			connCtx.WsConn.SetReadDeadline(time.Now().Add(readDeadlineDur))
+			_ = connCtx.WsConn.SetReadDeadline(time.Now().Add(readDeadlineDur))
 		}
 
-		messageType, message, err := connCtx.WsConn.ReadMessage()
+		message, op, err := wsutil.ReadClientData(connCtx.WsConn)
 		if err != nil {
 			if connCtx.ctx.Err() != nil || atomic.LoadInt32(&connCtx.DevConn.closed) == 1 {
 				if zlog.IsDebug() {
@@ -1479,14 +1489,13 @@ func (s *WsServer) handleConnectionLoop(connCtx *ConnectionContext, handle Handl
 				}
 				return
 			}
-
 			zlog.Error("READ_MESSAGE_FAILED", 0,
 				zlog.AddError(err),
 				zlog.String("client", connCtx.WsConn.RemoteAddr().String()),
 				zlog.String("user_id", connCtx.GetUserIDString()),
 				zlog.String("device_id", connCtx.getDeviceID()),
 				zlog.String("connection_path", connCtx.Path))
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
+			if err != io.EOF {
 				zlog.Error("read_message_error", 0,
 					zlog.AddError(err),
 					zlog.String("user_id", connCtx.GetUserIDString()),
@@ -1494,7 +1503,6 @@ func (s *WsServer) handleConnectionLoop(connCtx *ConnectionContext, handle Handl
 					zlog.String("connection_path", connCtx.Path))
 			} else {
 				zlog.Info("connection_closed_by_client", 0,
-					zlog.AddError(err),
 					zlog.String("user_id", connCtx.GetUserIDString()),
 					zlog.String("device_id", connCtx.getDeviceID()),
 					zlog.String("connection_path", connCtx.Path))
@@ -1504,7 +1512,7 @@ func (s *WsServer) handleConnectionLoop(connCtx *ConnectionContext, handle Handl
 
 		if zlog.IsDebug() {
 			zlog.Debug("MESSAGE_RECEIVED", 0,
-				zlog.Int("message_type", messageType),
+				zlog.Int("opcode", int(op)),
 				zlog.Int("message_length", len(message)),
 				zlog.String("raw_message", string(message)),
 				zlog.String("client", connCtx.WsConn.RemoteAddr().String()),
@@ -1513,9 +1521,9 @@ func (s *WsServer) handleConnectionLoop(connCtx *ConnectionContext, handle Handl
 				zlog.String("connection_path", connCtx.Path))
 		}
 
-		if messageType != fasthttpWs.TextMessage {
+		if op != ws.OpText {
 			zlog.Warn("unsupported_message_type", 0,
-				zlog.Int("type", messageType),
+				zlog.Int("opcode", int(op)),
 				zlog.String("user_id", connCtx.GetUserIDString()),
 				zlog.String("device_id", connCtx.getDeviceID()),
 				zlog.String("connection_path", connCtx.Path))

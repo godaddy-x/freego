@@ -2,7 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
+	"math/rand"
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -54,6 +57,147 @@ func (h *testMessageHandler) HandleMessage(message *node.JsonResp) error {
 	return nil
 }
 
+// rawWsHandshakeThenClose 与 serverAddr 建立 TCP 连接，发送 WebSocket HTTP 升级（带 token），读 101 后立即关闭连接，不发送 WS Close 帧，用于模拟客户端意外断开。
+func rawWsHandshakeThenClose(serverAddr, token string) error {
+	keyBuf := make([]byte, 16)
+	_, _ = rand.Read(keyBuf)
+	secKey := base64.StdEncoding.EncodeToString(keyBuf)
+	conn, err := net.Dial("tcp", serverAddr)
+	if err != nil {
+		return err
+	}
+	req := "GET /ws HTTP/1.1\r\n" +
+		"Host: " + serverAddr + "\r\n" +
+		"Connection: Upgrade\r\n" +
+		"Upgrade: websocket\r\n" +
+		"Sec-WebSocket-Key: " + secKey + "\r\n" +
+		"Sec-WebSocket-Version: 13\r\n" +
+		"Authorization: " + token + "\r\n" +
+		"\r\n"
+	if _, err := conn.Write([]byte(req)); err != nil {
+		_ = conn.Close()
+		return err
+	}
+	buf := make([]byte, 512)
+	_, _ = conn.Read(buf)
+	_ = conn.Close()
+	return nil
+}
+
+// TestWebSocketManyClient 300 个用户并发连接、发消息，并随机让部分用户“意外断开”（不发 WS Close），模拟真实场景；需自行在 8088 端口启动服务端。
+func TestWebSocketManyClient(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping many-client WebSocket test in short mode")
+	}
+
+	const numClients = 300
+	const numUnexpectedDisconnect = 50 // 随机 50 个用户意外断开，模拟掉线
+	config := jwt.JwtConfig{
+		TokenTyp: jwt.JWT,
+		TokenAlg: jwt.HS256,
+		TokenKey: "123456",
+		TokenExp: jwt.TWO_WEEK,
+	}
+
+	// 预生成 300 个用户的 token
+	tokens := make([]sdk.AuthToken, numClients)
+	for i := 0; i < numClients; i++ {
+		subject := &jwt.Subject{}
+		token := subject.Create(utils.NextSID()).Dev("APP").Generate(config)
+		secretBytes := subject.GetTokenSecret(token, config.TokenKey)
+		tokens[i] = sdk.AuthToken{
+			Token:   token,
+			Secret:  utils.Base64Encode(utils.Bytes2Str(secretBytes)),
+			Expired: subject.Payload.Exp,
+		}
+	}
+
+	// 随机选出“意外断开”的用户下标（可复现）
+	rng := rand.New(rand.NewSource(99))
+	dropIndices := make(map[int]bool)
+	for len(dropIndices) < numUnexpectedDisconnect {
+		dropIndices[rng.Intn(numClients)] = true
+	}
+
+	// 使用已有服务端，请自行在 8088 端口启动
+	serverAddr := "localhost:8088"
+	disconnectCh := make(chan struct{})
+	var wg sync.WaitGroup
+	var failMu sync.Mutex
+	var connectFails, sendFails int
+
+	for i := 0; i < numClients; i++ {
+		wg.Add(1)
+		idx := i
+		isDrop := dropIndices[idx]
+		u := tokens[idx]
+		if isDrop {
+			// 模拟意外断开：原始 TCP 握手后立即关连接，不发送 WS Close
+			go func() {
+				defer wg.Done()
+				time.Sleep(time.Duration(idx) * 50 * time.Millisecond)
+				if err := rawWsHandshakeThenClose(serverAddr, u.Token); err != nil && idx < 3 {
+					t.Logf("drop client %d raw handshake failed: %v", idx, err)
+				}
+			}()
+		} else {
+			go func() {
+				defer wg.Done()
+				time.Sleep(time.Duration(idx) * 50 * time.Millisecond)
+				wsSdk := sdk.NewSocketSDK(serverAddr)
+				wsSdk.AuthToken(u)
+				wsSdk.SetClientNo(1)
+				_ = wsSdk.SetECDSAObject(wsSdk.ClientNo, clientPrk, serverPub)
+				wsSdk.SetHealthPing(10)
+				if err := wsSdk.ConnectWebSocket("/ws"); err != nil {
+					failMu.Lock()
+					connectFails++
+					failMu.Unlock()
+					if idx < 3 {
+						t.Logf("client %d connect failed: %v", idx, err)
+					}
+					return
+				}
+				defer wsSdk.DisconnectWebSocket()
+				req := map[string]interface{}{"test": "并发用户"}
+				resp1 := &sdk.AuthToken{}
+				if err := wsSdk.SendWebSocketMessage("/ws/user", req, resp1, true, false, 10); err != nil {
+					failMu.Lock()
+					sendFails++
+					failMu.Unlock()
+					if idx < 3 {
+						t.Logf("client %d send /ws/user failed: %v", idx, err)
+					}
+					return
+				}
+				resp2 := &sdk.AuthToken{}
+				if err := wsSdk.SendWebSocketMessage("/ws/user2", req, resp2, true, true, 10); err != nil {
+					failMu.Lock()
+					sendFails++
+					failMu.Unlock()
+					if idx < 3 {
+						t.Logf("client %d send /ws/user2 failed: %v", idx, err)
+					}
+					return
+				}
+				<-disconnectCh // 等主流程校验完连接数后再断开
+			}()
+		}
+	}
+
+	// 等待所有连接就绪（250 正常 + 50 已“意外断开”）
+	time.Sleep(time.Duration(numClients)*50*time.Millisecond + 2*time.Second)
+	time.Sleep(800 * time.Millisecond)
+	close(disconnectCh)
+	wg.Wait()
+
+	if connectFails > 0 || sendFails > 0 {
+		t.Errorf("300 并发: 连接失败 %d, 发送失败 %d", connectFails, sendFails)
+	} else {
+		t.Logf("300 并发: 全部连接并发送成功，其中 %d 个模拟意外断开", numUnexpectedDisconnect)
+	}
+}
+
 // TestWebSocketSDKUsage 测试完整的SDK使用流程（包含服务器管理）
 func TestWebSocketSDKUsage(t *testing.T) {
 	if testing.Short() {
@@ -82,7 +226,7 @@ func TestWebSocketSDKUsage(t *testing.T) {
 	server.AddCipher(1, cipher)
 
 	// 配置连接池
-	err := server.NewPool(100, 10, 5, 30)
+	err := server.NewPool(300, 20, 100, 30)
 	if err != nil {
 		t.Fatalf("Failed to initialize connection pool: %v", err)
 	}
@@ -196,7 +340,7 @@ func TestWebSocketSDKUsage(t *testing.T) {
 	fmt.Println("加密响应结果2:", responseObject)
 
 	// 添加延迟等待响应
-	time.Sleep(1000 * time.Second)
+	time.Sleep(60 * time.Minute)
 
 	// 验证连接状态
 	if !wsSdk.IsWebSocketConnected() {
@@ -1121,6 +1265,72 @@ func TestWebSocketConnectionHealthCheck(t *testing.T) {
 	}
 
 	t.Logf("✓ Connection health check completed successfully")
+}
+
+// TestWebSocketClientUnexpectedDisconnect 测试客户端意外断开（如网络断开、进程被杀）时服务端能正确清理连接
+func TestWebSocketClientUnexpectedDisconnect(t *testing.T) {
+	server := node.NewWsServer(node.SubjectDeviceUnique)
+	server.AddJwtConfig(jwt.JwtConfig{
+		TokenTyp: jwt.JWT,
+		TokenAlg: jwt.HS256,
+		TokenKey: "123456",
+		TokenExp: jwt.TWO_WEEK,
+	})
+	cipher, _ := crypto.CreateS256ECDSAWithBase64(serverPrk, clientPub)
+	server.AddCipher(1, cipher)
+	if err := server.NewPool(10, 20, 100, 15); err != nil {
+		t.Fatalf("NewPool failed: %v", err)
+	}
+
+	serverAddr := "localhost:8093"
+	serverDoneCh := make(chan bool, 1)
+	go func() {
+		defer func() { serverDoneCh <- true }()
+		if err := server.StartWebsocket(serverAddr); err != nil {
+			t.Errorf("Server start failed: %v", err)
+		}
+	}()
+	time.Sleep(200 * time.Millisecond)
+
+	defer func() {
+		_ = server.StopWebsocket()
+		select {
+		case <-serverDoneCh:
+		case <-time.After(5 * time.Second):
+		}
+	}()
+
+	config := jwt.JwtConfig{TokenTyp: jwt.JWT, TokenAlg: jwt.HS256, TokenKey: "123456", TokenExp: jwt.TWO_WEEK}
+	subject := &jwt.Subject{}
+	token := subject.Create(utils.NextSID()).Dev("APP").Generate(config)
+
+	if err := rawWsHandshakeThenClose(serverAddr, token); err != nil {
+		t.Fatalf("raw handshake then close failed: %v", err)
+	}
+
+	// 等待服务端 read loop 收到 EOF 并执行 cleanup（RemoveByConn）
+	time.Sleep(600 * time.Millisecond)
+	if count := server.GetConnManager().Count(); count != 0 {
+		t.Errorf("expected 0 connections after client unexpected disconnect, got %d", count)
+	} else {
+		t.Logf("✓ Server correctly cleaned up after client unexpected disconnect")
+	}
+
+	// 再次用 SDK 连接，确认服务端仍可用（需与 TestWebSocketSDKUsage 一致配置 ECDSA）
+	wsSdk := sdk.NewSocketSDK(serverAddr)
+	secretBytes := subject.GetTokenSecret(token, config.TokenKey)
+	wsSdk.AuthToken(sdk.AuthToken{
+		Token:   token,
+		Secret:  utils.Base64Encode(utils.Bytes2Str(secretBytes)),
+		Expired: subject.Payload.Exp,
+	})
+	wsSdk.SetClientNo(1)
+	_ = wsSdk.SetECDSAObject(wsSdk.ClientNo, clientPrk, serverPub)
+	if err := wsSdk.ConnectWebSocket("/ws"); err != nil {
+		t.Fatalf("reconnect after disconnect test failed: %v", err)
+	}
+	defer wsSdk.DisconnectWebSocket()
+	t.Logf("✓ Client can reconnect and server still works after unexpected disconnect")
 }
 
 // TestRemoteIPSecurity 测试RemoteIP的安全性，防止IP伪造
