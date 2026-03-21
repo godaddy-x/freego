@@ -186,8 +186,12 @@ func addMongoIndex(object sqlc.Object, index sqlc.Index) error {
 		panic(err)
 	}
 	bsonD := bson.D{}
-	for _, v := range index.Key {
-		bsonD = append(bsonD, bson.E{Key: v, Value: 1})
+	for _, v := range index.Keys {
+		val := v.V
+		if val != -1 { // 如果非倒序则默认正序
+			val = 1
+		}
+		bsonD = append(bsonD, bson.E{Key: v.K, Value: val})
 	}
 	modelIndex := mongo.IndexModel{
 		Keys: bsonD, Options: &options.IndexOptions{Name: &index.Name, Unique: &index.Unique},
