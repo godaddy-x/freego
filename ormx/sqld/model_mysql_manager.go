@@ -417,7 +417,7 @@ func ModelDriver(objects ...sqlc.Object) error {
 			f.FieldBsonName = field.Tag.Get(sqlc.Bson)
 			f.FieldOffset = field.Offset
 			f.FieldType = field.Type.String()
-			if field.Name == sqlc.Id || isPk(field.Tag.Get(sqlc.Key)) {
+			if strings.ToUpper(field.Name) == sqlc.ID || isPk(field.Tag.Get(sqlc.Key)) {
 				f.Primary = true
 				md.PkOffset = field.Offset
 				md.PkKind = value.Kind()

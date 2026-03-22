@@ -44,7 +44,7 @@ const ASC_ = 1
 const DESC_ = 2
 
 const (
-	Id      = "Id"
+	ID      = "ID"
 	Key     = "key"
 	Auto    = "auto"
 	Ignore  = "ignore"
