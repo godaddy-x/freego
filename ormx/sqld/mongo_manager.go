@@ -106,6 +106,8 @@ func NewMongo(option ...Option) (*MGOManager, error) {
 
 // UseTransaction 开启事务执行函数
 // 注意：事务需要MongoDB副本集环境支持
+// 超时：本方法使用 context.Background()，不在客户端按秒截断事务；事务最长存活时间以 MongoDB 服务端参数为准
+// （例如 transactionLifetimeLimitSeconds，未改时常见默认为 60 秒），与 MGOManager 非事务 CRUD 的默认 context 超时无关。
 // 重要：在事务函数内部，请直接使用基础方法（Save, Update, FindOne等），
 // 不要使用带WithContext的方法，因为事务已经自动管理了context
 func UseTransaction(fn func(mgo *MGOManager) error, option ...Option) error {
@@ -115,7 +117,8 @@ func UseTransaction(fn func(mgo *MGOManager) error, option ...Option) error {
 
 // UseTransactionWithContext 开启事务执行函数（支持自定义上下文）
 // 注意：事务需要MongoDB副本集环境支持
-// ctx: 自定义上下文，用于控制整个事务的超时、取消等行为
+// ctx: 自定义上下文；若带 Deadline/取消，可在客户端限制事务时长；否则与 UseTransaction 类似，仍受服务端事务生存时间等参数约束。
+// 超时：除 ctx 外本库未另设事务过期秒数；MongoDB 仍会按服务端设定结束超时事务（同上 transactionLifetimeLimitSeconds 等）。
 // 重要：在事务函数内部，请直接使用基础方法（Save, Update, FindOne等），
 // 不要使用带WithContext的方法，因为事务已经自动管理了context
 func UseTransactionWithContext(ctx context.Context, fn func(mgo *MGOManager) error, option ...Option) error {
@@ -202,7 +205,7 @@ func (self *MGOManager) GetDB(options ...Option) error {
 	self.Session = mgo.Session
 	self.DsName = mgo.DsName
 	self.Database = mgo.Database
-	self.Timeout = 60000
+	self.Timeout = 120000
 	self.SlowQuery = mgo.SlowQuery
 	self.SlowLogPath = mgo.SlowLogPath
 	self.CacheManager = mgo.CacheManager
@@ -406,7 +409,7 @@ func (self *MGOManager) buildByConfig(manager cache.Cache, input ...MGOConfig) e
 		mgo.Database = v.Database
 		mgo.SlowQuery = v.SlowQuery
 		mgo.SlowLogPath = v.SlowLogPath
-		mgo.Timeout = 10000 // 默认10秒
+		mgo.Timeout = 120000 // 默认120秒
 		if v.OpenTx {
 			mgo.OpenTx = v.OpenTx
 		}
