@@ -2,17 +2,17 @@ package cache
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 
 	"github.com/godaddy-x/freego/ex"
+	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/zlog"
 )
 
 var (
-	localLockEntryPool   sync.Map
-	localLockEntryInitMu sync.Mutex
+	localLockEntryPoolMu sync.Mutex
+	localLockEntryPool   = make(map[string]*localLockEntry)
 	localLockCleaner     sync.Once
 	localLockCleanerStop context.CancelFunc
 )
@@ -29,11 +29,15 @@ type localLockEntry struct {
 	token    string
 	expireAt int64
 	lastUsed int64
+	refs     int32
 }
 
 func (e *localLockEntry) touch() {
 	e.mu.Lock()
-	e.lastUsed = time.Now().UnixNano()
+	// 仅在仍被引用时刷新活跃时间，避免在释放引用后人为延长回收窗口。
+	if e.refs > 0 {
+		e.lastUsed = time.Now().UnixNano()
+	}
 	e.mu.Unlock()
 }
 
@@ -51,22 +55,23 @@ func startLocalLockCleaner() {
 				case <-ticker.C:
 				}
 				now := time.Now().UnixNano()
-				localLockEntryPool.Range(func(key, value interface{}) bool {
-					entry, ok := value.(*localLockEntry)
-					if !ok || entry == nil {
-						localLockEntryPool.Delete(key)
-						return true
+				localLockEntryPoolMu.Lock()
+				for key, entry := range localLockEntryPool {
+					if entry == nil {
+						delete(localLockEntryPool, key)
+						continue
 					}
 					entry.mu.Lock()
 					idle := entry.token == ""
 					lastUsed := entry.lastUsed
+					refs := entry.refs
 					entry.mu.Unlock()
-					// 仅清理空闲且未持锁的资源，避免影响活跃锁
-					if idle && now-lastUsed > int64(localLockIdleTTL) {
-						localLockEntryPool.Delete(key)
+					// 仅回收空闲、超时且无引用的entry，避免并发下出现双entry或误删正在使用的entry。
+					if idle && refs == 0 && now-lastUsed > int64(localLockIdleTTL) {
+						delete(localLockEntryPool, key)
 					}
-					return true
-				})
+				}
+				localLockEntryPoolMu.Unlock()
 			}
 		}()
 	})
@@ -80,22 +85,34 @@ func stopLocalLockCleaner() {
 
 func getLocalLockEntry(resource string) *localLockEntry {
 	startLocalLockCleaner()
-	if entry, ok := localLockEntryPool.Load(resource); ok {
-		e := entry.(*localLockEntry)
+	localLockEntryPoolMu.Lock()
+	defer localLockEntryPoolMu.Unlock()
+	if e, ok := localLockEntryPool[resource]; ok && e != nil {
+		e.mu.Lock()
+		e.refs++
+		e.mu.Unlock()
 		e.touch()
 		return e
 	}
-	localLockEntryInitMu.Lock()
-	defer localLockEntryInitMu.Unlock()
-	// 双检，避免并发下重复创建entry对象。
-	if entry, ok := localLockEntryPool.Load(resource); ok {
-		e := entry.(*localLockEntry)
-		e.touch()
-		return e
+	e := &localLockEntry{
+		token:    "",
+		expireAt: 0,
+		lastUsed: time.Now().UnixNano(),
+		refs:     1,
 	}
-	e := &localLockEntry{token: "", expireAt: 0, lastUsed: time.Now().UnixNano()}
-	localLockEntryPool.Store(resource, e)
+	localLockEntryPool[resource] = e
 	return e
+}
+
+func localReleaseEntryRef(entry *localLockEntry) {
+	if entry == nil {
+		return
+	}
+	entry.mu.Lock()
+	if entry.refs > 0 {
+		entry.refs--
+	}
+	entry.mu.Unlock()
 }
 
 func localTryAcquireLease(entry *localLockEntry, token string, wait time.Duration, leaseTTL time.Duration) bool {
@@ -157,11 +174,12 @@ func tryLocalLocker(resource string, expSecond int, call func(lock *Lock) error)
 	}
 
 	entry := getLocalLockEntry(resource)
-	token := fmt.Sprintf("local-%d", time.Now().UnixNano())
+	token := utils.GetUUID(true)
 	waitTimeout := localLockWaitTimeout
 	leaseTTL := time.Duration(expSecond) * time.Second
 
 	if !localTryAcquireLease(entry, token, waitTimeout, leaseTTL) {
+		localReleaseEntryRef(entry)
 		return ex.Throw{Code: ex.LOCAL_LOCK_ACQUIRE, Msg: "resource is already locked"}
 	}
 
@@ -182,10 +200,12 @@ func tryLocalLocker(resource string, expSecond int, call func(lock *Lock) error)
 		// 先recover，再解锁，确保panic路径不会跳过解锁
 		if r := recover(); r != nil {
 			_ = lockObj.Unlock()
+			localReleaseEntryRef(entry)
 			zlog.Error("panic in local lock callback", 0, zlog.String("resource", resource), zlog.Any("panic", r))
 			panic(r)
 		}
 		_ = lockObj.Unlock()
+		localReleaseEntryRef(entry)
 	}()
 	return call(lockObj)
 }
