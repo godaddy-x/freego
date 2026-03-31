@@ -12,6 +12,12 @@ import (
 	"github.com/godaddy-x/freego/zlog"
 )
 
+func hasInitializedRedisSession() bool {
+	redisMutex.RLock()
+	defer redisMutex.RUnlock()
+	return len(redisSessions) > 0
+}
+
 // LockConfig 分布式锁配置参数
 type LockConfig struct {
 	// 基础时间配置（8字节字段）
@@ -95,6 +101,7 @@ type Lock struct {
 	// 指针和函数字段（8字节对齐）
 	locker        *redislock.Lock    // 底层锁实例（bsm/redis-lock）
 	cancelRefresh context.CancelFunc // 取消续期goroutine的函数
+	localEntry    *localLockEntry    // 本地锁条目（仅本地锁模式）
 
 	// 整数字段（8字节对齐）
 	exp int // 锁初始过期时间（秒）
@@ -107,6 +114,7 @@ type Lock struct {
 
 	// 32位整数字段（4字节对齐）
 	isValid         int32 // 锁是否仍然有效（1=有效，0=失效），使用原子操作
+	isLocal         int32 // 是否本地锁模式（1=本地锁，0=Redis锁）
 	refreshCount    int32 // 续期成功次数，使用原子操作
 	refreshFailures int32 // 续期失败次数，用于监控续期稳定性
 }
@@ -326,8 +334,22 @@ func (lock *Lock) refresh(maxRetry int, retryBackoff time.Duration) bool {
 // IsValid 检查锁是否仍然有效
 // 返回值: true表示锁仍然有效且可用，false表示锁已失效或已释放（续期失败或已释放）
 func (lock *Lock) IsValid() bool {
-	// 同时检查locker存在性和原子状态，确保锁完全有效
-	return lock.locker != nil && atomic.LoadInt32(&lock.isValid) == 1
+	if atomic.LoadInt32(&lock.isValid) != 1 {
+		return false
+	}
+	if atomic.LoadInt32(&lock.isLocal) == 1 {
+		// 本地锁模式同时校验条目、持有者token和过期时间，避免语义过宽。
+		if lock.localEntry == nil {
+			return false
+		}
+		nowNS := time.Now().UnixNano()
+		lock.localEntry.mu.Lock()
+		valid := lock.localEntry.token == lock.token && nowNS < lock.localEntry.expireAt
+		lock.localEntry.mu.Unlock()
+		return valid
+	}
+	// Redis模式：同时检查locker存在性和原子状态，确保锁完全有效
+	return lock.locker != nil
 }
 
 // RefreshCount 获取续期成功次数
@@ -386,6 +408,13 @@ func (lock *Lock) TimeSinceLastRefresh() time.Duration {
 
 // Unlock 释放锁
 func (lock *Lock) Unlock() error {
+	if atomic.LoadInt32(&lock.isLocal) == 1 {
+		// 本地锁模式需要主动释放当前租约，避免提前释放后仍被残留租约阻塞。
+		localReleaseLease(lock.localEntry, lock.token)
+		atomic.StoreInt32(&lock.isValid, 0)
+		return nil
+	}
+
 	if lock.locker == nil {
 		return nil // 已经释放
 	}
@@ -413,13 +442,19 @@ func (lock *Lock) Unlock() error {
 // callObj: 临界区回调函数，接收Lock实例用于状态检查
 // config: 可选的锁配置，默认使用DefaultLockConfig()
 func TryLocker(lockObj string, expSecond int, callObj func(lock *Lock) error, config ...*LockConfig) error {
+	// 默认本地锁模式：未初始化Redis时直接使用本地锁
+	// 强制Redis模式：初始化过Redis后，不允许降级到本地锁
+	if !hasInitializedRedisSession() {
+		return tryLocalLocker(lockObj, expSecond, callObj)
+	}
+
 	manager, err := NewRedis()
 	if err != nil {
-		zlog.Error("failed to initialize Redis manager", 0, zlog.AddError(err))
+		zlog.Error("redis lock manager unavailable in forced redis mode", 0, zlog.AddError(err))
 		return ex.Throw{Code: ex.REDIS_LOCK_ACQUIRE, Msg: "failed to initialize Redis manager: " + err.Error()}
 	}
 	if manager == nil {
-		zlog.Error("Redis manager initialization returned nil", 0)
+		zlog.Error("Redis manager initialization returned nil in forced redis mode", 0)
 		return ex.Throw{Code: ex.REDIS_LOCK_ACQUIRE, Msg: "Redis manager initialization returned nil"}
 	}
 	return manager.TryLockWithTimeout(lockObj, expSecond, callObj, config...)

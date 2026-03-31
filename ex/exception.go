@@ -27,6 +27,7 @@ const (
 	REDIS_LOCK_PENDING = 800002 // redis锁正在处理
 	REDIS_LOCK_TIMEOUT = 800003 // redis锁自旋超时
 	REDIS_LOCK_RELEASE = 800004 // redis锁释放失败
+	LOCAL_LOCK_ACQUIRE = 800005 // 本地锁获取失败
 )
 
 const (
