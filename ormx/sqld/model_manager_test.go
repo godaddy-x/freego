@@ -5,6 +5,9 @@ import (
 	"testing"
 
 	"github.com/godaddy-x/freego/ormx/sqlc"
+	"github.com/godaddy-x/freego/utils/decimal"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 // TestSecureEraseBytes 测试安全擦除字节数组功能
@@ -316,4 +319,92 @@ func TestByteArrayFieldSafety(t *testing.T) {
 	t.Logf("   原始数据完整性: ✅")
 	t.Logf("   连接池回收隔离: ✅")
 	t.Logf("   GetValue 正确性: ✅")
+}
+
+type TestDecimalModel struct {
+	Id    int64           `json:"id" bson:"_id"`
+	Price decimal.Decimal `json:"price" bson:"price"`
+}
+
+func (o *TestDecimalModel) GetTable() string {
+	return "test_decimal_model"
+}
+
+func (o *TestDecimalModel) NewObject() sqlc.Object {
+	return &TestDecimalModel{}
+}
+
+func (o *TestDecimalModel) AppendObject(data interface{}, target sqlc.Object) {
+	*data.(*[]*TestDecimalModel) = append(*data.(*[]*TestDecimalModel), target.(*TestDecimalModel))
+}
+
+func (o *TestDecimalModel) NewIndex() []sqlc.Index {
+	return []sqlc.Index{}
+}
+
+func TestMongoDecimal128Encode(t *testing.T) {
+	model := &TestDecimalModel{}
+	if err := ModelDriver(model); err != nil {
+		t.Fatalf("注册模型失败: %v", err)
+	}
+
+	price, err := decimal.NewFromString("1234.5678")
+	if err != nil {
+		t.Fatalf("构造decimal失败: %v", err)
+	}
+
+	model.Id = 1
+	model.Price = price
+
+	doc, err := EncodeObjectToBson(model)
+	if err != nil {
+		t.Fatalf("EncodeObjectToBson 失败: %v", err)
+	}
+
+	val, ok := doc["price"]
+	if !ok {
+		t.Fatalf("编码文档缺少 price 字段")
+	}
+
+	d128, ok := val.(primitive.Decimal128)
+	if !ok {
+		t.Fatalf("price 类型错误，期望 primitive.Decimal128，实际 %T", val)
+	}
+
+	if d128.String() != price.String() {
+		t.Fatalf("price 值不一致，期望 %s，实际 %s", price.String(), d128.String())
+	}
+}
+
+func TestMongoDecimal128Decode(t *testing.T) {
+	model := &TestDecimalModel{}
+	if err := ModelDriver(model); err != nil {
+		t.Fatalf("注册模型失败: %v", err)
+	}
+
+	expected, err := decimal.NewFromString("9876543.2101")
+	if err != nil {
+		t.Fatalf("构造decimal失败: %v", err)
+	}
+
+	d128, err := primitive.ParseDecimal128(expected.String())
+	if err != nil {
+		t.Fatalf("构造Decimal128失败: %v", err)
+	}
+
+	docBytes, err := bson.Marshal(bson.D{
+		{Key: "_id", Value: int64(2)},
+		{Key: "price", Value: d128},
+	})
+	if err != nil {
+		t.Fatalf("构造BSON失败: %v", err)
+	}
+
+	if err := DecodeBsonToObject(model, bson.Raw(docBytes)); err != nil {
+		t.Fatalf("DecodeBsonToObject 失败: %v", err)
+	}
+
+	if model.Price.Cmp(expected) != 0 {
+		t.Fatalf("解码结果不一致，期望 %s，实际 %s", expected.String(), model.Price.String())
+	}
 }

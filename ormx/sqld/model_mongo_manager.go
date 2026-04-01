@@ -465,10 +465,14 @@ func getStructValueFromObject(ptr uintptr, elem *FieldElem) (interface{}, error)
 		oidVal := utils.GetObjectID(ptr)
 		return oidVal, nil
 	case "decimal.Decimal":
-		// decimal.Decimal需要特殊处理，因为它不是通过utils函数访问的
+		// decimal.Decimal 统一编码为 MongoDB Decimal128，避免精度丢失
 		decimalPtr := (*decimal.Decimal)(unsafe.Pointer(ptr))
 		if decimalPtr != nil {
-			return *decimalPtr, nil
+			d128, err := primitive.ParseDecimal128(decimalPtr.String())
+			if err != nil {
+				return nil, fmt.Errorf("convert decimal.Decimal to Decimal128 failed: %w", err)
+			}
+			return d128, nil
 		}
 		return nil, nil
 	default:
@@ -1349,6 +1353,12 @@ func setDecimal(fieldVal reflect.Value, bsonValue bson.RawValue, elem *FieldElem
 	var err error
 
 	switch bsonValue.Type {
+	case bson.TypeDecimal128:
+		d128, ok := bsonValue.Decimal128OK()
+		if !ok {
+			return fmt.Errorf("field %s: invalid Decimal128 value", elem.FieldName)
+		}
+		dec, err = decimal.NewFromString(d128.String())
 	case bson.TypeString:
 		str, ok := bsonValue.StringValueOK()
 		if !ok {
@@ -1371,7 +1381,7 @@ func setDecimal(fieldVal reflect.Value, bsonValue bson.RawValue, elem *FieldElem
 			return fmt.Errorf("field %s: invalid int64 for decimal", elem.FieldName)
 		}
 	default:
-		return fmt.Errorf("field %s: decimal requires String/Double/Int64 type, got %s", elem.FieldName, bsonValue.Type)
+		return fmt.Errorf("field %s: decimal requires Decimal128/String/Double/Int64 type, got %s", elem.FieldName, bsonValue.Type)
 	}
 
 	if err != nil {
