@@ -207,6 +207,7 @@ CMD ["./main"]
 - 📧 **GitHub**: [https://github.com/godaddy-x/freego](https://github.com/godaddy-x/freego)
 - 🐛 **Issues**: [报告问题](https://github.com/godaddy-x/freego/issues)
 - 📖 **文档**: [详细文档](./README_SECURITY.md)
+- ⚙️ Project maintained by [`godaddy-x`](https://github.com/godaddy-x). Historical contributions from `go-pioneer` are by the same author.
 
 ---
 
