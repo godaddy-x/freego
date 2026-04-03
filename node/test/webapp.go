@@ -176,6 +176,8 @@ func NewHTTP() *MyWebNode {
 	//	return rds, err
 	//})
 	my.SetSystem("test", "1.0.0")
+	my.SetAcceptTimeout(600)
+
 	my.AddRoleRealm(roleRealm)
 	my.AddErrorHandle(func(ctx *node.Context, throw ex.Throw) error {
 		fmt.Println(throw)

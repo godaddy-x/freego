@@ -62,15 +62,6 @@ func (self *HttpNode) proxy(handle PostHandle, ctx *fasthttp.RequestCtx) {
 	}
 }
 
-var (
-	defaultTimeout = 30
-)
-
-func (self *HttpNode) StartServerByTimeout(addr string, timeout int) {
-	defaultTimeout = timeout
-	self.StartServer(addr)
-}
-
 func (self *HttpNode) StartServer(addr string) {
 	// 防止重复启动
 	if self.server != nil {
@@ -369,7 +360,7 @@ func (self *HttpNode) addRouterConfig(path string, routerConfig *RouterConfig) {
 func (self *HttpNode) newRouter() {
 	self.readyContext()
 	if self.Context.System.AcceptTimeout <= 0 {
-		self.Context.System.AcceptTimeout = 60
+		self.Context.System.AcceptTimeout = 180
 	}
 	if self.Context.router == nil {
 		self.Context.router = fasthttprouter.New()
@@ -401,6 +392,11 @@ func (self *HttpNode) SetSystem(name, version string) {
 	self.readyContext()
 	self.Context.System.Name = name
 	self.Context.System.Version = version
+}
+
+func (self *HttpNode) SetAcceptTimeout(timeout int64) {
+	self.readyContext()
+	self.Context.System.AcceptTimeout = timeout
 }
 
 func (self *HttpNode) ClearFilterChain() {
