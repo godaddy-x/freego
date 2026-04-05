@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/ecdh"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 
@@ -119,7 +118,7 @@ func (self *CommonWorker) Do(ctx context.Context, req *pb.CommonRequest) (*pb.Co
 
 // -------------------------- 验证数据 --------------------------
 
-// validRequest 执行完整的请求验证流程，包括参数校验、双重签名验证和重放攻击防护
+// validRequest 执行完整的请求验证流程：X25519 协商 key 校验 HMAC(S)；P=1 的 D 另经 EncryptX25519。不使用 e 字段。
 // req: 待验证的通用请求对象
 // 返回: 验证通过的密钥对、共享密钥和可能的验证错误
 func (self *CommonWorker) validRequest(req *pb.CommonRequest) (fgocrypto.Cipher, []byte, error) {
@@ -145,9 +144,6 @@ func (self *CommonWorker) validRequest(req *pb.CommonRequest) (fgocrypto.Cipher,
 	if !utils.CheckRangeInt(len(req.S), 32, 64) {
 		return nil, nil, errors.New("request signature length invalid")
 	}
-	if len(req.E) != sha256.Size {
-		return nil, nil, errors.New("request outer MAC length invalid (expect HMAC-SHA256)")
-	}
 
 	cipher, exists := self.GetCipher()[req.U]
 	if !exists || cipher == nil {
@@ -163,12 +159,7 @@ func (self *CommonWorker) validRequest(req *pb.CommonRequest) (fgocrypto.Cipher,
 		return nil, nil, err
 	}
 
-	// 外层：E = HMAC-SHA256(S, sharedX25519)（须先得到 sharedKey）
-	if err := cipher.Verify(req.S, req.E); err != nil {
-		return nil, nil, errors.New("request outer MAC check failed")
-	}
-
-	// 内层 HMAC（双重签名验证的第二层）
+	// S = HMAC(规范串, X25519 协商 key)；不再使用 e
 	sig, err := Signature(key, req.D.Value, req.N, req.T, req.P, req.R, req.U)
 	if err != nil {
 		return nil, nil, err
@@ -211,8 +202,8 @@ func PackAny(data proto.Message) (*anypb.Any, error) {
 }
 
 // buildSuccessResponse 构建业务处理成功的标准响应，包含数据加密和签名
-// cipher: 用于签名的密钥对
-// key: 用于数据加密的共享密钥
+// cipher: RPCX X25519 对象（P=1 时用对端公钥封装载荷）
+// key: 静态 ECDH 共享秘密，仅用于 HMAC（S）；不用于 P=1 业务体（业务体为 EncryptX25519）
 // req: 原始请求对象，用于保持请求-响应一致性
 // bizResp: 业务处理成功后的响应数据
 // 返回: 构建完成的通用响应对象和可能的错误
@@ -226,7 +217,7 @@ func (self *CommonWorker) buildSuccessResponse(cipher fgocrypto.Cipher, key []by
 		return buildErrorResponse(req, codes.Internal, fmt.Sprintf("pack business response failed: %v", err)), nil
 	}
 
-	// 如果请求是加密的，响应也应该加密（X25519 封装，与请求侧对称）
+	// P=1：ecc.EncryptX25519（对端公钥），与请求侧一致
 	if req.P == 1 {
 		aad := utils.GetRandomSecure(32)
 		encrypted, err := RPCXPayloadEncrypt(cipher, anyResp.Value, aad)
@@ -256,35 +247,32 @@ func (self *CommonWorker) buildSuccessResponse(cipher fgocrypto.Cipher, key []by
 	}
 
 	res.S = sig
-	res.E, err = cipher.Sign(res.S)
-	if err != nil {
-		return buildErrorResponse(req, codes.Internal, fmt.Sprintf("pack business response sign failed: %v", err)), nil
-	}
+	res.E = nil // RPCX 不再使用外层 e
 	return res, nil
 }
 
-// RPCXPayloadEncrypt 加密 P=1 业务 protobuf 序列化字节；aad 通常为随机 32 字节，写入 pb.Encrypt.N。
+// RPCXPayloadEncrypt P=1 业务体（ecc.EncryptX25519）；aad 写入 pb.Encrypt.N。
 func RPCXPayloadEncrypt(cipher fgocrypto.Cipher, plaintext, aad []byte) ([]byte, error) {
 	xr, ok := cipher.(*fgocrypto.X25519RPCObject)
 	if !ok {
-		return nil, errors.New("RPCX P=1 requires *X25519RPCObject from CreateX25519RPCWithBase64")
+		return nil, errors.New("RPCX P=1 requires *X25519RPCObject")
 	}
 	return xr.RPCXEncryptPayload(plaintext, aad)
 }
 
-// RPCXPayloadDecrypt 解密 P=1 的 pb.Encrypt（ecc.EncryptX25519 格式）。
+// RPCXPayloadDecrypt 解密 P=1 的 pb.Encrypt（eccrypto 0x02 格式）。
 func RPCXPayloadDecrypt(cipher fgocrypto.Cipher, enc *pb.Encrypt) ([]byte, error) {
 	if enc == nil {
 		return nil, errors.New("encrypt payload is nil")
 	}
 	xr, ok := cipher.(*fgocrypto.X25519RPCObject)
 	if !ok {
-		return nil, errors.New("RPCX P=1 requires *X25519RPCObject from CreateX25519RPCWithBase64")
+		return nil, errors.New("RPCX P=1 requires *X25519RPCObject")
 	}
 	return xr.RPCXDecryptPayload(enc.D, enc.N)
 }
 
-// GetSharedKey 获取 RPCX 用 X25519 ECDH 共享秘密（32 字节），与 eccrypto GenSharedKeyX25519 一致。结果经本地缓存加密存放。
+// GetSharedKey 获取 RPCX 静态 X25519 ECDH 共享秘密（32 字节），仅用于 HMAC（S）；P=1 载荷为 EncryptX25519，不走此密钥。
 func GetSharedKey(c cache.Cache, cipher fgocrypto.Cipher) ([]byte, error) {
 	xr, ok := cipher.(*fgocrypto.X25519RPCObject)
 	if !ok {
