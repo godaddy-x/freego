@@ -137,9 +137,9 @@ func (r *RPC) Call(router string, requestObj, responseObj proto.Message, encrypt
 }
 
 func (r *RPC) CallWithTimeout(router string, requestObj, responseObj proto.Message, encrypted bool, timeout int64) error {
-	if encrypted {
-		return fmt.Errorf("RPCX 暂不支持 P=1，请使用 Call(..., encrypted=false)")
-	}
+	//if encrypted {
+	//	return fmt.Errorf("RPCX 暂不支持 P=1，请使用 Call(..., encrypted=false)")
+	//}
 	return r.post(router, requestObj, responseObj, timeout)
 }
 

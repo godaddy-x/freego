@@ -116,25 +116,6 @@ type X25519RPCObject struct {
 	cachedShared []byte
 }
 
-// CreateX25519RPCWithBase64 仅 RPCX：本端 X25519 私钥 Base64 + 对端 X25519 公钥 Base64（与 HTTP/WS 的 Ed25519 配置无关）。
-func CreateX25519RPCWithBase64(selfPrkB64, peerPubB64 string) (*X25519RPCObject, error) {
-	prk, err := ecc.LoadX25519PrivateKeyFromBase64(selfPrkB64)
-	if err != nil {
-		return nil, err
-	}
-	pub, err := ecc.LoadX25519PublicKeyFromBase64(peerPubB64)
-	if err != nil {
-		return nil, err
-	}
-	return &X25519RPCObject{
-		privateKey:       prk,
-		peerPublicKey:    pub,
-		PrivateKeyBase64: selfPrkB64,
-		PublicKeyBase64:  utils.Base64Encode(prk.PublicKey().Bytes()),
-		PeerPublicKeyB64: peerPubB64,
-	}, nil
-}
-
 func (o *X25519RPCObject) sharedSecretLocked() ([]byte, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
