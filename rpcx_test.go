@@ -15,13 +15,7 @@ import (
 	"github.com/godaddy-x/freego/utils/crypto"
 )
 
-// RPCX 专用 X25519（与 utils/crypto 测试向量一致；与 Ed25519 身份密钥独立）
-const (
-	rpcSrvXPrk = "TRQj6bHELNdsZadbqSJlGcvjEsW6vBREQv8FmKMO+qU="
-	rpcCliXPrk = "LArtWyUb9zfeAtiZA/jyZkmSru/MdjA54Q7d9TzhApA="
-	rpcSrvXPub = "YzwF+m0YHnGF/DxJVhTscu2s4rd1P2zhTmOmVSikrAg="
-	rpcCliXPub = "4pDVI9QmdGmgv02tMtBVyPS+H3OtNayM0CPYkzuPkH4="
-)
+// Ed25519 与 socket_test.go 一致：服务端 (serverPrk, clientPub)，客户端 (clientPrk, serverPub)
 
 // TestHandler 测试业务处理器
 func testHandle(ctx context.Context, req *pb.TestRequest) (*pb.TestResponse, error) {
@@ -39,32 +33,23 @@ func TestGRPCManager_StartServer(t *testing.T) {
 	// 创建GRPC管理器
 	manager := rpcx.NewRPCManager()
 
-	cipher, _ := crypto.CreateX25519RPCWithBase64(rpcSrvXPrk, rpcCliXPub)
-	// 添加RSA cipher
-	err := manager.AddCipher(1, cipher)
+	cipher, err := crypto.CreateEd25519WithBase64(serverPrk, clientPub)
+	if err != nil {
+		t.Fatalf("cipher: %v", err)
+	}
+	err = manager.AddCipher(1, cipher)
 	if err != nil {
 		t.Fatalf("Failed to add cipher: %v", err)
 	}
 
 	// 注册业务处理器
 	manager.AddHandler("test.hello", rpcx.Wrap(testHandle), func() proto.Message { return &pb.TestRequest{} })
-	if err != nil {
-		t.Fatalf("Failed to register handler: %v", err)
-	}
 
-	// 启动服务器
-	serverAddr := ":9090" // 使用固定端口
-	err = manager.StartServer(serverAddr)
-	if err != nil {
+	if err = manager.StartServer(":9090"); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
-
-	// 等待一秒让服务器完全启动
-	time.Sleep(1000 * time.Second)
-
-	// 停止服务器
-	err = manager.StopServer()
-	if err != nil {
+	time.Sleep(20000 * time.Millisecond)
+	if err = manager.StopServer(); err != nil {
 		t.Fatalf("Failed to stop server: %v", err)
 	}
 }
@@ -72,9 +57,11 @@ func TestGRPCManager_StartServer(t *testing.T) {
 // TestRpcSDK_Basic 基础功能测试
 func TestRpcSDK_Basic(t *testing.T) {
 
-	cipher, _ := crypto.CreateX25519RPCWithBase64(rpcCliXPrk, rpcSrvXPub)
+	cipher, err := crypto.CreateEd25519WithBase64(clientPrk, serverPub)
+	if err != nil {
+		t.Fatalf("cipher: %v", err)
+	}
 
-	// 创建RPC客户端SDK
 	rpcClient := sdk.NewRPC("localhost:9090").
 		SetSSL(false).
 		SetClientNo(1).
@@ -91,7 +78,7 @@ func TestRpcSDK_Basic(t *testing.T) {
 	testRes := &pb.TestResponse{}
 
 	for i := 0; i < 10; i++ {
-		if err := rpcClient.Call("test.hello", testReq, testRes, true); err != nil {
+		if err := rpcClient.Call("test.hello", testReq, testRes, false); err != nil {
 			fmt.Println(err)
 		}
 
