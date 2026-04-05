@@ -12,42 +12,8 @@ import (
 	"github.com/godaddy-x/freego/utils"
 )
 
-type EcdhObject struct {
-	// 16字节string字段组
-	PrivateKeyBase64 string
-	PublicKeyBase64  string
-
-	// 8字节指针字段组
-	privateKey *ecdh.PrivateKey
-	publicKey  *ecdh.PublicKey
-}
-
-func (self *EcdhObject) CreateECDH() error {
-	prk, err := ecc.CreateECDH()
-	if err != nil {
-		return err
-	}
-
-	self.privateKey = prk
-	self.publicKey = prk.PublicKey()
-	self.PublicKeyBase64 = utils.Base64Encode(self.publicKey.Bytes())
-	return nil
-}
-
-func (self *EcdhObject) LoadS256ECC(b64 string) error {
-	prk, err := ecc.LoadECDHPrivateKeyFromBase64(b64)
-	if err != nil {
-		return err
-	}
-	self.privateKey = prk
-	self.publicKey = prk.PublicKey()
-	self.PublicKeyBase64 = utils.Base64Encode(self.publicKey.Bytes())
-	return nil
-}
-
-// ******************************************************* ECDH X25519 Implement *******************************************************
-
-type EcdhX25519Object struct {
+// X25519Object 匿名通道（Plan2）使用的临时 X25519 密钥对，基于标准库 crypto/ecdh（Curve25519）。
+type X25519Object struct {
 	PrivateKeyBase64 string
 	PublicKeyBase64  string
 
@@ -55,18 +21,21 @@ type EcdhX25519Object struct {
 	publicKey  *ecdh.PublicKey
 }
 
-func (self *EcdhX25519Object) CreateX25519() error {
+// CreateX25519 生成新的 X25519 密钥对，并填充 PublicKeyBase64。
+func (self *X25519Object) CreateX25519() error {
 	prk, err := ecc.CreateX25519()
 	if err != nil {
 		return err
 	}
+
 	self.privateKey = prk
 	self.publicKey = prk.PublicKey()
 	self.PublicKeyBase64 = utils.Base64Encode(self.publicKey.Bytes())
 	return nil
 }
 
-func (self *EcdhX25519Object) LoadX25519(b64 string) error {
+// LoadX25519PrivateFromBase64 从 Base64 加载 X25519 私钥，并推导公钥与 PublicKeyBase64。
+func (self *X25519Object) LoadX25519PrivateFromBase64(b64 string) error {
 	prk, err := ecc.LoadX25519PrivateKeyFromBase64(b64)
 	if err != nil {
 		return err
@@ -77,55 +46,21 @@ func (self *EcdhX25519Object) LoadX25519(b64 string) error {
 	return nil
 }
 
-// ******************************************************* ECC Implement *******************************************************
+// ******************************************************* X25519 Cipher（Cipher 接口）*******************************************************
 
-func (self *EcdhObject) GetPrivateKey() (interface{}, string) {
+func (self *X25519Object) GetPrivateKey() (interface{}, string) {
 	return self.privateKey, self.PrivateKeyBase64
 }
 
-func (self *EcdhObject) GetPublicKey() (interface{}, string) {
+func (self *X25519Object) GetPublicKey() (interface{}, string) {
 	return self.publicKey, self.PublicKeyBase64
 }
 
-func (self *EcdhObject) Encrypt(msg, aad []byte) (string, error) {
+func (self *X25519Object) Encrypt(msg, aad []byte) (string, error) {
 	return "", nil
 }
 
-func (self *EcdhObject) Decrypt(msg string, aad []byte) ([]byte, error) {
-	bs := utils.Base64Decode(msg)
-	if len(bs) == 0 {
-		return nil, errors.New("base64 parse failed")
-	}
-	r, err := ecc.Decrypt(self.privateKey, bs, aad, nil)
-	if err != nil {
-		return nil, err
-	}
-	return r, nil
-}
-
-func (self *EcdhObject) Sign(msg []byte) ([]byte, error) {
-	return nil, nil
-}
-
-func (self *EcdhObject) Verify(msg, sign []byte) error {
-	return nil
-}
-
-// ******************************************************* X25519 ECC Implement *******************************************************
-
-func (self *EcdhX25519Object) GetPrivateKey() (interface{}, string) {
-	return self.privateKey, self.PrivateKeyBase64
-}
-
-func (self *EcdhX25519Object) GetPublicKey() (interface{}, string) {
-	return self.publicKey, self.PublicKeyBase64
-}
-
-func (self *EcdhX25519Object) Encrypt(msg, aad []byte) (string, error) {
-	return "", nil
-}
-
-func (self *EcdhX25519Object) Decrypt(msg string, aad []byte) ([]byte, error) {
+func (self *X25519Object) Decrypt(msg string, aad []byte) ([]byte, error) {
 	bs := utils.Base64Decode(msg)
 	if len(bs) == 0 {
 		return nil, errors.New("base64 parse failed")
@@ -137,11 +72,11 @@ func (self *EcdhX25519Object) Decrypt(msg string, aad []byte) ([]byte, error) {
 	return r, nil
 }
 
-func (self *EcdhX25519Object) Sign(msg []byte) ([]byte, error) {
+func (self *X25519Object) Sign(msg []byte) ([]byte, error) {
 	return nil, nil
 }
 
-func (self *EcdhX25519Object) Verify(msg, sign []byte) error {
+func (self *X25519Object) Verify(msg, sign []byte) error {
 	return nil
 }
 

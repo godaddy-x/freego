@@ -383,21 +383,21 @@
   │                                    │
   │  1. 请求服务端公钥                  │
   ├─────────  GET /key  ──────────────▶│
-  │◀─────── ECC Public Key ─────────────┤
+  │◀────── 服务端临时 X25519 公钥等 ─────┤
   │    {key, noc, exp, sig}            │
   │                                    │
   │  2. 验证服务端ECDSA签名             │
   │     使用客户端预设的服务端ECDSA公钥  │
   │     Verify(sig, key+noc+exp)       │
   │                                    │
-  │  3. 生成ECDH密钥对                  │
+  │  3. 生成 X25519 临时密钥对          │
   │     clientPrk, clientPub           │
   │     ↓                              │
-  │  4. 计算共享密钥                    │
-  │     sharedKey = ECDH(clientPrk, serverPub)
+  │  4. 计算共享秘密                    │
+  │     raw = X25519(clientPrk, serverPub)
   │     ↓                              │
-  │  5. PBKDF2密钥派生                 │
-  │     Key = PBKDF2(sharedKey, noc, 1024, SHA512)
+  │  5. HKDF 密钥派生（见 node.HKDFKey）│
+  │     Key = HKDF(raw, noc, SharedInfo)
   │     ↓                              │
   │  6. 业务数据JSON序列化              │
   │     ↓                              │
@@ -432,9 +432,9 @@
   │     ↓                              │
   │ 12. 检查时间戳 & Nonce             │
   │     ↓                              │
-  │ 13. 重新计算共享密钥                │
-  │     sharedKey = ECDH(serverPrk, clientPub)
-  │     derivedKey = PBKDF2(sharedKey, noc, 1024, SHA512)
+  │ 13. 重新计算共享秘密并 HKDF         │
+  │     raw = X25519(serverPrk, clientPub)
+  │     derivedKey = HKDF(raw, noc, SharedInfo)
   │     ↓                              │
   │ 14. AES-GCM解密                     │
   │     AAD验证: t+n+p+path             │
@@ -716,7 +716,7 @@
 - ✅ AAD 上下文绑定 (Time + Nonce + Plan + Path)
 - ✅ 三级限流机制
 - ✅ 防重放攻击 (时间戳 + Nonce 去重)
-- ✅ ECDH+AES-GCM 混合加密
+- ✅ X25519 + HKDF + AES-GCM（Plan2 匿名通道）
 - ✅ 零反射高性能 ORM
 
 ---

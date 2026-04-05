@@ -30,7 +30,7 @@ import (
 // - AES-256-GCM 认证加密
 // - HMAC-SHA256 完整性验证
 // - 强制双向ECDSA签名验证
-// - 动态密钥协商 (ECDH)
+// - 动态密钥协商（RPCX 侧为 ECDSA 共享密钥，与 HTTP Plan2 的 X25519 不同）
 // - 防重放攻击 (时间戳+Nonce)
 type RPC struct {
 	Address     string                  // gRPC服务地址 (如: localhost:9090)

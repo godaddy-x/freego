@@ -47,6 +47,7 @@ const (
 	SharedKey     = "SharedKey"
 	Cipher        = "Cipher"
 
+	// HKDF info：历史常量名含 ecdh，勿改字符串以免与已部署客户端派生密钥不一致
 	SharedInfo = "freego-ecdh-aes-gcm"
 )
 
@@ -466,17 +467,17 @@ func (self *Context) validJsonBody() error {
 		if len(prkObject.Key) == 0 {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "prk read is nil"}
 		}
-		prk, err := ecc.LoadECDHPrivateKey(utils.Base64Decode(prkObject.Key))
+		prk, err := ecc.LoadX25519PrivateKey(utils.Base64Decode(prkObject.Key))
 		if err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "prk load error", Err: err}
 		}
 		prkBs := prk.Bytes()
 		defer DIC.ClearData(prkBs) // 方法结束清除临时私钥的底层字节
-		pub, err := ecc.LoadECDHPublicKeyFromBase64(public.Tag)
+		pub, err := ecc.LoadX25519PublicKeyFromBase64(public.Tag)
 		if err != nil {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "pub load error", Err: err}
 		}
-		shared, err := ecc.GenSharedKeyECDH(prk, pub)
+		shared, err := ecc.GenSharedKeyX25519(prk, pub)
 		if err != nil || len(shared) == 0 {
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "shared key error", Err: err}
 		}
@@ -866,9 +867,9 @@ func (self *Context) CreatePublicKey() (*PublicKey, error) {
 	}
 
 	// 生成ECC密钥对 - ECC库应该是线程安全的
-	prk, err := ecc.CreateECDH()
+	prk, err := ecc.CreateX25519()
 	if err != nil {
-		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "ecdh invalid", Err: err}
+		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "x25519 key generation failed", Err: err}
 	}
 
 	requestObject, err := CreatePublicKey(utils.Base64Encode(prk.PublicKey().Bytes()), utils.Base64Encode(utils.GetRandomSecure(32)), checkObject.Usr, cipher)

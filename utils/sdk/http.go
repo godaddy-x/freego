@@ -1,7 +1,7 @@
 package sdk
 
 import (
-	ecdh2 "crypto/ecdh"
+	cryptocdh "crypto/ecdh"
 	"fmt"
 	"time"
 
@@ -27,17 +27,17 @@ type AuthToken struct {
 }
 
 // HttpSDK FreeGo HTTP客户端SDK
-// 支持ECC+AES-GCM加密传输、强制双向ECDSA签名验证、JWT认证等
+// 支持 X25519 密钥协商 + AES-GCM、强制双向 ECDSA 签名、JWT 等
 //
 // 安全特性:
 // - AES-256-GCM 认证加密
 // - HMAC-SHA256 完整性验证
 // - 强制双向ECDSA签名验证 (必须配置)
-// - 动态密钥协商 (ECDH)
+// - 动态密钥协商 (X25519 + HKDF)
 // - 防重放攻击 (时间戳+Nonce)
 //
 // 使用模式:
-// - PostByECC: 匿名访问，使用ECC密钥协商 (必须配置ECDSA)
+// - PostByECC: 匿名访问，使用 X25519 协商会话密钥 (必须配置 ECDSA)
 // - PostByAuth: 登录后访问，使用JWT令牌 (必须配置ECDSA)
 type HttpSDK struct {
 	Domain      string                      // API域名 (如: https://api.example.com)
@@ -50,7 +50,7 @@ type HttpSDK struct {
 	authObject  func() (interface{}, error) // 登录认证对象 (用户名+密码等)
 	authToken   AuthToken                   // JWT认证令牌
 	ecdsaObject map[int64]crypto.Cipher     // ECDSA签名验证对象列表
-	ecdhObject  crypto.Cipher               // ECDH密钥协商对象
+	x25519Peer  crypto.Cipher               // 可选：复用的 X25519 临时密钥（实现 Cipher，一般留空由 PostByECC 每次生成）
 }
 
 // NewHttpSDK 创建新的HttpSDK实例并设置默认值
@@ -251,18 +251,9 @@ func (s *HttpSDK) verifyECDSASign(validSign []byte, respData *node.JsonResp) err
 	return nil
 }
 
-// SetECDHObject 设置预生成的ECDH密钥协商对象
-// 用于复用ECDH密钥对，避免重复生成
-//
-// 参数:
-//   - object: ECDH密钥协商对象指针
-//
-// 返回值:
-//   - error: 设置失败时的错误信息
-//
-// 高级用法: 在连接池或长连接场景下可以复用ECDH对象
-func (s *HttpSDK) SetECDHObject(object *crypto.EcdhObject) error {
-	s.ecdhObject = object
+// SetX25519Object 设置预生成的 X25519 临时密钥对象，用于复用密钥对（少见场景）。
+func (s *HttpSDK) SetX25519Object(object *crypto.X25519Object) error {
+	s.x25519Peer = object
 	return nil
 }
 
@@ -297,32 +288,31 @@ func (s *HttpSDK) getURI(path string) string {
 	return s.Domain + path
 }
 
-// GetPublicKey 获取服务端ECC公钥并建立安全通信信道
-// 这是ECC模式的核心初始化函数，实现密钥协商和强制身份验证
+// GetPublicKey 获取服务端 X25519 临时公钥并建立 Plan2 安全信道
+// 核心流程：请求 /key、校验 ECDSA、生成本端 X25519 临时密钥对。
 //
 // 执行流程:
-// 1. 生成客户端临时ECDH密钥对 (一次性使用)
-// 2. 构造公钥交换请求 (包含客户端公钥)
-// 3. 请求服务端/key接口获取服务端公钥
-// 4. 验证服务端ECDSA签名 (强制要求)
-// 5. 返回协商结果用于后续加密通信
+// 1. 生成本端临时 X25519 密钥对（每次 PostByECC 一轮协商）
+// 2. 构造公钥交换请求
+// 3. 请求服务端 KeyPath 获取服务端临时公钥
+// 4. 校验服务端 ECDSA 等（由 node.CheckPublicKey 等完成）
+// 5. 返回本端 X25519 对象与服务端 PublicKey 封装
 //
 // 安全特性:
-// - ECDH密钥协商: 前向保密性 (PFS)
-// - 临时密钥: 每次请求使用新的密钥对
-// - 强制ECDSA验证: 验证服务端身份真实性
+// - X25519 密钥协商 + HKDF：前向保密（PFS）
+// - 临时密钥：每次请求新密钥对
+// - 强制 ECDSA：验证对端身份
 //
 // 返回值:
-//   - *crypto.EcdhObject: 客户端ECDH对象 (包含私钥)
-//   - *node.PublicKey: 服务端公钥信息
-//   - crypto.Cipher: ECDSA验证对象 (必须配置)
-//   - error: 执行失败时的错误信息
+//   - *crypto.X25519Object: 客户端临时 X25519 密钥（含私钥）
+//   - *node.PublicKey: 服务端公钥与随机数等
+//   - crypto.Cipher: ECDSA 校验用 Cipher
+//   - error: 错误信息
 //
 // 注意:
-// - 必须预先配置ECDSA对象，否则会抛出异常
-// - ECDH对象包含敏感的私钥信息，使用后应立即清除
-// - 此方法会在每次PostByECC调用时执行
-func (s *HttpSDK) GetPublicKey() (*crypto.EcdhObject, *node.PublicKey, crypto.Cipher, error) {
+// - 须预先配置 ecdsaObject
+// - X25519 私钥敏感，用完应清零（PostByECC 内 defer 已处理）
+func (s *HttpSDK) GetPublicKey() (*crypto.X25519Object, *node.PublicKey, crypto.Cipher, error) {
 	// 获取ECDSA cipher，必须配置双向ECDSA签名
 	if s.ecdsaObject == nil {
 		return nil, nil, nil, ex.Throw{Msg: "ECDSA object not configured, bidirectional ECDSA signature is required"}
@@ -374,35 +364,32 @@ func (s *HttpSDK) GetPublicKey() (*crypto.EcdhObject, *node.PublicKey, crypto.Ci
 	if err := node.CheckPublicKey(nil, responseObject, cipher); err != nil {
 		return nil, nil, nil, err
 	}
-	// 生成临时客户端公私钥
-	ecdh := &crypto.EcdhObject{}
-	if err := ecdh.CreateECDH(); err != nil {
-		return nil, nil, nil, ex.Throw{Msg: "create ecdh object error: " + err.Error()}
+	// 生成本端临时 X25519 密钥对
+	xKey := &crypto.X25519Object{}
+	if err := xKey.CreateX25519(); err != nil {
+		return nil, nil, nil, ex.Throw{Msg: "create x25519 key exchange object error: " + err.Error()}
 	}
-	return ecdh, responseObject, cipher, nil
+	return xKey, responseObject, cipher, nil
 }
 
-// PostByECC 通过ECC+AES-GCM+强制ECDSA模式发送POST请求
-// 实现最高安全级别的API调用，支持匿名访问
+// PostByECC 通过 X25519 + HKDF + AES-GCM + 强制 ECDSA 发送 POST（Plan2，匿名场景）
 //
 // 安全协议栈 (从下到上):
-// 1. TLS 1.2+ (网络层加密)
-// 2. ECDH + AES-256-GCM (密钥协商 + 对称加密)
-// 3. HMAC-SHA256 (数据完整性)
-// 4. 强制双向ECDSA签名验证 (必须配置)
+// 1. TLS 1.2+（传输层，由部署保证）
+// 2. X25519 共享秘密 + HKDF → 会话密钥，再 AES-256-GCM
+// 3. HMAC-SHA256 完整性
+// 4. 双向 ECDSA
 //
 // 执行流程:
-// 1. 获取服务端ECC公钥 (GetPublicKey)
-// 2. 生成客户端ECDH密钥对
-// 3. 计算共享密钥 (ECDH协商)
-// 4. PBKDF2密钥派生
-// 5. AES-GCM加密请求数据
-// 6. 生成HMAC-SHA256签名
-// 7. 添加ECDSA签名 (强制要求)
-// 8. 发送HTTP请求
-// 9. 验证响应HMAC签名
-// 10. 验证响应ECDSA签名 (强制要求)
-// 11. AES-GCM解密响应数据
+// 1. GetPublicKey：服务端临时 X25519 公钥 + 本端临时密钥对
+// 2. GenSharedKeyX25519 得到共享字节
+// 3. HKDF 派生对称密钥
+// 4. AES-GCM 加密请求体
+// 5. HMAC-SHA256
+// 6. ECDSA 签名
+// 7. 发送请求
+// 8. 校验响应 HMAC / ECDSA
+// 9. AES-GCM 解密响应
 //
 // 参数:
 //   - path: API路径，如"/user/info"
@@ -414,7 +401,7 @@ func (s *HttpSDK) GetPublicKey() (*crypto.EcdhObject, *node.PublicKey, crypto.Ci
 //
 // 安全特性:
 // - 前向保密性 (PFS): 每次请求使用新密钥
-// - 完美前向保密: ECDH协商的密钥不依赖长期密钥
+// - 完美前向保密: X25519 临时密钥不依赖长期对称密钥
 // - 双向认证: 客户端和服务端相互验证身份
 // - 防重放攻击: 时间戳 + Nonce机制
 //
@@ -430,36 +417,34 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	if len(path) == 0 || requestObj == nil || responseObj == nil {
 		return ex.Throw{Msg: "params invalid"}
 	}
-	ecdh, public, cipher, err := s.GetPublicKey()
+	xKey, public, cipher, err := s.GetPublicKey()
 	if err != nil {
 		return err
 	}
-	// 标记ECDH对象需要在函数结束时清理
 	defer func() {
-		if ecdh != nil {
-			// 清理ECDH对象的敏感数据
-			if prk, getErr := ecdh.GetPrivateKey(); getErr == "" && prk != nil {
-				if ecdhPrk, ok := prk.(*ecdh2.PrivateKey); ok {
-					DIC.ClearData(ecdhPrk.Bytes())
+		if xKey != nil {
+			if prk, getErr := xKey.GetPrivateKey(); getErr == "" && prk != nil {
+				if xPrk, ok := prk.(*cryptocdh.PrivateKey); ok {
+					DIC.ClearData(xPrk.Bytes())
 				}
 			}
 		}
 	}()
 
-	pub, err := ecc.LoadECDHPublicKeyFromBase64(public.Key)
+	pub, err := ecc.LoadX25519PublicKeyFromBase64(public.Key)
 	if err != nil {
-		return ex.Throw{Msg: "load ECC public key failed"}
+		return ex.Throw{Msg: "load X25519 public key failed"}
 	}
-	prk, _ := ecdh.GetPrivateKey()
-	prkBytes := prk.(*ecdh2.PrivateKey).Bytes()
-	ecdhKey, err := ecc.GenSharedKeyECDH(prk.(*ecdh2.PrivateKey), pub)
+	prk, _ := xKey.GetPrivateKey()
+	prkBytes := prk.(*cryptocdh.PrivateKey).Bytes()
+	x25519Shared, err := ecc.GenSharedKeyX25519(prk.(*cryptocdh.PrivateKey), pub)
 	if err != nil {
-		return ex.Throw{Msg: "ECC shared key failed"}
+		return ex.Throw{Msg: "X25519 shared secret failed"}
 	}
-	defer DIC.ClearData(ecdhKey)
+	defer DIC.ClearData(x25519Shared)
 
-	sharedKey, err := node.HKDFKey(ecdhKey, public.Noc)
-	defer DIC.ClearData(prkBytes, sharedKey) // 同时清除ECDH私钥和派生密钥
+	sharedKey, err := node.HKDFKey(x25519Shared, public.Noc)
+	defer DIC.ClearData(prkBytes, sharedKey) // 清除 X25519 私钥原始字节与 HKDF 输出
 	if err != nil {
 		return ex.Throw{Msg: "HKDF shared key failed"}
 	}
@@ -489,7 +474,7 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	defer DIC.ClearData(jsonData)
 	if zlog.IsDebug() {
 		zlog.Debug(fmt.Sprintf("server key: %s", public.Key), 0)
-		zlog.Debug(fmt.Sprintf("client key: %s", ecdh.PublicKeyBase64), 0)
+		zlog.Debug(fmt.Sprintf("client key: %s", xKey.PublicKeyBase64), 0)
 		zlog.Debug(fmt.Sprintf("shared key: %s", utils.Base64Encode(sharedKey)), 0)
 	}
 	// 使用 AES-GCM 加密，Nonce 作为 AAD
@@ -517,7 +502,7 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 		zlog.Debug(utils.Bytes2Str(bytesData), 0)
 	}
 
-	key, err := node.CreatePublicKey(public.Key, utils.Base64Encode(prk.(*ecdh2.PrivateKey).PublicKey().Bytes()), s.ClientNo, cipher)
+	key, err := node.CreatePublicKey(public.Key, utils.Base64Encode(prk.(*cryptocdh.PrivateKey).PublicKey().Bytes()), s.ClientNo, cipher)
 	if err != nil {
 		return err
 	}
@@ -757,7 +742,7 @@ func (s *HttpSDK) GetAuth() AuthToken {
 // - 中等安全要求的场景
 //
 // 性能特点:
-// - 比ECC模式更快 (复用令牌，无需密钥协商)
+// - 比 PostByECC（Plan2 / X25519 协商）更快：复用令牌，无每请求协商
 // - 支持高并发 (令牌复用)
 // - 适合高频API调用
 //

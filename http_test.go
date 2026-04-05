@@ -121,7 +121,7 @@ func BenchmarkHttpSDK_PostByAuth(b *testing.B) {
 }
 
 // BenchmarkHttpSDK_PostByECC ECC请求性能基准测试
-// 测试动态ECDH在并发执行下的性能表现和稳定性
+// 测试 Plan2（X25519）在并发执行下的性能表现和稳定性
 func BenchmarkHttpSDK_PostByECC(b *testing.B) {
 	// 每个goroutine创建独立的SDK实例，避免并发冲突
 	goroutineSDK := NewSDK()

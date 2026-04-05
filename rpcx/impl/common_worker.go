@@ -262,7 +262,7 @@ func (self *CommonWorker) buildSuccessResponse(cipher crypto.Cipher, key []byte,
 	return res, nil
 }
 
-// GetSharedKey 获取ECDH密钥协商生成的共享密钥，并通过缓存优化性能
+// GetSharedKey 获取 ECDSA 密钥协商生成的共享密钥（非 HTTP X25519），并通过缓存优化性能
 // c: 缓存实例，用于存储加密后的共享密钥
 // cipher: 包含ECDSA密钥对的加密器，用于密钥协商
 // 返回: 协商后的共享密钥和可能的错误信息
