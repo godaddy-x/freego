@@ -13,7 +13,7 @@ message CommonRequest {
   bytes n = 2;              // 随机数
   bytes s = 3;              // 数据签名
   int64 t = 4;               // 时间戳
-  bytes e = 5;              // ECDSA签名
+  bytes e = 5;              // Ed25519 外层签名
   string r = 6;              // 访问路由
   int64 p = 7;               // 计划类型
   int64 u = 8;               // 客户端ID
@@ -24,7 +24,7 @@ message CommonResponse {
   bytes n = 2;              // 随机数
   bytes s = 3;              // 数据签名
   int64 t = 4;               // 时间戳
-  bytes e = 5;              // ECDSA签名
+  bytes e = 5;              // Ed25519 外层签名
   string r = 6;              // 访问路由
   int64 p = 7;               // 计划类型
   int64 c = 8;               // 响应代码

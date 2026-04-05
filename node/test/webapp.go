@@ -135,14 +135,10 @@ func (self *TestFilter) DoFilter(chain node.Filter, ctx *node.Context, args ...i
 }
 
 const (
-	//服务端私钥
-	serverPrk = "Z4WmI28ILmpqTWM4OISPwzF10BcGF7hsPHoaiH3J1vw="
-	//服务端公钥
-	serverPub = "BO6XQ+PD66TMDmQXSEHl2xQarWE0HboB4LazrznThhr6Go5SvpjXJqiSe2fX+sup5OQDOLPkLdI1gh48jOmAq+k="
-	//客户端私钥
-	clientPrk = "rnX5ykQivfbLHtcbPR68CP636usTNC03u8OD1KeoDPg="
-	//客户端公钥
-	clientPub = "BEZkPpdLSQiUvkaObyDz0ya0figOLphr6L8hPEHbPzpc7sEMtq1lBTfG6IwZdd7WuJmMkP1FRt+GzZgnqt+DRjs="
+	serverPrk = "iOtq+nAOZieY+puLqeFPw3CvrI1OO8iQ9GrhccdovZ5+/Ta7hgR19V2RA4jk9PnQdljPvHJmWfsVMyPGNZhWHA=="
+	serverPub = "fv02u4YEdfVdkQOI5PT50HZYz7xyZln7FTMjxjWYVhw="
+	clientPrk = "T9arYQw2qGrcyN1kLvrVyP7jXKJe+cXIW5RNFXrvLEx1kuxLxKR5GXUihsj75z8GT+Xh0rfDxM0TOdXqQI1fog=="
+	clientPub = "dZLsS8SkeRl1IobI++c/Bk/l4dK3w8TNEznV6kCNX6I="
 )
 
 func roleRealm(ctx *node.Context, onlyRole bool) (*node.Permission, error) {
@@ -167,8 +163,7 @@ func NewHTTP() *MyWebNode {
 		TokenExp: jwt.TWO_WEEK * 10,
 	})
 
-	// 增加双向验签的ECDSA
-	cipher, _ := crypto.CreateS256ECDSAWithBase64(serverPrk, clientPub)
+	cipher, _ := crypto.CreateEd25519WithBase64(serverPrk, clientPub)
 	my.AddCipher(1, cipher)
 
 	//my.AddRedisCache(func(ds ...string) (cache.Cache, error) {

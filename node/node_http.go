@@ -82,11 +82,10 @@ func (self *HttpNode) StartServer(addr string) {
 	// 初始化限流器（Redis准备就绪后）
 	initRateLimiters()
 
-	// 验证ECDSA配置（强制双向ECDSA签名）
 	if len(self.Context.Cipher) == 0 {
-		panic("ECDSA cipher not configured, bidirectional ECDSA signature is required for server")
+		panic("Ed25519 (outer sign) cipher not configured, bidirectional signature is required for server")
 	}
-	zlog.Info("ecdsa cipher configured for users", 0, zlog.Int("users", len(self.Context.Cipher)))
+	zlog.Info("outer sign cipher configured for users", 0, zlog.Int("users", len(self.Context.Cipher)))
 
 	if self.Context.RedisCacheAware != nil {
 		zlog.Info("redis cache service has been started successful", 0)
@@ -295,6 +294,8 @@ func (self *HttpNode) AddLocalCache(cacheAware CacheAware) {
 	}
 }
 
+// AddCipher 注册本 HTTP 服务端对某一客户端用户 key 的验签对象：须 crypto.CreateEd25519WithBase64（服务端 Ed25519 私钥，该客户端 Ed25519 公钥）。
+// 与客户端 HttpSDK.SetEd25519Object 互为镜像；与 WebSocket、gRPC 服务配置相互独立。
 func (self *HttpNode) AddCipher(key int64, cipher crypto.Cipher) error {
 	if cipher == nil {
 		return utils.Error("cipher is nil")
@@ -589,7 +590,7 @@ func defaultRenderPre(ctx *Context) error {
 		}
 		cipher := ctx.GetStorage(Cipher)
 		if cipher == nil {
-			return ex.Throw{Code: http.StatusInternalServerError, Msg: "cipher not found for response signing, bidirectional ECDSA signature is required"}
+			return ex.Throw{Code: http.StatusInternalServerError, Msg: "cipher not found for response signing, bidirectional Ed25519 signature is required"}
 		}
 		result, err := cipher.(crypto.Cipher).Sign(sign)
 		if err != nil {

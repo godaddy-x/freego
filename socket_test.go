@@ -23,14 +23,14 @@ import (
 )
 
 const (
-	//服务端私钥
-	serverPrk = "Z4WmI28ILmpqTWM4OISPwzF10BcGF7hsPHoaiH3J1vw="
-	//服务端公钥
-	serverPub = "BO6XQ+PD66TMDmQXSEHl2xQarWE0HboB4LazrznThhr6Go5SvpjXJqiSe2fX+sup5OQDOLPkLdI1gh48jOmAq+k="
-	//客户端私钥
-	clientPrk = "rnX5ykQivfbLHtcbPR68CP636usTNC03u8OD1KeoDPg="
-	//客户端公钥
-	clientPub = "BEZkPpdLSQiUvkaObyDz0ya0figOLphr6L8hPEHbPzpc7sEMtq1lBTfG6IwZdd7WuJmMkP1FRt+GzZgnqt+DRjs="
+	// 服务端 Ed25519 私钥（与 utils/crypto TestFixtureEd25519KeysB64 种子 freego-ed25519-server 一致）
+	serverPrk = "iOtq+nAOZieY+puLqeFPw3CvrI1OO8iQ9GrhccdovZ5+/Ta7hgR19V2RA4jk9PnQdljPvHJmWfsVMyPGNZhWHA=="
+	// 服务端 Ed25519 公钥
+	serverPub = "fv02u4YEdfVdkQOI5PT50HZYz7xyZln7FTMjxjWYVhw="
+	// 客户端 Ed25519 私钥（种子 freego-ed25519-client）
+	clientPrk = "T9arYQw2qGrcyN1kLvrVyP7jXKJe+cXIW5RNFXrvLEx1kuxLxKR5GXUihsj75z8GT+Xh0rfDxM0TOdXqQI1fog=="
+	// 客户端 Ed25519 公钥
+	clientPub = "dZLsS8SkeRl1IobI++c/Bk/l4dK3w8TNEznV6kCNX6I="
 )
 
 // testMessageHandler 测试用的消息处理器
@@ -147,7 +147,7 @@ func TestWebSocketManyClient(t *testing.T) {
 				wsSdk := sdk.NewSocketSDK(serverAddr)
 				wsSdk.AuthToken(u)
 				wsSdk.SetClientNo(1)
-				_ = wsSdk.SetECDSAObject(wsSdk.ClientNo, clientPrk, serverPub)
+				_ = wsSdk.SetEd25519Object(wsSdk.ClientNo, clientPrk, serverPub)
 				wsSdk.SetHealthPing(10)
 				if err := wsSdk.ConnectWebSocket("/ws"); err != nil {
 					failMu.Lock()
@@ -221,8 +221,8 @@ func TestWebSocketSDKUsage(t *testing.T) {
 		TokenExp: jwt.TWO_WEEK,
 	})
 
-	// 增加双向验签的ECDSA
-	cipher, _ := crypto.CreateS256ECDSAWithBase64(serverPrk, clientPub)
+	// 增加双向验签的Ed25519
+	cipher, _ := crypto.CreateEd25519WithBase64(serverPrk, clientPub)
 	server.AddCipher(1, cipher)
 
 	// 配置连接池
@@ -304,7 +304,7 @@ func TestWebSocketSDKUsage(t *testing.T) {
 	wsSdk.AuthToken(authToken)
 
 	wsSdk.SetClientNo(1)
-	wsSdk.SetECDSAObject(wsSdk.ClientNo, clientPrk, serverPub)
+	wsSdk.SetEd25519Object(wsSdk.ClientNo, clientPrk, serverPub)
 	wsSdk.SetHealthPing(5)
 
 	// 5. 尝试连接WebSocket（预期成功，因为服务器已启动）
@@ -468,7 +468,7 @@ func TestWebSocketTokenExpiredCallback(t *testing.T) {
 		TokenExp: jwt.TWO_WEEK,
 	})
 
-	cipher, _ := crypto.CreateS256ECDSAWithBase64(serverPrk, clientPub)
+	cipher, _ := crypto.CreateEd25519WithBase64(serverPrk, clientPub)
 	server.AddCipher(1, cipher)
 
 	err := server.NewPool(100, 10, 5, 30)
@@ -510,9 +510,9 @@ func TestWebSocketTokenExpiredCallback(t *testing.T) {
 	// 创建SDK实例
 	wsSdk := sdk.NewSocketSDK(serverAddr)
 
-	// 确保ECDSA密钥设置正确
-	if err := wsSdk.SetECDSAObject(1, clientPrk, serverPub); err != nil {
-		t.Fatalf("Failed to set ECDSA object: %v", err)
+	// 确保Ed25519密钥设置正确
+	if err := wsSdk.SetEd25519Object(1, clientPrk, serverPub); err != nil {
+		t.Fatalf("Failed to set Ed25519 object: %v", err)
 	}
 
 	// 1. 设置初始认证信息（即将过期）
@@ -620,8 +620,8 @@ func TestWebSocketMessageSubscription(t *testing.T) {
 		TokenExp: jwt.TWO_WEEK,
 	})
 
-	// 增加双向验签的ECDSA
-	cipher, _ := crypto.CreateS256ECDSAWithBase64(serverPrk, clientPub)
+	// 增加双向验签的Ed25519
+	cipher, _ := crypto.CreateEd25519WithBase64(serverPrk, clientPub)
 	server.AddCipher(1, cipher)
 
 	// 配置连接池
@@ -1276,7 +1276,7 @@ func TestWebSocketClientUnexpectedDisconnect(t *testing.T) {
 		TokenKey: "123456",
 		TokenExp: jwt.TWO_WEEK,
 	})
-	cipher, _ := crypto.CreateS256ECDSAWithBase64(serverPrk, clientPub)
+	cipher, _ := crypto.CreateEd25519WithBase64(serverPrk, clientPub)
 	server.AddCipher(1, cipher)
 	if err := server.NewPool(10, 20, 100, 15); err != nil {
 		t.Fatalf("NewPool failed: %v", err)
@@ -1316,7 +1316,7 @@ func TestWebSocketClientUnexpectedDisconnect(t *testing.T) {
 		t.Logf("✓ Server correctly cleaned up after client unexpected disconnect")
 	}
 
-	// 再次用 SDK 连接，确认服务端仍可用（需与 TestWebSocketSDKUsage 一致配置 ECDSA）
+	// 再次用 SDK 连接，确认服务端仍可用（需与 TestWebSocketSDKUsage 一致配置 Ed25519）
 	wsSdk := sdk.NewSocketSDK(serverAddr)
 	secretBytes := subject.GetTokenSecret(token, config.TokenKey)
 	wsSdk.AuthToken(sdk.AuthToken{
@@ -1325,7 +1325,7 @@ func TestWebSocketClientUnexpectedDisconnect(t *testing.T) {
 		Expired: subject.Payload.Exp,
 	})
 	wsSdk.SetClientNo(1)
-	_ = wsSdk.SetECDSAObject(wsSdk.ClientNo, clientPrk, serverPub)
+	_ = wsSdk.SetEd25519Object(wsSdk.ClientNo, clientPrk, serverPub)
 	if err := wsSdk.ConnectWebSocket("/ws"); err != nil {
 		t.Fatalf("reconnect after disconnect test failed: %v", err)
 	}
@@ -1433,8 +1433,8 @@ func TestWebSocketErrorHandling(t *testing.T) {
 		TokenExp: jwt.TWO_WEEK,
 	})
 
-	// 增加双向验签的ECDSA
-	cipher, _ := crypto.CreateS256ECDSAWithBase64(serverPrk, clientPub)
+	// 增加双向验签的Ed25519
+	cipher, _ := crypto.CreateEd25519WithBase64(serverPrk, clientPub)
 	server.AddCipher(1, cipher)
 
 	// 初始化连接池和心跳服务
@@ -1510,8 +1510,8 @@ func TestWebSocketServer(t *testing.T) {
 		TokenExp: jwt.TWO_WEEK,
 	})
 
-	// 增加双向验签的ECDSA
-	cipher, _ := crypto.CreateS256ECDSAWithBase64(serverPrk, clientPub)
+	// 增加双向验签的Ed25519
+	cipher, _ := crypto.CreateEd25519WithBase64(serverPrk, clientPub)
 	server.AddCipher(1, cipher)
 
 	// 配置连接池
@@ -1589,7 +1589,7 @@ func TestWebSocketClient(t *testing.T) {
 	wsSdk.AuthToken(authToken)
 
 	wsSdk.SetClientNo(1)
-	wsSdk.SetECDSAObject(wsSdk.ClientNo, clientPrk, serverPub)
+	wsSdk.SetEd25519Object(wsSdk.ClientNo, clientPrk, serverPub)
 	wsSdk.SetHealthPing(3) // 3秒心跳间隔，便于测试
 
 	// 设置推送消息回调 - 客户端通过code=300识别推送消息，已自动处理验签和解密

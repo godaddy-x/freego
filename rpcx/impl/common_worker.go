@@ -3,7 +3,7 @@ package impl
 import (
 	"bytes"
 	"context"
-	"crypto/ecdsa"
+	"crypto/ed25519"
 	"errors"
 	"fmt"
 
@@ -12,7 +12,7 @@ import (
 	ecc "github.com/godaddy-x/eccrypto"
 	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/utils"
-	"github.com/godaddy-x/freego/utils/crypto"
+	fgocrypto "github.com/godaddy-x/freego/utils/crypto"
 	"github.com/godaddy-x/freego/utils/jwt"
 
 	"github.com/godaddy-x/freego/rpcx/pb"
@@ -24,7 +24,7 @@ import (
 
 // ConfigProvider 配置提供者接口
 type ConfigProvider interface {
-	GetCipher() map[int64]crypto.Cipher
+	GetCipher() map[int64]fgocrypto.Cipher
 	GetLocalCache() cache.Cache
 	GetRedisCache() cache.Cache
 }
@@ -34,9 +34,9 @@ type CommonWorker struct {
 	ConfigProvider ConfigProvider // 配置提供者接口
 }
 
-// GetCipher 获取RSA/ECDSA密钥对列表，用于数字签名验证
-// 返回: 配置的RSA密钥列表，如果ConfigProvider未设置则返回nil
-func (self *CommonWorker) GetCipher() map[int64]crypto.Cipher {
+// GetCipher 获取加解密/签名密钥列表，用于数字签名验证
+// 返回: 配置的 Cipher 列表，如果ConfigProvider未设置则返回nil
+func (self *CommonWorker) GetCipher() map[int64]fgocrypto.Cipher {
 	if self.ConfigProvider != nil {
 		return self.ConfigProvider.GetCipher()
 	}
@@ -121,7 +121,7 @@ func (self *CommonWorker) Do(ctx context.Context, req *pb.CommonRequest) (*pb.Co
 // validRequest 执行完整的请求验证流程，包括参数校验、双重签名验证和重放攻击防护
 // req: 待验证的通用请求对象
 // 返回: 验证通过的密钥对、共享密钥和可能的验证错误
-func (self *CommonWorker) validRequest(req *pb.CommonRequest) (crypto.Cipher, []byte, error) {
+func (self *CommonWorker) validRequest(req *pb.CommonRequest) (fgocrypto.Cipher, []byte, error) {
 	// 1. 校验基础参数是否有效
 	if len(req.R) == 0 {
 		return nil, nil, errors.New("request router is nil")
@@ -144,17 +144,17 @@ func (self *CommonWorker) validRequest(req *pb.CommonRequest) (crypto.Cipher, []
 	if !utils.CheckRangeInt(len(req.S), 32, 64) {
 		return nil, nil, errors.New("request signature length invalid")
 	}
-	if !utils.CheckRangeInt(len(req.E), 64, 96) {
-		return nil, nil, errors.New("request ecdsa signature length invalid")
+	if len(req.E) != ed25519.SignatureSize {
+		return nil, nil, errors.New("request Ed25519 signature length invalid")
 	}
 
-	// 2. 先验证ECDSA签名（双重签名验证的第一层）
+	// 2. 先验证 Ed25519 外层签名（双重签名验证的第一层）
 	cipher, exists := self.GetCipher()[req.U]
 	if !exists || cipher == nil {
-		return nil, nil, errors.New("request ecdsa not found")
+		return nil, nil, errors.New("request cipher not found")
 	}
 	if err := cipher.Verify(req.S, req.E); err != nil {
-		return nil, nil, errors.New("request ecdsa signature check failed")
+		return nil, nil, errors.New("request Ed25519 signature check failed")
 	}
 
 	// 3. 获取共享密钥
@@ -215,7 +215,7 @@ func PackAny(data proto.Message) (*anypb.Any, error) {
 // req: 原始请求对象，用于保持请求-响应一致性
 // bizResp: 业务处理成功后的响应数据
 // 返回: 构建完成的通用响应对象和可能的错误
-func (self *CommonWorker) buildSuccessResponse(cipher crypto.Cipher, key []byte, req *pb.CommonRequest, bizResp proto.Message) (*pb.CommonResponse, error) {
+func (self *CommonWorker) buildSuccessResponse(cipher fgocrypto.Cipher, key []byte, req *pb.CommonRequest, bizResp proto.Message) (*pb.CommonResponse, error) {
 	// 注意：key由外层传入，避免重复获取
 	// key的清理由外层Do方法负责
 
@@ -262,21 +262,24 @@ func (self *CommonWorker) buildSuccessResponse(cipher crypto.Cipher, key []byte,
 	return res, nil
 }
 
-// GetSharedKey 获取 ECDSA 密钥协商生成的共享密钥（非 HTTP X25519），并通过缓存优化性能
-// c: 缓存实例，用于存储加密后的共享密钥
-// cipher: 包含ECDSA密钥对的加密器，用于密钥协商
-// 返回: 协商后的共享密钥和可能的错误信息
-func GetSharedKey(c cache.Cache, cipher crypto.Cipher) ([]byte, error) {
-	// 获取协商密钥
+// GetSharedKey 获取 RPCX 用 X25519 ECDH 共享秘密（32 字节），与 eccrypto GenSharedKeyX25519 一致；Ed25519 仅用于签名。结果经本地缓存加密存放。
+func GetSharedKey(c cache.Cache, cipher fgocrypto.Cipher) ([]byte, error) {
+	eo, ok := cipher.(*fgocrypto.Ed25519Object)
+	if !ok {
+		return nil, errors.New("RPCX cipher must be *Ed25519Object")
+	}
+	pubBs := eo.RPCXCacheKeyBytes()
+	if len(pubBs) == 0 {
+		return nil, errors.New("RPCX X25519 not configured: use CreateEd25519WithBase64ForRPC")
+	}
 	prk, _ := cipher.GetPrivateKey()
-	pub, _ := cipher.GetPublicKey()
-	prkBs, err := ecc.GetECDSAPrivateKeyBytes(prk.(*ecdsa.PrivateKey))
+	prkEd, ok1 := prk.(ed25519.PrivateKey)
+	if !ok1 {
+		return nil, errors.New("invalid Ed25519 private key")
+	}
+	prkBs, err := ecc.GetEd25519PrivateKeyBytes(prkEd)
 	if err != nil {
 		return nil, errors.New("prk bytes invalid")
-	}
-	pubBs, err := ecc.GetECDSAPublicKeyBytes(pub.(*ecdsa.PublicKey))
-	if err != nil {
-		return nil, errors.New("pub bytes invalid")
 	}
 	cacheKey := utils.FNV1a64Base(pubBs)
 	sharedKey, err := c.GetBytes(cacheKey)
@@ -284,7 +287,7 @@ func GetSharedKey(c cache.Cache, cipher crypto.Cipher) ([]byte, error) {
 		return nil, errors.New("load cache pub bytes error")
 	}
 	if len(sharedKey) == 0 { // 如果没有找到缓存则重新处理协商
-		sharedKey, err = ecc.GenSharedKeyECDSA(prk.(*ecdsa.PrivateKey), pub.(*ecdsa.PublicKey))
+		sharedKey, err = eo.RPCXSharedSecret()
 		if err != nil {
 			return nil, errors.New("cipher shared key error")
 		}

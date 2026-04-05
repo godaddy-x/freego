@@ -198,7 +198,8 @@ func (self *Context) GetHmac256Sign(d, n string, t, p, u int64, key []byte) []by
 	return SignBodyMessage(self.Path, d, n, t, p, u, key)
 }
 
-func (self *Context) CheckECDSASign(cipher crypto.Cipher, msg, sign []byte) (crypto.Cipher, error) {
+// CheckOuterSign 校验外层数字签名（经 cipher.Verify；典型为 Ed25519Object）。
+func (self *Context) CheckOuterSign(cipher crypto.Cipher, msg, sign []byte) (crypto.Cipher, error) {
 	if cipher == nil {
 		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request cipher invalid"}
 	}
@@ -497,12 +498,12 @@ func (self *Context) validJsonBody() error {
 	if utils.Base64Encode(sign) != body.Sign {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature invalid"}
 	}
-	// ECDSA签名校验
+	// 外层签名校验（Ed25519）
 	cipher, exists := self.Cipher[body.User]
 	if !exists {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "cipher not found for user"}
 	}
-	cipher, err := self.CheckECDSASign(cipher, sign, utils.Base64Decode(body.Valid))
+	cipher, err := self.CheckOuterSign(cipher, sign, utils.Base64Decode(body.Valid))
 	if err != nil {
 		return err
 	}
@@ -770,7 +771,7 @@ func CreatePublicKey(key, tag string, usr int64, cipher crypto.Cipher) (*PublicK
 	requestObject.Usr = usr
 	sig, err := cipher.Sign(utils.Str2Bytes(utils.AddStr(requestObject.Key, DIC.SEP, requestObject.Tag, DIC.SEP, requestObject.Noc, DIC.SEP, requestObject.Exp, DIC.SEP, requestObject.Usr)))
 	if err != nil {
-		return nil, ex.Throw{Msg: "ecdsa sign message error: " + err.Error()}
+		return nil, ex.Throw{Msg: "outer sign message error: " + err.Error()}
 	}
 	requestObject.Sig = utils.Base64Encode(sig)
 	return requestObject, nil
@@ -806,7 +807,7 @@ func CheckPublicKey(c cache.Cache, requestObject *PublicKey, cipher crypto.Ciphe
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "request noc duplicated"}
 		}
 	}
-	// ECDSA验证签名
+	// 外层签名验证（Ed25519）
 	if err := cipher.Verify(utils.Str2Bytes(utils.AddStr(requestObject.Key, DIC.SEP, requestObject.Tag, DIC.SEP, requestObject.Noc, DIC.SEP, requestObject.Exp, DIC.SEP, requestObject.Usr)), utils.Base64Decode(requestObject.Sig)); err != nil {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request verify sig invalid"}
 	}

@@ -80,7 +80,7 @@ type CommonRequest struct {
 	N             []byte                 `protobuf:"bytes,2,opt,name=n,proto3" json:"n,omitempty"`  // 随机数
 	S             []byte                 `protobuf:"bytes,3,opt,name=s,proto3" json:"s,omitempty"`  // 数据签名
 	T             int64                  `protobuf:"varint,4,opt,name=t,proto3" json:"t,omitempty"` // 时间戳
-	E             []byte                 `protobuf:"bytes,5,opt,name=e,proto3" json:"e,omitempty"`  // ECDSA签名
+	E             []byte                 `protobuf:"bytes,5,opt,name=e,proto3" json:"e,omitempty"`  // Ed25519 外层签名
 	R             string                 `protobuf:"bytes,6,opt,name=r,proto3" json:"r,omitempty"`  // 访问路由
 	P             int64                  `protobuf:"varint,7,opt,name=p,proto3" json:"p,omitempty"` // 计划类型
 	U             int64                  `protobuf:"varint,8,opt,name=u,proto3" json:"u,omitempty"` // 客户端ID
@@ -180,7 +180,7 @@ type CommonResponse struct {
 	N             []byte                 `protobuf:"bytes,2,opt,name=n,proto3" json:"n,omitempty"`  // 随机数
 	S             []byte                 `protobuf:"bytes,3,opt,name=s,proto3" json:"s,omitempty"`  // 数据签名
 	T             int64                  `protobuf:"varint,4,opt,name=t,proto3" json:"t,omitempty"` // 时间戳
-	E             []byte                 `protobuf:"bytes,5,opt,name=e,proto3" json:"e,omitempty"`  // ECDSA签名
+	E             []byte                 `protobuf:"bytes,5,opt,name=e,proto3" json:"e,omitempty"`  // Ed25519 外层签名
 	R             string                 `protobuf:"bytes,6,opt,name=r,proto3" json:"r,omitempty"`  // 访问路由
 	P             int64                  `protobuf:"varint,7,opt,name=p,proto3" json:"p,omitempty"` // 计划类型
 	C             int64                  `protobuf:"varint,8,opt,name=c,proto3" json:"c,omitempty"` // 响应代码

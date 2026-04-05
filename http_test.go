@@ -17,9 +17,9 @@ import (
 
 const (
 	domain       = "http://localhost:8090"
-	access_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxOTk2MjE3NjQ3MzA1MzI2NTkzIiwiYXVkIjoiIiwiaXNzIjoiIiwiZGV2IjoiQVBQIiwianRpIjoiYTFjNmM1ZTQ1ZDBiNGU3MDljNGJlMTMwMDkzYWM2MGQiLCJleHQiOiIiLCJpYXQiOjAsImV4cCI6MTc3Njg2NjM0OX0=.2pTd/hnzFYAzLYwpvKWus2zI2wUKImWFBrpJvFqzhBs="
-	token_secret = "KAQydyO+dS8i2eGU17mu4IRHI61TbgsXKPvj/g3FQRT9oVX3i0jA2AMzqA6/wp/z+EkqpgN2YVRf24eJ9NRxoA=="
-	token_expire = 1776866349
+	access_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyMDQwNjA5NTU4NTE0MTA2MzY5IiwiYXVkIjoiIiwiaXNzIjoiIiwiZGV2IjoiQVBQIiwianRpIjoiNmJhMmZmYzMxMTIxNGRkYmI0NjExNzU2MzUzN2RlNzIiLCJleHQiOiIiLCJpYXQiOjAsImV4cCI6MTc4NzQ1MDIwNn0=.3rxJGqUeWBHnoWxE3GnT9RdsK5lvjNHji0lkXd+mUFU="
+	token_secret = "bWwzk2TFwml/fxka61tKDs9MuarLQHikIlN0bl3Gk/s="
+	token_expire = 1787450206
 )
 
 var httpSDK = NewSDK()
@@ -31,7 +31,7 @@ func NewSDK() *sdk.HttpSDK {
 		LoginPath: "/login",
 	}
 	newObject.SetClientNo(1)
-	_ = newObject.SetECDSAObject(newObject.ClientNo, clientPrk, serverPub)
+	_ = newObject.SetEd25519Object(newObject.ClientNo, clientPrk, serverPub)
 	return newObject
 }
 
@@ -44,7 +44,7 @@ func TestGetPublicKey(t *testing.T) {
 }
 
 func TestECCLogin(t *testing.T) {
-	_ = httpSDK.SetECDSAObject(1, clientPrk, serverPub)
+	_ = httpSDK.SetEd25519Object(1, clientPrk, serverPub)
 	requestData := sdk.AuthToken{Token: "AI工具人，鲨鱼宝宝！！！"}
 	responseData := sdk.AuthToken{}
 	if err := httpSDK.PostByECC("/login", &requestData, &responseData); err != nil {
@@ -60,7 +60,7 @@ func TestGetUser(t *testing.T) {
 	httpSDK.AuthToken(sdk.AuthToken{Token: access_token, Secret: token_secret, Expired: token_expire})
 	requestObj := sdk.AuthToken{Token: "AI工具人，鲨鱼宝宝！QWER123456@##！！", Secret: "安排测试下吧123456789@@@"}
 	responseData := sdk.AuthToken{}
-	if err := httpSDK.PostByAuth("/getUser", &requestObj, &responseData, false); err != nil {
+	if err := httpSDK.PostByAuth("/getUser", &requestObj, &responseData, true); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println(responseData)

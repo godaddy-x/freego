@@ -3,15 +3,24 @@ package main
 import (
 	"context"
 	"fmt"
+	"testing"
+	"time"
+
 	"github.com/godaddy-x/freego/rpcx"
 	"github.com/godaddy-x/freego/rpcx/pb"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/sdk"
 	"google.golang.org/protobuf/proto"
-	"testing"
-	"time"
 
 	"github.com/godaddy-x/freego/utils/crypto"
+)
+
+// RPCX 专用 X25519（与 utils/crypto 测试向量一致；与 Ed25519 身份密钥独立）
+const (
+	rpcSrvXPrk = "TRQj6bHELNdsZadbqSJlGcvjEsW6vBREQv8FmKMO+qU="
+	rpcCliXPrk = "LArtWyUb9zfeAtiZA/jyZkmSru/MdjA54Q7d9TzhApA="
+	rpcSrvXPub = "YzwF+m0YHnGF/DxJVhTscu2s4rd1P2zhTmOmVSikrAg="
+	rpcCliXPub = "4pDVI9QmdGmgv02tMtBVyPS+H3OtNayM0CPYkzuPkH4="
 )
 
 // TestHandler 测试业务处理器
@@ -30,8 +39,7 @@ func TestGRPCManager_StartServer(t *testing.T) {
 	// 创建GRPC管理器
 	manager := rpcx.NewRPCManager()
 
-	// 增加双向验签的ECDSA
-	cipher, _ := crypto.CreateS256ECDSAWithBase64(serverPrk, clientPub)
+	cipher, _ := crypto.CreateEd25519WithBase64ForRPC(serverPrk, clientPub, rpcSrvXPrk, rpcCliXPub)
 	// 添加RSA cipher
 	err := manager.AddCipher(1, cipher)
 	if err != nil {
@@ -64,8 +72,7 @@ func TestGRPCManager_StartServer(t *testing.T) {
 // TestRpcSDK_Basic 基础功能测试
 func TestRpcSDK_Basic(t *testing.T) {
 
-	// 增加双向验签的ECDSA
-	cipher, _ := crypto.CreateS256ECDSAWithBase64(clientPrk, serverPub)
+	cipher, _ := crypto.CreateEd25519WithBase64ForRPC(clientPrk, serverPub, rpcCliXPrk, rpcSrvXPub)
 
 	// 创建RPC客户端SDK
 	rpcClient := sdk.NewRPC("localhost:9090").

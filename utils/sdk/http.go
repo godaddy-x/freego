@@ -27,30 +27,30 @@ type AuthToken struct {
 }
 
 // HttpSDK FreeGo HTTP客户端SDK
-// 支持 X25519 密钥协商 + AES-GCM、强制双向 ECDSA 签名、JWT 等
+// 支持 X25519 密钥协商 + AES-GCM、强制双向 Ed25519 外层签名、JWT 等
 //
 // 安全特性:
 // - AES-256-GCM 认证加密
 // - HMAC-SHA256 完整性验证
-// - 强制双向ECDSA签名验证 (必须配置)
+// - 强制双向 Ed25519 签名 (必须配置)
 // - 动态密钥协商 (X25519 + HKDF)
 // - 防重放攻击 (时间戳+Nonce)
 //
 // 使用模式:
-// - PostByECC: 匿名访问，使用 X25519 协商会话密钥 (必须配置 ECDSA)
-// - PostByAuth: 登录后访问，使用JWT令牌 (必须配置ECDSA)
+// - PostByECC: 匿名访问，使用 X25519 协商会话密钥 (须配置 Ed25519 双向签名)
+// - PostByAuth: 登录后访问，使用JWT令牌 (须配置 Ed25519 双向签名)
 type HttpSDK struct {
-	Domain      string                      // API域名 (如: https://api.example.com)
-	AuthDomain  string                      // 认证域名 (可选，用于/key和/login接口)
-	KeyPath     string                      // 公钥获取路径 (默认: /key)
-	LoginPath   string                      // 登录路径 (默认: /login)
-	language    string                      // 语言设置 (HTTP头)
-	timeout     int64                       // 请求超时时间(秒)
-	ClientNo    int64                       // 客户端编号
-	authObject  func() (interface{}, error) // 登录认证对象 (用户名+密码等)
-	authToken   AuthToken                   // JWT认证令牌
-	ecdsaObject map[int64]crypto.Cipher     // ECDSA签名验证对象列表
-	x25519Peer  crypto.Cipher               // 可选：复用的 X25519 临时密钥（实现 Cipher，一般留空由 PostByECC 每次生成）
+	Domain        string                      // API域名 (如: https://api.example.com)
+	AuthDomain    string                      // 认证域名 (可选，用于/key和/login接口)
+	KeyPath       string                      // 公钥获取路径 (默认: /key)
+	LoginPath     string                      // 登录路径 (默认: /login)
+	language      string                      // 语言设置 (HTTP头)
+	timeout       int64                       // 请求超时时间(秒)
+	ClientNo      int64                       // 客户端编号
+	authObject    func() (interface{}, error) // 登录认证对象 (用户名+密码等)
+	authToken     AuthToken                   // JWT认证令牌
+	ed25519Object map[int64]crypto.Cipher     // Ed25519 双向外层签名（本端私钥 + 对端公钥）
+	x25519Peer    crypto.Cipher               // 可选：复用的 X25519 临时密钥（实现 Cipher，一般留空由 PostByECC 每次生成）
 }
 
 // NewHttpSDK 创建新的HttpSDK实例并设置默认值
@@ -134,119 +134,52 @@ func (s *HttpSDK) SetLanguage(language string) {
 	s.language = language
 }
 
-// SetECDSAObject 设置ECDSA签名验证对象
-// 用于强制双向ECDSA签名验证，提供金融级身份认证
-//
-// 安全特性:
-// - 强制双向ECDSA签名验证 (必须配置)
-// - 支持多个备用ECDSA密钥对
-// - 客户端签名，服务端验证
-// - 服务端签名，客户端验证
-// - 防止中间人攻击和身份伪造
-//
-// 参数:
-//   - prkB64: ECDSA私钥(Base64编码)，用于客户端签名
-//   - pubB64: ECDSA公钥(Base64编码)，用于服务端验证
-//
-// 返回值:
-//   - error: 创建失败时的错误信息
-//
-// 注意:
-// - 必须配置ECDSA对象，否则所有请求都会失败
-// - 可以多次调用添加多个备用密钥对
-// - 验证时会尝试所有配置的密钥对
-// - 私钥仅用于签名，公钥用于验证
-func (s *HttpSDK) SetECDSAObject(usr int64, prkB64, pubB64 string) error {
-	if s.ecdsaObject == nil {
-		s.ecdsaObject = make(map[int64]crypto.Cipher)
+// SetEd25519Object 配置当前 HTTP 客户端身份：本端 Ed25519 私钥 + 对端（服务端）Ed25519 公钥。
+// 与服务端 HttpNode.AddCipher 独立；镜像关系见 crypto.CreateEd25519WithBase64 注释。
+func (s *HttpSDK) SetEd25519Object(usr int64, prkB64, peerPubB64 string) error {
+	if s.ed25519Object == nil {
+		s.ed25519Object = make(map[int64]crypto.Cipher)
 	}
-	cipher, err := crypto.CreateS256ECDSAWithBase64(prkB64, pubB64)
+	cipher, err := crypto.CreateEd25519WithBase64(prkB64, peerPubB64)
 	if err != nil {
 		return err
 	}
-	s.ecdsaObject[usr] = cipher
+	s.ed25519Object[usr] = cipher
 	return nil
 }
 
-// addECDSASign 为请求JSON体添加ECDSA签名
-// 对HMAC-SHA256签名进行二次ECDSA签名，实现双重签名验证
-//
-// 签名流程:
-// 1. 首先生成HMAC-SHA256签名 (jsonBody.Sign)
-// 2. 使用ECDSA私钥对HMAC签名进行签名
-// 3. 将ECDSA签名结果存储到jsonBody.Valid字段
-//
-// 安全优势:
-// - HMAC保证数据完整性
-// - ECDSA保证身份真实性和不可否认性
-// - 双重验证，安全性大幅提升
-//
-// 参数:
-//   - jsonBody: 请求JSON体结构体指针
-//
-// 返回值:
-//   - error: 签名失败时的错误信息
-//
-// 注意: 必须配置双向ECDSA签名，否则会抛出异常
-func (s *HttpSDK) addECDSASign(jsonBody *node.JsonBody) error {
-	if s.ecdsaObject == nil {
-		return ex.Throw{Msg: "ECDSA object not configured, bidirectional ECDSA signature is required"}
+func (s *HttpSDK) addEd25519Sign(jsonBody *node.JsonBody) error {
+	if s.ed25519Object == nil {
+		return ex.Throw{Msg: "Ed25519 object not configured, bidirectional Ed25519 signature is required"}
 	}
-	cipher, exists := s.ecdsaObject[s.ClientNo]
+	cipher, exists := s.ed25519Object[s.ClientNo]
 	if !exists || cipher == nil {
-		return ex.Throw{Msg: "ECDSA object not found for client, bidirectional ECDSA signature is required"}
+		return ex.Throw{Msg: "Ed25519 object not found for client, bidirectional Ed25519 signature is required"}
 	}
-	ecdsaSign, err := cipher.Sign(utils.Base64Decode(jsonBody.Sign))
+	outerSign, err := cipher.Sign(utils.Base64Decode(jsonBody.Sign))
 	if err != nil {
-		return ex.Throw{Msg: "ECDSA sign failed: " + err.Error()}
+		return ex.Throw{Msg: "Ed25519 sign failed: " + err.Error()}
 	}
-	jsonBody.Valid = utils.Base64Encode(ecdsaSign)
-	// 清理ECDSA签名数据（在设置完jsonBody.Valid之后）
-	DIC.ClearData(ecdsaSign)
+	jsonBody.Valid = utils.Base64Encode(outerSign)
+	DIC.ClearData(outerSign)
 	if zlog.IsDebug() {
-		zlog.Debug(fmt.Sprintf("ECDSA sign added for HMAC signature: %s", jsonBody.Valid), 0)
+		zlog.Debug(fmt.Sprintf("Ed25519 sign added for HMAC signature: %s", jsonBody.Valid), 0)
 	}
 	return nil
 }
 
-// verifyECDSASign 验证响应数据的ECDSA签名
-// 对服务端返回的ECDSA签名进行验证，确保响应数据的真实性和完整性
-//
-// 验证流程:
-// 1. 检查是否配置了ECDSA对象（必须配置）
-// 2. 检查响应数据是否包含ECDSA签名 (respData.Valid)
-// 3. 使用配置的ECDSA对象进行验证
-//
-// 安全特性:
-// - 双向ECDSA签名验证
-// - 验证服务端的身份真实性
-// - 防止响应数据被篡改
-// - 提供不可否认性保证
-//
-// 参数:
-//   - validSign: 已验证的HMAC签名字节数组
-//   - respData: 响应数据结构体指针
-//
-// 返回值:
-//   - error: 验证失败时的错误信息
-//
-// 注意:
-// - 必须配置双向ECDSA签名，否则会抛出异常
-// - 如果响应不包含ECDSA签名，会验证失败
-func (s *HttpSDK) verifyECDSASign(validSign []byte, respData *node.JsonResp) error {
-	if s.ecdsaObject == nil {
-		return ex.Throw{Msg: "ECDSA object not configured, bidirectional ECDSA signature is required"}
+func (s *HttpSDK) verifyEd25519Sign(validSign []byte, respData *node.JsonResp) error {
+	if s.ed25519Object == nil {
+		return ex.Throw{Msg: "Ed25519 object not configured, bidirectional Ed25519 signature is required"}
 	}
-	cipher, exists := s.ecdsaObject[s.ClientNo]
+	cipher, exists := s.ed25519Object[s.ClientNo]
 	if !exists || cipher == nil {
-		return ex.Throw{Msg: "ECDSA object not found for client, bidirectional ECDSA signature is required"}
+		return ex.Throw{Msg: "Ed25519 object not found for client, bidirectional Ed25519 signature is required"}
 	}
-	// 预先解码ECDSA签名数据，避免在循环中重复解码
-	ecdsaSignData := utils.Base64Decode(respData.Valid)
-	// 清理ECDSA签名解码数据
-	defer DIC.ClearData(ecdsaSignData)
-	if err := cipher.Verify(validSign, ecdsaSignData); err != nil {
-		return ex.Throw{Msg: "post response ECDSA sign verify invalid"}
+	outerSignData := utils.Base64Decode(respData.Valid)
+	defer DIC.ClearData(outerSignData)
+	if err := cipher.Verify(validSign, outerSignData); err != nil {
+		return ex.Throw{Msg: "post response Ed25519 sign verify invalid"}
 	}
 	return nil
 }
@@ -289,37 +222,36 @@ func (s *HttpSDK) getURI(path string) string {
 }
 
 // GetPublicKey 获取服务端 X25519 临时公钥并建立 Plan2 安全信道
-// 核心流程：请求 /key、校验 ECDSA、生成本端 X25519 临时密钥对。
+// 核心流程：请求 /key、校验 Ed25519、生成本端 X25519 临时密钥对。
 //
 // 执行流程:
 // 1. 生成本端临时 X25519 密钥对（每次 PostByECC 一轮协商）
 // 2. 构造公钥交换请求
 // 3. 请求服务端 KeyPath 获取服务端临时公钥
-// 4. 校验服务端 ECDSA 等（由 node.CheckPublicKey 等完成）
+// 4. 校验服务端 Ed25519 等（由 node.CheckPublicKey 等完成）
 // 5. 返回本端 X25519 对象与服务端 PublicKey 封装
 //
 // 安全特性:
 // - X25519 密钥协商 + HKDF：前向保密（PFS）
 // - 临时密钥：每次请求新密钥对
-// - 强制 ECDSA：验证对端身份
+// - 强制 Ed25519：验证对端身份
 //
 // 返回值:
 //   - *crypto.X25519Object: 客户端临时 X25519 密钥（含私钥）
 //   - *node.PublicKey: 服务端公钥与随机数等
-//   - crypto.Cipher: ECDSA 校验用 Cipher
+//   - crypto.Cipher: Ed25519 校验用 Cipher
 //   - error: 错误信息
 //
 // 注意:
-// - 须预先配置 ecdsaObject
+// - 须预先配置 ed25519Object
 // - X25519 私钥敏感，用完应清零（PostByECC 内 defer 已处理）
 func (s *HttpSDK) GetPublicKey() (*crypto.X25519Object, *node.PublicKey, crypto.Cipher, error) {
-	// 获取ECDSA cipher，必须配置双向ECDSA签名
-	if s.ecdsaObject == nil {
-		return nil, nil, nil, ex.Throw{Msg: "ECDSA object not configured, bidirectional ECDSA signature is required"}
+	if s.ed25519Object == nil {
+		return nil, nil, nil, ex.Throw{Msg: "Ed25519 object not configured, bidirectional Ed25519 signature is required"}
 	}
-	cipher, exists := s.ecdsaObject[s.ClientNo]
+	cipher, exists := s.ed25519Object[s.ClientNo]
 	if !exists || cipher == nil {
-		return nil, nil, nil, ex.Throw{Msg: "ECDSA object not found for client, bidirectional ECDSA signature is required"}
+		return nil, nil, nil, ex.Throw{Msg: "Ed25519 object not found for client, bidirectional Ed25519 signature is required"}
 	}
 	public, err := node.CreatePublicKey(utils.Base64Encode(utils.GetRandomSecure(32)), utils.Base64Encode(utils.GetRandomSecure(32)), s.ClientNo, cipher)
 	if err != nil {
@@ -372,13 +304,13 @@ func (s *HttpSDK) GetPublicKey() (*crypto.X25519Object, *node.PublicKey, crypto.
 	return xKey, responseObject, cipher, nil
 }
 
-// PostByECC 通过 X25519 + HKDF + AES-GCM + 强制 ECDSA 发送 POST（Plan2，匿名场景）
+// PostByECC 通过 X25519 + HKDF + AES-GCM + 强制 Ed25519 发送 POST（Plan2，匿名场景）
 //
 // 安全协议栈 (从下到上):
 // 1. TLS 1.2+（传输层，由部署保证）
 // 2. X25519 共享秘密 + HKDF → 会话密钥，再 AES-256-GCM
 // 3. HMAC-SHA256 完整性
-// 4. 双向 ECDSA
+// 4. 双向 Ed25519
 //
 // 执行流程:
 // 1. GetPublicKey：服务端临时 X25519 公钥 + 本端临时密钥对
@@ -386,9 +318,9 @@ func (s *HttpSDK) GetPublicKey() (*crypto.X25519Object, *node.PublicKey, crypto.
 // 3. HKDF 派生对称密钥
 // 4. AES-GCM 加密请求体
 // 5. HMAC-SHA256
-// 6. ECDSA 签名
+// 6. Ed25519 签名
 // 7. 发送请求
-// 8. 校验响应 HMAC / ECDSA
+// 8. 校验响应 HMAC / Ed25519
 // 9. AES-GCM 解密响应
 //
 // 参数:
@@ -484,8 +416,8 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	}
 	jsonBody.Data = d
 	jsonBody.Sign = utils.Base64Encode(node.SignBodyMessage(path, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan, jsonBody.User, sharedKey))
-	// 添加ECDSA签名
-	if err := s.addECDSASign(jsonBody); err != nil {
+	// 添加Ed25519签名
+	if err := s.addEd25519Sign(jsonBody); err != nil {
 		return err
 	}
 
@@ -573,8 +505,8 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 		zlog.Debug(fmt.Sprintf("response sign verify: %t", utils.Base64Encode(validSign) == respData.Sign), 0)
 	}
 
-	// 验证ECDSA签名
-	if err := s.verifyECDSASign(validSign, respData); err != nil {
+	// 验证Ed25519签名
+	if err := s.verifyEd25519Sign(validSign, respData); err != nil {
 		return err
 	}
 	dec, err := utils.AesGCMDecryptBase(respData.Data, sharedKey, node.AppendBodyMessage(path, "", respData.Nonce, respData.Time, respData.Plan, jsonBody.User))
@@ -700,7 +632,7 @@ func (s *HttpSDK) GetAuth() AuthToken {
 	return AuthToken{Token: s.authToken.Token, Secret: s.authToken.Secret, Expired: s.authToken.Expired}
 }
 
-// PostByAuth 通过JWT认证+强制ECDSA模式发送POST请求
+// PostByAuth 通过JWT认证+强制Ed25519模式发送POST请求
 // 适用于登录后的业务API调用，使用令牌进行身份认证
 //
 // 安全协议栈:
@@ -708,17 +640,17 @@ func (s *HttpSDK) GetAuth() AuthToken {
 // 2. JWT令牌认证 (身份验证)
 // 3. AES-GCM或Base64 (数据加密，可选)
 // 4. HMAC-SHA256 (数据完整性)
-// 5. 强制双向ECDSA签名验证 (必须配置)
+// 5. 强制双向Ed25519签名验证 (必须配置)
 //
 // 执行流程:
 // 1. 检查认证状态，自动登录 (如果需要)
 // 2. 获取认证令牌 (Token + Secret)
 // 3. 根据encrypted参数选择加密方式
 // 4. 生成HMAC-SHA256签名
-// 5. 添加ECDSA签名 (如果配置)
+// 5. 添加Ed25519签名 (如果配置)
 // 6. 发送HTTP请求 (Authorization头)
 // 7. 验证响应HMAC签名
-// 8. 验证响应ECDSA签名 (如果配置)
+// 8. 验证响应Ed25519签名 (如果配置)
 // 9. 解密响应数据
 //
 // 参数:
@@ -734,7 +666,7 @@ func (s *HttpSDK) GetAuth() AuthToken {
 // - JWT令牌认证: 身份验证和授权
 // - 动态Secret: 每次登录生成新的AES密钥
 // - 可选加密: 支持明文(Base64)和加密传输
-// - 双向签名: 可配置ECDSA提供金融级安全
+// - 双向签名: 可配置Ed25519提供金融级安全
 //
 // 使用场景:
 // - 用户登录后的业务API调用
@@ -806,8 +738,8 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 		}
 	}
 	jsonBody.Sign = utils.Base64Encode(node.SignBodyMessage(path, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan, jsonBody.User, tokenSecret))
-	// 添加ECDSA签名
-	if err := s.addECDSASign(jsonBody); err != nil {
+	// 添加Ed25519签名
+	if err := s.addEd25519Sign(jsonBody); err != nil {
 		return err
 	}
 
@@ -883,8 +815,8 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 		zlog.Debug(fmt.Sprintf("response sign verify: %t", utils.Base64Encode(validSign) == respData.Sign), 0)
 	}
 
-	// 验证ECDSA签名
-	if err := s.verifyECDSASign(validSign, respData); err != nil {
+	// 验证Ed25519签名
+	if err := s.verifyEd25519Sign(validSign, respData); err != nil {
 		return err
 	}
 	var dec []byte
@@ -958,7 +890,7 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 // - 主要用于向后兼容和简单场景
 //
 // 注意:
-// - 不支持ECDSA签名
+// - 不支持Ed25519签名
 // - 使用固定的AES-CBC加密 (非GCM模式)
 // - HMAC签名算法略有不同
 func BuildRequestObject(path string, requestObj interface{}, secret string, encrypted ...bool) ([]byte, error) {

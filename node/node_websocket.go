@@ -251,7 +251,7 @@ type WsServer struct {
 
 	// ECC和缓存配置（用于Plan 2）
 	// 8字节函数指针字段组 (5个字段，40字节)
-	Cipher          map[int64]crypto.Cipher                 // 8字节 - RSA/ECDSA加密解密对象列表
+	Cipher          map[int64]crypto.Cipher                 // 8字节 - RSA / Ed25519 等 Cipher 列表（双向外层签名等）
 	RedisCacheAware func(ds ...string) (cache.Cache, error) // 8字节 - 函数指针
 	LocalCacheAware func(ds ...string) (cache.Cache, error) // 8字节 - 函数指针
 
@@ -806,13 +806,14 @@ func (mh *MessageHandler) Process(connCtx *ConnectionContext, body []byte) (cryp
 	return cipher, result, err
 }
 
-func (self *MessageHandler) CheckECDSASign(usr int64, msg, sign []byte) (crypto.Cipher, error) {
+// CheckOuterSign 按用户 ID 取 Cipher 并校验外层签名（cipher.Verify；典型为 Ed25519Object）。
+func (self *MessageHandler) CheckOuterSign(usr int64, msg, sign []byte) (crypto.Cipher, error) {
 	cipher, exists := self.cipher[usr]
 	if !exists || cipher == nil {
-		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "cipher not found for user, bidirectional ECDSA signature is required"}
+		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "cipher not found for user, bidirectional Ed25519 signature is required"}
 	}
 	if err := cipher.Verify(msg, sign); err != nil {
-		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request signature valid invalid"}
+		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request signature invalid"}
 	}
 	return cipher, nil
 }
@@ -880,7 +881,7 @@ func (mh *MessageHandler) validWebSocketBody(connCtx *ConnectionContext) (crypto
 		return nil, ex.Throw{Code: fasthttp.StatusUnauthorized, Msg: "websocket signature verify invalid"}
 	}
 
-	cipher, err := mh.CheckECDSASign(body.User, sign, utils.Base64Decode(body.Valid))
+	cipher, err := mh.CheckOuterSign(body.User, sign, utils.Base64Decode(body.Valid))
 	if err != nil {
 		return nil, err
 	}
@@ -1653,7 +1654,7 @@ func replyData(connCtx *ConnectionContext, cipher crypto.Cipher, reply interface
 		validBytes, err = cipher.Sign(sign)
 		if err != nil {
 			PutJsonResp(jsonResp)
-			zlog.Error("failed_to_ecdsa_sign_data", 0,
+			zlog.Error("failed_to_outer_sign_response", 0,
 				zlog.AddError(err),
 				zlog.String("user_id", connCtx.GetUserIDString()),
 				zlog.String("device_id", connCtx.getDeviceID()),
@@ -1752,7 +1753,7 @@ func (self *WsServer) AddLocalCache(cacheAware CacheAware) {
 	}
 }
 
-// AddCipher 注册 ECDSA/RSA 加解密对象，用于 Plan 1 等场景的请求验签与响应签名。
+// AddCipher 注册本 WebSocket 服务端对 usr 的验签 Cipher；双向 Ed25519 时为 CreateEd25519WithBase64（服务端私钥，该客户端公钥），与 SocketSDK.SetEd25519Object 镜像。
 // 应在 StartWebsocket 之前完成所有注册。不支持运行期动态添加（MessageHandler 无锁读 Cipher，动态添加有并发风险）；若以后需要运行期扩展再考虑加锁或 copy-on-write 等方案。
 func (self *WsServer) AddCipher(usr int64, cipher crypto.Cipher) error {
 	if self.Cipher == nil {

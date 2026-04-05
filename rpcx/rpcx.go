@@ -34,7 +34,7 @@ func NewRPCManager() *RPCManager {
 	return &RPCManager{}
 }
 
-// AddCipher 增加RSA加密器
+// AddCipher 注册本 gRPC 服务端某一客户端用户的 Cipher：须 CreateEd25519WithBase64ForRPC（服务端私钥+客户端公钥，及对应 X25519 镜像）。
 func (g *RPCManager) AddCipher(usr int64, cipher crypto.Cipher) error {
 	if cipher == nil {
 		return utils.Error("cipher is nil")

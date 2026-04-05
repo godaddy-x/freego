@@ -18,10 +18,8 @@ const (
 	testTokenSecret = "qFbtP73t3hzhChX2wa1o+D/ebwgppSwkq6MAwyz1ApvNjpYowD4dyZQM2Cjct8J2VFuwIB1VYP77m+KBCoruMw=="
 	testTokenExpire = 1764398208
 
-	// 服务端公钥
-	testServerPub = "BO6XQ+PD66TMDmQXSEHl2xQarWE0HboB4LazrznThhr6Go5SvpjXJqiSe2fX+sup5OQDOLPkLdI1gh48jOmAq+k="
-	// 客户端私钥
-	testClientPrk = "rnX5ykQivfbLHtcbPR68CP636usTNC03u8OD1KeoDPg="
+	testServerPub = "fv02u4YEdfVdkQOI5PT50HZYz7xyZln7FTMjxjWYVhw="
+	testClientPrk = "T9arYQw2qGrcyN1kLvrVyP7jXKJe+cXIW5RNFXrvLEx1kuxLxKR5GXUihsj75z8GT+Xh0rfDxM0TOdXqQI1fog=="
 )
 
 var securityHttpSDK = NewSecuritySDK()
@@ -32,7 +30,7 @@ func NewSecuritySDK() *sdk.HttpSDK {
 		KeyPath:   "/key",
 		LoginPath: "/login",
 	}
-	_ = newObject.SetECDSAObject(1, testClientPrk, testServerPub)
+	_ = newObject.SetEd25519Object(1, testClientPrk, testServerPub)
 	return newObject
 }
 
