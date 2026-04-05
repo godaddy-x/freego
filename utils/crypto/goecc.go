@@ -3,8 +3,6 @@ package crypto
 import (
 	"crypto/ecdh"
 	"crypto/ed25519"
-	"crypto/sha256"
-	"crypto/subtle"
 	"errors"
 	"fmt"
 	"sync"
@@ -103,8 +101,9 @@ func (self *X25519Object) Verify(msg, sign []byte) error {
 
 // ******************************************************* RPCX：仅 X25519 本端私钥 + 对端公钥 *******************************************************
 
-// X25519RPCObject 供 gRPC RPCX 使用：密钥材料仅为 X25519，不做 Ed25519 派生。P=1 载荷用 ecc.EncryptX25519(对端公钥)；
-// 外层 E 为 HMAC-SHA256(S, shared)，与内层 Signature 使用同一 ECDH 共享秘密（32 字节）。
+// X25519RPCObject 供 gRPC RPCX 使用：本端 X25519 私钥 + 对端 X25519 公钥。
+// P=1 业务体：ecc.EncryptX25519（对端公钥，载荷前向保密）。
+// 静态 ECDH 共享秘密仅用于 HMAC 生成/校验 S；protobuf 的 e 字段不使用。
 type X25519RPCObject struct {
 	PrivateKeyBase64 string
 	PublicKeyBase64  string
@@ -166,20 +165,18 @@ func (o *X25519RPCObject) RPCXCacheKeyBytes() []byte {
 	return ecc.GetX25519PublicKeyBytes(o.peerPublicKey)
 }
 
-// RPCXEncryptPayload 使用对端 X25519 公钥做 ecc.EncryptX25519（每消息临时密钥）。
+// RPCXEncryptPayload P=1：ecc.EncryptX25519(nil, 对端公钥, …)，与 eccrypto DecryptX25519 配对。
 func (o *X25519RPCObject) RPCXEncryptPayload(plaintext, additionalData []byte) ([]byte, error) {
 	pub := ecc.GetX25519PublicKeyBytes(o.peerPublicKey)
+	if len(pub) != 32 {
+		return nil, errors.New("invalid peer X25519 public key")
+	}
 	return ecc.EncryptX25519(nil, pub, plaintext, additionalData)
 }
 
-// RPCXDecryptPayload 使用本端 X25519 私钥解密 RPCXEncryptPayload 产出。
+// RPCXDecryptPayload 解密 RPCXEncryptPayload 密文（本端私钥）。
 func (o *X25519RPCObject) RPCXDecryptPayload(ciphertext, additionalData []byte) ([]byte, error) {
 	return ecc.DecryptX25519(o.privateKey, ciphertext, additionalData, nil)
-}
-
-// RPCXOuterMAC 外层认证标签：E = HMAC-SHA256(S, sharedKey)（与 utils.HMAC_SHA256_BASE 一致）。
-func RPCXOuterMAC(sharedKey, s []byte) []byte {
-	return utils.HMAC_SHA256_BASE(s, sharedKey)
 }
 
 func (o *X25519RPCObject) GetPrivateKey() (interface{}, string) {
@@ -191,11 +188,7 @@ func (o *X25519RPCObject) GetPublicKey() (interface{}, string) {
 }
 
 func (o *X25519RPCObject) Encrypt(msg, aad []byte) (string, error) {
-	pub := ecc.GetX25519PublicKeyBytes(o.peerPublicKey)
-	if len(pub) != 32 {
-		return "", errors.New("invalid peer X25519 public key")
-	}
-	out, err := ecc.EncryptX25519(nil, pub, msg, aad)
+	out, err := o.RPCXEncryptPayload(msg, aad)
 	if err != nil {
 		return "", err
 	}
@@ -207,30 +200,18 @@ func (o *X25519RPCObject) Decrypt(msg string, aad []byte) ([]byte, error) {
 	if len(bs) == 0 {
 		return nil, errors.New("base64 parse failed")
 	}
-	return ecc.DecryptX25519(o.privateKey, bs, aad, nil)
+	return o.RPCXDecryptPayload(bs, aad)
 }
 
 func (o *X25519RPCObject) Sign(msg []byte) ([]byte, error) {
-	sk, err := o.sharedSecretLocked()
-	if err != nil {
-		return nil, err
-	}
-	return RPCXOuterMAC(sk, msg), nil
+	return nil, errors.New("X25519RPCObject: RPCX does not use protobuf field e")
 }
 
 func (o *X25519RPCObject) Verify(msg, sign []byte) error {
-	if len(sign) != sha256.Size {
-		return errors.New("RPCX outer MAC length invalid")
+	if len(sign) == 0 {
+		return nil
 	}
-	sk, err := o.sharedSecretLocked()
-	if err != nil {
-		return err
-	}
-	mac := RPCXOuterMAC(sk, msg)
-	if subtle.ConstantTimeCompare(mac, sign) != 1 {
-		return errors.New("RPCX outer MAC verification failed")
-	}
-	return nil
+	return errors.New("X25519RPCObject: non-empty e is not supported in RPCX")
 }
 
 // ******************************************************* Ed25519 Implement *******************************************************

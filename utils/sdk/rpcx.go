@@ -24,12 +24,11 @@ import (
 )
 
 // RPC FreeGo gRPC客户端SDK
-// 使用 CreateX25519RPCWithBase64（本端 X25519 私钥 + 对端 X25519 公钥）：P=1 载荷为 ecc.EncryptX25519；外层 E 为 HMAC-SHA256(S, shared)。
+// CreateX25519RPCWithBase64：P=1 业务体为 ecc.EncryptX25519；S = HMAC(…, X25519 协商 key)。不使用 e 字段。
 //
 // 安全特性:
-// - 载荷层：每消息临时 X25519 + 对端静态公钥（eccrypto 内 AES-GCM）
-// - 内层与外层均依赖同一 X25519 ECDH 共享秘密（外层为对称 MAC，非 Ed25519）
-// - 防重放攻击 (时间戳+Nonce)
+// - 载荷：公钥封装（eccrypto）；整包完整性：协商 key 的 HMAC（S）
+// - 防重放 (时间戳+Nonce)
 type RPC struct {
 	Address       string                  // gRPC服务地址 (如: localhost:9090)
 	SSL           bool                    // 是否启用SSL/TLS
@@ -221,7 +220,7 @@ func (r *RPC) post(router string, requestObj, responseObj proto.Message, plan, t
 	if err != nil {
 		return fmt.Errorf("failed to marshal request: %v", err)
 	}
-	if plan == 1 { // 加密参数（ecc.EncryptX25519，与 impl 服务端一致）
+	if plan == 1 { // ecc.EncryptX25519（对端公钥），与 impl 一致
 		aad := utils.GetRandomSecure(32)
 		res, err := impl.RPCXPayloadEncrypt(cipher, d.Value, aad)
 		if err != nil {
@@ -248,10 +247,7 @@ func (r *RPC) post(router string, requestObj, responseObj proto.Message, plan, t
 		return fmt.Errorf("failed to calculate signature: %v", err)
 	}
 	req.S = sig
-	req.E, err = cipher.Sign(sig)
-	if err != nil {
-		return fmt.Errorf("failed to sign request: %v", err)
-	}
+	req.E = nil
 
 	var t time.Duration
 	if timeout > 0 {
@@ -331,11 +327,7 @@ func (r *RPC) verifyResponse(resp *pb.CommonResponse) error {
 	}
 	defer DIC.ClearData(key)
 
-	if err := cipher.Verify(resp.S, resp.E); err != nil {
-		return fmt.Errorf("response outer MAC verification failed: %v", err)
-	}
-
-	// 验证HMAC签名
+	// 验证 S（不使用 resp.e）
 	sig, err := impl.Signature(key, resp.D.Value, resp.N, resp.T, resp.P, resp.R, r.clientNo)
 	if err != nil {
 		return err
