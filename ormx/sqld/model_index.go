@@ -4,14 +4,16 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"reflect"
+	"sort"
+	"time"
+
 	"github.com/godaddy-x/freego/ormx/sqlc"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/zlog"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
-	"reflect"
-	"sort"
 )
 
 type IndexInfo struct {
@@ -36,11 +38,16 @@ func readyCollection(object sqlc.Object) {
 		panic(err)
 	}
 	defer db.Close()
-	if err := db.Save(object); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	collection, err := db.Session.Database(db.Database).ListCollectionNames(ctx, bson.M{"name": object.GetTable()})
+	if err != nil {
 		panic(err)
 	}
-	if err := db.Delete(object); err != nil {
-		panic(err)
+	if len(collection) == 0 {
+		if err := db.Session.Database(db.Database).CreateCollection(ctx, object.GetTable()); err != nil {
+			panic(err)
+		}
 	}
 }
 
