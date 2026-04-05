@@ -24,13 +24,11 @@ import (
 )
 
 // RPC FreeGo gRPC客户端SDK
-// 支持 ECC+AES-GCM 加密传输、强制双向 Ed25519 外层签名
+// 使用 CreateX25519RPCWithBase64（本端 X25519 私钥 + 对端 X25519 公钥）：P=1 载荷为 ecc.EncryptX25519；外层 E 为 HMAC-SHA256(S, shared)。
 //
 // 安全特性:
-// - AES-256-GCM 认证加密
-// - HMAC-SHA256 完整性验证
-// - 强制双向 Ed25519 签名
-// - 动态密钥协商（RPCX：独立 X25519 密钥对 ECDH，与 eccrypto GenSharedKeyX25519 相同；Ed25519 仅签名；与 HTTP Plan2 临时 X25519 不同）
+// - 载荷层：每消息临时 X25519 + 对端静态公钥（eccrypto 内 AES-GCM）
+// - 内层与外层均依赖同一 X25519 ECDH 共享秘密（外层为对称 MAC，非 Ed25519）
 // - 防重放攻击 (时间戳+Nonce)
 type RPC struct {
 	Address       string                  // gRPC服务地址 (如: localhost:9090)
@@ -38,7 +36,7 @@ type RPC struct {
 	timeout       int64                   // 请求超时时间(秒)
 	language      string                  // 语言设置
 	clientNo      int64                   // 客户端ID
-	ed25519Object map[int64]crypto.Cipher // Ed25519 双向签名 Cipher（须为 *crypto.Ed25519Object）
+	ed25519Object map[int64]crypto.Cipher // RPCX Cipher（须为 *crypto.X25519RPCObject）
 
 	// gRPC连接相关
 	conn        *grpc.ClientConn      // gRPC连接
@@ -88,8 +86,8 @@ func (r *RPC) SetLanguage(language string) *RPC {
 	return r
 }
 
-// AddCipher 注册本 RPC 客户端的 *Ed25519Object：须用 CreateEd25519WithBase64ForRPC（本端私钥+对端公钥的 Ed25519 与 X25519 两套镜像）。
-// 与 HTTP、WebSocket 客户端配置相互独立，各自只连自己的服务。
+// AddCipher 注册本 RPC 客户端的 *X25519RPCObject（CreateX25519RPCWithBase64：本端 X25519 私钥 + 对端 X25519 公钥）。
+// 与 HTTP、WebSocket 的 Ed25519 配置相互独立。
 func (r *RPC) AddCipher(usr int64, cipher crypto.Cipher) *RPC {
 	if cipher == nil {
 		return r
@@ -121,7 +119,7 @@ func (r *RPC) Connect() error {
 	}
 
 	if len(r.ed25519Object) == 0 {
-		return fmt.Errorf("Ed25519 cipher not configured, bidirectional Ed25519 signature is required")
+		return fmt.Errorf("RPCX cipher not configured (use CreateX25519RPCWithBase64)")
 	}
 
 	if r.timeout <= 0 {
@@ -210,7 +208,7 @@ func (r *RPC) post(router string, requestObj, responseObj proto.Message, plan, t
 	c := r.cacheObject
 	cipher, exists := r.ed25519Object[r.clientNo]
 	if !exists || cipher == nil {
-		return fmt.Errorf("cipher not found for client, bidirectional Ed25519 signature is required")
+		return fmt.Errorf("cipher not found for client")
 	}
 	key, err := impl.GetSharedKey(c, cipher)
 	if err != nil {
@@ -223,9 +221,9 @@ func (r *RPC) post(router string, requestObj, responseObj proto.Message, plan, t
 	if err != nil {
 		return fmt.Errorf("failed to marshal request: %v", err)
 	}
-	if plan == 1 { // 加密参数
+	if plan == 1 { // 加密参数（ecc.EncryptX25519，与 impl 服务端一致）
 		aad := utils.GetRandomSecure(32)
-		res, err := utils.AesGCMEncryptBaseByteResult(d.Value, key, aad)
+		res, err := impl.RPCXPayloadEncrypt(cipher, d.Value, aad)
 		if err != nil {
 			return fmt.Errorf("failed to encrypt request: %v", err)
 		}
@@ -294,7 +292,7 @@ func (r *RPC) post(router string, requestObj, responseObj proto.Message, plan, t
 		if err := impl.UnpackAny(resp.D, enc); err != nil {
 			return fmt.Errorf("failed to unpack encrypted response: %v", err)
 		}
-		decrypted, err := utils.AesGCMDecryptBaseByteResult(enc.D, key, enc.N)
+		decrypted, err := impl.RPCXPayloadDecrypt(cipher, enc)
 		if err != nil {
 			return fmt.Errorf("failed to decrypt response: %v", err)
 		}
@@ -324,19 +322,18 @@ func (r *RPC) verifyResponse(resp *pb.CommonResponse) error {
 
 	cipher, exists := r.ed25519Object[r.clientNo]
 	if !exists || cipher == nil {
-		return fmt.Errorf("cipher not found for client, bidirectional Ed25519 signature is required")
+		return fmt.Errorf("cipher not found for client")
 	}
 
-	if err := cipher.Verify(resp.S, resp.E); err != nil {
-		return fmt.Errorf("response Ed25519 signature verification failed")
-	}
-
-	// 获取共享密钥
 	key, err := impl.GetSharedKey(r.cacheObject, cipher)
 	if err != nil {
 		return err
 	}
 	defer DIC.ClearData(key)
+
+	if err := cipher.Verify(resp.S, resp.E); err != nil {
+		return fmt.Errorf("response outer MAC verification failed: %v", err)
+	}
 
 	// 验证HMAC签名
 	sig, err := impl.Signature(key, resp.D.Value, resp.N, resp.T, resp.P, resp.R, r.clientNo)

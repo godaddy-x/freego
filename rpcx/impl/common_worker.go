@@ -3,7 +3,8 @@ package impl
 import (
 	"bytes"
 	"context"
-	"crypto/ed25519"
+	"crypto/ecdh"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 
@@ -93,7 +94,7 @@ func (self *CommonWorker) Do(ctx context.Context, req *pb.CommonRequest) (*pb.Co
 		if err := UnpackAny(req.D, enc); err != nil {
 			return buildErrorResponse(req, codes.InvalidArgument, fmt.Sprintf("unpack encrypt failed: %v", err)), nil
 		}
-		dec, err := utils.AesGCMDecryptBaseByteResult(enc.D, key, enc.N)
+		dec, err := RPCXPayloadDecrypt(cipher, enc)
 		if err != nil {
 			return buildErrorResponse(req, codes.InvalidArgument, fmt.Sprintf("unpack decrypt failed: %v", err)), nil
 		}
@@ -144,20 +145,15 @@ func (self *CommonWorker) validRequest(req *pb.CommonRequest) (fgocrypto.Cipher,
 	if !utils.CheckRangeInt(len(req.S), 32, 64) {
 		return nil, nil, errors.New("request signature length invalid")
 	}
-	if len(req.E) != ed25519.SignatureSize {
-		return nil, nil, errors.New("request Ed25519 signature length invalid")
+	if len(req.E) != sha256.Size {
+		return nil, nil, errors.New("request outer MAC length invalid (expect HMAC-SHA256)")
 	}
 
-	// 2. 先验证 Ed25519 外层签名（双重签名验证的第一层）
 	cipher, exists := self.GetCipher()[req.U]
 	if !exists || cipher == nil {
 		return nil, nil, errors.New("request cipher not found")
 	}
-	if err := cipher.Verify(req.S, req.E); err != nil {
-		return nil, nil, errors.New("request Ed25519 signature check failed")
-	}
 
-	// 3. 获取共享密钥
 	c := self.GetLocalCache()
 	if c == nil {
 		return nil, nil, errors.New("cache object is nil")
@@ -167,7 +163,12 @@ func (self *CommonWorker) validRequest(req *pb.CommonRequest) (fgocrypto.Cipher,
 		return nil, nil, err
 	}
 
-	// 4. 验证HMAC签名（双重签名验证的第二层）
+	// 外层：E = HMAC-SHA256(S, sharedX25519)（须先得到 sharedKey）
+	if err := cipher.Verify(req.S, req.E); err != nil {
+		return nil, nil, errors.New("request outer MAC check failed")
+	}
+
+	// 内层 HMAC（双重签名验证的第二层）
 	sig, err := Signature(key, req.D.Value, req.N, req.T, req.P, req.R, req.U)
 	if err != nil {
 		return nil, nil, err
@@ -225,10 +226,10 @@ func (self *CommonWorker) buildSuccessResponse(cipher fgocrypto.Cipher, key []by
 		return buildErrorResponse(req, codes.Internal, fmt.Sprintf("pack business response failed: %v", err)), nil
 	}
 
-	// 如果请求是加密的，响应也应该加密
+	// 如果请求是加密的，响应也应该加密（X25519 封装，与请求侧对称）
 	if req.P == 1 {
 		aad := utils.GetRandomSecure(32)
-		encrypted, err := utils.AesGCMEncryptBaseByteResult(anyResp.Value, key, aad)
+		encrypted, err := RPCXPayloadEncrypt(cipher, anyResp.Value, aad)
 		if err != nil {
 			return buildErrorResponse(req, codes.Internal, fmt.Sprintf("encrypt response failed: %v", err)), nil
 		}
@@ -262,32 +263,50 @@ func (self *CommonWorker) buildSuccessResponse(cipher fgocrypto.Cipher, key []by
 	return res, nil
 }
 
-// GetSharedKey 获取 RPCX 用 X25519 ECDH 共享秘密（32 字节），与 eccrypto GenSharedKeyX25519 一致；Ed25519 仅用于签名。结果经本地缓存加密存放。
-func GetSharedKey(c cache.Cache, cipher fgocrypto.Cipher) ([]byte, error) {
-	eo, ok := cipher.(*fgocrypto.Ed25519Object)
+// RPCXPayloadEncrypt 加密 P=1 业务 protobuf 序列化字节；aad 通常为随机 32 字节，写入 pb.Encrypt.N。
+func RPCXPayloadEncrypt(cipher fgocrypto.Cipher, plaintext, aad []byte) ([]byte, error) {
+	xr, ok := cipher.(*fgocrypto.X25519RPCObject)
 	if !ok {
-		return nil, errors.New("RPCX cipher must be *Ed25519Object")
+		return nil, errors.New("RPCX P=1 requires *X25519RPCObject from CreateX25519RPCWithBase64")
 	}
-	pubBs := eo.RPCXCacheKeyBytes()
-	if len(pubBs) == 0 {
-		return nil, errors.New("RPCX X25519 not configured: use CreateEd25519WithBase64ForRPC")
+	return xr.RPCXEncryptPayload(plaintext, aad)
+}
+
+// RPCXPayloadDecrypt 解密 P=1 的 pb.Encrypt（ecc.EncryptX25519 格式）。
+func RPCXPayloadDecrypt(cipher fgocrypto.Cipher, enc *pb.Encrypt) ([]byte, error) {
+	if enc == nil {
+		return nil, errors.New("encrypt payload is nil")
+	}
+	xr, ok := cipher.(*fgocrypto.X25519RPCObject)
+	if !ok {
+		return nil, errors.New("RPCX P=1 requires *X25519RPCObject from CreateX25519RPCWithBase64")
+	}
+	return xr.RPCXDecryptPayload(enc.D, enc.N)
+}
+
+// GetSharedKey 获取 RPCX 用 X25519 ECDH 共享秘密（32 字节），与 eccrypto GenSharedKeyX25519 一致。结果经本地缓存加密存放。
+func GetSharedKey(c cache.Cache, cipher fgocrypto.Cipher) ([]byte, error) {
+	xr, ok := cipher.(*fgocrypto.X25519RPCObject)
+	if !ok {
+		return nil, errors.New("RPCX cipher must be *X25519RPCObject (CreateX25519RPCWithBase64)")
+	}
+	pubBs := xr.RPCXCacheKeyBytes()
+	if len(pubBs) != 32 {
+		return nil, errors.New("RPCX peer X25519 public key invalid")
 	}
 	prk, _ := cipher.GetPrivateKey()
-	prkEd, ok1 := prk.(ed25519.PrivateKey)
+	xprk, ok1 := prk.(*ecdh.PrivateKey)
 	if !ok1 {
-		return nil, errors.New("invalid Ed25519 private key")
+		return nil, errors.New("invalid X25519 private key")
 	}
-	prkBs, err := ecc.GetEd25519PrivateKeyBytes(prkEd)
-	if err != nil {
-		return nil, errors.New("prk bytes invalid")
-	}
+	prkBs := ecc.GetX25519PrivateKeyBytes(xprk)
 	cacheKey := utils.FNV1a64Base(pubBs)
 	sharedKey, err := c.GetBytes(cacheKey)
 	if err != nil {
 		return nil, errors.New("load cache pub bytes error")
 	}
 	if len(sharedKey) == 0 { // 如果没有找到缓存则重新处理协商
-		sharedKey, err = eo.RPCXSharedSecret()
+		sharedKey, err = xr.RPCXSharedSecret()
 		if err != nil {
 			return nil, errors.New("cipher shared key error")
 		}

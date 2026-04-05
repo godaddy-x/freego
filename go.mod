@@ -8,7 +8,7 @@ require (
 	github.com/buaazp/fasthttprouter v0.1.1
 	github.com/go-sql-driver/mysql v1.6.0
 	github.com/gobwas/ws v1.4.0
-	github.com/godaddy-x/eccrypto v1.1.14
+	github.com/godaddy-x/eccrypto v1.1.15
 	github.com/google/uuid v1.6.0
 	github.com/mailru/easyjson v0.9.1
 	github.com/patrickmn/go-cache v2.1.0+incompatible
@@ -56,3 +56,5 @@ require (
 	gopkg.in/check.v1 v1.0.0-20190902080502-41f04d3bba15 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
+
+//replace github.com/godaddy-x/eccrypto => ../../github/eccrypto

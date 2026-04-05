@@ -39,7 +39,7 @@ func TestGRPCManager_StartServer(t *testing.T) {
 	// 创建GRPC管理器
 	manager := rpcx.NewRPCManager()
 
-	cipher, _ := crypto.CreateEd25519WithBase64ForRPC(serverPrk, clientPub, rpcSrvXPrk, rpcCliXPub)
+	cipher, _ := crypto.CreateX25519RPCWithBase64(rpcSrvXPrk, rpcCliXPub)
 	// 添加RSA cipher
 	err := manager.AddCipher(1, cipher)
 	if err != nil {
@@ -72,7 +72,7 @@ func TestGRPCManager_StartServer(t *testing.T) {
 // TestRpcSDK_Basic 基础功能测试
 func TestRpcSDK_Basic(t *testing.T) {
 
-	cipher, _ := crypto.CreateEd25519WithBase64ForRPC(clientPrk, serverPub, rpcCliXPrk, rpcSrvXPub)
+	cipher, _ := crypto.CreateX25519RPCWithBase64(rpcCliXPrk, rpcSrvXPub)
 
 	// 创建RPC客户端SDK
 	rpcClient := sdk.NewRPC("localhost:9090").
