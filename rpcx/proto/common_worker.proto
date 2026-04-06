@@ -9,22 +9,22 @@ message Encrypt {
 }
 
 message CommonRequest {
-  google.protobuf.Any d = 1; // 数据载体
+  google.protobuf.Any d = 1; // 数据载体（当前实现仅 P=0 明文）
   bytes n = 2;              // 随机数
-  bytes s = 3;              // 数据签名
+  bytes s = 3;              // SHA256(规范字段) 32 字节，见 rpcx/impl.RPCXRequestDigestS
   int64 t = 4;               // 时间戳
-  bytes e = 5;              // 已废弃：RPCX 不使用，保持字段号兼容
+  bytes e = 5;              // Ed25519.Sign(本端私钥, s) 64 字节
   string r = 6;              // 访问路由
-  int64 p = 7;               // 计划类型
+  int64 p = 7;               // 计划类型（当前仅支持 0 明文）
   int64 u = 8;               // 客户端ID
 }
 
 message CommonResponse {
   google.protobuf.Any d = 1; // 数据载体
   bytes n = 2;              // 随机数
-  bytes s = 3;              // 数据签名
+  bytes s = 3;              // SHA256(规范字段含 c、m)，见 RPCXResponseDigestS
   int64 t = 4;               // 时间戳
-  bytes e = 5;              // 已废弃：RPCX 不使用，保持字段号兼容
+  bytes e = 5;              // Ed25519(s) 服务端签名
   string r = 6;              // 访问路由
   int64 p = 7;               // 计划类型
   int64 c = 8;               // 响应代码

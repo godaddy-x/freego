@@ -1,3 +1,4 @@
+// Package impl 实现 gRPC CommonWorker：P=0 明文；s=SHA256(规范字段)；e=Ed25519(s)；Cipher 为 *crypto.Ed25519Object。
 package impl
 
 import (

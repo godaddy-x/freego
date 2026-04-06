@@ -76,13 +76,13 @@ func (x *Encrypt) GetN() []byte {
 
 type CommonRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	D             *anypb.Any             `protobuf:"bytes,1,opt,name=d,proto3" json:"d,omitempty"`  // 数据载体
+	D             *anypb.Any             `protobuf:"bytes,1,opt,name=d,proto3" json:"d,omitempty"`  // 数据载体（当前 P=0 明文）
 	N             []byte                 `protobuf:"bytes,2,opt,name=n,proto3" json:"n,omitempty"`  // 随机数
-	S             []byte                 `protobuf:"bytes,3,opt,name=s,proto3" json:"s,omitempty"`  // 数据签名
+	S             []byte                 `protobuf:"bytes,3,opt,name=s,proto3" json:"s,omitempty"`  // SHA256 摘要 32B，见 impl.RPCXRequestDigestS
 	T             int64                  `protobuf:"varint,4,opt,name=t,proto3" json:"t,omitempty"` // 时间戳
-	E             []byte                 `protobuf:"bytes,5,opt,name=e,proto3" json:"e,omitempty"`  // Ed25519 外层签名
+	E             []byte                 `protobuf:"bytes,5,opt,name=e,proto3" json:"e,omitempty"`  // Ed25519(s) 64B
 	R             string                 `protobuf:"bytes,6,opt,name=r,proto3" json:"r,omitempty"`  // 访问路由
-	P             int64                  `protobuf:"varint,7,opt,name=p,proto3" json:"p,omitempty"` // 计划类型
+	P             int64                  `protobuf:"varint,7,opt,name=p,proto3" json:"p,omitempty"` // 计划类型（当前仅 0）
 	U             int64                  `protobuf:"varint,8,opt,name=u,proto3" json:"u,omitempty"` // 客户端ID
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -178,9 +178,9 @@ type CommonResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	D             *anypb.Any             `protobuf:"bytes,1,opt,name=d,proto3" json:"d,omitempty"`  // 数据载体
 	N             []byte                 `protobuf:"bytes,2,opt,name=n,proto3" json:"n,omitempty"`  // 随机数
-	S             []byte                 `protobuf:"bytes,3,opt,name=s,proto3" json:"s,omitempty"`  // 数据签名
+	S             []byte                 `protobuf:"bytes,3,opt,name=s,proto3" json:"s,omitempty"`  // SHA256 摘要，见 impl.RPCXResponseDigestS
 	T             int64                  `protobuf:"varint,4,opt,name=t,proto3" json:"t,omitempty"` // 时间戳
-	E             []byte                 `protobuf:"bytes,5,opt,name=e,proto3" json:"e,omitempty"`  // Ed25519 外层签名
+	E             []byte                 `protobuf:"bytes,5,opt,name=e,proto3" json:"e,omitempty"`  // Ed25519(s) 服务端签
 	R             string                 `protobuf:"bytes,6,opt,name=r,proto3" json:"r,omitempty"`  // 访问路由
 	P             int64                  `protobuf:"varint,7,opt,name=p,proto3" json:"p,omitempty"` // 计划类型
 	C             int64                  `protobuf:"varint,8,opt,name=c,proto3" json:"c,omitempty"` // 响应代码

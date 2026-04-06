@@ -1,3 +1,9 @@
+// Ed25519 / X25519（Curve25519）封装，依赖 github.com/godaddy-x/eccrypto。
+//
+// 能力划分：
+//   - Ed25519Object：HTTP、WebSocket、gRPC rpcx 的「外层」身份与签名（rpcx：s=SHA256(规范串)，e=Ed25519(s)，仅 P=0 明文）。
+//   - X25519Object：Plan2 匿名通道，临时密钥 + ecc.EncryptX25519 混合加密。
+//   - X25519RPCObject：静态 X25519（ECDH 共享密钥、EncryptX25519 载荷），供自建协议或扩展；当前 rpcx 包 CommonWorker 未使用。
 package crypto
 
 import (
@@ -99,11 +105,11 @@ func (self *X25519Object) Verify(msg, sign []byte) error {
 	return nil
 }
 
-// ******************************************************* RPCX：仅 X25519 本端私钥 + 对端公钥 *******************************************************
+// ******************************************************* X25519 静态 ECDH + 载荷封装（非 rpcx 默认路径）*******************************************************
 
-// X25519RPCObject 供 gRPC RPCX 使用：本端 X25519 私钥 + 对端 X25519 公钥。
-// P=1 业务体：ecc.EncryptX25519（对端公钥，载荷前向保密）。
-// 静态 ECDH 共享秘密仅用于 HMAC 生成/校验 S；protobuf 的 e 字段不使用。
+// X25519RPCObject 本端 X25519 私钥 + 对端 X25519 公钥：可 ECDH 出共享密钥（RPCXSharedSecret），
+// 并可对业务载荷做 ecc.EncryptX25519 / DecryptX25519。
+// 注意：当前 github.com/godaddy-x/freego/rpcx 的 CommonWorker 使用 Ed25519Object + SHA256(s)+e，不注册本类型。
 type X25519RPCObject struct {
 	PrivateKeyBase64 string
 	PublicKeyBase64  string
@@ -146,7 +152,7 @@ func (o *X25519RPCObject) RPCXCacheKeyBytes() []byte {
 	return ecc.GetX25519PublicKeyBytes(o.peerPublicKey)
 }
 
-// RPCXEncryptPayload P=1：ecc.EncryptX25519(nil, 对端公钥, …)，与 eccrypto DecryptX25519 配对。
+// RPCXEncryptPayload ecc.EncryptX25519(nil, 对端公钥, …)，与 RPCXDecryptPayload 配对。
 func (o *X25519RPCObject) RPCXEncryptPayload(plaintext, additionalData []byte) ([]byte, error) {
 	pub := ecc.GetX25519PublicKeyBytes(o.peerPublicKey)
 	if len(pub) != 32 {
@@ -185,18 +191,19 @@ func (o *X25519RPCObject) Decrypt(msg string, aad []byte) ([]byte, error) {
 }
 
 func (o *X25519RPCObject) Sign(msg []byte) ([]byte, error) {
-	return nil, errors.New("X25519RPCObject: RPCX does not use protobuf field e")
+	return nil, errors.New("X25519RPCObject: 不提供签名，请使用 Ed25519Object")
 }
 
 func (o *X25519RPCObject) Verify(msg, sign []byte) error {
 	if len(sign) == 0 {
 		return nil
 	}
-	return errors.New("X25519RPCObject: non-empty e is not supported in RPCX")
+	return errors.New("X25519RPCObject: 不提供验签，请使用 Ed25519Object")
 }
 
 // ******************************************************* Ed25519 Implement *******************************************************
 
+// Ed25519Object 双向身份：Sign 用本端私钥，Verify 用对端公钥（CreateEd25519WithBase64 镜像配置时 PublicKeyBase64 字段存对端公钥）。
 type Ed25519Object struct {
 	PrivateKeyBase64 string
 	PublicKeyBase64  string
@@ -233,10 +240,10 @@ func (self *Ed25519Object) CreateEd25519() error {
 	return nil
 }
 
-// CreateEd25519WithBase64 按「本端私钥 + 对端公钥」加载身份，用于双向外层签名（Sign 用私钥，Verify 用对端公钥）。
+// CreateEd25519WithBase64 按「本端私钥 + 对端公钥」加载身份（Sign/Verify）。
 //
-// HTTP、WebSocket 与 gRPC（CreateX25519RPCWithBase64）彼此独立配置。
-// 镜像关系：服务端配置为（服务端私钥, 客户端公钥），客户端配置为（客户端私钥, 服务端公钥）。
+// 用途：HTTP、WebSocket 外层签名；gRPC rpcx.AddCipher 同样注册本类型（与 X25519 / X25519RPCObject 独立）。
+// 镜像：服务端（服务端私钥, 客户端公钥），客户端（客户端私钥, 服务端公钥）。
 func CreateEd25519WithBase64(prkB64, peerPubB64 string) (*Ed25519Object, error) {
 	prk, err := ecc.LoadEd25519PrivateKeyFromBase64(prkB64)
 	if err != nil {
