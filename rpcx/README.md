@@ -12,6 +12,9 @@ protoc --go-grpc_out=. ./rpcx/proto/common_worker.proto
 
 ## 4. 生成TLS证书
 
+> 说明：以下 `openssl genrsa` 仅用于生成 **TLS 证书私钥**。  
+> 与业务层加密/签名方案无关；当前业务链路以 `Ed25519/X25519` 为主（见根目录 `README_SECURITY.md`）。
+
 ### 生成ca私钥
 openssl genrsa -out ca.key 4096
 ### 自签名生成ca.crt 证书文件
