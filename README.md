@@ -214,6 +214,5 @@ CMD ["./main"]
 - 🐛 **Issues**: [报告问题](https://github.com/godaddy-x/freego/issues)
 - 📖 **安全文档**: [`README_SECURITY.md`](./README_SECURITY.md)
 - 📊 **ORM 报告**: [`orm_performance_report.md`](./orm_performance_report.md) · [`mongodb_performance_report.md`](./mongodb_performance_report.md)
-- ⚙️ Project maintained by [`godaddy-x`](https://github.com/godaddy-x). Historical contributions from `go-pioneer` are by the same author.
 
 欢迎通过 [Issues](https://github.com/godaddy-x/freego/issues) 反馈问题与建议。
