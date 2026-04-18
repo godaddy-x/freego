@@ -74,9 +74,8 @@ type stmtWrapper struct {
 	cacheExpireAt time.Time
 
 	// 同步原语
-	cleanupOnce sync.Once
-	closeMu     sync.Mutex // 保护关闭操作
-	timerMu     sync.Mutex // 保护 timer 操作和 cacheExpireAt
+	closeMu sync.Mutex // 保护关闭操作
+	timerMu sync.Mutex // 保护 timer 操作和 cacheExpireAt
 
 	// 通道 (8字节)
 	shutdownDone chan struct{}
@@ -98,7 +97,7 @@ type prepareManager struct {
 func newPrepareManager() *prepareManager {
 	pm := &prepareManager{
 		creating:     make(map[string]*sync.Mutex),
-		cacheStmt:    cache.NewTTLCache[string, interface{}](1000, 10*time.Second, 500),
+		cacheStmt:    cache.NewTTLCache[string, interface{}](1000),
 		shutdownChan: make(chan struct{}),
 	}
 	return pm
@@ -201,9 +200,12 @@ func (pm *prepareManager) extendExpireIfNeeded(wrapper *stmtWrapper, cacheKey st
 
 	now := time.Now()
 	if wrapper.cacheExpireAt.Sub(now) < cacheExtendThreshold {
-		newExpire := now.Add(initialExpireTime)
-		wrapper.cacheExpireAt = newExpire
-		pm.cacheStmt.Set(cacheKey, wrapper, int(initialExpireTime.Seconds()))
+		// 双重检查：确保缓存中的值仍是当前 wrapper
+		if val, ok := pm.cacheStmt.Get(cacheKey); ok && val == wrapper {
+			newExpire := now.Add(initialExpireTime)
+			wrapper.cacheExpireAt = newExpire
+			pm.cacheStmt.Set(cacheKey, wrapper, int64(initialExpireTime.Seconds()))
+		}
 	}
 }
 
@@ -278,7 +280,7 @@ func (pm *prepareManager) createNewStmt(db *sql.DB, sqlstr, sqlHash, cacheKey st
 
 	zlog.Debug("created new prepared statement", 0,
 		zlog.String("key", cacheKey),
-		zlog.String("sql", sqlstr))
+		zlog.String("sql_hash", sqlHash))
 
 	return stmt, pm.createReleaseFunc(wrapper, cacheKey), cacheKey, nil
 }
@@ -311,14 +313,22 @@ func (pm *prepareManager) releaseStmt(wrapper *stmtWrapper, cacheKey string) {
 func (pm *prepareManager) transitionToIdle(wrapper *stmtWrapper, cacheKey string) {
 	// 尝试从活跃状态转换为空闲状态
 	if !wrapper.state.CompareAndSwap(int32(stateActive), int32(stateIdle)) {
-		// 如果状态不是活跃，可能是正在关闭，不处理
+		return
+	}
+
+	// CAS 成功后立即检查 shutdown 状态
+	if pm.isShutdown() {
+		// 系统正在关闭，同步执行清理
+		// 同步调用确保在 Shutdown 流程处理前完成，避免竞争
+		zlog.Debug("stmt transitioned to idle during shutdown, triggering cleanup synchronously", 0,
+			zlog.String("key", cacheKey))
+		pm.cleanupIdleStmt(wrapper, cacheKey)
 		return
 	}
 
 	now := time.Now()
 	newExpireAt := now.Add(idleCleanupDelay)
 
-	// 更新过期时间和定时器
 	wrapper.timerMu.Lock()
 	wrapper.cacheExpireAt = newExpireAt
 
@@ -331,63 +341,68 @@ func (pm *prepareManager) transitionToIdle(wrapper *stmtWrapper, cacheKey string
 	})
 	wrapper.timerMu.Unlock()
 
-	// 更新缓存 TTL
-	pm.cacheStmt.Set(cacheKey, wrapper, int(idleCleanupDelay.Seconds()))
+	pm.cacheStmt.Set(cacheKey, wrapper, int64(idleCleanupDelay.Seconds()))
 
 	zlog.Debug("stmt transitioned to idle", 0, zlog.String("key", cacheKey))
 }
 
 // cleanupIdleStmt 清理空闲的 stmt
+// 此方法是幂等的，可以安全地被多次调用
 func (pm *prepareManager) cleanupIdleStmt(wrapper *stmtWrapper, cacheKey string) {
-	// 确保只执行一次
-	wrapper.cleanupOnce.Do(func() {
-		defer close(wrapper.shutdownDone)
+	// 尝试从空闲状态转换为关闭中状态
+	// 这个 CAS 保证了只有一个 goroutine 能成功执行清理
+	if !wrapper.state.CompareAndSwap(int32(stateIdle), int32(stateClosing)) {
+		// 状态已改变（可能被重新使用、已被清理、或正在被其他 goroutine 清理）
+		zlog.Debug("cleanupIdleStmt skipped: state not idle", 0,
+			zlog.String("key", cacheKey),
+			zlog.String("state", stmtState(wrapper.state.Load()).String()))
+		return
+	}
 
-		// 检查是否已关闭
-		if pm.isShutdown() {
-			return
-		}
+	// 再次确认引用计数为 0
+	if wrapper.refCount.Load() != 0 {
+		// 引用计数不为 0，使用 CAS 恢复为空闲状态
+		wrapper.state.CompareAndSwap(int32(stateClosing), int32(stateIdle))
+		zlog.Debug("cleanupIdleStmt skipped: refCount not zero", 0,
+			zlog.String("key", cacheKey),
+			zlog.Int32("refCount", wrapper.refCount.Load()))
+		return
+	}
 
-		// 尝试从空闲状态转换为关闭中状态
-		if !wrapper.state.CompareAndSwap(int32(stateIdle), int32(stateClosing)) {
-			// 状态已改变（可能被重新使用或已关闭）
-			return
-		}
+	// 执行关闭操作
+	wrapper.closeMu.Lock()
+	defer wrapper.closeMu.Unlock()
 
-		// 再次确认引用计数为 0
-		if wrapper.refCount.Load() != 0 {
-			// 引用计数不为 0，使用 CAS 恢复为空闲状态
-			wrapper.state.CompareAndSwap(int32(stateClosing), int32(stateIdle))
-			return
-		}
+	// 最终状态检查
+	if wrapper.state.Load() != int32(stateClosing) {
+		return
+	}
 
-		// 执行关闭操作
-		wrapper.closeMu.Lock()
-		defer wrapper.closeMu.Unlock()
+	// 关闭 stmt
+	if err := wrapper.stmt.Close(); err != nil {
+		zlog.Error("close idle stmt failed", 0,
+			zlog.String("key", cacheKey),
+			zlog.AddError(err))
+	} else {
+		zlog.Debug("idle stmt closed", 0, zlog.String("key", cacheKey))
+	}
 
-		// 最终状态检查
-		if wrapper.state.Load() != int32(stateClosing) {
-			return
-		}
+	// 标记为已关闭
+	wrapper.state.Store(int32(stateClosed))
 
-		// 关闭 stmt
-		if err := wrapper.stmt.Close(); err != nil {
-			zlog.Error("close idle stmt failed", 0,
-				zlog.String("key", cacheKey),
-				zlog.AddError(err))
-		} else {
-			zlog.Debug("idle stmt closed", 0, zlog.String("key", cacheKey))
-		}
+	// 从缓存中删除（幂等操作）
+	pm.cacheStmt.Delete(cacheKey)
 
-		// 标记为已关闭
-		wrapper.state.Store(int32(stateClosed))
+	// 清理创建锁，防止内存泄漏
+	pm.cleanupCreateMutex(cacheKey)
 
-		// 从缓存中删除
-		pm.cacheStmt.Delete(cacheKey)
-
-		// 清理创建锁，防止内存泄漏
-		pm.cleanupCreateMutex(cacheKey)
-	})
+	// 安全关闭 shutdownDone
+	select {
+	case <-wrapper.shutdownDone:
+		// 已经关闭
+	default:
+		close(wrapper.shutdownDone)
+	}
 }
 
 // isShutdown 检查是否已关闭
@@ -449,14 +464,20 @@ type stmtItem struct {
 // collectStmtItems 收集所有缓存中的 stmt
 func (pm *prepareManager) collectStmtItems() []stmtItem {
 	var items []stmtItem
+	var keysToDelete []string
 
+	// 第一步：收集所有 key 和 wrapper
 	pm.cacheStmt.RangeRaw(func(key string, value interface{}) {
 		if wrapper, ok := value.(*stmtWrapper); ok {
 			items = append(items, stmtItem{key: key, wrapper: wrapper})
+			keysToDelete = append(keysToDelete, key)
 		}
-		// 从缓存中删除所有条目
-		pm.cacheStmt.Delete(key)
 	})
+
+	// 第二步：批量删除
+	for _, key := range keysToDelete {
+		pm.cacheStmt.Delete(key)
+	}
 
 	return items
 }
@@ -508,6 +529,15 @@ func (pm *prepareManager) tryForceClose(wrapper *stmtWrapper, key string, refCou
 	}
 
 	wrapper.state.Store(int32(stateClosed))
+
+	// ✅ 安全关闭 shutdownDone
+	select {
+	case <-wrapper.shutdownDone:
+		// 已经关闭
+	default:
+		close(wrapper.shutdownDone)
+	}
+
 	zlog.Debug("force closed active stmt", 0,
 		zlog.String("key", key),
 		zlog.Int32("ref_count", refCount))
@@ -597,20 +627,30 @@ func (pm *prepareManager) GetStats() *PrepareManagerStats {
 	return stats
 }
 
-// HealthCheck 健康检查
 func (pm *prepareManager) HealthCheck() error {
 	if pm.isShutdown() {
 		return ErrShuttingDown
 	}
 
-	// 检查是否有泄漏的创建锁
 	pm.createMu.Lock()
 	creatingCount := len(pm.creating)
 	pm.createMu.Unlock()
 
-	// 如果创建锁数量异常（超过1000），可能存在问题
-	if creatingCount > 1000 {
-		return fmt.Errorf("too many pending creates: %d", creatingCount)
+	cacheSize := pm.cacheStmt.Len()
+	var threshold int
+
+	if cacheSize == 0 {
+		threshold = 100 // 默认阈值
+	} else if cacheSize < 100 {
+		threshold = 200 // 极小缓存场景更宽容
+	} else if cacheSize > 10000 {
+		threshold = cacheSize / 10
+	} else {
+		threshold = cacheSize * 2
+	}
+
+	if creatingCount > threshold {
+		return fmt.Errorf("too many pending creates: %d (threshold: %d)", creatingCount, threshold)
 	}
 
 	return nil
