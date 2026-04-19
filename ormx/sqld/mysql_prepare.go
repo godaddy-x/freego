@@ -81,6 +81,7 @@ type stmtWrapper struct {
 
 	// 通道 (8字节)
 	shutdownDone chan struct{}
+	closeOnce    sync.Once // 确保 shutdownDone 只关闭一次
 }
 
 // invalidMarker 标记无效SQL，防御缓存穿透
@@ -398,13 +399,10 @@ func (pm *prepareManager) cleanupIdleStmt(wrapper *stmtWrapper, cacheKey string)
 	// 清理创建锁，防止内存泄漏
 	pm.cleanupCreateMutex(cacheKey)
 
-	// 安全关闭 shutdownDone
-	select {
-	case <-wrapper.shutdownDone:
-		// 已经关闭
-	default:
+	// 安全关闭 shutdownDone（使用 sync.Once）
+	wrapper.closeOnce.Do(func() {
 		close(wrapper.shutdownDone)
-	}
+	})
 }
 
 // isShutdown 检查是否已关闭
@@ -430,7 +428,7 @@ func (pm *prepareManager) Shutdown() {
 		zlog.Info("prepareManager shutdown starting", 0)
 		close(pm.shutdownChan)
 
-		// 收集所有待处理的 stmt
+		// 收集所有待处理的 stmt（使用改造后的方法，避免 Range 持锁问题）
 		items := pm.collectStmtItems()
 
 		// 清理 creating map
@@ -464,21 +462,24 @@ type stmtItem struct {
 }
 
 // collectStmtItems 收集所有缓存中的 stmt
+// 改造：使用 Keys() + Get() 替代 Range()，避免持锁问题
 func (pm *prepareManager) collectStmtItems() []stmtItem {
 	var items []stmtItem
-	var keysToDelete []string
 
-	// 第一步：收集所有 key 和 wrapper
-	pm.cacheStmt.RangeRaw(func(key string, value interface{}) {
+	// 获取所有有效的 key（不会持锁太久）
+	keys := pm.cacheStmt.Keys()
+
+	// 遍历 key，获取对应的 wrapper
+	for _, key := range keys {
+		value, exists := pm.cacheStmt.Get(key)
+		if !exists {
+			continue
+		}
 		if wrapper, ok := value.(*stmtWrapper); ok {
 			items = append(items, stmtItem{key: key, wrapper: wrapper})
-			keysToDelete = append(keysToDelete, key)
+			// 立即从缓存中删除，避免重复处理
+			pm.cacheStmt.Delete(key)
 		}
-	})
-
-	// 第二步：批量删除
-	for _, key := range keysToDelete {
-		pm.cacheStmt.Delete(key)
 	}
 
 	return items
@@ -532,13 +533,10 @@ func (pm *prepareManager) tryForceClose(wrapper *stmtWrapper, key string, refCou
 
 	wrapper.state.Store(int32(stateClosed))
 
-	// 安全关闭 shutdownDone
-	select {
-	case <-wrapper.shutdownDone:
-		// 已经关闭
-	default:
+	// 安全关闭 shutdownDone（使用 sync.Once）
+	wrapper.closeOnce.Do(func() {
 		close(wrapper.shutdownDone)
-	}
+	})
 
 	zlog.Debug("force closed active stmt", 0,
 		zlog.String("key", key),
@@ -593,6 +591,7 @@ type PrepareManagerStats struct {
 }
 
 // GetStats 获取统计信息
+// 改造：使用 Keys() + Get() 替代 Range()，避免持锁问题
 func (pm *prepareManager) GetStats() *PrepareManagerStats {
 	stats := &PrepareManagerStats{
 		IsShuttingDown: pm.isShutdown(),
@@ -601,7 +600,15 @@ func (pm *prepareManager) GetStats() *PrepareManagerStats {
 	// 统计缓存中的 stmt 状态
 	var activeCount, idleCount, closingCount, closedCount int64
 
-	pm.cacheStmt.RangeRaw(func(key string, value interface{}) {
+	// 获取所有有效的 key
+	keys := pm.cacheStmt.Keys()
+
+	// 遍历 key，获取对应的 wrapper 并统计状态
+	for _, key := range keys {
+		value, exists := pm.cacheStmt.Get(key)
+		if !exists {
+			continue
+		}
 		if wrapper, ok := value.(*stmtWrapper); ok {
 			switch stmtState(wrapper.state.Load()) {
 			case stateActive:
@@ -614,7 +621,7 @@ func (pm *prepareManager) GetStats() *PrepareManagerStats {
 				atomic.AddInt64(&closedCount, 1)
 			}
 		}
-	})
+	}
 
 	stats.ActiveStmts = activeCount
 	stats.IdleStmts = idleCount

@@ -276,30 +276,6 @@ func (c *TTLCache[K, V]) Get(key K) (value V, ok bool) {
 	return e.value, true
 }
 
-// GetWithTTL 获取值及剩余 TTL
-func (c *TTLCache[K, V]) GetWithTTL(key K) (value V, remainingTTL int64, ok bool) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	e, exists := c.data[key]
-	if !exists || e.deleted.Load() {
-		return
-	}
-
-	now := timeNow()
-	if e.expireAt > 0 && now >= e.expireAt {
-		return
-	}
-
-	if e.expireAt > 0 {
-		remainingTTL = e.expireAt - now
-		if remainingTTL < 0 {
-			remainingTTL = 0
-		}
-	}
-	return e.value, remainingTTL, true
-}
-
 // Set 插入/更新缓存
 func (c *TTLCache[K, V]) Set(key K, value V, ttlSeconds int64) {
 	var expireAt int64
@@ -337,27 +313,6 @@ func (c *TTLCache[K, V]) Delete(key K) {
 	if e, exists := c.data[key]; exists {
 		e.deleted.Store(true)
 	}
-}
-
-// DeleteIf 条件删除
-func (c *TTLCache[K, V]) DeleteIf(key K, predicate func(V) bool) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	e, exists := c.data[key]
-	if !exists || e.deleted.Load() {
-		return false
-	}
-
-	now := timeNow()
-	if e.expireAt > 0 && now >= e.expireAt {
-		return false
-	}
-
-	if predicate(e.value) {
-		return e.deleted.CompareAndSwap(false, true)
-	}
-	return false
 }
 
 // GetOrSet 原子操作
@@ -400,49 +355,6 @@ func (c *TTLCache[K, V]) GetOrSet(key K, value V, ttlSeconds int64) (V, bool) {
 	return value, false
 }
 
-// Refresh 刷新过期时间
-func (c *TTLCache[K, V]) Refresh(key K, ttlSeconds int64) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	e, exists := c.data[key]
-	if !exists || e.deleted.Load() {
-		return false
-	}
-
-	now := timeNow()
-	if e.expireAt > 0 && now >= e.expireAt {
-		e.deleted.Store(true)
-		return false
-	}
-
-	if ttlSeconds > 0 {
-		e.expireAt = now + ttlSeconds
-	} else {
-		e.expireAt = 0
-	}
-	return true
-}
-
-// Range 遍历有效条目
-func (c *TTLCache[K, V]) Range(f func(K, V) bool) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	now := timeNow()
-	for k, e := range c.data {
-		if e.deleted.Load() {
-			continue
-		}
-		if e.expireAt > 0 && now >= e.expireAt {
-			continue
-		}
-		if !f(k, e.value) {
-			return
-		}
-	}
-}
-
 // Len 返回物理存储条目数
 func (c *TTLCache[K, V]) Len() int {
 	c.mu.RLock()
@@ -464,6 +376,25 @@ func (c *TTLCache[K, V]) Clear() {
 	for i := range c.cleanupRing {
 		c.cleanupRing[i] = zero
 	}
+}
+
+func (c *TTLCache[K, V]) Keys() []K {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	now := timeNow()
+	keys := make([]K, 0, len(c.data))
+
+	for k, e := range c.data {
+		if e.deleted.Load() {
+			continue
+		}
+		if e.expireAt > 0 && now >= e.expireAt {
+			continue
+		}
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 // timeNow 获取当前时间戳

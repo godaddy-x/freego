@@ -34,7 +34,7 @@ type Option struct {
 }
 
 var (
-	localLimiterCache = new(cache.LocalMapManager).NewCache(30, 5)
+	localLimiterCache = new(cache.LocalMapManager).NewCache(1000)
 )
 
 func NewRateLimiter(option Option) RateLimiter {
