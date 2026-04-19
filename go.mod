@@ -11,7 +11,6 @@ require (
 	github.com/godaddy-x/eccrypto v1.1.15
 	github.com/google/uuid v1.6.0
 	github.com/mailru/easyjson v0.9.1
-	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/pquerna/otp v1.4.0
 	github.com/redis/go-redis/v9 v9.16.0
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e

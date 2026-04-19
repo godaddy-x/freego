@@ -6,7 +6,7 @@ import (
 	"github.com/godaddy-x/freego/utils"
 )
 
-// LocalMapManager 使用go-cache的本地缓存管理器
+// LocalMapManager 使用ttl-cache的本地缓存管理器
 type LocalMapManager struct {
 	CacheManager
 	cache *TTLCache[string, interface{}]
@@ -18,7 +18,7 @@ const (
 	cleanupInterval   = 10 * time.Minute // 清理间隔10分钟
 )
 
-// NewLocalCache 创建新的go-cache缓存实例
+// NewLocalCache 创建新的ttl-cache缓存实例
 func NewLocalCache(initialCapacity int) Cache {
 	return new(LocalMapManager).NewCache(initialCapacity)
 }
@@ -104,8 +104,8 @@ func (self *LocalMapManager) Put(key string, input interface{}, expire ...int) e
 	if len(expire) > 0 {
 		d = expire[0]
 	}
-	// go-cache的Set方法：如果d为0，使用默认过期时间；如果d为-1，永不过期
-	self.cache.Set(key, input, d)
+	// ttl-cache的Set方法：如果d为0，使用默认过期时间；如果d为-1，永不过期
+	self.cache.Set(key, input, int64(d))
 	return nil
 }
 
@@ -126,18 +126,18 @@ func (self *LocalMapManager) Exists(key string) (bool, error) {
 }
 
 //func (self *LocalMapManager) Size(pattern ...string) (int, error) {
-//	// go-cache没有直接获取大小的方法，返回估算值
+//	// ttl-cache没有直接获取大小的方法，返回估算值
 //	items := self.cache.Items()
 //	return len(items), nil
 //}
 
 func (self *LocalMapManager) Values(pattern ...string) ([]interface{}, error) {
-	// go-cache不支持直接获取所有values
+	// ttl-cache不支持直接获取所有values
 	return []interface{}{}, nil
 }
 
 func (self *LocalMapManager) Flush() error {
-	// go-cache没有Flush方法，这里调用DeleteExpired来清理过期项目
+	// ttl-cache没有Flush方法，这里调用DeleteExpired来清理过期项目
 	self.cache.Clear()
 	return nil
 }

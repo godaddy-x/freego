@@ -1,5 +1,6 @@
-// Package cache 提供线程安全的 TTL（生存时间）缓存实现。
-// 采用自适应采样清理策略，在大数据量场景下仍能保持高性能。
+// Package cache 提供线程安全、高性能、自适应采样的 TTL 内存缓存。
+// 采用逻辑分段环形队列清理策略，实现 O(1) 恒定开销，海量数据下依然保持极低延迟。
+
 package cache
 
 import (
@@ -10,125 +11,127 @@ import (
 	"github.com/godaddy-x/freego/utils"
 )
 
-// entry 缓存条目的内部结构，包含值和过期信息。
+// entry 缓存条目内部结构，存储值与过期状态
 type entry[V any] struct {
-	value    V           // 缓存的值
-	expireAt int64       // Unix 秒级时间戳，0 或负数表示永不过期
-	deleted  atomic.Bool // true = 已逻辑删除，等待物理清理
+	value    V           // 缓存值
+	expireAt int64       // Unix 时间戳（秒），0 表示永不过期
+	deleted  atomic.Bool // 原子标记：true = 已逻辑删除
 }
 
-// TTLCache 线程安全的内存缓存，支持 TTL 过期。
-// 采用自适应采样清理策略，在保证清理效率的同时控制持锁时间。
+// TTLCache 线程安全、自适应采样的 TTL 缓存
 type TTLCache[K comparable, V any] struct {
-	data            map[K]*entry[V] // 底层存储 map
-	initialCapacity int             // 初始容量，用于 Clear 时重建
-	mu              sync.RWMutex    // 读写锁，保证并发安全
-	cleanupStop     chan struct{}   // 停止清理协程的信号通道
-	cleanupOnce     sync.Once       // 确保清理协程只被关闭一次
+	data            map[K]*entry[V] // 底层缓存存储
+	initialCapacity int             // 初始化容量
+	mu              sync.RWMutex    // 读写锁
 
-	// 清理配置参数
-	interval      time.Duration // 清理间隔
-	minSampleSize int           // 单次清理的最小采样量
-	maxSampleSize int           // 单次清理的最大采样量（防止持锁过久）
-	sampleRatio   float64       // 采样比例，例如 0.02 表示每次采样 2% 的数据
+	// 逻辑分段环形队列
+	cleanupRing  []K  // 环形队列，只存 key
+	ringCap      int  // 环形队列容量
+	ringWriteIdx int  // 写入位置
+	ringReadIdx  int  // 读取位置
+	ringFull     bool // 队列是否已满
 
-	// 统计信息
-	stats CacheStats
+	cleanupStop chan struct{} // 停止后台清理协程
+	cleanupOnce sync.Once     // 确保只关闭一次
+
+	// 自适应清理配置（内部自动计算）
+	interval     time.Duration // 后台清理周期
+	batchSize    int           // 基础批量大小
+	maxBatchSize int           // 最大批量大小
 }
 
-// CacheStats 运行时统计信息。
-// 所有计数器都是原子的，并发安全。
-type CacheStats struct {
-	sets    atomic.Int64 // Set 操作次数
-	gets    atomic.Int64 // Get 操作次数
-	hits    atomic.Int64 // 命中次数（返回有效值）
-	misses  atomic.Int64 // 未命中次数（不存在、已过期或已删除）
-	expired atomic.Int64 // Get 时发现过期并标记删除的次数
-	removed atomic.Int64 // 物理删除的条目数（清理或覆盖）
+// Config 高级配置选项（仅用于特殊场景）
+type Config[K comparable, V any] struct {
+	// 自定义清理间隔（可选）
+	CleanupInterval time.Duration
+	// 自定义环形队列容量（可选，0 表示自动计算）
+	RingCapacity int
+	// 自定义基础批量大小（可选，0 表示自动计算）
+	BatchSize int
+	// 自定义最大批量大小（可选，0 表示自动计算）
+	MaxBatchSize int
 }
 
-// Option 配置函数类型，用于函数选项模式。
-type Option[K comparable, V any] func(*TTLCache[K, V])
-
-// WithCleanupInterval 设置清理间隔。
-// interval 必须在 5 秒到 5 分钟之间。
-func WithCleanupInterval[K comparable, V any](interval time.Duration) Option[K, V] {
-	return func(c *TTLCache[K, V]) {
-		if interval < 5*time.Second {
-			interval = 5 * time.Second
-		}
-		if interval > 5*time.Minute {
-			interval = 5 * time.Minute
-		}
-		c.interval = interval
-	}
+// NewTTLCache 创建一个 TTL 缓存实例
+// initialCapacity: 预估的缓存条目数量，用于预分配内存和计算清理参数
+func NewTTLCache[K comparable, V any](initialCapacity int) *TTLCache[K, V] {
+	return NewTTLCacheWithConfig[K, V](initialCapacity, nil)
 }
 
-// WithSampleSize 设置单次清理的采样量范围。
-// minSize 必须 > 0，maxSize 必须 >= minSize。
-func WithSampleSize[K comparable, V any](minSize, maxSize int) Option[K, V] {
-	return func(c *TTLCache[K, V]) {
-		if minSize > 0 {
-			c.minSampleSize = minSize
-		}
-		if maxSize > 0 && maxSize >= c.minSampleSize {
-			c.maxSampleSize = maxSize
-		}
-	}
-}
-
-// WithSampleRatio 设置自适应采样比例。
-// ratio 必须在 0.01（1%）到 0.10（10%）之间。
-func WithSampleRatio[K comparable, V any](ratio float64) Option[K, V] {
-	return func(c *TTLCache[K, V]) {
-		if ratio >= 0.01 && ratio <= 0.10 {
-			c.sampleRatio = ratio
-		}
-	}
-}
-
-// NewTTLCache 创建一个新的 TTLCache 实例。
-// - initialCapacity: 预分配的 map 大小，减少 rehash 和 GC 压力
-// - opts: 可选的配置函数
-//
-// 示例：
-//
-//	// 使用默认配置
-//	cache := NewTTLCache[string, User](10000)
-//
-//	// 自定义配置
-//	cache := NewTTLCache[string, User](10000,
-//	    WithCleanupInterval[string, User](15*time.Second),
-//	    WithSampleSize[string, User](200, 3000),
-//	    WithSampleRatio[string, User](0.03),
-//	)
-func NewTTLCache[K comparable, V any](initialCapacity int, opts ...Option[K, V]) *TTLCache[K, V] {
+// NewTTLCacheWithConfig 使用自定义配置创建缓存（一般不需要，仅用于特殊调优）
+func NewTTLCacheWithConfig[K comparable, V any](initialCapacity int, config *Config[K, V]) *TTLCache[K, V] {
 	if initialCapacity <= 0 {
 		initialCapacity = 1000
 	}
 
-	// 默认配置
+	// 自动计算最优参数
+	ringCap := calcRingCap(initialCapacity)
+	interval := 2 * time.Second
+	batchSize := calcBatchSize(initialCapacity)
+	maxBatchSize := batchSize * 5
+
+	// 应用自定义配置（如果提供）
+	if config != nil {
+		if config.CleanupInterval > 0 {
+			interval = config.CleanupInterval
+		}
+		if config.RingCapacity > 0 {
+			ringCap = config.RingCapacity
+		}
+		if config.BatchSize > 0 {
+			batchSize = config.BatchSize
+		}
+		if config.MaxBatchSize > 0 {
+			maxBatchSize = config.MaxBatchSize
+		}
+	}
+
 	c := &TTLCache[K, V]{
 		data:            make(map[K]*entry[V], initialCapacity),
 		initialCapacity: initialCapacity,
+		cleanupRing:     make([]K, ringCap),
+		ringCap:         ringCap,
 		cleanupStop:     make(chan struct{}),
-		interval:        30 * time.Second, // 默认 30 秒清理一次
-		minSampleSize:   100,              // 默认最小采样 100 条
-		maxSampleSize:   5000,             // 默认最大采样 5000 条
-		sampleRatio:     0.02,             // 默认采样 2% 的数据
+		interval:        interval,
+		batchSize:       batchSize,
+		maxBatchSize:    maxBatchSize,
 	}
 
-	// 应用自定义配置
-	for _, opt := range opts {
-		opt(c)
+	if c.maxBatchSize < c.batchSize {
+		c.maxBatchSize = c.batchSize * 5
 	}
 
-	// 启动后台清理协程
 	go c.startCleanup()
 	return c
 }
 
-// startCleanup 运行后台清理协程，定期删除已过期或标记删除的条目。
+// calcRingCap 根据预期容量自动计算环形队列容量
+func calcRingCap(capacity int) int {
+	// 环形队列容量约为容量的 1/5，限制在 1000 ~ 200000 之间
+	ringCap := capacity / 5
+	if ringCap < 1000 {
+		ringCap = 1000
+	}
+	if ringCap > 200000 {
+		ringCap = 200000
+	}
+	return ringCap
+}
+
+// calcBatchSize 根据预期容量自动计算基础批量大小
+func calcBatchSize(capacity int) int {
+	// 批量大小约为容量的 1/500，限制在 100 ~ 500 之间
+	batchSize := capacity / 500
+	if batchSize < 100 {
+		batchSize = 100
+	}
+	if batchSize > 500 {
+		batchSize = 500
+	}
+	return batchSize
+}
+
+// startCleanup 后台定时清理任务
 func (c *TTLCache[K, V]) startCleanup() {
 	ticker := time.NewTicker(c.interval)
 	defer ticker.Stop()
@@ -136,168 +139,218 @@ func (c *TTLCache[K, V]) startCleanup() {
 	for {
 		select {
 		case <-ticker.C:
-			c.cleanupWithSampling()
+			c.cleanupWithRing()
 		case <-c.cleanupStop:
 			return
 		}
 	}
 }
 
-// cleanupWithSampling 执行自适应采样清理。
-// 采样量根据当前缓存大小动态计算，保证覆盖率的同时控制持锁时间。
-func (c *TTLCache[K, V]) cleanupWithSampling() {
+// cleanupWithRing 使用环形队列清理（动态批量优化）
+func (c *TTLCache[K, V]) cleanupWithRing() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	size := len(c.data)
-	if size == 0 {
+	pending := c.pendingCount()
+	if pending == 0 {
 		return
 	}
 
-	sampleSize := c.calculateSampleSize(size)
-
+	batchSize := c.dynamicBatchSize(pending)
+	now := timeNow()
 	scanned := 0
-	now := utils.UnixSecond()
 
-	for k, e := range c.data {
-		if scanned >= sampleSize {
-			break
+	for scanned < batchSize && pending > 0 {
+		key := c.cleanupRing[c.ringReadIdx]
+
+		if e, exists := c.data[key]; exists {
+			if e.deleted.Load() || (e.expireAt > 0 && now >= e.expireAt) {
+				delete(c.data, key)
+			}
 		}
 
-		// 检查是否需要删除
-		if e.deleted.Load() || (e.expireAt > 0 && now >= e.expireAt) {
-			delete(c.data, k)
-			c.stats.removed.Add(1)
+		c.ringReadIdx++
+		if c.ringReadIdx >= c.ringCap {
+			c.ringReadIdx = 0
+			c.ringFull = false
 		}
 
 		scanned++
+		pending--
+
+		if c.ringReadIdx == c.ringWriteIdx && !c.ringFull {
+			break
+		}
+	}
+
+	if c.ringReadIdx == c.ringWriteIdx && !c.ringFull {
+		c.ringReadIdx = 0
+		c.ringWriteIdx = 0
 	}
 }
 
-// calculateSampleSize 根据当前数据量计算采样大小。
-// 公式：dataSize * sampleRatio，受 minSampleSize 和 maxSampleSize 约束。
-func (c *TTLCache[K, V]) calculateSampleSize(dataSize int) int {
-	targetSize := int(float64(dataSize) * c.sampleRatio)
-
-	if targetSize < c.minSampleSize {
-		targetSize = c.minSampleSize
-	}
-	if targetSize > c.maxSampleSize {
-		targetSize = c.maxSampleSize
+// pendingCount 计算待处理数量
+func (c *TTLCache[K, V]) pendingCount() int {
+	if c.ringWriteIdx == c.ringReadIdx {
+		if c.ringFull {
+			return c.ringCap
+		}
+		return 0
 	}
 
-	return targetSize
+	if c.ringWriteIdx > c.ringReadIdx {
+		return c.ringWriteIdx - c.ringReadIdx
+	}
+
+	return c.ringCap - c.ringReadIdx + c.ringWriteIdx
 }
 
-// Close 优雅关闭后台清理协程。
+// dynamicBatchSize 动态计算批量大小
+func (c *TTLCache[K, V]) dynamicBatchSize(pending int) int {
+	batchSize := c.batchSize
+
+	if c.ringFull {
+		batchSize = c.batchSize * 3
+	}
+
+	fillRatio := float64(pending) / float64(c.ringCap)
+	if fillRatio > 0.5 {
+		multiplier := 1.0 + (fillRatio-0.5)*4
+		batchSize = int(float64(c.batchSize) * multiplier)
+	}
+
+	if batchSize > c.maxBatchSize {
+		batchSize = c.maxBatchSize
+	}
+	if batchSize > pending {
+		batchSize = pending
+	}
+	if batchSize < 1 {
+		batchSize = 1
+	}
+
+	return batchSize
+}
+
+// pushToRing 将 key 推入环形队列
+func (c *TTLCache[K, V]) pushToRing(key K) {
+	c.cleanupRing[c.ringWriteIdx] = key
+
+	c.ringWriteIdx++
+	if c.ringWriteIdx >= c.ringCap {
+		c.ringWriteIdx = 0
+		c.ringFull = true
+	}
+
+	if c.ringFull && c.ringWriteIdx == c.ringReadIdx {
+		c.ringReadIdx++
+		if c.ringReadIdx >= c.ringCap {
+			c.ringReadIdx = 0
+		}
+	}
+}
+
+// Close 优雅关闭缓存
 func (c *TTLCache[K, V]) Close() {
 	c.cleanupOnce.Do(func() {
 		close(c.cleanupStop)
 	})
 }
 
-// Get 获取指定键的值。
-// 使用读锁保证高并发读取性能。过期的条目会被标记，由后台清理协程统一删除。
-//
-// 统计信息：
-//   - gets: 总是递增
-//   - hits: 返回有效值时递增
-//   - misses: 键不存在、已标记删除或已过期时递增
-//   - expired: 发现过期并成功标记时递增
+// Get 获取缓存条目
 func (c *TTLCache[K, V]) Get(key K) (value V, ok bool) {
-	c.stats.gets.Add(1)
-
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
 	e, exists := c.data[key]
-	if !exists {
-		c.stats.misses.Add(1)
+	if !exists || e.deleted.Load() {
 		return
 	}
 
-	// 检查是否已标记删除
-	if e.deleted.Load() {
-		c.stats.misses.Add(1)
-		return
-	}
-
-	now := utils.UnixSecond()
-	// 检查是否已过期
+	now := timeNow()
 	if e.expireAt > 0 && now >= e.expireAt {
-		// 原子标记删除，不获取写锁
-		if e.deleted.CompareAndSwap(false, true) {
-			c.stats.expired.Add(1)
-		}
-		c.stats.misses.Add(1)
+		e.deleted.CompareAndSwap(false, true)
 		return
 	}
 
-	c.stats.hits.Add(1)
 	return e.value, true
 }
 
-// Set 存储键值对，指定 TTL（秒）。
-// - ttlSeconds > 0: 条目在指定秒数后过期
-// - ttlSeconds <= 0: 条目永不过期
-func (c *TTLCache[K, V]) Set(key K, value V, ttlSeconds int64) {
-	c.stats.sets.Add(1)
+// GetWithTTL 获取值及剩余 TTL
+func (c *TTLCache[K, V]) GetWithTTL(key K) (value V, remainingTTL int64, ok bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 
+	e, exists := c.data[key]
+	if !exists || e.deleted.Load() {
+		return
+	}
+
+	now := timeNow()
+	if e.expireAt > 0 && now >= e.expireAt {
+		return
+	}
+
+	if e.expireAt > 0 {
+		remainingTTL = e.expireAt - now
+		if remainingTTL < 0 {
+			remainingTTL = 0
+		}
+	}
+	return e.value, remainingTTL, true
+}
+
+// Set 插入/更新缓存
+func (c *TTLCache[K, V]) Set(key K, value V, ttlSeconds int64) {
 	var expireAt int64
 	if ttlSeconds > 0 {
-		expireAt = utils.UnixSecond() + ttlSeconds
+		expireAt = timeNow() + ttlSeconds
 	}
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// 如果覆盖了已过期或已删除的旧值，计入物理删除统计
-	if old, exists := c.data[key]; exists {
-		if old.deleted.Load() || (old.expireAt > 0 && utils.UnixSecond() >= old.expireAt) {
-			c.stats.removed.Add(1)
-		}
+	if _, exists := c.data[key]; !exists {
+		c.pushToRing(key)
 	}
 
 	c.data[key] = &entry[V]{value: value, expireAt: expireAt}
 }
 
-// SetWithExpireAt 存储键值对，指定绝对过期时间戳（Unix 秒）。
-// 适用于需要统一过期时间的场景（如每天午夜过期）。
+// SetWithExpireAt 使用绝对时间戳设置
 func (c *TTLCache[K, V]) SetWithExpireAt(key K, value V, expireAt int64) {
-	c.stats.sets.Add(1)
-
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if old, exists := c.data[key]; exists {
-		if old.deleted.Load() || (old.expireAt > 0 && utils.UnixSecond() >= old.expireAt) {
-			c.stats.removed.Add(1)
-		}
+	if _, exists := c.data[key]; !exists {
+		c.pushToRing(key)
 	}
 
 	c.data[key] = &entry[V]{value: value, expireAt: expireAt}
 }
 
-// Delete 标记删除指定键（逻辑删除）。
-// 条目将在下次清理周期中被物理删除。
+// Delete 逻辑删除
 func (c *TTLCache[K, V]) Delete(key K) {
-	c.mu.RLock()
-	e, exists := c.data[key]
-	c.mu.RUnlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-	if exists {
+	if e, exists := c.data[key]; exists {
 		e.deleted.Store(true)
 	}
 }
 
-// DeleteIf 条件删除：仅当谓词函数返回 true 时才标记删除。
-// 返回 true 表示成功标记删除。
+// DeleteIf 条件删除
 func (c *TTLCache[K, V]) DeleteIf(key K, predicate func(V) bool) bool {
-	c.mu.RLock()
-	e, exists := c.data[key]
-	c.mu.RUnlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-	if !exists {
+	e, exists := c.data[key]
+	if !exists || e.deleted.Load() {
+		return false
+	}
+
+	now := timeNow()
+	if e.expireAt > 0 && now >= e.expireAt {
 		return false
 	}
 
@@ -307,66 +360,76 @@ func (c *TTLCache[K, V]) DeleteIf(key K, predicate func(V) bool) bool {
 	return false
 }
 
-// GetOrSet 获取值，如果不存在/已过期/已删除则设置新值。
-// 返回 (value, true) 表示值已存在且有效，(value, false) 表示新设置。
+// GetOrSet 原子操作
 func (c *TTLCache[K, V]) GetOrSet(key K, value V, ttlSeconds int64) (V, bool) {
-	// 先用读锁尝试获取
 	c.mu.RLock()
 	e, exists := c.data[key]
-	c.mu.RUnlock()
-
 	if exists && !e.deleted.Load() {
-		now := utils.UnixSecond()
+		now := timeNow()
 		if e.expireAt <= 0 || now < e.expireAt {
+			c.mu.RUnlock()
 			return e.value, true
 		}
-		// 已过期，标记删除
-		if e.deleted.CompareAndSwap(false, true) {
-			c.stats.expired.Add(1)
-		}
+		e.deleted.CompareAndSwap(false, true)
 	}
+	c.mu.RUnlock()
 
-	// 需要设置新值
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	// 双重检查
 	if e, exists := c.data[key]; exists {
-		// 检查是否已被标记删除
 		if e.deleted.Load() {
-			// ✅ 修复：旧值已被标记删除，计入 removed
 			delete(c.data, key)
-			c.stats.removed.Add(1)
 		} else {
-			now := utils.UnixSecond()
-			if e.expireAt <= 0 || now < e.expireAt {
-				// 值仍然有效，直接返回
+			now := timeNow()
+			if e.expireAt > 0 && now >= e.expireAt {
+				delete(c.data, key)
+			} else {
 				return e.value, true
 			}
-			// ✅ 值已过期，物理删除并计入统计
-			delete(c.data, key)
-			c.stats.removed.Add(1)
 		}
 	}
 
 	var expireAt int64
 	if ttlSeconds > 0 {
-		expireAt = utils.UnixSecond() + ttlSeconds
+		expireAt = timeNow() + ttlSeconds
 	}
 
+	c.pushToRing(key)
 	c.data[key] = &entry[V]{value: value, expireAt: expireAt}
-	c.stats.sets.Add(1)
 	return value, false
 }
 
-// Range 遍历所有有效（未过期、未删除）的缓存条目。
-// 遍历顺序为 map 的随机顺序。如果 f 返回 false 则停止遍历。
+// Refresh 刷新过期时间
+func (c *TTLCache[K, V]) Refresh(key K, ttlSeconds int64) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	e, exists := c.data[key]
+	if !exists || e.deleted.Load() {
+		return false
+	}
+
+	now := timeNow()
+	if e.expireAt > 0 && now >= e.expireAt {
+		e.deleted.Store(true)
+		return false
+	}
+
+	if ttlSeconds > 0 {
+		e.expireAt = now + ttlSeconds
+	} else {
+		e.expireAt = 0
+	}
+	return true
+}
+
+// Range 遍历有效条目
 func (c *TTLCache[K, V]) Range(f func(K, V) bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	now := utils.UnixSecond()
-
+	now := timeNow()
 	for k, e := range c.data {
 		if e.deleted.Load() {
 			continue
@@ -380,157 +443,30 @@ func (c *TTLCache[K, V]) Range(f func(K, V) bool) {
 	}
 }
 
-// RangeRaw 遍历所有物理存在的条目，包括已过期和已标记删除的。
-// 适用于关闭时导出所有数据等场景。
-func (c *TTLCache[K, V]) RangeRaw(f func(K, V)) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	for k, e := range c.data {
-		f(k, e.value)
-	}
-}
-
-// Len 返回缓存中物理存在的条目总数。
-// 包含已过期和已标记删除但尚未被清理的条目。
+// Len 返回物理存储条目数
 func (c *TTLCache[K, V]) Len() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return len(c.data)
 }
 
-// ValidLen 返回有效（未过期、未删除）的条目数量。
-// 注意：此方法需要遍历所有条目，时间复杂度 O(n)，应谨慎使用。
-func (c *TTLCache[K, V]) ValidLen() int {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	now := utils.UnixSecond()
-	count := 0
-	for _, e := range c.data {
-		if e.deleted.Load() {
-			continue
-		}
-		if e.expireAt > 0 && now >= e.expireAt {
-			continue
-		}
-		count++
-	}
-	return count
-}
-
-// Clear 清空缓存中的所有条目，同时保留初始容量。
+// Clear 清空缓存
 func (c *TTLCache[K, V]) Clear() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
 	c.data = make(map[K]*entry[V], c.initialCapacity)
-}
+	c.ringWriteIdx = 0
+	c.ringReadIdx = 0
+	c.ringFull = false
 
-// Resize 调整底层 map 的容量。
-// 适用于预估数据量变化时提前扩容或缩容。
-func (c *TTLCache[K, V]) Resize(newCapacity int) {
-	if newCapacity <= 0 {
-		return
+	var zero K
+	for i := range c.cleanupRing {
+		c.cleanupRing[i] = zero
 	}
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	newData := make(map[K]*entry[V], newCapacity)
-	for k, v := range c.data {
-		newData[k] = v
-	}
-	c.data = newData
-	c.initialCapacity = newCapacity
 }
 
-// Stats 返回当前缓存的统计信息。
-//
-// 返回值：
-//   - sets: Set 操作总次数
-//   - gets: Get 操作总次数
-//   - hits: 命中次数
-//   - misses: 未命中次数
-//   - expired: Get 时发现过期的次数
-//   - removed: 物理删除的条目数
-func (c *TTLCache[K, V]) Stats() (sets, gets, hits, misses, expired, removed int64) {
-	return c.stats.sets.Load(),
-		c.stats.gets.Load(),
-		c.stats.hits.Load(),
-		c.stats.misses.Load(),
-		c.stats.expired.Load(),
-		c.stats.removed.Load()
-}
-
-// HitRate 返回缓存命中率，范围 0 到 1。
-// 如果没有 Get 操作，返回 0。
-func (c *TTLCache[K, V]) HitRate() float64 {
-	gets := c.stats.gets.Load()
-	if gets == 0 {
-		return 0
-	}
-	return float64(c.stats.hits.Load()) / float64(gets)
-}
-
-// Cap 返回缓存的初始容量提示。
-func (c *TTLCache[K, V]) Cap() int {
-	return c.initialCapacity
-}
-
-// GetScanRate 返回当前的扫描速率（每秒扫描的条目数）。
-func (c *TTLCache[K, V]) GetScanRate() float64 {
-	c.mu.RLock()
-	dataSize := len(c.data)
-	c.mu.RUnlock()
-
-	sampleSize := c.calculateSampleSize(dataSize)
-	return float64(sampleSize) / c.interval.Seconds()
-}
-
-// GetFullScanTime 返回预估的全量扫描时间。
-func (c *TTLCache[K, V]) GetFullScanTime() time.Duration {
-	c.mu.RLock()
-	dataSize := len(c.data)
-	c.mu.RUnlock()
-
-	if dataSize == 0 {
-		return 0
-	}
-
-	sampleSize := c.calculateSampleSize(dataSize)
-	scanRate := float64(sampleSize) / c.interval.Seconds()
-
-	if scanRate <= 0 {
-		return 0
-	}
-
-	return time.Duration(float64(dataSize)/scanRate) * time.Second
-}
-
-// CleanupMetrics 清理性能指标。
-type CleanupMetrics struct {
-	DataSize     int     `json:"data_size"`      // 当前缓存大小
-	SampleSize   int     `json:"sample_size"`    // 单次采样量
-	ScanRate     float64 `json:"scan_rate"`      // 扫描速率（条/秒）
-	FullScanTime string  `json:"full_scan_time"` // 预估全量扫描时间
-	Interval     string  `json:"interval"`       // 清理间隔
-	SampleRatio  float64 `json:"sample_ratio"`   // 采样比例
-}
-
-// GetCleanupMetrics 返回当前清理性能指标。
-func (c *TTLCache[K, V]) GetCleanupMetrics() CleanupMetrics {
-	c.mu.RLock()
-	dataSize := len(c.data)
-	c.mu.RUnlock()
-
-	sampleSize := c.calculateSampleSize(dataSize)
-
-	return CleanupMetrics{
-		DataSize:     dataSize,
-		SampleSize:   sampleSize,
-		ScanRate:     float64(sampleSize) / c.interval.Seconds(),
-		FullScanTime: c.GetFullScanTime().String(),
-		Interval:     c.interval.String(),
-		SampleRatio:  c.sampleRatio,
-	}
+// timeNow 获取当前时间戳
+func timeNow() int64 {
+	return utils.UnixSecond()
 }

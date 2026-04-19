@@ -1,3 +1,5 @@
+// 非事务 Stmt 全局缓存、无连接绑定、不自动重建、错误上层重试、空闲回收、多数据源隔离
+
 package sqld
 
 import (
@@ -25,8 +27,8 @@ const (
 )
 
 var (
-	ErrStmtClosed   = errors.New("sql: statement is closed")
-	ErrInvalidSQL   = errors.New("invalid SQL statement")
+	ErrStmtClosed = errors.New("sql: statement is closed")
+	//ErrInvalidSQL   = errors.New("invalid SQL statement")
 	ErrShuttingDown = errors.New("prepareManager is shutting down")
 )
 
@@ -530,7 +532,7 @@ func (pm *prepareManager) tryForceClose(wrapper *stmtWrapper, key string, refCou
 
 	wrapper.state.Store(int32(stateClosed))
 
-	// ✅ 安全关闭 shutdownDone
+	// 安全关闭 shutdownDone
 	select {
 	case <-wrapper.shutdownDone:
 		// 已经关闭
