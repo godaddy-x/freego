@@ -4,16 +4,12 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
-	"io"
 	"math/big"
-	"net"
 	"net/http"
 	"net/url"
 	"sync"
 	"time"
 
-	"github.com/gobwas/ws"
-	"github.com/gobwas/ws/wsutil"
 	"github.com/godaddy-x/freego/utils/crypto"
 
 	DIC "github.com/godaddy-x/freego/common"
@@ -21,6 +17,7 @@ import (
 	"github.com/godaddy-x/freego/node"
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/zlog"
+	"github.com/lxzan/gws"
 )
 
 // WebSocket客户端常量
@@ -49,6 +46,7 @@ const (
 //	sdk.ClientNo = 12345
 func NewSocketSDK(domain string) *SocketSDK {
 	rootCtx, rootCancel := context.WithCancel(context.Background())
+
 	return &SocketSDK{
 		Domain:               domain,
 		timeout:              120,
@@ -74,6 +72,42 @@ type Subscription struct {
 	active  bool
 }
 
+// ClientEventHandler gws 客户端事件处理器
+type ClientEventHandler struct {
+	sdk *SocketSDK
+}
+
+func (h *ClientEventHandler) OnOpen(socket *gws.Conn) {
+	if zlog.IsDebug() {
+		zlog.Debug("gws client connected", 0)
+	}
+}
+
+func (h *ClientEventHandler) OnClose(socket *gws.Conn, err error) {
+	if zlog.IsDebug() {
+		zlog.Debug("gws client closed", 0, zlog.AddError(err))
+	}
+	// 触发断开连接逻辑
+	if h.sdk != nil {
+		h.sdk.disconnectWebSocket()
+	}
+}
+
+func (h *ClientEventHandler) OnPing(socket *gws.Conn, payload []byte) {
+	// 服务端 ping，客户端自动回复 pong（gws 内部处理）
+}
+
+func (h *ClientEventHandler) OnPong(socket *gws.Conn, payload []byte) {
+	// 收到 pong（如果需要处理）
+}
+
+func (h *ClientEventHandler) OnMessage(socket *gws.Conn, message *gws.Message) {
+	defer message.Close()
+	if h.sdk != nil {
+		h.sdk.websocketMessageListenerHandle(message.Bytes())
+	}
+}
+
 type SocketSDK struct {
 	Domain        string                  // API域名 (如:api.example.com)
 	language      string                  // 语言设置 (HTTP头)
@@ -86,8 +120,8 @@ type SocketSDK struct {
 	ed25519Object map[int64]crypto.Cipher // Ed25519 双向外层签名
 	HealthPing    int                     // 心跳间隔/秒，建议 10–15，内部最大 15
 
-	// WebSocket连接相关（gobwas/ws 使用 net.Conn）
-	conn        net.Conn
+	// WebSocket连接相关（gws 使用 *gws.Conn）
+	conn        *gws.Conn    // gws WebSocket 连接
 	connMutex   sync.Mutex
 	isConnected bool // 连接状态
 	connecting  bool // 是否正在建立连接中（防止并发连接）
@@ -363,19 +397,10 @@ func (s *SocketSDK) connectWebSocketInternal(path string, isInitial bool) error 
 	// 第二阶段：执行连接和握手（不持有锁，避免阻塞其他操作）
 	wsURL := s.getURI(path)
 
-	// 设置认证头（gobwas Dialer）
+	// 设置认证头（gws Dialer）
 	header := http.Header{}
 	header.Set("Authorization", s.authToken.Token)
 	header.Set("Language", s.language)
-
-	timeout := 30 * time.Second
-	if s.timeout > 0 {
-		timeout = time.Duration(s.timeout) * time.Second
-	}
-	dialer := ws.Dialer{
-		Timeout: timeout,
-		Header:  ws.HandshakeHeaderHTTP(header),
-	}
 
 	if zlog.IsDebug() {
 		if isInitial {
@@ -385,8 +410,14 @@ func (s *SocketSDK) connectWebSocketInternal(path string, isInitial bool) error 
 		}
 	}
 
-	// 建立WebSocket连接（gobwas）
-	conn, _, _, err := dialer.Dial(s.connCtx, wsURL)
+	// 建立WebSocket连接（gws）
+	handler := &ClientEventHandler{sdk: s}
+	socket, _, err := gws.NewClient(handler, &gws.ClientOption{
+		Addr:               wsURL,
+		RequestHeader:      header,
+		ReadMaxPayloadSize: 1024 * 1024 * 10,
+		WriteMaxPayloadSize: 1024 * 1024 * 10,
+	})
 	if err != nil {
 		if zlog.IsDebug() {
 			zlog.Debug(fmt.Sprintf("WebSocket connection failed: %v", err), 0)
@@ -394,9 +425,12 @@ func (s *SocketSDK) connectWebSocketInternal(path string, isInitial bool) error 
 		return ex.Throw{Msg: "WebSocket connection failed: " + err.Error()}
 	}
 
+	// 启动 ReadLoop（gws 客户端需要手动启动）
+	go socket.ReadLoop()
+
 	// 发送认证握手消息
-	if err := s.sendWebSocketAuthHandshake(conn, path); err != nil {
-		conn.Close()
+	if err := s.sendWebSocketAuthHandshake(socket, path); err != nil {
+		socket.WriteClose(1000, []byte("handshake failed"))
 		if zlog.IsDebug() {
 			zlog.Debug(fmt.Sprintf("WebSocket handshake failed: %v", err), 0)
 		}
@@ -405,7 +439,7 @@ func (s *SocketSDK) connectWebSocketInternal(path string, isInitial bool) error 
 
 	// 第三阶段：更新连接状态（再次获取锁）
 	s.connMutex.Lock()
-	s.conn = conn
+	s.conn = socket
 	s.isConnected = true
 	s.connMutex.Unlock()
 
@@ -428,10 +462,9 @@ func (s *SocketSDK) connectWebSocketInternal(path string, isInitial bool) error 
 		}
 	}
 
-	// --- 启动心跳和监听 ---
-	s.wg.Add(2)
+	// --- 启动心跳（gws 已自动处理消息监听） ---
+	s.wg.Add(1)
 	go s.websocketHeartbeat()
-	go s.websocketMessageListener()
 
 	return nil
 }
@@ -547,10 +580,10 @@ func (s *SocketSDK) prepareWebSocketMessage(jsonBody *node.JsonBody, data interf
 }
 
 // sendWebSocketAuthHandshake 发送WebSocket认证握手消息
-// conn: WebSocket 连接（gobwas 使用 net.Conn）
+// conn: WebSocket 连接（gws 使用 *gws.Conn）
 // path: 连接路径
 // 返回: 握手成功返回nil，否则返回握手失败的错误信息
-func (s *SocketSDK) sendWebSocketAuthHandshake(conn net.Conn, path string) error {
+func (s *SocketSDK) sendWebSocketAuthHandshake(conn *gws.Conn, path string) error {
 	// 使用通用方法准备握手数据
 	jsonBody := node.GetJsonBody()
 	defer node.PutJsonBody(jsonBody)
@@ -565,82 +598,81 @@ func (s *SocketSDK) sendWebSocketAuthHandshake(conn net.Conn, path string) error
 	}
 	defer DIC.ClearData(bytesData)
 
-	// 直接发送 JsonBody 格式的握手消息（gobwas）
-	_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	if err := wsutil.WriteClientMessage(conn, ws.OpText, bytesData); err != nil {
+	// 直接发送 JsonBody 格式的握手消息（gws）
+	if err := conn.WriteMessage(gws.OpcodeText, bytesData); err != nil {
 		return ex.Throw{Msg: "handshake message send failed: " + err.Error()}
 	}
 
 	// 同步等待服务端握手响应（认证必须同步确认）
-	_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-	responseBytes, _, err := wsutil.ReadServerData(conn)
-	if err != nil {
-		return ex.Throw{Msg: "handshake response read failed (auth sync required): " + err.Error()}
-	}
+	// 注意：gws 使用事件驱动，这里需要特殊处理同步等待
+	// 我们使用一个临时的 channel 来等待响应
+	respChan := make(chan *node.JsonResp, 1)
+	nonce := jsonBody.Nonce
+	s.responseMap.Store("auth_"+nonce, respChan)
+	defer s.responseMap.Delete("auth_" + nonce)
 
-	// 解析响应
-	response := node.GetJsonResp()
-	defer node.PutJsonResp(response)
-	if err := utils.JsonUnmarshal(responseBytes, response); err != nil {
-		return ex.Throw{Msg: "handshake response parse failed: " + err.Error()}
-	}
-
-	// 检查响应状态
-	if response.Code != 200 {
-		return ex.Throw{Msg: fmt.Sprintf("handshake failed: %s", response.Message)}
-	}
-
-	// 验证握手响应时间戳，防止重放攻击
-	if response.Time <= 0 {
-		return ex.Throw{Msg: "handshake response time must be > 0"}
-	}
-	if utils.MathAbs(utils.UnixSecond()-response.Time) > 300 { // 5分钟时间窗口
-		return ex.Throw{Msg: "handshake response time invalid"}
-	}
-
-	// 验证响应签名（与HTTP流程保持一致的安全性）
-	tokenSecret := utils.Base64Decode(s.authToken.Secret)
-	defer DIC.ClearData(tokenSecret)
-
-	// 构建签名字符串（使用握手路径）
-	validSign := node.SignBodyMessage(path, response.Data, response.Nonce, response.Time, response.Plan, jsonBody.User, tokenSecret)
-	expectedSign := utils.Base64Encode(validSign)
-	defer DIC.ClearData(validSign)
-
-	// 验证HMAC签名
-	if response.Sign != expectedSign {
-		return ex.Throw{Msg: "handshake response signature verification failed"}
-	}
-
-	// 验证 Ed25519 外层签名（须配置 ed25519Object）
-	if err := s.verifyEd25519Sign(validSign, response); err != nil {
-		return err
-	}
-
-	// 验证响应数据（握手成功通常返回简单的确认信息）
-	var decryptedData []byte
-	if response.Plan == 1 {
-		// AES解密
-		decryptedData, err = utils.AesGCMDecryptBase(response.Data, tokenSecret[:32], node.AppendBodyMessage(path, "", response.Nonce, response.Time, response.Plan, jsonBody.User))
-		if err != nil {
-			return ex.Throw{Msg: "handshake response data decrypt failed"}
+	// 等待响应（5秒超时）
+	select {
+	case response := <-respChan:
+		// 检查响应状态
+		if response.Code != 200 {
+			return ex.Throw{Msg: fmt.Sprintf("handshake failed: %s", response.Message)}
 		}
-	} else {
-		// Base64解码
-		decryptedData = utils.Base64Decode(response.Data)
-	}
-	defer DIC.ClearData(decryptedData)
 
-	// 验证解密后的数据不为空
-	if len(decryptedData) == 0 {
-		return ex.Throw{Msg: "handshake response data is empty"}
-	}
+		// 验证握手响应时间戳，防止重放攻击
+		if response.Time <= 0 {
+			return ex.Throw{Msg: "handshake response time must be > 0"}
+		}
+		if utils.MathAbs(utils.UnixSecond()-response.Time) > 300 { // 5分钟时间窗口
+			return ex.Throw{Msg: "handshake response time invalid"}
+		}
 
-	if zlog.IsDebug() {
-		zlog.Debug("WebSocket authentication handshake completed with signature verification", 0)
-	}
+		// 验证响应签名（与HTTP流程保持一致的安全性）
+		tokenSecret := utils.Base64Decode(s.authToken.Secret)
+		defer DIC.ClearData(tokenSecret)
 
-	return nil
+		// 构建签名字符串（使用握手路径）
+		validSign := node.SignBodyMessage(path, response.Data, response.Nonce, response.Time, response.Plan, jsonBody.User, tokenSecret)
+		expectedSign := utils.Base64Encode(validSign)
+		defer DIC.ClearData(validSign)
+
+		// 验证HMAC签名
+		if response.Sign != expectedSign {
+			return ex.Throw{Msg: "handshake response signature verification failed"}
+		}
+
+		// 验证 Ed25519 外层签名（须配置 ed25519Object）
+		if err := s.verifyEd25519Sign(validSign, response); err != nil {
+			return err
+		}
+
+		// 验证响应数据（握手成功通常返回简单的确认信息）
+		var decryptedData []byte
+		if response.Plan == 1 {
+			// AES解密
+			decryptedData, err = utils.AesGCMDecryptBase(response.Data, tokenSecret[:32], node.AppendBodyMessage(path, "", response.Nonce, response.Time, response.Plan, jsonBody.User))
+			if err != nil {
+				return ex.Throw{Msg: "handshake response data decrypt failed"}
+			}
+		} else {
+			// Base64解码
+			decryptedData = utils.Base64Decode(response.Data)
+		}
+		defer DIC.ClearData(decryptedData)
+
+		// 验证解密后的数据不为空
+		if len(decryptedData) == 0 {
+			return ex.Throw{Msg: "handshake response data is empty"}
+		}
+
+		if zlog.IsDebug() {
+			zlog.Debug("WebSocket authentication handshake completed with signature verification", 0)
+		}
+
+		return nil
+	case <-time.After(5 * time.Second):
+		return ex.Throw{Msg: "handshake response read failed (auth sync required): timeout"}
+	}
 }
 
 // SendWebSocketMessage 发送WebSocket业务消息并可选等待响应
@@ -692,12 +724,7 @@ func (s *SocketSDK) SendWebSocketMessage(router string, requestObj, responseObj 
 		return ex.Throw{Msg: "WebSocket not connected, call ConnectWebSocket first"}
 	}
 	conn := s.conn
-	if timeout > 0 {
-		_ = conn.SetWriteDeadline(time.Now().Add(time.Duration(timeout) * time.Second))
-	} else {
-		_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	}
-	if err := wsutil.WriteClientMessage(conn, ws.OpText, bytesData); err != nil {
+	if err := conn.WriteMessage(gws.OpcodeText, bytesData); err != nil {
 		s.connMutex.Unlock()
 		return ex.Throw{Msg: "WebSocket message send failed: " + err.Error()}
 	}
@@ -851,8 +878,7 @@ func (s *SocketSDK) websocketHeartbeat() {
 			}
 
 			// 执行写操作（不持有锁，避免阻塞业务消息发送）
-			_ = conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-			if err := wsutil.WriteClientMessage(conn, ws.OpText, bytesData); err != nil {
+			if err := conn.WriteMessage(gws.OpcodeText, bytesData); err != nil {
 				if zlog.IsDebug() {
 					zlog.Debug("heartbeat send failed, connection may be lost", 0)
 				}
@@ -883,6 +909,18 @@ func (s *SocketSDK) websocketMessageListenerHandle(body []byte) {
 	}
 
 	messageCopy := *res // 拷贝值
+
+	// 先检查是否是握手响应（auth_ 前缀）
+	authRespChanVal, loaded := s.responseMap.LoadAndDelete("auth_" + res.Nonce)
+	if loaded {
+		if respChan, ok := authRespChanVal.(chan *node.JsonResp); ok {
+			select {
+			case respChan <- &messageCopy:
+				return // 握手响应已处理，直接返回
+			default:
+			}
+		}
+	}
 
 	// 通过code字段区分消息类型：200=响应消息，300=推送消息
 	if res.Code == 200 {
@@ -948,35 +986,6 @@ func (s *SocketSDK) websocketMessageListenerHandle(body []byte) {
 	}
 }
 
-// websocketMessageListener 读循环：阻塞 ReadMessage，将收包交给 websocketMessageListenerHandle。
-// 设计要点：不设置读超时（SetReadDeadline(time.Time{})），避免因服务端不回 pong 导致长时间无数据触发 i/o timeout 误断；断线由写失败（如心跳 WriteMessage）或对端关闭检测。
-// ReadServerData 本身是阻塞的，无需 select；连接关闭或 context 取消会自然中断读操作（TCP 层触发）。
-func (s *SocketSDK) websocketMessageListener() {
-	defer s.wg.Done()
-
-	for {
-		s.connMutex.Lock()
-		if !s.isConnected || s.conn == nil {
-			s.connMutex.Unlock()
-			return
-		}
-		conn := s.conn
-		s.connMutex.Unlock()
-
-		_ = conn.SetReadDeadline(time.Time{})
-		body, _, err := wsutil.ReadServerData(conn)
-		if err != nil {
-			if err != io.EOF && zlog.IsDebug() {
-				zlog.Debug(fmt.Sprintf("WebSocket read error: %v", err), 0)
-			}
-			s.disconnectWebSocket() // 触发重连逻辑
-			return
-		}
-
-		s.websocketMessageListenerHandle(body)
-	}
-}
-
 func (s *SocketSDK) handlePushMessage(message map[string]interface{}) {
 	// 这里可以添加自定义的推送消息处理逻辑
 	// 例如：触发事件、更新UI状态等
@@ -1004,18 +1013,8 @@ func (s *SocketSDK) disconnectWebSocketInternal(triggerReconnect bool) {
 		s.connCancel()
 	}
 
-	// 清理 responseMap 并关闭所有等待中的通道
+	// 不关闭通道，仅从 map 删除。等待方会因 connCtx.Done() 或超时自然退出，避免向已关闭通道发送导致 panic
 	s.responseMap.Range(func(key, value interface{}) bool {
-		if ch, ok := value.(chan *node.JsonResp); ok {
-			// 非阻塞方式关闭通道（避免向已关闭通道发送的 panic）
-			select {
-			case <-ch:
-				// 通道已有数据或已关闭，无需处理
-			default:
-				// 安全关闭通道
-				close(ch)
-			}
-		}
 		s.responseMap.Delete(key)
 		return true
 	})
@@ -1023,7 +1022,7 @@ func (s *SocketSDK) disconnectWebSocketInternal(triggerReconnect bool) {
 	s.connMutex.Lock()
 	wasConnected := s.isConnected
 	if s.conn != nil {
-		s.conn.Close()
+		_ = s.conn.WriteClose(1000, []byte("client disconnect"))
 		s.conn = nil
 	}
 	s.isConnected = false

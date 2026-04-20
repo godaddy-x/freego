@@ -1230,43 +1230,6 @@ func TestWebSocketGracefulShutdownWithTimeout(t *testing.T) {
 	t.Logf("✓ Graceful shutdown with timeout completed successfully")
 }
 
-// TestWebSocketConnectionHealthCheck 测试连接健康检查功能
-func TestWebSocketConnectionHealthCheck(t *testing.T) {
-	// 创建连接管理器
-	cm := &node.ConnectionManager{}
-
-	// 添加一个模拟连接（用于测试）
-	mockConn := &node.DevConn{
-		Sub:  "test_subject",
-		Dev:  "test_device",
-		Last: utils.UnixSecond(),
-		Conn: nil, // 设置为nil来测试非活跃连接
-	}
-
-	// 使用测试方法添加连接
-	cm.AddTestConnection("test_subject", "test_subject_test_device", mockConn)
-
-	// 执行健康检查
-	healthStats := cm.HealthCheck()
-
-	// 验证健康检查结果
-	t.Logf("Health check stats: %+v", healthStats)
-
-	// 应该返回统计结果
-	if len(healthStats) == 0 {
-		t.Error("Expected health check to return stats")
-	}
-
-	// HealthCheck 返回各 subject 的连接数
-	if count, exists := healthStats["test_subject"]; !exists {
-		t.Error("Expected test_subject in health stats")
-	} else if count != 1 {
-		t.Errorf("Expected 1 connection for test_subject, got %d", count)
-	}
-
-	t.Logf("✓ Connection health check completed successfully")
-}
-
 // TestWebSocketClientUnexpectedDisconnect 测试客户端意外断开（如网络断开、进程被杀）时服务端能正确清理连接
 func TestWebSocketClientUnexpectedDisconnect(t *testing.T) {
 	server := node.NewWsServer(node.SubjectDeviceUnique)
