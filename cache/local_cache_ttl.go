@@ -286,7 +286,14 @@ func (c *TTLCache[K, V]) Set(key K, value V, ttlSeconds int64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if _, exists := c.data[key]; !exists {
+	oldEntry, exists := c.data[key]
+	wasExpiring := exists && oldEntry.expireAt > 0
+	isExpiring := expireAt > 0
+
+	// 需要推入 Ring 的场景：
+	// 1. 新增的需要过期的条目
+	// 2. 从永不过期（或已过期）变为需要过期
+	if (!exists && isExpiring) || (exists && !wasExpiring && isExpiring) {
 		c.pushToRing(key)
 	}
 
@@ -298,11 +305,67 @@ func (c *TTLCache[K, V]) SetWithExpireAt(key K, value V, expireAt int64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if _, exists := c.data[key]; !exists {
+	oldEntry, exists := c.data[key]
+	wasExpiring := exists && oldEntry.expireAt > 0
+	isExpiring := expireAt > 0
+
+	if (!exists && isExpiring) || (exists && !wasExpiring && isExpiring) {
 		c.pushToRing(key)
 	}
 
 	c.data[key] = &entry[V]{value: value, expireAt: expireAt}
+}
+
+// GetOrSet 原子操作
+func (c *TTLCache[K, V]) GetOrSet(key K, value V, ttlSeconds int64) (V, bool) {
+	// 快速路径：读锁检查
+	c.mu.RLock()
+	e, exists := c.data[key]
+	if exists && !e.deleted.Load() {
+		now := timeNow()
+		if e.expireAt <= 0 || now < e.expireAt {
+			val := e.value
+			c.mu.RUnlock()
+			return val, true
+		}
+		// 标记为删除，后续写锁会清理
+		e.deleted.CompareAndSwap(false, true)
+	}
+	c.mu.RUnlock()
+
+	// 慢速路径：写锁设置
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// 再次检查（可能已被其他协程设置）
+	if e, exists := c.data[key]; exists {
+		// 清理已标记删除或已过期的条目
+		if e.deleted.Load() {
+			delete(c.data, key)
+		} else {
+			now := timeNow()
+			if e.expireAt > 0 && now >= e.expireAt {
+				delete(c.data, key)
+			} else {
+				// 条目有效，直接返回
+				return e.value, true
+			}
+		}
+	}
+
+	// 此时 key 已确定不存在，创建新条目
+	var expireAt int64
+	if ttlSeconds > 0 {
+		expireAt = timeNow() + ttlSeconds
+	}
+
+	isExpiring := expireAt > 0
+	if isExpiring {
+		c.pushToRing(key)
+	}
+
+	c.data[key] = &entry[V]{value: value, expireAt: expireAt}
+	return value, false
 }
 
 // Delete 逻辑删除
@@ -313,46 +376,6 @@ func (c *TTLCache[K, V]) Delete(key K) {
 	if e, exists := c.data[key]; exists {
 		e.deleted.Store(true)
 	}
-}
-
-// GetOrSet 原子操作
-func (c *TTLCache[K, V]) GetOrSet(key K, value V, ttlSeconds int64) (V, bool) {
-	c.mu.RLock()
-	e, exists := c.data[key]
-	if exists && !e.deleted.Load() {
-		now := timeNow()
-		if e.expireAt <= 0 || now < e.expireAt {
-			c.mu.RUnlock()
-			return e.value, true
-		}
-		e.deleted.CompareAndSwap(false, true)
-	}
-	c.mu.RUnlock()
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if e, exists := c.data[key]; exists {
-		if e.deleted.Load() {
-			delete(c.data, key)
-		} else {
-			now := timeNow()
-			if e.expireAt > 0 && now >= e.expireAt {
-				delete(c.data, key)
-			} else {
-				return e.value, true
-			}
-		}
-	}
-
-	var expireAt int64
-	if ttlSeconds > 0 {
-		expireAt = timeNow() + ttlSeconds
-	}
-
-	c.pushToRing(key)
-	c.data[key] = &entry[V]{value: value, expireAt: expireAt}
-	return value, false
 }
 
 // Len 返回物理存储条目数
@@ -378,6 +401,7 @@ func (c *TTLCache[K, V]) Clear() {
 	}
 }
 
+// Keys 返回所有有效 key（注意：可能消耗大量内存）
 func (c *TTLCache[K, V]) Keys() []K {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -397,7 +421,7 @@ func (c *TTLCache[K, V]) Keys() []K {
 	return keys
 }
 
-// timeNow 获取当前时间戳
+// timeNow 获取当前时间戳（秒）
 func timeNow() int64 {
 	return utils.UnixSecond()
 }

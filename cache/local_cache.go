@@ -1,8 +1,6 @@
 package cache
 
 import (
-	"time"
-
 	"github.com/godaddy-x/freego/utils"
 )
 
@@ -11,12 +9,6 @@ type LocalMapManager struct {
 	CacheManager
 	cache *TTLCache[string, interface{}]
 }
-
-// 默认配置常量
-const (
-	defaultExpiration = 5 * time.Minute  // 默认过期时间5分钟
-	cleanupInterval   = 10 * time.Minute // 清理间隔10分钟
-)
 
 // NewLocalCache 创建新的ttl-cache缓存实例
 func NewLocalCache(initialCapacity int) Cache {
@@ -109,9 +101,9 @@ func (self *LocalMapManager) Put(key string, input interface{}, expire ...int) e
 	return nil
 }
 
-//func (self *LocalMapManager) Keys(pattern ...string) ([]string, error) {
-//	return keys, nil
-//}
+func (self *LocalMapManager) Keys(pattern ...string) ([]string, error) {
+	return self.cache.Keys(), nil
+}
 
 func (self *LocalMapManager) Del(key ...string) error {
 	for _, k := range key {
@@ -125,11 +117,11 @@ func (self *LocalMapManager) Exists(key string) (bool, error) {
 	return exists, nil
 }
 
-//func (self *LocalMapManager) Size(pattern ...string) (int, error) {
-//	// ttl-cache没有直接获取大小的方法，返回估算值
-//	items := self.cache.Items()
-//	return len(items), nil
-//}
+func (self *LocalMapManager) Size(pattern ...string) (int, error) {
+	// ttl-cache没有直接获取大小的方法，返回估算值
+	items := self.cache.Keys()
+	return len(items), nil
+}
 
 func (self *LocalMapManager) Values(pattern ...string) ([]interface{}, error) {
 	// ttl-cache不支持直接获取所有values
