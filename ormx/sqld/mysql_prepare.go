@@ -89,18 +89,18 @@ type invalidMarker struct{}
 
 // prepareManager 预编译语句管理器
 type prepareManager struct {
-	createMu     sync.Mutex                           // 保护creating map的全局锁
-	creating     map[string]*sync.Mutex               // 细粒度创建锁
-	cacheStmt    *cache.TTLCache[string, interface{}] // 并发安全缓存
-	shutdownChan chan struct{}                        // 关闭信号
-	shutdownOnce sync.Once                            // 确保只关闭一次
+	createMu     sync.Mutex             // 保护creating map的全局锁
+	creating     map[string]*sync.Mutex // 细粒度创建锁
+	cacheStmt    cache.Cache            // 并发安全缓存
+	shutdownChan chan struct{}          // 关闭信号
+	shutdownOnce sync.Once              // 确保只关闭一次
 }
 
 // newPrepareManager 创建新的 prepareManager
 func newPrepareManager() *prepareManager {
 	pm := &prepareManager{
 		creating:     make(map[string]*sync.Mutex),
-		cacheStmt:    cache.NewTTLCache[string, interface{}](1000),
+		cacheStmt:    cache.NewLocalCache(0, 0),
 		shutdownChan: make(chan struct{}),
 	}
 	return pm
@@ -138,7 +138,7 @@ func (pm *prepareManager) generateSQLHash(manager *RDBManager, sqlstr string) st
 
 // tryGetFromCache 尝试从缓存获取 stmt
 func (pm *prepareManager) tryGetFromCache(cacheKey, sqlHash string) (*sql.Stmt, func(), bool) {
-	value, exists := pm.cacheStmt.Get(cacheKey)
+	value, exists, _ := pm.cacheStmt.Get(cacheKey, nil)
 	if !exists || value == nil {
 		return nil, nil, false
 	}
@@ -150,7 +150,7 @@ func (pm *prepareManager) tryGetFromCache(cacheKey, sqlHash string) (*sql.Stmt, 
 
 	wrapper, ok := value.(*stmtWrapper)
 	if !ok || wrapper.stmt == nil || wrapper.sqlHash == "" {
-		pm.cacheStmt.Delete(cacheKey)
+		_ = pm.cacheStmt.Del(cacheKey)
 		return nil, nil, false
 	}
 
@@ -160,7 +160,7 @@ func (pm *prepareManager) tryGetFromCache(cacheKey, sqlHash string) (*sql.Stmt, 
 	}
 
 	// 双重检查：确认缓存中的值没有被替换
-	if val, exists := pm.cacheStmt.Get(cacheKey); !exists || val != value {
+	if val, exists, _ := pm.cacheStmt.Get(cacheKey, nil); !exists || val != value {
 		pm.releaseStmt(wrapper, cacheKey)
 		return nil, nil, false
 	}
@@ -204,10 +204,10 @@ func (pm *prepareManager) extendExpireIfNeeded(wrapper *stmtWrapper, cacheKey st
 	now := time.Now()
 	if wrapper.cacheExpireAt.Sub(now) < cacheExtendThreshold {
 		// 双重检查：确保缓存中的值仍是当前 wrapper
-		if val, ok := pm.cacheStmt.Get(cacheKey); ok && val == wrapper {
+		if val, ok, _ := pm.cacheStmt.Get(cacheKey, nil); ok && val == wrapper {
 			newExpire := now.Add(initialExpireTime)
 			wrapper.cacheExpireAt = newExpire
-			pm.cacheStmt.Set(cacheKey, wrapper, int64(initialExpireTime.Seconds()))
+			_ = pm.cacheStmt.Put(cacheKey, wrapper, int(initialExpireTime.Seconds()))
 		}
 	}
 }
@@ -264,7 +264,7 @@ func (pm *prepareManager) createNewStmt(db *sql.DB, sqlstr, sqlHash, cacheKey st
 	stmt, err := db.Prepare(sqlstr)
 	if err != nil {
 		// 缓存失败标记，防止缓存穿透
-		pm.cacheStmt.Set(cacheKey, &invalidMarker{}, invalidStmtExpire)
+		_ = pm.cacheStmt.Put(cacheKey, &invalidMarker{}, invalidStmtExpire)
 		return nil, nil, cacheKey, fmt.Errorf("prepare stmt failed: %w", err)
 	}
 
@@ -279,7 +279,7 @@ func (pm *prepareManager) createNewStmt(db *sql.DB, sqlstr, sqlHash, cacheKey st
 	wrapper.state.Store(int32(stateActive))
 	wrapper.refCount.Store(1)
 
-	pm.cacheStmt.Set(cacheKey, wrapper, defaultCacheExpire)
+	_ = pm.cacheStmt.Put(cacheKey, wrapper, defaultCacheExpire)
 
 	zlog.Debug("created new prepared statement", 0,
 		zlog.String("key", cacheKey),
@@ -344,7 +344,7 @@ func (pm *prepareManager) transitionToIdle(wrapper *stmtWrapper, cacheKey string
 	})
 	wrapper.timerMu.Unlock()
 
-	pm.cacheStmt.Set(cacheKey, wrapper, int64(idleCleanupDelay.Seconds()))
+	_ = pm.cacheStmt.Put(cacheKey, wrapper, int(idleCleanupDelay.Seconds()))
 
 	zlog.Debug("stmt transitioned to idle", 0, zlog.String("key", cacheKey))
 }
@@ -394,7 +394,7 @@ func (pm *prepareManager) cleanupIdleStmt(wrapper *stmtWrapper, cacheKey string)
 	wrapper.state.Store(int32(stateClosed))
 
 	// 从缓存中删除（幂等操作）
-	pm.cacheStmt.Delete(cacheKey)
+	_ = pm.cacheStmt.Del(cacheKey)
 
 	// 清理创建锁，防止内存泄漏
 	pm.cleanupCreateMutex(cacheKey)
@@ -448,7 +448,7 @@ func (pm *prepareManager) Shutdown() {
 
 		// 关闭 TTLCache
 		if pm.cacheStmt != nil {
-			pm.cacheStmt.Close()
+			_ = pm.cacheStmt.Flush()
 		}
 
 		zlog.Info("prepareManager shutdown completed", 0)
@@ -467,18 +467,18 @@ func (pm *prepareManager) collectStmtItems() []stmtItem {
 	var items []stmtItem
 
 	// 获取所有有效的 key（不会持锁太久）
-	keys := pm.cacheStmt.Keys()
+	keys, _ := pm.cacheStmt.Keys()
 
 	// 遍历 key，获取对应的 wrapper
 	for _, key := range keys {
-		value, exists := pm.cacheStmt.Get(key)
+		value, exists, _ := pm.cacheStmt.Get(key, nil)
 		if !exists {
 			continue
 		}
 		if wrapper, ok := value.(*stmtWrapper); ok {
 			items = append(items, stmtItem{key: key, wrapper: wrapper})
 			// 立即从缓存中删除，避免重复处理
-			pm.cacheStmt.Delete(key)
+			_ = pm.cacheStmt.Del(key)
 		}
 	}
 
@@ -591,7 +591,6 @@ type PrepareManagerStats struct {
 }
 
 // GetStats 获取统计信息
-// 改造：使用 Keys() + Get() 替代 Range()，避免持锁问题
 func (pm *prepareManager) GetStats() *PrepareManagerStats {
 	stats := &PrepareManagerStats{
 		IsShuttingDown: pm.isShutdown(),
@@ -601,11 +600,11 @@ func (pm *prepareManager) GetStats() *PrepareManagerStats {
 	var activeCount, idleCount, closingCount, closedCount int64
 
 	// 获取所有有效的 key
-	keys := pm.cacheStmt.Keys()
+	keys, _ := pm.cacheStmt.Keys()
 
 	// 遍历 key，获取对应的 wrapper 并统计状态
 	for _, key := range keys {
-		value, exists := pm.cacheStmt.Get(key)
+		value, exists, _ := pm.cacheStmt.Get(key, nil)
 		if !exists {
 			continue
 		}
@@ -627,40 +626,12 @@ func (pm *prepareManager) GetStats() *PrepareManagerStats {
 	stats.IdleStmts = idleCount
 	stats.ClosingStmts = closingCount
 	stats.ClosedStmts = closedCount
-	stats.CacheSize = pm.cacheStmt.Len()
+	keys, _ = pm.cacheStmt.Keys()
+	stats.CacheSize = len(keys)
 
 	pm.createMu.Lock()
 	stats.CreatingCount = len(pm.creating)
 	pm.createMu.Unlock()
 
 	return stats
-}
-
-func (pm *prepareManager) HealthCheck() error {
-	if pm.isShutdown() {
-		return ErrShuttingDown
-	}
-
-	pm.createMu.Lock()
-	creatingCount := len(pm.creating)
-	pm.createMu.Unlock()
-
-	cacheSize := pm.cacheStmt.Len()
-	var threshold int
-
-	if cacheSize == 0 {
-		threshold = 100 // 默认阈值
-	} else if cacheSize < 100 {
-		threshold = 200 // 极小缓存场景更宽容
-	} else if cacheSize > 10000 {
-		threshold = cacheSize / 10
-	} else {
-		threshold = cacheSize * 2
-	}
-
-	if creatingCount > threshold {
-		return fmt.Errorf("too many pending creates: %d (threshold: %d)", creatingCount, threshold)
-	}
-
-	return nil
 }
