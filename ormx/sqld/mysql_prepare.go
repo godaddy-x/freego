@@ -27,8 +27,7 @@ const (
 )
 
 var (
-	ErrStmtClosed = errors.New("sql: statement is closed")
-	//ErrInvalidSQL   = errors.New("invalid SQL statement")
+	ErrStmtClosed   = errors.New("sql: statement is closed")
 	ErrShuttingDown = errors.New("prepareManager is shutting down")
 )
 
@@ -100,7 +99,7 @@ type prepareManager struct {
 func newPrepareManager() *prepareManager {
 	pm := &prepareManager{
 		creating:     make(map[string]*sync.Mutex),
-		cacheStmt:    cache.NewLocalCache(0, 0),
+		cacheStmt:    cache.NewLocalCache(2000),
 		shutdownChan: make(chan struct{}),
 	}
 	return pm
@@ -177,6 +176,10 @@ func (pm *prepareManager) tryAcquireStmt(wrapper *stmtWrapper, sqlHash string) b
 	if wrapper.sqlHash != sqlHash || wrapper.stmt == nil {
 		return false
 	}
+	// 快速预检查，避免对已关闭对象进入 CAS 循环
+	if stmtState(wrapper.state.Load()) == stateClosed {
+		return false
+	}
 
 	for {
 		state := stmtState(wrapper.state.Load())
@@ -210,30 +213,6 @@ func (pm *prepareManager) extendExpireIfNeeded(wrapper *stmtWrapper, cacheKey st
 			_ = pm.cacheStmt.Put(cacheKey, wrapper, int(initialExpireTime.Seconds()))
 		}
 	}
-}
-
-// createWithLock 加锁创建新的 stmt
-func (pm *prepareManager) createWithLock(manager *RDBManager, sqlstr, sqlHash, cacheKey string) (*sql.Stmt, func(), string, error) {
-	// 第一次检查：快速失败
-	if pm.isShutdown() {
-		return nil, nil, cacheKey, ErrShuttingDown
-	}
-
-	mu := pm.getCreateMutex(cacheKey)
-	mu.Lock()
-	defer mu.Unlock()
-
-	// 第二次检查：获取锁期间可能已关闭
-	if pm.isShutdown() {
-		return nil, nil, cacheKey, ErrShuttingDown
-	}
-
-	// 再次检查缓存（可能在等待锁期间被其他协程创建）
-	if stmt, release, ok := pm.tryGetFromCache(cacheKey, sqlHash); ok {
-		return stmt, release, cacheKey, nil
-	}
-
-	return pm.createNewStmt(manager.Db, sqlstr, sqlHash, cacheKey)
 }
 
 // getCreateMutex 获取或创建细粒度锁
@@ -297,56 +276,21 @@ func (pm *prepareManager) createReleaseFunc(wrapper *stmtWrapper, cacheKey strin
 
 // releaseStmt 释放 stmt 引用
 func (pm *prepareManager) releaseStmt(wrapper *stmtWrapper, cacheKey string) {
-	newCount := wrapper.refCount.Add(-1)
-
-	if newCount < 0 {
-		zlog.Warn("refCount negative", 0,
-			zlog.String("key", cacheKey),
-			zlog.Int32("count", newCount))
-		wrapper.refCount.Store(0)
-		return
+	for {
+		current := wrapper.refCount.Load()
+		if current <= 0 {
+			zlog.Warn("refCount already zero or negative", 0,
+				zlog.String("key", cacheKey),
+				zlog.Int32("count", current))
+			return
+		}
+		if wrapper.refCount.CompareAndSwap(current, current-1) {
+			if current-1 == 0 {
+				pm.transitionToIdle(wrapper, cacheKey)
+			}
+			return
+		}
 	}
-
-	if newCount == 0 {
-		pm.transitionToIdle(wrapper, cacheKey)
-	}
-}
-
-// transitionToIdle 将 stmt 转换为空闲状态并启动清理定时器
-func (pm *prepareManager) transitionToIdle(wrapper *stmtWrapper, cacheKey string) {
-	// 尝试从活跃状态转换为空闲状态
-	if !wrapper.state.CompareAndSwap(int32(stateActive), int32(stateIdle)) {
-		return
-	}
-
-	// CAS 成功后立即检查 shutdown 状态
-	if pm.isShutdown() {
-		// 系统正在关闭，同步执行清理
-		// 同步调用确保在 Shutdown 流程处理前完成，避免竞争
-		zlog.Debug("stmt transitioned to idle during shutdown, triggering cleanup synchronously", 0,
-			zlog.String("key", cacheKey))
-		pm.cleanupIdleStmt(wrapper, cacheKey)
-		return
-	}
-
-	now := time.Now()
-	newExpireAt := now.Add(idleCleanupDelay)
-
-	wrapper.timerMu.Lock()
-	wrapper.cacheExpireAt = newExpireAt
-
-	if wrapper.cleanupTimer != nil {
-		wrapper.cleanupTimer.Stop()
-	}
-
-	wrapper.cleanupTimer = time.AfterFunc(idleCleanupDelay, func() {
-		pm.cleanupIdleStmt(wrapper, cacheKey)
-	})
-	wrapper.timerMu.Unlock()
-
-	_ = pm.cacheStmt.Put(cacheKey, wrapper, int(idleCleanupDelay.Seconds()))
-
-	zlog.Debug("stmt transitioned to idle", 0, zlog.String("key", cacheKey))
 }
 
 // cleanupIdleStmt 清理空闲的 stmt
@@ -372,6 +316,12 @@ func (pm *prepareManager) cleanupIdleStmt(wrapper *stmtWrapper, cacheKey string)
 		return
 	}
 
+	pm.cleanupClosingStmt(wrapper, cacheKey, "close idle stmt")
+}
+
+// cleanupClosingStmt 清理 closing 状态的 stmt
+// 前置条件：调用方已将 state 设置为 stateClosing
+func (pm *prepareManager) cleanupClosingStmt(wrapper *stmtWrapper, cacheKey, logMsg string) {
 	// 执行关闭操作
 	wrapper.closeMu.Lock()
 	defer wrapper.closeMu.Unlock()
@@ -381,23 +331,34 @@ func (pm *prepareManager) cleanupIdleStmt(wrapper *stmtWrapper, cacheKey string)
 		return
 	}
 
+	// 记录当前的 refCount（用于日志）
+	refCount := wrapper.refCount.Load()
+	if refCount != 0 {
+		zlog.Debug("closing stmt with non-zero refCount", 0,
+			zlog.String("key", cacheKey),
+			zlog.Int32("refCount", refCount))
+	}
+
 	// 关闭 stmt
 	if err := wrapper.stmt.Close(); err != nil {
-		zlog.Error("close idle stmt failed", 0,
+		zlog.Error(logMsg+" failed", 0,
 			zlog.String("key", cacheKey),
 			zlog.AddError(err))
 	} else {
-		zlog.Debug("idle stmt closed", 0, zlog.String("key", cacheKey))
+		zlog.Debug(logMsg+" succeeded", 0, zlog.String("key", cacheKey))
 	}
 
-	// 标记为已关闭
+	// 标记为已关闭并清理 timer
 	wrapper.state.Store(int32(stateClosed))
+	wrapper.timerMu.Lock()
+	if wrapper.cleanupTimer != nil {
+		wrapper.cleanupTimer.Stop()
+		wrapper.cleanupTimer = nil
+	}
+	wrapper.timerMu.Unlock()
 
 	// 从缓存中删除（幂等操作）
 	_ = pm.cacheStmt.Del(cacheKey)
-
-	// 清理创建锁，防止内存泄漏
-	pm.cleanupCreateMutex(cacheKey)
 
 	// 安全关闭 shutdownDone（使用 sync.Once）
 	wrapper.closeOnce.Do(func() {
@@ -413,13 +374,6 @@ func (pm *prepareManager) isShutdown() bool {
 	default:
 		return false
 	}
-}
-
-// cleanupCreateMutex 清理创建锁
-func (pm *prepareManager) cleanupCreateMutex(key string) {
-	pm.createMu.Lock()
-	defer pm.createMu.Unlock()
-	delete(pm.creating, key)
 }
 
 // Shutdown 优雅关闭
@@ -464,12 +418,10 @@ type stmtItem struct {
 // collectStmtItems 收集所有缓存中的 stmt
 // 改造：使用 Keys() + Get() 替代 Range()，避免持锁问题
 func (pm *prepareManager) collectStmtItems() []stmtItem {
-	var items []stmtItem
-
-	// 获取所有有效的 key（不会持锁太久）
 	keys, _ := pm.cacheStmt.Keys()
+	items := make([]stmtItem, 0, len(keys))
 
-	// 遍历 key，获取对应的 wrapper
+	// 第一阶段：先收集
 	for _, key := range keys {
 		value, exists, _ := pm.cacheStmt.Get(key, nil)
 		if !exists {
@@ -477,9 +429,12 @@ func (pm *prepareManager) collectStmtItems() []stmtItem {
 		}
 		if wrapper, ok := value.(*stmtWrapper); ok {
 			items = append(items, stmtItem{key: key, wrapper: wrapper})
-			// 立即从缓存中删除，避免重复处理
-			_ = pm.cacheStmt.Del(key)
 		}
+	}
+
+	// 第二阶段：再删除，避免遍历过程中修改底层结构
+	for _, item := range items {
+		_ = pm.cacheStmt.Del(item.key)
 	}
 
 	return items
@@ -520,6 +475,14 @@ func (pm *prepareManager) tryForceClose(wrapper *stmtWrapper, key string, refCou
 	if !wrapper.state.CompareAndSwap(int32(stateActive), int32(stateClosing)) {
 		return false
 	}
+
+	// 清理 timer
+	wrapper.timerMu.Lock()
+	if wrapper.cleanupTimer != nil {
+		wrapper.cleanupTimer.Stop()
+		wrapper.cleanupTimer = nil
+	}
+	wrapper.timerMu.Unlock()
 
 	wrapper.closeMu.Lock()
 	defer wrapper.closeMu.Unlock()
@@ -579,7 +542,7 @@ func (pm *prepareManager) waitForPendingCleanups(pendingCleanups []chan struct{}
 		zlog.Int("cleanup_count", cleanupCount))
 }
 
-// Stats 返回缓存统计信息
+// PrepareManagerStats 返回缓存统计信息
 type PrepareManagerStats struct {
 	CacheSize      int   `json:"cache_size"`
 	CreatingCount  int   `json:"creating_count"`
@@ -590,19 +553,118 @@ type PrepareManagerStats struct {
 	IsShuttingDown bool  `json:"is_shutting_down"`
 }
 
-// GetStats 获取统计信息
+func (pm *prepareManager) createWithLock(manager *RDBManager, sqlstr, sqlHash, cacheKey string) (*sql.Stmt, func(), string, error) {
+	if pm.isShutdown() {
+		return nil, nil, cacheKey, ErrShuttingDown
+	}
+
+	mu := pm.getCreateMutex(cacheKey)
+	mu.Lock()
+	defer mu.Unlock()
+
+	if pm.isShutdown() {
+		return nil, nil, cacheKey, ErrShuttingDown
+	}
+
+	// 再次检查缓存
+	if stmt, release, ok := pm.tryGetFromCache(cacheKey, sqlHash); ok {
+		return stmt, release, cacheKey, nil
+	}
+
+	// 创建新 Stmt
+	stmt, release, key, err := pm.createNewStmt(manager.Db, sqlstr, sqlHash, cacheKey)
+	return stmt, release, key, err
+}
+
+// transitionToIdle 将 stmt 转换为空闲状态并启动清理定时器
+func (pm *prepareManager) transitionToIdle(wrapper *stmtWrapper, cacheKey string) {
+	// 快速检查：仅 active 才能进入后续状态流转
+	if stmtState(wrapper.state.Load()) != stateActive {
+		return
+	}
+
+	// shutdown 下直接走 active -> closing，不再经过 idle
+	if pm.isShutdown() {
+		if !wrapper.state.CompareAndSwap(int32(stateActive), int32(stateClosing)) {
+			return
+		}
+		pm.cleanupClosingStmt(wrapper, cacheKey, "close stmt during shutdown")
+		return
+	}
+
+	// 尝试从活跃状态转换为空闲状态
+	if !wrapper.state.CompareAndSwap(int32(stateActive), int32(stateIdle)) {
+		return
+	}
+
+	// CAS 成功后立即检查 shutdown 状态
+	if pm.isShutdown() {
+		if wrapper.state.CompareAndSwap(int32(stateIdle), int32(stateClosing)) {
+			pm.cleanupClosingStmt(wrapper, cacheKey, "close stmt after idle when shutdown detected")
+		} else {
+			zlog.Debug("stmt idle to closing CAS failed during shutdown", 0,
+				zlog.String("key", cacheKey),
+				zlog.String("state", stmtState(wrapper.state.Load()).String()))
+		}
+		return
+	}
+
+	now := time.Now()
+	newExpireAt := now.Add(idleCleanupDelay)
+
+	wrapper.timerMu.Lock()
+	wrapper.cacheExpireAt = newExpireAt
+
+	// 安全地停止旧 timer
+	if wrapper.cleanupTimer != nil {
+		wrapper.cleanupTimer.Stop()
+		wrapper.cleanupTimer = nil // 让 GC 回收
+	}
+
+	// 创建新 timer，使用 AfterFunc 避免 goroutine 泄漏
+	wrapper.cleanupTimer = time.AfterFunc(idleCleanupDelay, func() {
+		defer func() {
+			if r := recover(); r != nil {
+				zlog.Error("panic in cleanup timer", 0,
+					zlog.String("key", cacheKey),
+					zlog.Any("panic", r))
+			}
+		}()
+		pm.cleanupIdleStmt(wrapper, cacheKey)
+	})
+
+	wrapper.timerMu.Unlock()
+
+	zlog.Debug("stmt transitioned to idle", 0, zlog.String("key", cacheKey))
+}
+
 func (pm *prepareManager) GetStats() *PrepareManagerStats {
 	stats := &PrepareManagerStats{
 		IsShuttingDown: pm.isShutdown(),
 	}
 
-	// 统计缓存中的 stmt 状态
 	var activeCount, idleCount, closingCount, closedCount int64
 
-	// 获取所有有效的 key
-	keys, _ := pm.cacheStmt.Keys()
+	// 防御性编程：捕获可能的 panic
+	defer func() {
+		if r := recover(); r != nil {
+			zlog.Error("GetStats panic recovered", 0, zlog.Any("panic", r))
+		}
+	}()
 
-	// 遍历 key，获取对应的 wrapper 并统计状态
+	// 获取所有有效的 key
+	keys, err := pm.cacheStmt.Keys()
+	if err != nil {
+		zlog.Warn("failed to get cache keys", 0, zlog.AddError(err))
+		// 即使获取 keys 失败，也尝试返回 creating 统计
+		pm.createMu.Lock()
+		stats.CreatingCount = len(pm.creating)
+		pm.createMu.Unlock()
+		return stats
+	}
+	stats.CacheSize = len(keys)
+
+	// 遍历统计状态
 	for _, key := range keys {
 		value, exists, _ := pm.cacheStmt.Get(key, nil)
 		if !exists {
@@ -626,8 +688,6 @@ func (pm *prepareManager) GetStats() *PrepareManagerStats {
 	stats.IdleStmts = idleCount
 	stats.ClosingStmts = closingCount
 	stats.ClosedStmts = closedCount
-	keys, _ = pm.cacheStmt.Keys()
-	stats.CacheSize = len(keys)
 
 	pm.createMu.Lock()
 	stats.CreatingCount = len(pm.creating)

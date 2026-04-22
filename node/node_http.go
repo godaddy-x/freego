@@ -26,7 +26,7 @@ import (
 )
 
 var (
-	defaultCacheObject = cache.NewLocalCache(0, 0)
+	defaultCacheObject = cache.NewLocalCache(10000)
 	emptyMap           = map[string]string{}
 )
 
