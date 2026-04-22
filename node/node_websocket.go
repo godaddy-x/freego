@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -293,13 +294,14 @@ type WsServer struct {
 	broadcastKey string
 
 	// 配置项
-	ping         int           // 心跳间隔（秒）
-	maxConn      int           // 最大并发连接数（与 limiter 的连接速率限制不同）
-	maxBodyLen   int           // 单条消息体最大长度（字节），默认 DefaultWsMaxBodyLen
-	limiter      *rate.Limiter // 连接建立速率限制（每秒允许的新连接数，与 maxConn 并发连接数限制不同）
-	idleTimeout  time.Duration // 连接空闲超时时间
-	globalCtx    context.Context
-	globalCancel context.CancelFunc
+	ping            int           // 心跳间隔（秒）
+	maxConn         int           // 最大并发连接数（与 limiter 的连接速率限制不同）
+	maxBodyLen      int           // 单条消息体最大长度（字节），默认 DefaultWsMaxBodyLen
+	parallelEnabled bool          // 是否并行处理同连接消息（映射 gws.ServerOption.ParallelEnabled）
+	limiter         *rate.Limiter // 连接建立速率限制（每秒允许的新连接数，与 maxConn 并发连接数限制不同）
+	idleTimeout     time.Duration // 连接空闲超时时间
+	globalCtx       context.Context
+	globalCancel    context.CancelFunc
 
 	// 连接唯一性模式
 	connUniquenessMode ConnectionUniquenessMode
@@ -451,6 +453,9 @@ func (cm *ConnectionManager) Add(conn *DevConn) error {
 	if cm.mode == SubjectUnique {
 		uniqueKey = conn.Sub
 	} else {
+		if strings.TrimSpace(conn.Dev) == "" {
+			return utils.Error("device id is required in SubjectDeviceUnique mode")
+		}
 		uniqueKey = utils.AddStr(conn.Sub, "_", conn.Dev)
 	}
 
@@ -522,7 +527,12 @@ func (cm *ConnectionManager) RemoveByConn(conn *DevConn) bool {
 	if !ok {
 		return false // 连接不在索引中，可能已被移除
 	}
-	entry := val.(*reverseIndexEntry)
+	entry, ok := val.(*reverseIndexEntry)
+	if !ok || entry == nil {
+		// 索引数据异常，清理后返回
+		cm.reverseIndex.Delete(conn.Conn)
+		return false
+	}
 
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
@@ -734,7 +744,8 @@ func (cm *ConnectionManager) CleanupExpired(timeoutSeconds int64) int {
 		n = 0
 	}
 	cm.mu.RLock()
-	toClose := make([]*DevConn, 0, n)
+	toClose := acquireDevConnTargets(int(n))
+	defer releaseDevConnTargets(toClose)
 	for _, subjectConns := range cm.conns {
 		for _, conn := range subjectConns {
 			if currentTime-conn.LastSeen() > timeoutSeconds {
@@ -768,7 +779,8 @@ func (cm *ConnectionManager) CleanupAll() {
 		n = 0
 	}
 	cm.mu.RLock()
-	toClose := make([]*DevConn, 0, n)
+	toClose := acquireDevConnTargets(int(n))
+	defer releaseDevConnTargets(toClose)
 	for _, subjectConns := range cm.conns {
 		for _, conn := range subjectConns {
 			toClose = append(toClose, conn)
@@ -911,52 +923,6 @@ func (mh *MessageHandler) validWebSocketBody(connCtx *ConnectionContext, rawFram
 	}
 	d := body.Data
 	if len(d) == 0 {
-		connID := "nil-conn"
-		subject := ""
-		device := ""
-		if connCtx != nil {
-			connID = connCtx.wsTraceConnID()
-			subject = connCtx.GetUserIDString()
-			device = connCtx.getDeviceID()
-		}
-		rawLen := 0
-		signLen := 0
-		validLen := 0
-		if body != nil {
-			if rawBytes, err := utils.JsonMarshal(body); err == nil {
-				rawLen = len(rawBytes)
-			}
-			signLen = len(body.Sign)
-			validLen = len(body.Valid)
-		}
-		if zlog.IsDebug() {
-			zlog.Error("WS_TRACE_EMPTY_DATA", 0,
-				zlog.String("conn_id", connID),
-				zlog.String("subject", subject),
-				zlog.String("device", device),
-				zlog.String("router", body.Router),
-				zlog.String("nonce", body.Nonce),
-				zlog.Int64("plan", body.Plan),
-				zlog.Int64("user", body.User),
-				zlog.Int("sign_len", signLen),
-				zlog.Int("valid_len", validLen),
-				zlog.Int("parsed_json_len", rawLen),
-				zlog.Int("frame_len", len(rawFrame)),
-				zlog.String("frame_preview_hex", wsFrameHexPreview(rawFrame, 192)))
-		} else {
-			zlog.Error("WS_TRACE_EMPTY_DATA", 0,
-				zlog.String("conn_id", connID),
-				zlog.String("subject", subject),
-				zlog.String("device", device),
-				zlog.String("router", body.Router),
-				zlog.String("nonce", body.Nonce),
-				zlog.Int64("plan", body.Plan),
-				zlog.Int64("user", body.User),
-				zlog.Int("sign_len", signLen),
-				zlog.Int("valid_len", validLen),
-				zlog.Int("parsed_json_len", rawLen),
-				zlog.Int("frame_len", len(rawFrame)))
-		}
 		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "websocket data is nil"}
 	}
 
@@ -1151,11 +1117,16 @@ func (h *WsEventHandler) OnClose(socket *gws.Conn, err error) {
 	if val, ok := h.server.connContextMap.Load(socket); ok {
 		if connCtx, ok := val.(*ConnectionContext); ok {
 			h.server.recordConnectionRemoved()
-
-			zlog.Info("client_disconnected", 0, zlog.String("subject", connCtx.DevConn.Sub), zlog.String("device", connCtx.DevConn.Dev))
+			subject := ""
+			device := ""
+			if connCtx.DevConn != nil {
+				subject = connCtx.DevConn.Sub
+				device = connCtx.DevConn.Dev
+			}
+			zlog.Info("client_disconnected", 0, zlog.String("subject", subject), zlog.String("device", device))
 
 			// 从连接管理器中移除
-			if h.server.connManager != nil {
+			if h.server.connManager != nil && connCtx.DevConn != nil {
 				h.server.connManager.RemoveByConn(connCtx.DevConn)
 			}
 
@@ -1213,6 +1184,7 @@ func NewWsServer(connUniquenessMode ConnectionUniquenessMode) *WsServer {
 		globalCancel:       globalCancel,
 		connUniquenessMode: connUniquenessMode,
 		maxBodyLen:         DefaultWsMaxBodyLen,
+		parallelEnabled:    true,
 		idleTimeout:        3600 * time.Second, // 默枧1小时空闲超时
 		errorHandler:       &ErrorHandler{},
 		configValidator:    &ConfigValidator{},
@@ -1230,12 +1202,7 @@ func NewWsServer(connUniquenessMode ConnectionUniquenessMode) *WsServer {
 	}
 
 	// 初始化 gws Upgrader
-	s.upgrader = gws.NewUpgrader(&WsEventHandler{server: s}, &gws.ServerOption{
-		ParallelEnabled:    true,                                  // 并行消息处理
-		Recovery:           gws.Recovery,                          // 异常恢复
-		ReadMaxPayloadSize: s.maxBodyLen,                          // 最大消息体长度
-		PermessageDeflate:  gws.PermessageDeflate{Enabled: false}, // 可选：启用压缩
-	})
+	s.initUpgrader()
 
 	s.server = &http.Server{
 		Addr:         "",
@@ -1246,6 +1213,15 @@ func NewWsServer(connUniquenessMode ConnectionUniquenessMode) *WsServer {
 	}
 
 	return s
+}
+
+func (s *WsServer) initUpgrader() {
+	s.upgrader = gws.NewUpgrader(&WsEventHandler{server: s}, &gws.ServerOption{
+		ParallelEnabled:    s.parallelEnabled,
+		Recovery:           gws.Recovery,                          // 异常恢复
+		ReadMaxPayloadSize: s.maxBodyLen,                          // 最大消息体长度
+		PermessageDeflate:  gws.PermessageDeflate{Enabled: false}, // 可选：启用压缩
+	})
 }
 
 // AddRouter 注册路由：path -> Handle。应在 StartWebsocket 之前完成所有注册。
@@ -1308,6 +1284,14 @@ func (s *WsServer) SetMaxBodyLen(n int) {
 		return
 	}
 	s.maxBodyLen = n
+	s.initUpgrader()
+}
+
+// SetParallelEnabled 设置是否并行处理同一连接上的消息（需在 StartWebsocket 前调用）。
+// true 可提升吞吐；false 可保证单连接消息按处理顺序串行。
+func (s *WsServer) SetParallelEnabled(enabled bool) {
+	s.parallelEnabled = enabled
+	s.initUpgrader()
 }
 
 // SetBroadcastKey 广播数据密钥
