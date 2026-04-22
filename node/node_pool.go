@@ -40,6 +40,7 @@ func PutJsonBody(body *JsonBody) {
 	body.Router = ""
 	body.Time = 0
 	body.Plan = 0
+	body.User = 0
 
 	// 放回池中
 	jsonBodyPool.Put(body)
@@ -95,5 +96,6 @@ func PutMessageHandler(mh *MessageHandler) {
 	// 注意：rsa字段不需要重置，因为它是共享的只读数据
 	// handle字段会在下次获取时重新设置
 	mh.handle = nil
+	mh.cipher = nil
 	messageHandlerPool.Put(mh)
 }

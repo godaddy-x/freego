@@ -413,10 +413,14 @@ func (s *SocketSDK) connectWebSocketInternal(path string, isInitial bool) error 
 	// 建立WebSocket连接（gws）
 	handler := &ClientEventHandler{sdk: s}
 	socket, _, err := gws.NewClient(handler, &gws.ClientOption{
-		Addr:               wsURL,
-		RequestHeader:      header,
-		ReadMaxPayloadSize: 1024 * 1024 * 10,
+		Addr:                wsURL,
+		RequestHeader:       header,
+		ReadMaxPayloadSize:  1024 * 1024 * 10,
 		WriteMaxPayloadSize: 1024 * 1024 * 10,
+		// 显式串行 OnMessage：websocketMessageListenerHandle 内每帧独立 GetJsonResp，无共享 conn 级 JsonBody；
+		// 若将来改为 true，须保证本函数及 responseMap/订阅回调全路径可重入（与 gws Server 侧 Parallel 策略对齐后再开）。
+		ParallelEnabled: false,
+		Recovery:        gws.Recovery,
 	})
 	if err != nil {
 		if zlog.IsDebug() {
@@ -896,8 +900,10 @@ func (s *SocketSDK) websocketHeartbeat() {
 	}
 }
 
-// websocketMessageListenerHandle 处理接收到的WebSocket消息
-// body: 接收到的消息字节数据
+// websocketMessageListenerHandle 处理接收到的 WebSocket 文本帧。
+// 每帧从池取出独立 *node.JsonResp，解析后 defer Put；与「连接上挂共享 JsonBody」类问题无关。
+// 推送分支通过 messageCopy 值拷贝再异步 HandleMessage，避免 Put 池后仍读同一指针。
+// body: 本帧 JSON 字节（须在调用方 OnMessage 返回前有效；与 message.Close 生命周期一致）
 func (s *SocketSDK) websocketMessageListenerHandle(body []byte) {
 	// 使用对象池获取JsonResp对象，提高内存利用率
 	res := node.GetJsonResp()
