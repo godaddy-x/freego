@@ -134,8 +134,8 @@ func (cc *ConnectionContext) getDeviceID() string {
 	if cc.DevConn != nil {
 		return cc.DevConn.Dev
 	}
-	if cc.Subject != nil {
-		return cc.Subject.GetDev(nil)
+	if cc.Subject != nil && cc.Subject.Payload != nil {
+		return cc.Subject.Payload.Dev
 	}
 	return ""
 }
@@ -863,7 +863,11 @@ func (mh *MessageHandler) Process(connCtx *ConnectionContext, body []byte, jb *J
 		connCtx.Server.recordHeartbeat(true)
 
 		if zlog.IsDebug() {
-			zlog.Debug("heartbeat_received_and_updated", 0, zlog.String("subject", connCtx.Subject.GetSub(nil)), zlog.String("device", connCtx.Subject.GetDev(nil)), zlog.String("connection_path", connCtx.Path), zlog.String("nonce", jb.Nonce))
+			deviceID := ""
+			if connCtx.Subject != nil && connCtx.Subject.Payload != nil {
+				deviceID = connCtx.Subject.Payload.Dev
+			}
+			zlog.Debug("heartbeat_received_and_updated", 0, zlog.String("subject", connCtx.Subject.GetSub(nil)), zlog.String("device", deviceID), zlog.String("connection_path", connCtx.Path), zlog.String("nonce", jb.Nonce))
 		}
 
 		return cipher, nil, nil
@@ -1107,7 +1111,11 @@ func (h *WsEventHandler) OnOpen(socket *gws.Conn) {
 			connCtx.WsConn = socket
 			h.server.recordConnectionAdded()
 
-			zlog.Info("CLIENT_CONNECTED", 0, zlog.String("client_address", socket.RemoteAddr().String()), zlog.String("user_id", connCtx.Subject.GetSub(nil)), zlog.String("device_id", connCtx.Subject.GetDev(nil)))
+			deviceID := ""
+			if connCtx.Subject != nil && connCtx.Subject.Payload != nil {
+				deviceID = connCtx.Subject.Payload.Dev
+			}
+			zlog.Info("CLIENT_CONNECTED", 0, zlog.String("client_address", socket.RemoteAddr().String()), zlog.String("user_id", connCtx.Subject.GetSub(nil)), zlog.String("device_id", deviceID))
 		}
 	}
 }
@@ -1571,7 +1579,13 @@ func (s *WsServer) validateTokenFromRequest(r *http.Request, path string) (*jwt.
 func (s *WsServer) createConnectionContext(subject *jwt.Subject, socket *gws.Conn, path string, routerConfig *RouterConfig, rawToken []byte) *ConnectionContext {
 	connCtx, cancel := context.WithCancel(s.globalCtx)
 
-	devID := subject.GetDev(nil)
+	devID := ""
+	if subject != nil && subject.Payload != nil {
+		devID = subject.Payload.Dev
+	}
+	if len(strings.TrimSpace(devID)) == 0 {
+		devID = subject.GetDev(rawToken)
+	}
 	subID := subject.GetSub(nil)
 
 	// Last 使用原子写入，与 UpdateLast/LastSeen 一致，便于 CleanupExpired 无锁读取
