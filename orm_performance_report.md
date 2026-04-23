@@ -1,7 +1,23 @@
 # MySQL ORM 性能对比测试报告（FreeGo sqld vs GORM）
 
 > 阅读指引：本报告仅保留 **独立进程 + 每项 60s** 的结果。  
-> 结论请看 **§3（FindOne）**、**§4（FindList）** 与 **§7（总表）**。
+> **建议阅读顺序**：先看 **「结果总览」** 中的总表与一句话结论；需要核对指标或复现时，再读 **§1～§2（环境与对齐）**、**§3～§5（分项表格）**、**§6（复现命令）**。
+
+## 结果总览（速读）
+
+在本机、独立进程、每项 **60s**、GORM **`PrepareStmt: true`** 的前提下：读路径上 FreeGo 在 **FindOne** 与 **FindList（尤其 1000/2000 条）** 延迟更低；写路径上 **Save** 略快、**Update** 明显更快；各场景 **失败率均为 0%**（见分项表）。环境与公平性说明见 **§1～§2**。
+
+| 场景 | FreeGo 相对 GORM（本报告数据） | 备注 |
+|------|-------------------------------|------|
+| FindOne | GORM 延迟约 **1.47×**（更慢） | 独立 60s |
+| FindList 100 | GORM 慢 **≈1.53×** | 独立 60s |
+| FindList 500 | GORM 慢 **≈1.38×** | 独立 60s |
+| FindList 1000 | GORM 慢 **≈3.48×** | 独立 60s |
+| FindList 2000 | GORM 慢 **≈4.25×** | 独立 60s |
+| Save | GORM 慢 **≈1.22×**；FreeGo `B/op` 约 **1/3** | 独立 60s |
+| Update | GORM 慢 **≈1.98×** | 独立 60s |
+
+---
 
 ## 1. 测试环境
 
@@ -25,7 +41,7 @@
 | Windows（PowerShell） | 仓库根目录：``.\scripts\bench_mysql_compare_60s.ps1``（默认 60s）；``.\scripts\bench_mysql_compare_60s.ps1 -BenchSeconds 120`` |
 | Linux / macOS | ``chmod +x scripts/bench_mysql_compare_60s.sh`` 后：``./scripts/bench_mysql_compare_60s.sh``；``BENCH_SECONDS=120 ./scripts/bench_mysql_compare_60s.sh`` |
 
-结果追加写入仓库根目录 **`bench_60s_isolated.log`**，便于粘贴进本报告第 3～4 节。
+结果追加写入仓库根目录 **`bench_60s_isolated.log`**，便于粘贴进本报告 **FindOne / FindList** 等分项章节。
 
 **顺序**（脚本内已固定）：`MysqlFindOne` → `GormFindOne` → 各 `FindList` 子项（100/500/1000/2000）先 FreeGo 再 GORM。
 
@@ -150,6 +166,8 @@ go test '-run=^$' -bench='BenchmarkMysqlFindList/100_records'  -benchmem -bencht
 | 平均每秒执行次数（N/60） | **≈ 3,634 /s** | **≈ 3,546 /s** | **≈ 0.98×** |
 | 失败率 | **0.00%（0/218,028）** | **0.00%（0/212,752）** | — |
 
+**结论（本机、本组 60s）**：Save 下 FreeGo 单次延迟更低（GORM 约 **1.22×**），吞吐接近（N/60 约 **3,634 /s** vs **3,546 /s**）；FreeGo 的堆分配与分配次数明显更少（`B/op`、`allocs/op` 约 **3× / 2.4×** 优势）。本组运行 **失败率均为 0%**。
+
 ### 5.2 Update 对比
 
 | 指标 | FreeGo `BenchmarkMysqlUpdate` | GORM `BenchmarkGormUpdate` | GORM / FreeGo |
@@ -160,6 +178,8 @@ go test '-run=^$' -bench='BenchmarkMysqlFindList/100_records'  -benchmem -bencht
 | 60s 总执行次数（N） | **396,716** | **223,240** | — |
 | 平均每秒执行次数（N/60） | **≈ 6,612 /s** | **≈ 3,721 /s** | **≈ 0.56×** |
 | 失败率 | **0.00%（0/396,716）** | **0.00%（0/223,240）** | — |
+
+**结论（本机、本组 60s）**：Update 下 FreeGo 延迟约为 GORM 的 **一半**（GORM 约 **1.98×**），同等时间内完成次数更多（N/60 约 **6,612 /s** vs **3,721 /s**）；GORM 的 `B/op`、`allocs/op` 仍更高。基准已保证每次更新变更字段，**失败率均为 0%**。
 
 ---
 
@@ -192,20 +212,6 @@ go test -run='^$' -bench='^BenchmarkMysqlFindOne$' -benchmem -benchtime=60s -cou
 # 统计更稳：对「独立多次」输出的 log 用 benchstat（需安装 golang.org/x/perf/cmd/benchstat）
 benchstat run1.txt run2.txt run3.txt
 ```
-
----
-
-## 7. 总表（速览）
-
-| 场景 | FreeGo 优势（本报告数据） | 备注 |
-|------|---------------------------|------|
-| FindOne | 延迟约 **1.47×**（GORM 更慢） | 独立 60s、GORM `PrepareStmt: true` |
-| FindList 100 | GORM 慢 **≈1.53×** | 独立 60s |
-| FindList 500 | GORM 慢 **≈1.38×** | 独立 60s |
-| FindList 1000 | GORM 慢 **≈3.48×** | 独立 60s |
-| FindList 2000 | GORM 慢 **≈4.25×** | 独立 60s |
-| Save | FreeGo 更快（GORM 慢 **≈1.22×**） | 独立 60s；FreeGo 分配显著更低 |
-| Update | GORM 慢 **≈1.98×** | 独立 60s |
 
 ---
 
