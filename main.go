@@ -44,8 +44,8 @@ type OwWallet struct {
 }
 
 func (o *OwWallet) GetTable() string {
-	return "test_wallet2"
-	// return "ow_wallet"
+	//return "test_wallet2"
+	return "ow_wallet"
 }
 
 func (o *OwWallet) NewObject() sqlc.Object {

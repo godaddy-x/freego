@@ -14,6 +14,7 @@ package main
 
 import (
 	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/godaddy-x/freego/ormx/sqlc"
@@ -21,10 +22,24 @@ import (
 	"github.com/godaddy-x/freego/utils"
 )
 
+var mysqlBenchmarkInitOnce sync.Once
+
+func ensureMysqlBenchmarkOnce() {
+	mysqlBenchmarkInitOnce.Do(func() {
+		initMysqlDB()
+	})
+}
+
+const (
+	benchCompareFindOneID int64 = 1988433892066983936
+	benchCompareListMin   int64 = 1988433892066983936
+	benchCompareListMax   int64 = 1990301977933774874
+)
+
 // BenchmarkMysqlSave INSERT操作性能基准测试
 // 测试单条记录插入的性能表现，包含数据序列化和网络传输开销
 func BenchmarkMysqlSave(b *testing.B) {
-	initMysqlDB()
+	ensureMysqlBenchmarkOnce()
 	db, err := sqld.NewMysqlTx(false)
 	if err != nil {
 		b.Fatal(err)
@@ -81,7 +96,7 @@ func BenchmarkMysqlSave(b *testing.B) {
 // BenchmarkMysqlUpdate UPDATE操作性能基准测试
 // 测试记录更新的性能表现，包含事务处理和数据一致性保证
 func BenchmarkMysqlUpdate(b *testing.B) {
-	initMysqlDB()
+	ensureMysqlBenchmarkOnce()
 	db, err := sqld.NewMysqlTx(true)
 	if err != nil {
 		b.Fatal(err)
@@ -183,18 +198,19 @@ func BenchmarkMysqlUpdate(b *testing.B) {
 // BenchmarkMysqlFindOne 单条记录查询性能基准测试
 // 测试根据ID查询单条记录的性能表现，评估索引查询效率
 func BenchmarkMysqlFindOne(b *testing.B) {
-	initMysqlDB()
+	ensureMysqlBenchmarkOnce()
 	db, err := sqld.NewMysqlTx(false)
 	if err != nil {
 		b.Fatal(err)
 	}
 	defer db.Close()
 
+	b.ReportAllocs()
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			var result OwWallet
-			if err := db.FindOne(sqlc.M().Eq("id", 1988433892066983936), &result); err != nil {
+			if err := db.FindOne(sqlc.M().Eq("id", benchCompareFindOneID), &result); err != nil {
 				b.Error(err)
 			}
 		}
@@ -204,7 +220,7 @@ func BenchmarkMysqlFindOne(b *testing.B) {
 // BenchmarkMysqlFindOneComplex 复杂单条查询性能基准测试
 // 测试包含JOIN连接查询的单条记录查询性能，评估复杂查询的开销
 func BenchmarkMysqlFindOneComplex(b *testing.B) {
-	initMysqlDB()
+	ensureMysqlBenchmarkOnce()
 	db, err := sqld.NewMysqlTx(false)
 	if err != nil {
 		b.Fatal(err)
@@ -225,7 +241,7 @@ func BenchmarkMysqlFindOneComplex(b *testing.B) {
 // BenchmarkMysqlFindList 列表查询性能基准测试
 // 测试不同数据规模的分页查询性能表现
 func BenchmarkMysqlFindList(b *testing.B) {
-	initMysqlDB()
+	ensureMysqlBenchmarkOnce()
 
 	// 定义测试的数据规模
 	testSizes := []struct {
@@ -246,11 +262,12 @@ func BenchmarkMysqlFindList(b *testing.B) {
 			}
 			defer db.Close()
 
+			b.ReportAllocs()
 			b.ResetTimer()
 			b.RunParallel(func(pb *testing.PB) {
 				for pb.Next() {
 					result := make([]*OwWallet, 0, ts.size)
-					if err := db.FindList(sqlc.M(&OwWallet{}).Between("id", 1988433892066983936, 1990301977933774874).Offset(0, ts.size).Orderby("id", sqlc.DESC_), &result); err != nil {
+					if err := db.FindList(sqlc.M(&OwWallet{}).Between("id", benchCompareListMin, benchCompareListMax).Offset(0, ts.size).Orderby("id", sqlc.DESC_), &result); err != nil {
 						b.Error(err)
 					}
 				}
@@ -262,7 +279,7 @@ func BenchmarkMysqlFindList(b *testing.B) {
 // BenchmarkMysqlFindListComplex 复杂列表查询性能基准测试
 // 测试包含JOIN连接查询的列表查询性能，评估复杂查询的数据处理开销
 func BenchmarkMysqlFindListComplex(b *testing.B) {
-	initMysqlDB()
+	ensureMysqlBenchmarkOnce()
 	db, err := sqld.NewMysqlTx(false)
 	if err != nil {
 		b.Fatal(err)
@@ -283,7 +300,7 @@ func BenchmarkMysqlFindListComplex(b *testing.B) {
 // BenchmarkMysqlCount 记录计数查询性能基准测试
 // 测试COUNT聚合查询的性能表现，评估统计查询的开销
 func BenchmarkMysqlCount(b *testing.B) {
-	initMysqlDB()
+	ensureMysqlBenchmarkOnce()
 	db, err := sqld.NewMysqlTx(false)
 	if err != nil {
 		b.Fatal(err)
@@ -334,7 +351,7 @@ func BenchmarkMysqlCount(b *testing.B) {
 // BenchmarkMysqlExists 记录存在性检查性能基准测试
 // 测试EXISTS查询的性能表现，评估布尔值查询的开销
 func BenchmarkMysqlExists(b *testing.B) {
-	initMysqlDB()
+	ensureMysqlBenchmarkOnce()
 	db, err := sqld.NewMysqlTx(false)
 	if err != nil {
 		b.Fatal(err)
@@ -386,7 +403,7 @@ func BenchmarkMysqlExists(b *testing.B) {
 // BenchmarkMysqlDelete DELETE操作性能基准测试
 // 测试记录删除的性能表现，包含级联删除和索引更新的开销
 func BenchmarkMysqlDelete(b *testing.B) {
-	initMysqlDB()
+	ensureMysqlBenchmarkOnce()
 
 	// 预先计算时间戳，避免在循环中重复调用
 	now := utils.UnixMilli()
@@ -445,7 +462,7 @@ func BenchmarkMysqlDelete(b *testing.B) {
 // 测试一次性批量插入50条记录的性能表现，评估批量操作的吞吐量和效率
 // 包含数据序列化、参数绑定、批量网络传输等完整开销
 func BenchmarkMysqlBatchSave(b *testing.B) {
-	initMysqlDB()
+	ensureMysqlBenchmarkOnce()
 
 	const batchSize = 50 // 每次批量保存50条记录，模拟中等规模的批量操作
 
@@ -508,7 +525,7 @@ func BenchmarkMysqlBatchSave(b *testing.B) {
 // 测试批量更新多条记录的性能表现，评估更新操作的并发处理能力
 // 预先准备100条测试记录，每个goroutine循环更新其中的20条记录
 func BenchmarkMysqlBatchUpdate(b *testing.B) {
-	initMysqlDB()
+	ensureMysqlBenchmarkOnce()
 
 	const batchSize = 20     // 每次批量更新20条记录，模拟小批量更新场景
 	const totalRecords = 100 // 预先准备100条测试记录，确保数据充足
@@ -584,7 +601,7 @@ func BenchmarkMysqlBatchUpdate(b *testing.B) {
 // 测试事务中包含多个CRUD操作的完整提交性能，评估ACID保证的开销
 // 每个事务包含：插入2条记录、更新1条记录、事务提交
 func BenchmarkMysqlTransactionCommit(b *testing.B) {
-	initMysqlDB()
+	ensureMysqlBenchmarkOnce()
 
 	// 预先计算时间戳，避免在事务中重复调用
 	now := utils.UnixMilli()
@@ -666,7 +683,7 @@ func BenchmarkMysqlTransactionCommit(b *testing.B) {
 // 测试包含多条件过滤、范围查询、模糊匹配的复杂WHERE子句性能
 // 包含6个查询条件：等值、IN范围、LIKE模糊、GTE/LTE范围、时间范围
 func BenchmarkMysqlComplexQuery(b *testing.B) {
-	initMysqlDB()
+	ensureMysqlBenchmarkOnce()
 
 	// 预先准备200条测试数据，包含各种条件组合用于复杂查询
 	db, err := sqld.NewMysqlTx(false)
@@ -737,7 +754,7 @@ func BenchmarkMysqlComplexQuery(b *testing.B) {
 // 对比有索引字段和无索引字段的查询性能差异，量化索引优化的效果
 // 预先准备500条测试数据，分别测试appID(有索引)和alias(无索引)字段查询
 func BenchmarkMysqlIndexPerformance(b *testing.B) {
-	initMysqlDB()
+	ensureMysqlBenchmarkOnce()
 
 	// 预先准备500条测试数据，确保索引字段和非索引字段都有足够的测试数据
 	db, err := sqld.NewMysqlTx(false)
@@ -819,7 +836,7 @@ func BenchmarkMysqlIndexPerformance(b *testing.B) {
 // 测试高并发场景和事务工作负载下连接池的使用效率和性能表现
 // 包含两个子测试：高并发查询和事务工作负载
 func BenchmarkMysqlConnectionPool(b *testing.B) {
-	initMysqlDB()
+	ensureMysqlBenchmarkOnce()
 
 	now := utils.UnixMilli()
 
@@ -898,7 +915,7 @@ func BenchmarkMysqlConnectionPool(b *testing.B) {
 // 测试1000条记录大数据集下的查询和聚合操作性能，评估系统扩展性
 // 包含两个子测试：大数据集查询和大数据集聚合统计
 func BenchmarkMysqlLargeDataset(b *testing.B) {
-	initMysqlDB()
+	ensureMysqlBenchmarkOnce()
 
 	const datasetSize = 1000 // 测试1000条记录的大数据集
 
@@ -989,7 +1006,7 @@ func BenchmarkMysqlLargeDataset(b *testing.B) {
 // 测试ORM在大量数据处理时的内存分配和GC效率，评估内存使用模式
 // 包含两个子测试：内存高效查询(预分配容量)和内存密集查询(动态扩容)
 func BenchmarkMysqlMemoryUsage(b *testing.B) {
-	initMysqlDB()
+	ensureMysqlBenchmarkOnce()
 
 	b.Run("MemoryEfficientQuery", func(b *testing.B) { // 内存高效查询测试
 		b.ResetTimer()
