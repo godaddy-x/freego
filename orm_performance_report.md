@@ -11,6 +11,7 @@
 | CPU | 13th Gen Intel Core i5-13600KF（20 线程，`GOMAXPROCS` 由 automaxprocs 决定） |
 | Go | 以本机 `go version` 为准（模块 `go 1.26`） |
 | 数据库 | MySQL，配置来自仓库 `resource/mysql.json` |
+| GORM 版本（临时脚本） | `gorm.io/gorm v1.25.12` + `gorm.io/driver/mysql v1.5.7` |
 | 压测方式 | `go test -benchmem`，`b.RunParallel`（与 `mysql_benchmark_test.go` 一致） |
 
 ### 1.1 推荐：独立进程 + 每项 60 秒（避免混跑干扰）
