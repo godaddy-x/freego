@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"net/http"
 	_ "net/http/pprof"
 
 	rabbitmq "github.com/godaddy-x/freego/amqp"
@@ -113,12 +112,12 @@ func initRabbitMQ() {
 
 func main() {
 	initMysqlDB()
-	initRedis()
-	initRabbitMQ()
+	//initRedis()
+	//initRabbitMQ()
 	ballast.GC(512*ballast.MB, 30)
-	go func() {
-		_ = http.ListenAndServe(":8849", nil)
-	}()
+	//go func() {
+	//	_ = http.ListenAndServe(":8849", nil)
+	//}()
 	//node.SetLocalSecret(utils.RandStr(24))
 	//rpcx.RunClient(appConfig.AppId)
 	http_test()

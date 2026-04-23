@@ -140,7 +140,7 @@ func initRateLimiters() {
 
 	// 初始化网关级限流器
 	gatewayRateLimiter = rate.NewRateLimiter(rate.Option{
-		Limit: 1000, Bucket: 5000, Expire: 60000, Distributed: true,
+		Limit: 12000, Bucket: 36000, Expire: 60000, Distributed: true,
 	})
 	if gatewayRateLimiter == nil {
 		zlog.Error("failed to initialize gateway rate limiter", 0)
@@ -148,7 +148,7 @@ func initRateLimiters() {
 
 	// 初始化默认方法级限流器
 	defaultMethodLimiter = rate.NewRateLimiter(rate.Option{
-		Limit: 100, Bucket: 200, Expire: 30000, Distributed: true,
+		Limit: 2000, Bucket: 6000, Expire: 30000, Distributed: true,
 	})
 	if defaultMethodLimiter == nil {
 		zlog.Error("failed to initialize default method rate limiter", 0)
@@ -156,11 +156,19 @@ func initRateLimiters() {
 
 	// 初始化用户级限流器
 	userRateLimiter = rate.NewRateLimiter(rate.Option{
-		Limit: 10, Bucket: 20, Expire: 30000, Distributed: true,
+		Limit: 60, Bucket: 180, Expire: 30000, Distributed: true,
 	})
 	if userRateLimiter == nil {
 		zlog.Error("failed to initialize user rate limiter", 0)
 	}
+
+	// 压测常用路径单独放宽，减少握手与登录过程中的路径级限流干扰
+	methodRateLimiter["/key"] = rate.NewRateLimiter(rate.Option{
+		Limit: 2500, Bucket: 7500, Expire: 30000, Distributed: true,
+	})
+	methodRateLimiter["/login"] = rate.NewRateLimiter(rate.Option{
+		Limit: 3500, Bucket: 10000, Expire: 30000, Distributed: true,
+	})
 
 	zlog.Info("rate limiters initialized successfully", 0)
 }

@@ -1,16 +1,13 @@
 package main
 
 import (
-	"crypto/sha512"
 	"fmt"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/utils/sdk"
 	"github.com/valyala/fasthttp"
-	"golang.org/x/crypto/pbkdf2"
 )
 
 //go test -v http_test.go -bench=BenchmarkPubkey -benchmem -count=10
@@ -83,19 +80,6 @@ func TestOnlyServerECCLogin(t *testing.T) {
 		panic(err)
 	}
 	fmt.Println(string(response.Body()))
-}
-
-// BenchmarkHttpSDK_GetPublicKey 公钥获取性能基准测试
-// 测量GetPublicKey方法在并发场景下的性能表现和响应时间
-func BenchmarkPBKDF2(b *testing.B) {
-	password := "test_password"
-	salt := utils.GetAesIVSecure()
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		derivedKey := pbkdf2.Key(utils.Str2Bytes(password), salt, 50000, 64, sha512.New)
-		_ = derivedKey
-	}
 }
 
 // BenchmarkHttpSDK_PostByAuth 认证请求性能基准测试

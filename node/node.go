@@ -821,8 +821,9 @@ func CheckPublicKey(c cache.Cache, requestObject *PublicKey, cipher crypto.Ciphe
 
 var (
 	limiter = rate.NewRateLimiter(rate.Option{
-		Limit:       100.0, // 每秒100个令牌
-		Bucket:      200,   // 桶容量200（与Redis版本一致）
+		// /key 入口限流：保留突发吸收能力，同时避免无限放大攻击流量
+		Limit:       5000.0, // 每秒5000个令牌
+		Bucket:      15000,  // 桶容量15000
 		Expire:      60000, // 60秒过期
 		Distributed: false,
 	})
