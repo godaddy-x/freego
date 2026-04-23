@@ -14,13 +14,22 @@ package main
 
 import (
 	"fmt"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/godaddy-x/freego/ormx/sqlc"
 	"github.com/godaddy-x/freego/ormx/sqld"
 	"github.com/godaddy-x/freego/utils"
 )
+
+func isDuplicateKeyErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "Error 1062")
+}
 
 var mysqlBenchmarkInitOnce sync.Once
 
@@ -61,10 +70,13 @@ func BenchmarkMysqlSave(b *testing.B) {
 	// 密码常量（字节数组）
 	password := []byte("bench_password_abcdefghij")
 	keystore := `{"version":3,"id":"bench-1234-5678-9abc-def0","address":"benchabcd1234ef567890","crypto":{"ciphertext":"bench_cipher","cipherparams":{"iv":"bench_iv"},"cipher":"aes-128-ctr","kdf":"scrypt","kdfparams":{"dklen":32,"salt":"bench_salt","n":8192,"r":8,"p":1},"mac":"bench_mac"}}`
+	var totalOps int64
+	var failedOps int64
 
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
+			atomic.AddInt64(&totalOps, 1)
 			// 每次操作都创建一个新的wallet对象，避免ID冲突
 			wallet := &OwWallet{
 				Id:           utils.NextIID(),
@@ -86,11 +98,28 @@ func BenchmarkMysqlSave(b *testing.B) {
 				State:        1,
 			}
 
-			if err := db.Save(wallet); err != nil {
-				b.Error(err)
+			// 使用雪花 ID，若偶发主键冲突则重新生成后重试，避免 benchmark 被瞬时冲突打断
+			var saveErr error
+			for attempt := 0; attempt < 5; attempt++ {
+				saveErr = db.Save(wallet)
+				if saveErr == nil {
+					break
+				}
+				if !isDuplicateKeyErr(saveErr) {
+					break
+				}
+				wallet.Id = utils.NextIID()
+			}
+			if saveErr != nil {
+				atomic.AddInt64(&failedOps, 1)
+				b.Error(saveErr)
 			}
 		}
 	})
+	b.StopTimer()
+	if totalOps > 0 {
+		b.Logf("failure rate: %.6f%% (%d/%d)", float64(failedOps)*100.0/float64(totalOps), failedOps, totalOps)
+	}
 }
 
 // BenchmarkMysqlUpdate UPDATE操作性能基准测试
@@ -105,6 +134,9 @@ func BenchmarkMysqlUpdate(b *testing.B) {
 
 	// 预先计算时间戳，避免在循环中重复调用
 	now := utils.UnixMilli()
+	var updateSeq int64
+	var totalOps int64
+	var failedOps int64
 
 	// 预定义常量字符串，避免动态字符串操作
 	const (
@@ -163,16 +195,18 @@ func BenchmarkMysqlUpdate(b *testing.B) {
 		// 为每个goroutine分配固定的wallet索引，避免竞争
 		localIndex := 0
 		for pb.Next() {
+			atomic.AddInt64(&totalOps, 1)
 			if localIndex >= len(wallets) {
 				localIndex = 0
 			}
 
 			wallet := wallets[localIndex].(*OwWallet)
+			seq := atomic.AddInt64(&updateSeq, 1)
 			updateWallet := &OwWallet{
 				Id:           wallet.Id,
 				AppID:        updatedAppID,
 				WalletID:     updatedWalletID,
-				Alias:        updatedAlias,
+				Alias:        fmt.Sprintf("%s_%d", updatedAlias, seq),
 				IsTrust:      2,
 				PasswordType: 2,
 				Password:     updatedPassword,
@@ -183,16 +217,22 @@ func BenchmarkMysqlUpdate(b *testing.B) {
 				Applytime:    now,
 				Succtime:     now,
 				Dealstate:    2,
-				Utime:        now,
+				// 保证每次 UPDATE 至少一个字段变化，避免 affected rows = 0 干扰 benchmark
+				Utime:        utils.UnixNano(),
 				State:        2,
 			}
 
 			if err := db.Update(updateWallet); err != nil {
+				atomic.AddInt64(&failedOps, 1)
 				b.Error(err)
 			}
 			localIndex++
 		}
 	})
+	b.StopTimer()
+	if totalOps > 0 {
+		b.Logf("failure rate: %.6f%% (%d/%d)", float64(failedOps)*100.0/float64(totalOps), failedOps, totalOps)
+	}
 }
 
 // BenchmarkMysqlFindOne 单条记录查询性能基准测试
@@ -205,16 +245,24 @@ func BenchmarkMysqlFindOne(b *testing.B) {
 	}
 	defer db.Close()
 
+	var totalOps int64
+	var failedOps int64
 	b.ReportAllocs()
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
+			atomic.AddInt64(&totalOps, 1)
 			var result OwWallet
 			if err := db.FindOne(sqlc.M().Eq("id", benchCompareFindOneID), &result); err != nil {
+				atomic.AddInt64(&failedOps, 1)
 				b.Error(err)
 			}
 		}
 	})
+	b.StopTimer()
+	if totalOps > 0 {
+		b.Logf("failure rate: %.6f%% (%d/%d)", float64(failedOps)*100.0/float64(totalOps), failedOps, totalOps)
+	}
 }
 
 // BenchmarkMysqlFindOneComplex 复杂单条查询性能基准测试

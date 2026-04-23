@@ -23,6 +23,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 	"unsafe"
@@ -40,6 +41,8 @@ var (
 	CstSH, _                 = time.LoadLocation("Asia/Shanghai") //上海
 	local_dynamic_secret_key = ""
 	snowflake_node           = GetSnowflakeNode(0)
+	snowflake_nodes_mu       sync.RWMutex
+	snowflake_nodes          = map[int64]*snowflake.Node{0: snowflake_node}
 )
 
 const (
@@ -441,9 +444,38 @@ func NextIID() int64 {
 	return snowflake_node.Generate().Int64()
 }
 
+// NextIIDByNode 获取指定node的雪花int64 ID
+// 适用于多进程/多服务并发写同库时通过区分node降低主键冲突风险。
+func NextIIDByNode(node int64) int64 {
+	return getOrCreateSnowflakeNode(node).Generate().Int64()
+}
+
 // NextSID 获取雪花string ID,默认为1024区
 func NextSID() string {
 	return snowflake_node.Generate().String()
+}
+
+// NextSIDByNode 获取指定node的雪花string ID
+func NextSIDByNode(node int64) string {
+	return getOrCreateSnowflakeNode(node).Generate().String()
+}
+
+func getOrCreateSnowflakeNode(node int64) *snowflake.Node {
+	snowflake_nodes_mu.RLock()
+	n, ok := snowflake_nodes[node]
+	snowflake_nodes_mu.RUnlock()
+	if ok {
+		return n
+	}
+
+	snowflake_nodes_mu.Lock()
+	defer snowflake_nodes_mu.Unlock()
+	if n, ok = snowflake_nodes[node]; ok {
+		return n
+	}
+	n = GetSnowflakeNode(node)
+	snowflake_nodes[node] = n
+	return n
 }
 
 func GetUUID(noHyphens bool) string {

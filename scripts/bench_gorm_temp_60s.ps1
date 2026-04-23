@@ -6,7 +6,7 @@
 #   .\scripts\bench_gorm_temp_60s.ps1 -Scenario list100 -BenchSeconds 60
 #
 param(
-    [ValidateSet("findone", "list100", "list500", "list1000", "list2000")]
+    [ValidateSet("save", "update", "findone", "list100", "list500", "list1000", "list2000")]
     [string]$Scenario,
     [int]$BenchSeconds = 60,
     [string]$RepoRoot = (Split-Path -Parent $PSScriptRoot)
@@ -43,6 +43,8 @@ $locEsc = [System.Uri]::EscapeDataString([string]$location)
 $dsn = "$u`:$p@tcp($($cfg.Host):$($cfg.Port))/$($cfg.Database)?charset=$charset&loc=$locEsc&timeout=${timeoutSec}s&readTimeout=${timeoutSec}s&writeTimeout=${timeoutSec}s"
 
 $benchPattern = switch ($Scenario) {
+    "save" { "^BenchmarkGormSave$" }
+    "update" { "^BenchmarkGormUpdate$" }
     "findone" { "^BenchmarkGormFindOne$" }
     "list100" { "BenchmarkGormFindList/100_records" }
     "list500" { "BenchmarkGormFindList/500_records" }
@@ -68,6 +70,8 @@ $benchTemplate = @'
 package main
 
 import (
+    "fmt"
+    "sync/atomic"
     "testing"
     "time"
     "gorm.io/driver/mysql"
@@ -108,6 +112,29 @@ type ow struct {
 
 func (ow) TableName() string { return "ow_wallet" }
 
+func makeWallet(id int64, idx int64) ow {
+    now := time.Now().UnixMilli()
+    return ow{
+        Id:           id,
+        AppID:        fmt.Sprintf("gorm_bench_app_%d", idx%1000),
+        WalletID:     fmt.Sprintf("gorm_wallet_%d", id),
+        Alias:        fmt.Sprintf("gorm_alias_%d", idx%100),
+        IsTrust:      1,
+        PasswordType: 1,
+        Password:     []byte("gorm_bench_password"),
+        AuthKey:      fmt.Sprintf("gorm_auth_%d", id),
+        RootPath:     "/gorm/bench/path",
+        AccountIndex: idx % 20,
+        Keystore:     `{"gorm":"bench"}`,
+        Applytime:    now,
+        Succtime:     now,
+        Dealstate:    1,
+        Ctime:        now,
+        Utime:        now,
+        State:        1,
+    }
+}
+
 func open(b *testing.B) *gorm.DB {
     db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{
         Logger: logger.Default.LogMode(logger.Silent),
@@ -130,16 +157,102 @@ func BenchmarkGormFindOne(b *testing.B) {
     defer s.Close()
     var warm ow
     if r := db.Where("id = ?", findOneID).First(&warm); r.Error != nil { b.Fatal(r.Error) }
+    var totalOps int64
+    var failedOps int64
     b.ReportAllocs()
     b.ResetTimer()
     b.RunParallel(func(pb *testing.PB) {
         for pb.Next() {
+            atomic.AddInt64(&totalOps, 1)
             var row ow
             if r := db.Where("id = ?", findOneID).First(&row); r.Error != nil {
+                atomic.AddInt64(&failedOps, 1)
                 b.Error(r.Error)
             }
         }
     })
+    b.StopTimer()
+    if totalOps > 0 {
+        b.Logf("failure rate: %.6f%% (%d/%d)", float64(failedOps)*100.0/float64(totalOps), failedOps, totalOps)
+    }
+}
+
+func BenchmarkGormSave(b *testing.B) {
+    db := open(b)
+    s, _ := db.DB()
+    defer s.Close()
+
+    var idSeq int64 = time.Now().UnixNano()
+    var totalOps int64
+    var failedOps int64
+    b.ReportAllocs()
+    b.ResetTimer()
+    b.RunParallel(func(pb *testing.PB) {
+        var local int64
+        for pb.Next() {
+            atomic.AddInt64(&totalOps, 1)
+            local++
+            id := atomic.AddInt64(&idSeq, 1)
+            row := makeWallet(id, local)
+            if r := db.Create(&row); r.Error != nil {
+                atomic.AddInt64(&failedOps, 1)
+                b.Error(r.Error)
+            }
+        }
+    })
+    b.StopTimer()
+    if totalOps > 0 {
+        b.Logf("failure rate: %.6f%% (%d/%d)", float64(failedOps)*100.0/float64(totalOps), failedOps, totalOps)
+    }
+}
+
+func BenchmarkGormUpdate(b *testing.B) {
+    db := open(b)
+    s, _ := db.DB()
+    defer s.Close()
+
+    const rowCount = 100
+    ids := make([]int64, 0, rowCount)
+    var idSeq int64 = time.Now().UnixNano()
+    for i := 0; i < rowCount; i++ {
+        id := atomic.AddInt64(&idSeq, 1)
+        row := makeWallet(id, int64(i))
+        if r := db.Create(&row); r.Error != nil {
+            b.Fatal(r.Error)
+        }
+        ids = append(ids, id)
+    }
+
+    var updateSeq int64
+    var totalOps int64
+    var failedOps int64
+    b.ReportAllocs()
+    b.ResetTimer()
+    b.RunParallel(func(pb *testing.PB) {
+        idx := 0
+        for pb.Next() {
+            atomic.AddInt64(&totalOps, 1)
+            if idx >= len(ids) {
+                idx = 0
+            }
+            targetID := ids[idx]
+            idx++
+            seq := atomic.AddInt64(&updateSeq, 1)
+            if r := db.Model(&ow{}).Where("id = ?", targetID).Updates(map[string]interface{}{
+                "alias": fmt.Sprintf("gorm_updated_alias_%d", seq),
+                "authKey": fmt.Sprintf("gorm_updated_auth_%d", seq),
+                "utime": time.Now().UnixNano(),
+                "state": 2,
+            }); r.Error != nil {
+                atomic.AddInt64(&failedOps, 1)
+                b.Error(r.Error)
+            }
+        }
+    })
+    b.StopTimer()
+    if totalOps > 0 {
+        b.Logf("failure rate: %.6f%% (%d/%d)", float64(failedOps)*100.0/float64(totalOps), failedOps, totalOps)
+    }
 }
 
 func BenchmarkGormFindList(b *testing.B) {
