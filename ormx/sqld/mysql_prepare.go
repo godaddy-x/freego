@@ -695,3 +695,9 @@ func (pm *prepareManager) GetStats() *PrepareManagerStats {
 
 	return stats
 }
+
+// DefaultPrepareManagerStats returns diagnostics for the global prepared-statement cache (TTL-backed local cache).
+// Intended for tests and operators; application logic should not rely on these numbers for correctness.
+func DefaultPrepareManagerStats() *PrepareManagerStats {
+	return defaultPrepareManager.GetStats()
+}

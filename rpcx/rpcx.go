@@ -106,7 +106,7 @@ func (g *RPCManager) StartServer(addr string) error {
 		zlog.Printf("redis cache service has been started successful")
 	}
 	if g.localCache == nil {
-		g.localCache = cache.NewLocalCache(0, 0)
+		g.localCache = cache.NewDefaultLocalCache()
 		zlog.Printf("local cache service has been started successful")
 	}
 

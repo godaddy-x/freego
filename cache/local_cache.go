@@ -12,6 +12,11 @@ type LocalMapManager struct {
 	cache *TTLCache[string, interface{}]
 }
 
+// NewDefaultLocalCache 创建新的本地缓存实例
+func NewDefaultLocalCache() Cache {
+	return new(LocalMapManager).NewCache(10000)
+}
+
 // NewLocalCache 创建新的本地缓存实例
 func NewLocalCache(initialCapacity int) Cache {
 	return new(LocalMapManager).NewCache(initialCapacity)
