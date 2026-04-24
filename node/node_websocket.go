@@ -1692,17 +1692,20 @@ func replyData(connCtx *ConnectionContext, req requestMeta, cipher crypto.Cipher
 	if reply == nil {
 		return
 	}
+	userID := connCtx.GetUserIDString()
+	deviceID := connCtx.getDeviceID()
+	connPath := connCtx.Path
 
 	if jsonResp, ok := reply.(*JsonResp); ok {
 		bytesData, err := utils.JsonMarshal(jsonResp)
 		PutJsonResp(jsonResp)
 		if err != nil {
-			zlog.Error("failed_to_marshal_jsonresp", 0, zlog.AddError(err), zlog.String("user_id", connCtx.GetUserIDString()), zlog.String("device_id", connCtx.getDeviceID()), zlog.String("connection_path", connCtx.Path))
+			zlog.Error("failed_to_marshal_jsonresp", 0, zlog.AddError(err), zlog.String("user_id", userID), zlog.String("device_id", deviceID), zlog.String("connection_path", connPath))
 			return
 		}
 
 		if err := connCtx.DevConn.Send(bytesData); err != nil {
-			zlog.Error("failed_to_send_response", 0, zlog.AddError(err), zlog.String("user_id", connCtx.GetUserIDString()), zlog.String("device_id", connCtx.getDeviceID()), zlog.String("connection_path", connCtx.Path))
+			zlog.Error("failed_to_send_response", 0, zlog.AddError(err), zlog.String("user_id", userID), zlog.String("device_id", deviceID), zlog.String("connection_path", connPath))
 		}
 		return
 	}
@@ -1720,27 +1723,28 @@ func replyData(connCtx *ConnectionContext, req requestMeta, cipher crypto.Cipher
 	// 序列化响应数据
 	respData, err := utils.JsonMarshal(reply)
 	if err != nil {
-		zlog.Error("failed_to_marshal_reply_data", 0, zlog.AddError(err), zlog.String("user_id", connCtx.GetUserIDString()), zlog.String("device_id", connCtx.getDeviceID()), zlog.String("connection_path", connCtx.Path))
+		zlog.Error("failed_to_marshal_reply_data", 0, zlog.AddError(err), zlog.String("user_id", userID), zlog.String("device_id", deviceID), zlog.String("connection_path", connPath))
 		return
 	}
 
 	// 派生密钥：用于响应加密(Plan==1)与签名，用毕统一清理以降低驻留风险
 	secret := connCtx.GetTokenSecret()
 	if len(secret) == 0 || len(secret) < 32 {
-		zlog.Error("response_secret_missing", 0, zlog.String("user_id", connCtx.GetUserIDString()), zlog.String("device_id", connCtx.getDeviceID()), zlog.String("connection_path", connCtx.Path))
+		zlog.Error("response_secret_missing", 0, zlog.String("user_id", userID), zlog.String("device_id", deviceID), zlog.String("connection_path", connPath))
 		return
 	}
 	defer DIC.ClearData(secret)
 
+	aad := AppendBodyMessage(req.Router, "", jsonResp.Nonce, jsonResp.Time, jsonResp.Plan, req.User)
 	if req.Plan == 1 {
-		encryptedData, err := utils.AesGCMEncryptBase(respData, secret[:32], AppendBodyMessage(req.Router, "", jsonResp.Nonce, jsonResp.Time, jsonResp.Plan, req.User))
+		encryptedData, err := utils.AesGCMEncryptBase(respData, secret[:32], aad)
 		if err != nil {
-			zlog.Error("response_data_encrypt_failed", 0, zlog.AddError(err), zlog.String("user_id", connCtx.GetUserIDString()), zlog.String("device_id", connCtx.getDeviceID()), zlog.String("connection_path", connCtx.Path))
+			zlog.Error("response_data_encrypt_failed", 0, zlog.AddError(err), zlog.String("user_id", userID), zlog.String("device_id", deviceID), zlog.String("connection_path", connPath))
 			return
 		}
 		jsonResp.Data = encryptedData
 	} else {
-		jsonResp.Data = utils.Base64Encode(utils.Bytes2Str(respData))
+		jsonResp.Data = utils.Base64Encode(respData)
 	}
 
 	// 生成响应签名（使用同一 secret，避免二次派生）
@@ -1752,7 +1756,7 @@ func replyData(connCtx *ConnectionContext, req requestMeta, cipher crypto.Cipher
 		var err error
 		validBytes, err = cipher.Sign(sign)
 		if err != nil {
-			zlog.Error("failed_to_outer_sign_response", 0, zlog.AddError(err), zlog.String("user_id", connCtx.GetUserIDString()), zlog.String("device_id", connCtx.getDeviceID()), zlog.String("connection_path", connCtx.Path))
+			zlog.Error("failed_to_outer_sign_response", 0, zlog.AddError(err), zlog.String("user_id", userID), zlog.String("device_id", deviceID), zlog.String("connection_path", connPath))
 			return
 		}
 	}
@@ -1761,12 +1765,12 @@ func replyData(connCtx *ConnectionContext, req requestMeta, cipher crypto.Cipher
 	// 发送JsonResp格式的响应
 	replyBytes, err := utils.JsonMarshal(jsonResp)
 	if err != nil {
-		zlog.Error("failed_to_marshal_jsonresp", 0, zlog.AddError(err), zlog.String("user_id", connCtx.GetUserIDString()), zlog.String("device_id", connCtx.getDeviceID()), zlog.String("connection_path", connCtx.Path))
+		zlog.Error("failed_to_marshal_jsonresp", 0, zlog.AddError(err), zlog.String("user_id", userID), zlog.String("device_id", deviceID), zlog.String("connection_path", connPath))
 		return
 	}
 
 	if err := connCtx.DevConn.Send(replyBytes); err != nil {
-		zlog.Error("failed_to_send_reply", 0, zlog.AddError(err), zlog.String("user_id", connCtx.GetUserIDString()), zlog.String("device_id", connCtx.getDeviceID()), zlog.String("connection_path", connCtx.Path))
+		zlog.Error("failed_to_send_reply", 0, zlog.AddError(err), zlog.String("user_id", userID), zlog.String("device_id", deviceID), zlog.String("connection_path", connPath))
 		return // 发送失败通常意味着连接已断开
 	}
 
