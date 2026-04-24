@@ -6,8 +6,8 @@
 ## 结果总览
 
 - 活跃连接压测（3 分钟窗口）：**16197 成功 / 3 失败（0.02%）**
-- 发送往返压测（3 分钟，`/ws/user`）：**11,266,546 请求 / 0 发送失败 / 62,591.9 QPS**
-- 当前结论：在本机环境下，服务端可稳定承载约 **1.6 万活跃连接**，并在该连接规模下达到约 **6.26 万 QPS** 的发送往返能力。
+- 发送往返压测（3 分钟，`/ws/user`）：**11,497,827 请求 / 0 发送失败 / 63,876.8 QPS**
+- 当前结论：在本机环境下，服务端可稳定承载约 **1.6 万活跃连接**，并在该连接规模下达到约 **6.39 万 QPS** 的发送往返能力。
 
 ---
 
@@ -57,30 +57,30 @@
 
 | 指标 | 数值 |
 |------|------|
-| connected | 16196 |
-| conn_fail | 4（0.02%） |
-| total_req | 11,266,546 |
+| connected | 16199 |
+| conn_fail | 1（0.01%） |
+| total_req | 11,497,827 |
 | send_fail | 0 |
-| QPS | 62,591.9 |
-| avg latency | 258.60ms |
-| p95 latency | 410.57ms |
-| max latency | 1824.89ms |
+| QPS | 63,876.8 |
+| avg latency | 253.68ms |
+| p95 latency | 407.95ms |
+| max latency | 1649.23ms |
 
 ### 运行时指标
 
-- `elapsed=3m13.336s`
+- `elapsed=3m8.750s`
 - `goroutines=6->6`
 - `GOMAXPROCS=20`
-- `alloc=58,682.7MB`
-- `heap_alloc=295.1MB`
-- `heap_inuse=357.6MB`
-- `sys=1232.3MB`
-- `GC_count_delta=316`
-- `GC_pause_delta_ms=14435.66`
+- `alloc=52,879.4MB`
+- `heap_alloc=217.9MB`
+- `heap_inuse=299.3MB`
+- `sys=1184.0MB`
+- `GC_count_delta=280`
+- `GC_pause_delta_ms=12944.15`
 
 ### 失败原因
 
-- 建连失败：`handshake response read failed (auth sync required): timeout`（4 次）
+- 建连失败：`handshake response read failed (auth sync required): timeout`（1 次）
 - 发送失败：0
 
 ---
