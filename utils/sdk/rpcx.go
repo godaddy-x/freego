@@ -1,7 +1,6 @@
 package sdk
 
 import (
-	"bytes"
 	"context"
 	"crypto/tls"
 	"fmt"
@@ -223,7 +222,7 @@ func (r *RPC) verifyResponse(resp *pb.CommonResponse) error {
 	}
 
 	sWant := impl.RPCXResponseDigestS(resp.D.Value, resp.N, resp.T, resp.P, resp.R, r.clientNo, resp.C, resp.M)
-	if !bytes.Equal(sWant, resp.S) {
+	if !utils.CompareSign(sWant, resp.S) {
 		return fmt.Errorf("response digest invalid")
 	}
 

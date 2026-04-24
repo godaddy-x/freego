@@ -2,7 +2,6 @@
 package impl
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -147,7 +146,7 @@ func (self *CommonWorker) validRequest(req *pb.CommonRequest) (fgocrypto.Cipher,
 	}
 
 	sWant := RPCXRequestDigestS(req.D.Value, req.N, req.T, req.P, req.R, req.U)
-	if !bytes.Equal(sWant, req.S) {
+	if !utils.CompareSign(sWant, req.S) {
 		return nil, errors.New("request digest s invalid")
 	}
 	if err := ed.Verify(req.S, req.E); err != nil {
