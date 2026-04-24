@@ -2,10 +2,13 @@ package node
 
 import (
 	"bytes"
+	"crypto/hmac"
 	"crypto/hkdf"
 	"crypto/sha256"
+	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"unsafe"
 
@@ -157,12 +160,52 @@ func HKDFKey(shared []byte, nonce string) ([]byte, error) {
 	return hkdf.Key(sha256.New, shared, utils.Base64Decode(nonce), SharedInfo, 32)
 }
 
+func appendBodyMessageTo(dst []byte, path, data, nonce string, t, plan, usr int64) []byte {
+	const int64MaxLen = 20
+	sep := DIC.SEP
+	est := len(path) + len(data) + len(nonce) + len(sep)*5 + int64MaxLen*3
+	if cap(dst)-len(dst) < est {
+		nd := make([]byte, len(dst), len(dst)+est)
+		copy(nd, dst)
+		dst = nd
+	}
+	dst = append(dst, path...)
+	dst = append(dst, sep...)
+	dst = append(dst, data...)
+	dst = append(dst, sep...)
+	dst = append(dst, nonce...)
+	dst = append(dst, sep...)
+	dst = strconv.AppendInt(dst, t, 10)
+	dst = append(dst, sep...)
+	dst = strconv.AppendInt(dst, plan, 10)
+	dst = append(dst, sep...)
+	dst = strconv.AppendInt(dst, usr, 10)
+	return dst
+}
+
 func AppendBodyMessage(path, data, nonce string, time, plan, usr int64) []byte {
-	return utils.Str2Bytes(utils.AddStr(path, DIC.SEP, data, DIC.SEP, nonce, DIC.SEP, time, DIC.SEP, plan, DIC.SEP, usr))
+	return appendBodyMessageTo(nil, path, data, nonce, time, plan, usr)
 }
 
 func SignBodyMessage(path, data, nonce string, time, plan, usr int64, key []byte) []byte {
-	return utils.HMAC_SHA256_BASE(AppendBodyMessage(path, data, nonce, time, plan, usr), key)
+	h := hmac.New(sha256.New, key)
+	sep := DIC.SEP
+	_, _ = io.WriteString(h, path)
+	_, _ = io.WriteString(h, sep)
+	_, _ = io.WriteString(h, data)
+	_, _ = io.WriteString(h, sep)
+	_, _ = io.WriteString(h, nonce)
+	_, _ = io.WriteString(h, sep)
+	var ibuf [20]byte
+	b := strconv.AppendInt(ibuf[:0], time, 10)
+	_, _ = h.Write(b)
+	_, _ = io.WriteString(h, sep)
+	b = strconv.AppendInt(ibuf[:0], plan, 10)
+	_, _ = h.Write(b)
+	_, _ = io.WriteString(h, sep)
+	b = strconv.AppendInt(ibuf[:0], usr, 10)
+	_, _ = h.Write(b)
+	return h.Sum(nil)
 }
 
 func (self *HttpNode) SetLengthCheck(bodyLen, tokenLen, codeLen int) {
