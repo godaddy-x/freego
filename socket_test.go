@@ -6,8 +6,13 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"os"
+	"runtime"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/godaddy-x/freego/utils/crypto"
@@ -31,6 +36,13 @@ const (
 	clientPrk = "T9arYQw2qGrcyN1kLvrVyP7jXKJe+cXIW5RNFXrvLEx1kuxLxKR5GXUihsj75z8GT+Xh0rfDxM0TOdXqQI1fog=="
 	// 客户端 Ed25519 公钥
 	clientPub = "dZLsS8SkeRl1IobI++c/Bk/l4dK3w8TNEznV6kCNX6I="
+
+	// wsTestServerPool 用于 TestCreateWsServer / TestWebSocketSDKUsage：提高 maxConn、放宽 Upgrade 限流，
+	// 便于压测高并发；生产环境请按容量收紧。单机若句柄/端口耗尽需调 OS 或降低 wsTestServerMaxConn。
+	wsTestServerMaxConn     = 200000 // 最大并发连接数
+	wsTestServerConnPerSec  = 100000 // 每秒允许的新建连接（serveHTTP 里 limiter.Allow）
+	wsTestServerConnBurst   = 250000 // 突发允许的建连次数（短窗大量 Upgrade 时不易被限流误伤）
+	wsTestServerPingSeconds = 30     // 心跳间隔（秒）
 )
 
 // testMessageHandler 测试用的消息处理器
@@ -198,6 +210,669 @@ func TestWebSocketManyClient(t *testing.T) {
 	}
 }
 
+// TestWebSocketStressConnectionRate1Minute 压测「1 分钟内成功建连次数（吞吐）」：建连后立即断开，测的是握手速率而非并发在线。
+// 若要看「同一时间窗内有多少连接能到位并保持」，请用 TestWebSocketStressConnectionsHeld1Minute。
+//
+// 与 TestWebSocketManyClient 相同方式生成 JWT；每个 worker 循环：新 token → ConnectWebSocket("/ws") → 立即 DisconnectWebSocket。
+//
+// 前置：已启动 WS 服务（默认 localhost:8088），JWT 与 TestWebSocketManyClient 一致（TokenKey=123456），且服务端已配置与 socket_test 一致的 Ed25519（clientPrk/serverPub）。
+//
+// 环境变量（可选）：
+//   - WS_STRESS_ADDR      服务地址，默认 localhost:8088
+//   - WS_STRESS_WORKERS   并发 worker 数，默认 512
+//   - WS_STRESS_DURATION  压测时长，time.ParseDuration 格式，默认 1m
+//
+// 运行示例：go test -run TestWebSocketStressConnectionRate1Minute -timeout 5m .
+func TestWebSocketStressConnectionRate1Minute(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping WebSocket stress test in short mode")
+	}
+
+	serverAddr := os.Getenv("WS_STRESS_ADDR")
+	if serverAddr == "" {
+		serverAddr = "localhost:8088"
+	}
+	workers := 512
+	if v := os.Getenv("WS_STRESS_WORKERS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			workers = n
+		}
+	}
+	dur := time.Minute
+	if v := os.Getenv("WS_STRESS_DURATION"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			dur = d
+		}
+	}
+
+	jwtConfig := jwt.JwtConfig{
+		TokenTyp: jwt.JWT,
+		TokenAlg: jwt.HS256,
+		TokenKey: "123456",
+		TokenExp: jwt.TWO_WEEK,
+	}
+
+	deadline := time.Now().Add(dur)
+	var okCnt, failCnt uint64
+
+	var wg sync.WaitGroup
+	for w := 0; w < workers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for time.Now().Before(deadline) {
+				subject := &jwt.Subject{}
+				token := subject.Create(utils.NextSID()).Dev("APP").Generate(jwtConfig)
+				secretBytes := subject.GetTokenSecret(token, jwtConfig.TokenKey)
+				auth := sdk.AuthToken{
+					Token:   token,
+					Secret:  utils.Base64Encode(utils.Bytes2Str(secretBytes)),
+					Expired: subject.Payload.Exp,
+				}
+
+				wsSdk := sdk.NewSocketSDK(serverAddr)
+				wsSdk.AuthToken(auth)
+				wsSdk.SetClientNo(1)
+				_ = wsSdk.SetEd25519Object(wsSdk.ClientNo, clientPrk, serverPub)
+				wsSdk.SetHealthPing(30)
+
+				if err := wsSdk.ConnectWebSocket("/ws"); err != nil {
+					atomic.AddUint64(&failCnt, 1)
+					continue
+				}
+				atomic.AddUint64(&okCnt, 1)
+				wsSdk.DisconnectWebSocket()
+			}
+		}()
+	}
+	wg.Wait()
+
+	sec := dur.Seconds()
+	if sec < 1 {
+		sec = 1
+	}
+	t.Logf("WS 建连压测完成 addr=%s workers=%d window=%s", serverAddr, workers, dur)
+	t.Logf("成功建连=%d 失败=%d 平均 %.1f 连接/秒 (≈ %.0f 连接/分钟)",
+		okCnt, failCnt, float64(okCnt)/sec, float64(okCnt)/sec*60)
+	// 无 -v 时 t.Log 不可见，stdout 汇总便于直接 go test
+	fmt.Printf("[WS stress churn] addr=%s window=%v workers=%d | 成功=%d 失败=%d | 平均 %.1f/s (≈%.0f/分钟)\n",
+		serverAddr, dur, workers, okCnt, failCnt, float64(okCnt)/sec, float64(okCnt)/sec*60)
+	if okCnt == 0 {
+		t.Fatal("无成功建连，请检查服务是否启动、端口、JWT 与 Ed25519 是否与测试一致")
+	}
+}
+
+// wsHeldFailReasons 聚合并输出建连失败原因（按 err.Error() 文本归类）。
+type wsHeldFailReasons struct {
+	mu sync.Mutex
+	m  map[string]int64
+}
+
+func newWsHeldFailReasons() *wsHeldFailReasons {
+	return &wsHeldFailReasons{m: make(map[string]int64)}
+}
+
+func wsHeldShortReason(err error) string {
+	if err == nil {
+		return "(nil)"
+	}
+	s := strings.TrimSpace(err.Error())
+	if s == "" {
+		return "(empty error)"
+	}
+	s = strings.Join(strings.Fields(s), " ")
+	if len(s) > 240 {
+		return s[:240] + "…"
+	}
+	return s
+}
+
+func bytesToMB(n uint64) float64 {
+	return float64(n) / 1024.0 / 1024.0
+}
+
+func readMemStats() runtime.MemStats {
+	var ms runtime.MemStats
+	runtime.ReadMemStats(&ms)
+	return ms
+}
+
+func (w *wsHeldFailReasons) Add(err error) {
+	if err == nil {
+		return
+	}
+	key := wsHeldShortReason(err)
+	w.mu.Lock()
+	w.m[key]++
+	w.mu.Unlock()
+}
+
+func (w *wsHeldFailReasons) report(t *testing.T, title string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if len(w.m) == 0 {
+		return
+	}
+	keys := make([]string, 0, len(w.m))
+	for k := range w.m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	fmt.Printf("[%s] 建连失败原因明细 (共 %d 类):\n", title, len(keys))
+	for _, k := range keys {
+		line := fmt.Sprintf("  x%d  %s", w.m[k], k)
+		fmt.Println(line)
+		if t != nil {
+			t.Log(line)
+		}
+	}
+}
+
+// stressHeldWave 启动 workers 条并发：抖动后建连，成功则保持到 ctx 结束再断开。返回成功数、失败数及失败原因聚合。
+func stressHeldWave(ctx context.Context, serverAddr string, workers, jitterMS int, jwtConfig jwt.JwtConfig) (okHeld, failHeld uint64, reasons *wsHeldFailReasons) {
+	reasons = newWsHeldFailReasons()
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if jitterMS > 0 {
+				time.Sleep(time.Duration(rand.Intn(jitterMS)) * time.Millisecond)
+			}
+			subject := &jwt.Subject{}
+			token := subject.Create(utils.NextSID()).Dev("APP").Generate(jwtConfig)
+			secretBytes := subject.GetTokenSecret(token, jwtConfig.TokenKey)
+			auth := sdk.AuthToken{
+				Token:   token,
+				Secret:  utils.Base64Encode(utils.Bytes2Str(secretBytes)),
+				Expired: subject.Payload.Exp,
+			}
+
+			wsSdk := sdk.NewSocketSDK(serverAddr)
+			wsSdk.AuthToken(auth)
+			wsSdk.SetClientNo(1)
+			_ = wsSdk.SetEd25519Object(wsSdk.ClientNo, clientPrk, serverPub)
+			wsSdk.SetHealthPing(30)
+
+			if err := wsSdk.ConnectWebSocket("/ws"); err != nil {
+				atomic.AddUint64(&failHeld, 1)
+				reasons.Add(err)
+				return
+			}
+			atomic.AddUint64(&okHeld, 1)
+			<-ctx.Done()
+			wsSdk.DisconnectWebSocket()
+		}()
+	}
+	wg.Wait()
+	return atomic.LoadUint64(&okHeld), atomic.LoadUint64(&failHeld), reasons
+}
+
+// TestWebSocketStressConnectionsHeld1Minute 压测「固定时间窗内有多少条连接能成功到位并保持到窗口结束」。
+// 每个 goroutine：独立 JWT（NextSID）→ ConnectWebSocket("/ws") → 阻塞到时间窗结束 → Disconnect。
+// 默认约 1.6 万并发尝试、保持 3 分钟（可按环境变量改）；成功数即该窗口内稳定活跃连接数上界估计。
+// 若有建连失败，会按 err.Error() 归类打印原因明细。
+//
+// 环境变量（可选）：
+//   - WS_STRESS_ADDR       与 churn 测试共用，默认 localhost:8088（本机端口紧张时可试 127.0.0.1:8088）
+//   - WS_HOLD_WORKERS      同时发起的连接数，默认 16200（按本机测试收敛到约 1.6 万稳定活跃）
+//   - WS_HOLD_DURATION     保持时长，默认 3m
+//   - WS_HOLD_JITTER_MS    建连前随机休眠 [0,jitter) 毫秒，默认 7500（进一步削峰以降低本机端口/缓冲失败）
+//
+// 运行示例：go test -run TestWebSocketStressConnectionsHeld1Minute -timeout 10m .
+// 分档探测上限见 TestWebSocketStressHeldStepProbe。
+func TestWebSocketStressConnectionsHeld1Minute(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping WebSocket held-connection stress test in short mode")
+	}
+
+	serverAddr := os.Getenv("WS_STRESS_ADDR")
+	if serverAddr == "" {
+		serverAddr = "localhost:8088"
+	}
+	workers := 16200
+	if v := os.Getenv("WS_HOLD_WORKERS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			workers = n
+		}
+	}
+	dur := 3 * time.Minute
+	if v := os.Getenv("WS_HOLD_DURATION"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			dur = d
+		}
+	}
+	jitterMS := 7500
+	if v := os.Getenv("WS_HOLD_JITTER_MS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			jitterMS = n
+		}
+	}
+
+	jwtConfig := jwt.JwtConfig{
+		TokenTyp: jwt.JWT,
+		TokenAlg: jwt.HS256,
+		TokenKey: "123456",
+		TokenExp: jwt.TWO_WEEK,
+	}
+
+	beforeMS := readMemStats()
+	beforeAt := time.Now()
+	beforeGoroutines := runtime.NumGoroutine()
+	ctx, cancel := context.WithTimeout(context.Background(), dur)
+	defer cancel()
+
+	okHeld, failHeld, reasons := stressHeldWave(ctx, serverAddr, workers, jitterMS, jwtConfig)
+	afterMS := readMemStats()
+	afterAt := time.Now()
+	afterGoroutines := runtime.NumGoroutine()
+
+	t.Logf("WS 并发「到位」压测 addr=%s workers=%d 保持窗口=%s jitter_ms=%d", serverAddr, workers, dur, jitterMS)
+	t.Logf("成功保持到窗口结束=%d 建连失败=%d（在 workers 次尝试下，成功数即当前时间窗内能稳定活跃的连接规模估计）",
+		okHeld, failHeld)
+	var failPct float64
+	if workers > 0 {
+		failPct = float64(failHeld) * 100 / float64(workers)
+	}
+	fmt.Printf("[WS stress held] addr=%s window=%v workers=%d jitter_ms=%d | 成功保持=%d 建连失败=%d (占尝试 %.1f%%)\n",
+		serverAddr, dur, workers, jitterMS, okHeld, failHeld, failPct)
+	gcCountDelta := int64(afterMS.NumGC) - int64(beforeMS.NumGC)
+	pauseDeltaMs := float64(int64(afterMS.PauseTotalNs)-int64(beforeMS.PauseTotalNs)) / 1e6
+	allocDeltaMB := bytesToMB(afterMS.TotalAlloc - beforeMS.TotalAlloc)
+	fmt.Printf("[WS stress runtime] elapsed=%v goroutines=%d->%d GOMAXPROCS=%d | alloc=%.1fMB heap_alloc=%.1fMB heap_inuse=%.1fMB sys=%.1fMB | GC_count_delta=%d GC_pause_delta_ms=%.2f\n",
+		afterAt.Sub(beforeAt),
+		beforeGoroutines, afterGoroutines, runtime.GOMAXPROCS(0),
+		allocDeltaMB, bytesToMB(afterMS.HeapAlloc), bytesToMB(afterMS.HeapInuse), bytesToMB(afterMS.Sys),
+		gcCountDelta, pauseDeltaMs)
+	if failHeld > 0 {
+		reasons.report(t, "WS stress held")
+	}
+	if okHeld == 0 {
+		t.Fatal("无成功连接，请检查服务、端口、JWT、Ed25519 是否与 socket_test 一致")
+	}
+}
+
+// TestWebSocketStressHeldStepProbe 分档探测「大约多少并发同时到位」：多轮 workers 递增，每轮短保持后全部断开再下一轮。
+// 便于观察从哪一档开始出现大量失败及失败原因（池满、429、网络拒绝等）。
+//
+// 环境变量：
+//   - WS_STRESS_ADDR           默认 localhost:8088
+//   - WS_HOLD_PROBE_STEPS      逗号分隔 workers，默认 15000,22000,30000,38000,46000,54000,62000,72000
+//   - WS_HOLD_PROBE_HOLD       每轮保持时长，默认 30s（可设 1m）
+//   - WS_HOLD_PROBE_JITTER_MS  每轮抖动上限毫秒，默认 4000
+//
+// 运行：go test -v -run TestWebSocketStressHeldStepProbe -timeout 45m .
+func TestWebSocketStressHeldStepProbe(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping WebSocket step probe in short mode")
+	}
+
+	serverAddr := os.Getenv("WS_STRESS_ADDR")
+	if serverAddr == "" {
+		serverAddr = "localhost:8088"
+	}
+	stepsStr := os.Getenv("WS_HOLD_PROBE_STEPS")
+	var steps []int
+	if strings.TrimSpace(stepsStr) == "" {
+		steps = []int{15000, 22000, 30000, 38000, 46000, 54000, 62000, 72000}
+	} else {
+		for _, p := range strings.Split(stepsStr, ",") {
+			p = strings.TrimSpace(p)
+			if p == "" {
+				continue
+			}
+			n, err := strconv.Atoi(p)
+			if err != nil || n <= 0 {
+				t.Fatalf("WS_HOLD_PROBE_STEPS 无效片段: %q", p)
+			}
+			steps = append(steps, n)
+		}
+		if len(steps) == 0 {
+			t.Fatal("WS_HOLD_PROBE_STEPS 解析后为空")
+		}
+	}
+
+	holdPer := 30 * time.Second
+	if v := os.Getenv("WS_HOLD_PROBE_HOLD"); strings.TrimSpace(v) != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			holdPer = d
+		}
+	}
+	jitterMS := 4000
+	if v := os.Getenv("WS_HOLD_PROBE_JITTER_MS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			jitterMS = n
+		}
+	}
+
+	jwtConfig := jwt.JwtConfig{
+		TokenTyp: jwt.JWT,
+		TokenAlg: jwt.HS256,
+		TokenKey: "123456",
+		TokenExp: jwt.TWO_WEEK,
+	}
+
+	fmt.Printf("[WS step probe] addr=%s hold_per_wave=%v jitter_ms=%d steps=%v\n", serverAddr, holdPer, jitterMS, steps)
+	t.Logf("WS step probe addr=%s hold=%v jitter=%d steps=%v", serverAddr, holdPer, jitterMS, steps)
+
+	for _, n := range steps {
+		ctx, cancel := context.WithTimeout(context.Background(), holdPer)
+		ok, fail, reasons := stressHeldWave(ctx, serverAddr, n, jitterMS, jwtConfig)
+		cancel()
+		pct := float64(0)
+		if n > 0 {
+			pct = float64(fail) * 100 / float64(n)
+		}
+		fmt.Printf("[WS step probe] wave workers=%d | 成功=%d 失败=%d (失败率 %.1f%%)\n", n, ok, fail, pct)
+		t.Logf("wave workers=%d ok=%d fail=%d fail_pct=%.1f", n, ok, fail, pct)
+		if fail > 0 {
+			reasons.report(t, fmt.Sprintf("WS step probe wave=%d", n))
+		}
+	}
+}
+
+// TestWebSocketSendRoundTripPerf 压测 SendWebSocketMessage 的服务端来回性能（请求+响应）。
+// 流程：先并发建连并保持，再在固定窗口内每连接循环发送 "/ws/user" 消息，统计吞吐与延迟。
+//
+// 环境变量（可选）：
+//   - WS_SEND_ADDR            默认读取 WS_STRESS_ADDR，否则 localhost:8088
+//   - WS_SEND_CLIENTS         并发连接数，默认 3000
+//   - WS_SEND_DURATION        发送窗口，默认 1m
+//   - WS_SEND_CONNECT_JITTER  建连抖动毫秒，默认 3000
+//   - WS_SEND_TIMEOUT_SEC     单次 SendWebSocketMessage 超时秒，默认 5
+//   - WS_SEND_ROUTE           发送路由，默认 /ws/user
+//
+// 运行示例：
+//   go test -count=1 -v -run TestWebSocketSendRoundTripPerf -timeout 15m .
+func TestWebSocketSendRoundTripPerf(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping WebSocket send roundtrip stress in short mode")
+	}
+
+	serverAddr := os.Getenv("WS_SEND_ADDR")
+	if serverAddr == "" {
+		serverAddr = os.Getenv("WS_STRESS_ADDR")
+	}
+	if serverAddr == "" {
+		serverAddr = "localhost:8088"
+	}
+	clientsN := 3000
+	if v := os.Getenv("WS_SEND_CLIENTS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			clientsN = n
+		}
+	}
+	sendWindow := time.Minute
+	if v := os.Getenv("WS_SEND_DURATION"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			sendWindow = d
+		}
+	}
+	connectJitterMs := 3000
+	if v := os.Getenv("WS_SEND_CONNECT_JITTER"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			connectJitterMs = n
+		}
+	}
+	timeoutSec := 5
+	if v := os.Getenv("WS_SEND_TIMEOUT_SEC"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			timeoutSec = n
+		}
+	}
+	route := os.Getenv("WS_SEND_ROUTE")
+	if strings.TrimSpace(route) == "" {
+		route = "/ws/user"
+	}
+
+	jwtConfig := jwt.JwtConfig{
+		TokenTyp: jwt.JWT,
+		TokenAlg: jwt.HS256,
+		TokenKey: "123456",
+		TokenExp: jwt.TWO_WEEK,
+	}
+	beforeMS := readMemStats()
+	beforeAt := time.Now()
+	beforeGoroutines := runtime.NumGoroutine()
+
+	type wsClient struct {
+		sdk *sdk.SocketSDK
+	}
+	liveClients := make([]*wsClient, 0, clientsN)
+	var liveMu sync.Mutex
+	connectReasons := newWsHeldFailReasons()
+
+	// 1) 建连阶段
+	var connOk, connFail uint64
+	var connWG sync.WaitGroup
+	for i := 0; i < clientsN; i++ {
+		connWG.Add(1)
+		go func() {
+			defer connWG.Done()
+			if connectJitterMs > 0 {
+				time.Sleep(time.Duration(rand.Intn(connectJitterMs)) * time.Millisecond)
+			}
+			subject := &jwt.Subject{}
+			token := subject.Create(utils.NextSID()).Dev("APP").Generate(jwtConfig)
+			secretBytes := subject.GetTokenSecret(token, jwtConfig.TokenKey)
+			auth := sdk.AuthToken{
+				Token:   token,
+				Secret:  utils.Base64Encode(utils.Bytes2Str(secretBytes)),
+				Expired: subject.Payload.Exp,
+			}
+			wsSdk := sdk.NewSocketSDK(serverAddr)
+			wsSdk.AuthToken(auth)
+			wsSdk.SetClientNo(1)
+			_ = wsSdk.SetEd25519Object(wsSdk.ClientNo, clientPrk, serverPub)
+			wsSdk.SetHealthPing(30)
+			if err := wsSdk.ConnectWebSocket("/ws"); err != nil {
+				atomic.AddUint64(&connFail, 1)
+				connectReasons.Add(err)
+				return
+			}
+			atomic.AddUint64(&connOk, 1)
+			liveMu.Lock()
+			liveClients = append(liveClients, &wsClient{sdk: wsSdk})
+			liveMu.Unlock()
+		}()
+	}
+	connWG.Wait()
+
+	if len(liveClients) == 0 {
+		t.Fatalf("建连全部失败 addr=%s clients=%d", serverAddr, clientsN)
+	}
+
+	// 2) 发送阶段
+	sendReasons := newWsHeldFailReasons()
+	sendCtx, sendCancel := context.WithTimeout(context.Background(), sendWindow)
+	defer sendCancel()
+
+	var totalReq, okResp, failResp uint64
+	var totalLatencyNs uint64
+	var maxLatencyNs int64
+
+	latSample := make([]int64, 0, 200000)
+	var latMu sync.Mutex
+	sampleEvery := uint64(20) // 每20次采样一次，降低内存占用
+
+	var sendWG sync.WaitGroup
+	for _, c := range liveClients {
+		client := c
+		sendWG.Add(1)
+		go func() {
+			defer sendWG.Done()
+			for {
+				select {
+				case <-sendCtx.Done():
+					return
+				default:
+				}
+
+				reqID := atomic.AddUint64(&totalReq, 1)
+				reqBody := map[string]interface{}{
+					"test": "send_perf",
+					"n":    reqID,
+				}
+				respBody := &sdk.AuthToken{}
+				begin := time.Now()
+				err := client.sdk.SendWebSocketMessage(route, reqBody, respBody, true, false, int64(timeoutSec))
+				latNs := time.Since(begin).Nanoseconds()
+
+				atomic.AddUint64(&totalLatencyNs, uint64(latNs))
+				for {
+					old := atomic.LoadInt64(&maxLatencyNs)
+					if latNs <= old || atomic.CompareAndSwapInt64(&maxLatencyNs, old, latNs) {
+						break
+					}
+				}
+				if reqID%sampleEvery == 0 {
+					latMu.Lock()
+					latSample = append(latSample, latNs)
+					latMu.Unlock()
+				}
+
+				if err != nil {
+					atomic.AddUint64(&failResp, 1)
+					sendReasons.Add(err)
+					continue
+				}
+				atomic.AddUint64(&okResp, 1)
+			}
+		}()
+	}
+	sendWG.Wait()
+
+	// 3) 收尾：断开连接
+	for _, c := range liveClients {
+		if c != nil && c.sdk != nil {
+			c.sdk.DisconnectWebSocket()
+		}
+	}
+
+	// 4) 汇总输出
+	connFailPct := float64(0)
+	if clientsN > 0 {
+		connFailPct = float64(connFail) * 100 / float64(clientsN)
+	}
+	totalDone := okResp + failResp
+	failPct := float64(0)
+	if totalDone > 0 {
+		failPct = float64(failResp) * 100 / float64(totalDone)
+	}
+	sec := sendWindow.Seconds()
+	if sec < 1 {
+		sec = 1
+	}
+	avgMs := float64(0)
+	if totalDone > 0 {
+		avgMs = float64(totalLatencyNs) / float64(totalDone) / 1e6
+	}
+	p95Ms := float64(0)
+	latMu.Lock()
+	if len(latSample) > 0 {
+		sort.Slice(latSample, func(i, j int) bool { return latSample[i] < latSample[j] })
+		idx := int(float64(len(latSample)-1) * 0.95)
+		p95Ms = float64(latSample[idx]) / 1e6
+	}
+	latMu.Unlock()
+	maxMs := float64(maxLatencyNs) / 1e6
+
+	fmt.Printf("[WS send perf] addr=%s route=%s clients=%d connected=%d conn_fail=%d(%.2f%%) window=%v\n",
+		serverAddr, route, clientsN, connOk, connFail, connFailPct, sendWindow)
+	fmt.Printf("[WS send perf] total_req=%d ok=%d fail=%d fail_rate=%.2f%% qps=%.1f avg_ms=%.2f p95_ms=%.2f max_ms=%.2f sample_n=%d\n",
+		totalDone, okResp, failResp, failPct, float64(totalDone)/sec, avgMs, p95Ms, maxMs, len(latSample))
+	afterMS := readMemStats()
+	afterAt := time.Now()
+	afterGoroutines := runtime.NumGoroutine()
+	gcCountDelta := int64(afterMS.NumGC) - int64(beforeMS.NumGC)
+	pauseDeltaMs := float64(int64(afterMS.PauseTotalNs)-int64(beforeMS.PauseTotalNs)) / 1e6
+	allocDeltaMB := bytesToMB(afterMS.TotalAlloc - beforeMS.TotalAlloc)
+	fmt.Printf("[WS send runtime] elapsed=%v goroutines=%d->%d GOMAXPROCS=%d | alloc=%.1fMB heap_alloc=%.1fMB heap_inuse=%.1fMB sys=%.1fMB | GC_count_delta=%d GC_pause_delta_ms=%.2f\n",
+		afterAt.Sub(beforeAt),
+		beforeGoroutines, afterGoroutines, runtime.GOMAXPROCS(0),
+		allocDeltaMB, bytesToMB(afterMS.HeapAlloc), bytesToMB(afterMS.HeapInuse), bytesToMB(afterMS.Sys),
+		gcCountDelta, pauseDeltaMs)
+
+	t.Logf("WS send perf addr=%s route=%s clients=%d connected=%d conn_fail=%d window=%v",
+		serverAddr, route, clientsN, connOk, connFail, sendWindow)
+	t.Logf("WS send perf total=%d ok=%d fail=%d fail_rate=%.2f%% qps=%.1f avg_ms=%.2f p95_ms=%.2f max_ms=%.2f sample_n=%d",
+		totalDone, okResp, failResp, failPct, float64(totalDone)/sec, avgMs, p95Ms, maxMs, len(latSample))
+
+	if connFail > 0 {
+		connectReasons.report(t, "WS send perf connect")
+	}
+	if failResp > 0 {
+		sendReasons.report(t, "WS send perf send")
+	}
+	if okResp == 0 {
+		t.Fatal("发送阶段无成功响应，请检查服务端 /ws/user 路由与鉴权配置")
+	}
+}
+
+func TestCreateWsServer(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping WebSocket SDK usage test in short mode")
+	}
+
+	zlog.InitDefaultLog(&zlog.ZapConfig{Layout: 0, Location: time.Local, Level: zlog.INFO, Console: true}) // 测试环境使用空logger，避免输出干扰
+
+	fmt.Println("=== WebSocket SDK 完整使用流程测试 ===")
+
+	// 0. 启动测试服务器
+	fmt.Println("0. 启动测试服务器...")
+
+	// 创建WebSocket服务器实例
+	server := node.NewWsServer(node.SubjectDeviceUnique)
+
+	server.AddJwtConfig(jwt.JwtConfig{
+		TokenTyp: jwt.JWT,
+		TokenAlg: jwt.HS256,
+		TokenKey: "123456",
+		TokenExp: jwt.TWO_WEEK,
+	})
+
+	// 增加双向验签的Ed25519
+	cipher, _ := crypto.CreateEd25519WithBase64(serverPrk, clientPub)
+	server.AddCipher(1, cipher)
+
+	// 配置连接池（限流见文件顶部 wsTestServer* 常量）
+	err := server.NewPool(wsTestServerMaxConn, wsTestServerConnPerSec, wsTestServerConnBurst, wsTestServerPingSeconds)
+	if err != nil {
+		t.Fatalf("Failed to initialize connection pool: %v", err)
+	}
+
+	// 添加业务路由处理器
+	err = server.AddRouter("/ws/user", func(ctx context.Context, connCtx *node.ConnectionContext, body []byte) (interface{}, error) {
+		fmt.Println("test", connCtx.GetUserID())
+		ret := &sdk.AuthToken{
+			Token:  "鲨鱼宝宝获取websocket",
+			Secret: connCtx.GetUserIDString(),
+		}
+		return ret, nil
+	}, &node.RouterConfig{})
+	if err != nil {
+		t.Fatalf("Failed to add router: %v", err)
+	}
+
+	err = server.AddRouter("/ws/user2", func(ctx context.Context, connCtx *node.ConnectionContext, body []byte) (interface{}, error) {
+		fmt.Println("test", connCtx.GetUserID())
+		ret := &sdk.AuthToken{
+			Token:  "鲨鱼爸爸获取websocket",
+			Secret: connCtx.GetUserIDString(),
+		}
+		return ret, nil
+	}, &node.RouterConfig{})
+	if err != nil {
+		t.Fatalf("Failed to add router: %v", err)
+	}
+
+	// 同步阻塞监听；用于本机常驻起服务时直接跑本测试。压测并发请把 WS_HOLD_WORKERS 调到接近或略大于 wsTestServerMaxConn。
+	serverAddr := "localhost:8088"
+	if err := server.StartWebsocket(serverAddr); err != nil {
+		t.Errorf("Server start failed: %v", err)
+	}
+}
+
 // TestWebSocketSDKUsage 测试完整的SDK使用流程（包含服务器管理）
 func TestWebSocketSDKUsage(t *testing.T) {
 	if testing.Short() {
@@ -225,8 +900,8 @@ func TestWebSocketSDKUsage(t *testing.T) {
 	cipher, _ := crypto.CreateEd25519WithBase64(serverPrk, clientPub)
 	server.AddCipher(1, cipher)
 
-	// 配置连接池
-	err := server.NewPool(300, 20, 100, 30)
+	// 配置连接池（限流见文件顶部 wsTestServer* 常量）
+	err := server.NewPool(wsTestServerMaxConn, wsTestServerConnPerSec, wsTestServerConnBurst, wsTestServerPingSeconds)
 	if err != nil {
 		t.Fatalf("Failed to initialize connection pool: %v", err)
 	}

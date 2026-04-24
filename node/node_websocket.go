@@ -863,11 +863,7 @@ func (mh *MessageHandler) Process(connCtx *ConnectionContext, body []byte, jb *J
 		connCtx.Server.recordHeartbeat(true)
 
 		if zlog.IsDebug() {
-			deviceID := ""
-			if connCtx.Subject != nil && connCtx.Subject.Payload != nil {
-				deviceID = connCtx.Subject.Payload.Dev
-			}
-			zlog.Debug("heartbeat_received_and_updated", 0, zlog.String("subject", connCtx.Subject.GetSub(nil)), zlog.String("device", deviceID), zlog.String("connection_path", connCtx.Path), zlog.String("nonce", jb.Nonce))
+			zlog.Debug("heartbeat_received_and_updated", 0, zlog.String("subject", connCtx.Subject.GetSub(nil)), zlog.String("device", connCtx.getDeviceID()), zlog.String("connection_path", connCtx.Path), zlog.String("nonce", jb.Nonce))
 		}
 
 		return cipher, nil, nil
@@ -1464,7 +1460,7 @@ func (s *WsServer) StopWebsocket() (err error) {
 
 // GetConnectionManager 获取连接管理器（用于健康检查等操作）
 func (s *WsServer) GetConnectionManager() *ConnectionManager {
-	return s.connManager
+	return s.GetConnManager()
 }
 
 // StopWebsocketWithTimeout 带超时的优雅关闭
