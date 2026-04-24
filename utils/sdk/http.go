@@ -488,11 +488,12 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	validSign := node.SignBodyMessage(path, respData.Data, respData.Nonce, respData.Time, respData.Plan, jsonBody.User, sharedKey)
 	// 清理签名验证数据
 	defer DIC.ClearData(validSign)
-	if utils.Base64Encode(validSign) != respData.Sign {
+	isSignOK := utils.CompareBase64Sign(validSign, respData.Sign)
+	if !isSignOK {
 		return ex.Throw{Msg: "post response sign verify invalid"}
 	}
 	if zlog.IsDebug() {
-		zlog.Debug(fmt.Sprintf("response sign verify: %t", utils.Base64Encode(validSign) == respData.Sign), 0)
+		zlog.Debug(fmt.Sprintf("response sign verify: %t", isSignOK), 0)
 	}
 
 	// 验证Ed25519签名
@@ -798,11 +799,12 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 	validSign := node.SignBodyMessage(path, respData.Data, respData.Nonce, respData.Time, respData.Plan, jsonBody.User, tokenSecret)
 	// 清理签名验证数据
 	defer DIC.ClearData(validSign)
-	if utils.Base64Encode(validSign) != respData.Sign {
+	isSignOK := utils.CompareBase64Sign(validSign, respData.Sign)
+	if !isSignOK {
 		return ex.Throw{Msg: "post response sign verify invalid"}
 	}
 	if zlog.IsDebug() {
-		zlog.Debug(fmt.Sprintf("response sign verify: %t", utils.Base64Encode(validSign) == respData.Sign), 0)
+		zlog.Debug(fmt.Sprintf("response sign verify: %t", isSignOK), 0)
 	}
 
 	// 验证Ed25519签名

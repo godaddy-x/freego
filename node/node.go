@@ -495,7 +495,7 @@ func (self *Context) validJsonBody() error {
 	}
 	// Secret签名校验
 	sign := self.GetHmac256Sign(d, body.Nonce, body.Time, body.Plan, body.User, sharedKey)
-	if utils.Base64Encode(sign) != body.Sign {
+	if !utils.CompareBase64Sign(sign, body.Sign) {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature invalid"}
 	}
 	// 外层签名校验（Ed25519）

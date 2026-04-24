@@ -251,7 +251,7 @@ func (s *SocketSDK) verifyPushMessageSignature(res *node.JsonResp) error {
 	// 注意：这与服务器端的签名逻辑保持一致
 	expectedSign := node.SignBodyMessage(res.Router, res.Data, res.Nonce, res.Time, res.Plan, 0, utils.Str2Bytes(s.broadcastKey))
 
-	if utils.Base64Encode(expectedSign) != res.Sign {
+	if !utils.CompareBase64Sign(expectedSign, res.Sign) {
 		return utils.Error("push message signature verification failed")
 	}
 
@@ -641,11 +641,10 @@ func (s *SocketSDK) sendWebSocketAuthHandshake(conn *gws.Conn, path string) erro
 
 		// 构建签名字符串（使用握手路径）
 		validSign := node.SignBodyMessage(path, response.Data, response.Nonce, response.Time, response.Plan, jsonBody.User, tokenSecret)
-		expectedSign := utils.Base64Encode(validSign)
 		defer DIC.ClearData(validSign)
 
 		// 验证HMAC签名
-		if response.Sign != expectedSign {
+		if !utils.CompareBase64Sign(validSign, response.Sign) {
 			return ex.Throw{Msg: "handshake response signature verification failed"}
 		}
 
@@ -791,7 +790,7 @@ func (s *SocketSDK) verifyWebSocketResponseFromJsonResp(path string, result inte
 	validSign := node.SignBodyMessage(path, jsonResp.Data, jsonResp.Nonce, jsonResp.Time, jsonResp.Plan, s.ClientNo, tokenSecret)
 	defer DIC.ClearData(validSign)
 
-	if jsonResp.Sign != utils.Base64Encode(validSign) {
+	if !utils.CompareBase64Sign(validSign, jsonResp.Sign) {
 		return ex.Throw{Msg: "response signature verification failed"}
 	}
 
@@ -822,7 +821,7 @@ func (s *SocketSDK) verifyWebSocketResponseFromJsonResp(path string, result inte
 	}
 	defer DIC.ClearData(decryptedData)
 
-	if err := utils.JsonUnmarshal(decryptedData, result); err != nil {
+	if err := utils.JsonUnmarshalFast(decryptedData, result); err != nil {
 		return ex.Throw{Msg: "response data unmarshal failed"}
 	}
 
@@ -913,7 +912,7 @@ func (s *SocketSDK) websocketMessageListenerHandle(body []byte) {
 	res := node.GetJsonResp()
 	defer node.PutJsonResp(res)
 
-	if err := utils.JsonUnmarshal(body, res); err != nil {
+	if err := utils.JsonUnmarshalFast(body, res); err != nil {
 		zlog.Error(fmt.Sprintf("WebSocket read data parse error: %v", err), 0, zlog.String("body", string(body)))
 		return
 	}

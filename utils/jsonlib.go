@@ -62,6 +62,21 @@ func JsonUnmarshal(data []byte, v interface{}) error {
 	return json.Unmarshal(data, v)
 }
 
+// JsonUnmarshalFast 单遍 JSON 反序列化（跳过 JsonValid 预校验）。
+// 适用于高频热路径：直接反序列化，失败时由反序列化错误返回。
+func JsonUnmarshalFast(data []byte, v interface{}) error {
+	if len(data) == 0 {
+		return nil
+	}
+	if v == nil {
+		return errors.New("JSON target object is nil")
+	}
+	if eu, ok := v.(easyjson.Unmarshaler); ok {
+		return easyjson.Unmarshal(data, eu)
+	}
+	return json.Unmarshal(data, v)
+}
+
 func GetJsonString(b []byte, k string) string {
 	return fastjson.GetString(b, k)
 }

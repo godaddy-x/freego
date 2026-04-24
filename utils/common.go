@@ -12,6 +12,7 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
+	"crypto/subtle"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -29,8 +30,6 @@ import (
 	"unsafe"
 
 	DIC "github.com/godaddy-x/freego/common"
-	"golang.org/x/crypto/pbkdf2"
-
 	"github.com/godaddy-x/freego/utils/decimal"
 	"github.com/godaddy-x/freego/utils/snowflake"
 	"github.com/google/uuid"
@@ -1100,15 +1099,34 @@ func FmtZero(r string) string {
 	return a.String()
 }
 
-func NewPasswordBase(pwd, salt []byte, iter int) []byte {
-	return pbkdf2.Key(pwd, salt, iter, 32, sha256.New)
+// CompareSign 防止时序攻击， sign=自身有效签名 target=外部不可信签名
+func CompareSign(sign, target []byte) bool {
+	return subtle.ConstantTimeCompare(sign, target) == 1 && len(sign) > 0
 }
 
-func NewShortPassword(pwd, salt string) []byte {
-	return NewPasswordBase(Str2Bytes(pwd), Str2Bytes(salt), 2048)
+func CompareBase64Sign(sign []byte, target string) bool {
+	l := len(sign)
+	if l != 32 && l != 64 {
+		return false
+	}
 
-}
+	decoded := Base64Decode(target)
 
-func NewDeepPassword(pwd, salt string) []byte {
-	return NewPasswordBase(Str2Bytes(pwd), Str2Bytes(salt), 20480)
+	switch l {
+	case 32:
+		var cand [32]byte
+		// 始终执行 copy，用条件控制拷贝源
+		if decoded != nil && len(decoded) == 32 {
+			copy(cand[:], decoded)
+		}
+		// 无论 decoded 是否有效，都执行比较
+		return subtle.ConstantTimeCompare(sign, cand[:]) == 1
+	case 64:
+		var cand [64]byte
+		if decoded != nil && len(decoded) == 64 {
+			copy(cand[:], decoded)
+		}
+		return subtle.ConstantTimeCompare(sign, cand[:]) == 1
+	}
+	return false
 }

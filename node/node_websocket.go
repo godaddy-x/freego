@@ -830,7 +830,7 @@ func (mh *MessageHandler) Process(connCtx *ConnectionContext, body []byte, jb *J
 	}
 
 	// 解析WebSocket消息体
-	if err := utils.JsonUnmarshal(body, jb); err != nil {
+	if err := utils.JsonUnmarshalFast(body, jb); err != nil {
 		zlog.Error("websocket message json unmarshal failed", 0, zlog.ByteString("raw_body", body), zlog.AddError(err))
 		return nil, nil, ex.Throw{Code: http.StatusBadRequest, Msg: "invalid JSON format"}
 	}
@@ -977,7 +977,7 @@ func (mh *MessageHandler) validWebSocketBody(connCtx *ConnectionContext, rawFram
 	// 构建签名字符串
 	// 使用从header获取的路由标识进行签名验证，支持通过header指定路由
 	sign := SignBodyMessage(body.Router, d, body.Nonce, body.Time, body.Plan, body.User, sharedKey)
-	if utils.Base64Encode(sign) != body.Sign {
+	if !utils.CompareBase64Sign(sign, body.Sign) {
 		return nil, ex.Throw{Code: http.StatusUnauthorized, Msg: "websocket signature verify invalid"}
 	}
 
@@ -1640,28 +1640,36 @@ func (s *WsServer) processMessage(connCtx *ConnectionContext, message []byte) {
 		// 记录消息处理失败指标
 		s.recordMessageProcessed(false)
 		if connCtx != nil && jsonBody != nil {
+			connID := connCtx.wsTraceConnID()
+			subject := connCtx.GetUserIDString()
+			device := connCtx.getDeviceID()
+			router := jsonBody.Router
+			nonce := jsonBody.Nonce
+			plan := jsonBody.Plan
+			frameLen := len(message)
+			elapsedMs := utils.UnixMilli() - startAt
 			if zlog.IsDebug() {
 				zlog.Warn("WS_TRACE_PROCESS_FAILED", 0,
-					zlog.String("conn_id", connCtx.wsTraceConnID()),
-					zlog.String("subject", connCtx.GetUserIDString()),
-					zlog.String("device", connCtx.getDeviceID()),
-					zlog.String("router", jsonBody.Router),
-					zlog.String("nonce", jsonBody.Nonce),
-					zlog.Int64("plan", jsonBody.Plan),
-					zlog.Int("frame_len", len(message)),
+					zlog.String("conn_id", connID),
+					zlog.String("subject", subject),
+					zlog.String("device", device),
+					zlog.String("router", router),
+					zlog.String("nonce", nonce),
+					zlog.Int64("plan", plan),
+					zlog.Int("frame_len", frameLen),
 					zlog.String("frame_preview_hex", wsFrameHexPreview(message, 192)),
-					zlog.Int64("elapsed", utils.UnixMilli()-startAt),
+					zlog.Int64("elapsed", elapsedMs),
 					zlog.AddError(err))
 			} else {
 				zlog.Warn("WS_TRACE_PROCESS_FAILED", 0,
-					zlog.String("conn_id", connCtx.wsTraceConnID()),
-					zlog.String("subject", connCtx.GetUserIDString()),
-					zlog.String("device", connCtx.getDeviceID()),
-					zlog.String("router", jsonBody.Router),
-					zlog.String("nonce", jsonBody.Nonce),
-					zlog.Int64("plan", jsonBody.Plan),
-					zlog.Int("frame_len", len(message)),
-					zlog.Int64("elapsed", utils.UnixMilli()-startAt),
+					zlog.String("conn_id", connID),
+					zlog.String("subject", subject),
+					zlog.String("device", device),
+					zlog.String("router", router),
+					zlog.String("nonce", nonce),
+					zlog.Int64("plan", plan),
+					zlog.Int("frame_len", frameLen),
+					zlog.Int64("elapsed", elapsedMs),
 					zlog.AddError(err))
 			}
 		}
@@ -1687,7 +1695,7 @@ func (s *WsServer) processMessage(connCtx *ConnectionContext, message []byte) {
 }
 
 // replyData 将业务返回值写回客户端。
-// 设计要点：若 Handle 返回 *JsonResp（如某些中间件已构造），直接序列化发送并 Put 回池；否则构造 Code=200 的 JsonResp，按 Plan 加密与签名后发送，所有 JsonResp 均由本函数或调用方 Put 回池。
+// 设计要点：Handle 仅返回业务对象（或 nil），统一由此处构造 JsonResp 并完成签名/加密/发送，避免外层构造池化 JsonResp 带来的所有权误用。
 func replyData(connCtx *ConnectionContext, req requestMeta, cipher crypto.Cipher, reply interface{}) {
 	if reply == nil {
 		return
@@ -1695,20 +1703,6 @@ func replyData(connCtx *ConnectionContext, req requestMeta, cipher crypto.Cipher
 	userID := connCtx.GetUserIDString()
 	deviceID := connCtx.getDeviceID()
 	connPath := connCtx.Path
-
-	if jsonResp, ok := reply.(*JsonResp); ok {
-		bytesData, err := utils.JsonMarshal(jsonResp)
-		PutJsonResp(jsonResp)
-		if err != nil {
-			zlog.Error("failed_to_marshal_jsonresp", 0, zlog.AddError(err), zlog.String("user_id", userID), zlog.String("device_id", deviceID), zlog.String("connection_path", connPath))
-			return
-		}
-
-		if err := connCtx.DevConn.Send(bytesData); err != nil {
-			zlog.Error("failed_to_send_response", 0, zlog.AddError(err), zlog.String("user_id", userID), zlog.String("device_id", deviceID), zlog.String("connection_path", connPath))
-		}
-		return
-	}
 
 	// 原有的逻辑：构造新的JsonResp并序列化reply
 	jsonResp := GetJsonResp()
