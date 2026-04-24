@@ -583,7 +583,8 @@ func TestWebSocketStressHeldStepProbe(t *testing.T) {
 //   - WS_SEND_ROUTE           发送路由，默认 /ws/user
 //
 // 运行示例：
-//   go test -count=1 -v -run TestWebSocketSendRoundTripPerf -timeout 15m .
+//
+//	go test -count=1 -v -run TestWebSocketSendRoundTripPerf -timeout 15m .
 func TestWebSocketSendRoundTripPerf(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping WebSocket send roundtrip stress in short mode")
@@ -843,7 +844,7 @@ func TestCreateWsServer(t *testing.T) {
 
 	// 添加业务路由处理器
 	err = server.AddRouter("/ws/user", func(ctx context.Context, connCtx *node.ConnectionContext, body []byte) (interface{}, error) {
-		fmt.Println("test", connCtx.GetUserID())
+		//fmt.Println("test", connCtx.GetUserID())
 		ret := &sdk.AuthToken{
 			Token:  "鲨鱼宝宝获取websocket",
 			Secret: connCtx.GetUserIDString(),

@@ -826,7 +826,7 @@ func (s *SocketSDK) verifyWebSocketResponseFromJsonResp(path string, result inte
 }
 
 // websocketHeartbeat 心跳协程：周期发送 /ws/ping，不等待 pong（与服务端“不回 pong”策略一致）。
-// 设计要点：fire-and-forget，不占 responseMap、不阻塞；连接存活以 WriteMessage 失败为准，失败则 disconnectWebSocket。
+// 设计要点：fire-and-forget，不占响应等待表、不阻塞；连接存活以 WriteMessage 失败为准，失败则 disconnectWebSocket。
 // 心跳间隔建议 10–15 秒，内部上限 15 秒（与 SetHealthPing 一致）。
 func (s *SocketSDK) websocketHeartbeat() {
 	defer s.wg.Done()

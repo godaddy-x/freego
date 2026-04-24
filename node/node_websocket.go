@@ -1611,7 +1611,7 @@ func (s *WsServer) createConnectionContext(subject *jwt.Subject, socket *gws.Con
 // processMessage 单条消息处理：从池中取 JsonBody 作为本条帧独占的 jsonBody，经 Process→replyData，defer Put 回池。
 // 设计要点：ConnectionContext 不挂载 JsonBody；元信息快照一律来自本条 jsonBody。
 func (s *WsServer) processMessage(connCtx *ConnectionContext, message []byte) {
-	startAt := time.Now()
+	startAt := utils.UnixMilli()
 	defer func() {
 		if r := recover(); r != nil {
 			zlog.Error("process_message_panic", 0, zlog.Any("panic", r))
@@ -1650,7 +1650,7 @@ func (s *WsServer) processMessage(connCtx *ConnectionContext, message []byte) {
 					zlog.Int64("plan", jsonBody.Plan),
 					zlog.Int("frame_len", len(message)),
 					zlog.String("frame_preview_hex", wsFrameHexPreview(message, 192)),
-					zlog.Duration("elapsed", time.Since(startAt)),
+					zlog.Int64("elapsed", utils.UnixMilli()-startAt),
 					zlog.AddError(err))
 			} else {
 				zlog.Warn("WS_TRACE_PROCESS_FAILED", 0,
@@ -1661,7 +1661,7 @@ func (s *WsServer) processMessage(connCtx *ConnectionContext, message []byte) {
 					zlog.String("nonce", jsonBody.Nonce),
 					zlog.Int64("plan", jsonBody.Plan),
 					zlog.Int("frame_len", len(message)),
-					zlog.Duration("elapsed", time.Since(startAt)),
+					zlog.Int64("elapsed", utils.UnixMilli()-startAt),
 					zlog.AddError(err))
 			}
 		}
