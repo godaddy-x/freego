@@ -710,9 +710,9 @@ func TestWebSocketSendRoundTripPerf(t *testing.T) {
 				}
 
 				reqID := atomic.AddUint64(&totalReq, 1)
-				reqBody := map[string]interface{}{
-					"test": "send_perf",
-					"n":    reqID,
+				reqBody := &sdk.AuthToken{
+					Token:   "send_perf",
+					Expired: int64(reqID),
 				}
 				respBody := &sdk.AuthToken{}
 				begin := time.Now()
@@ -856,7 +856,6 @@ func TestCreateWsServer(t *testing.T) {
 	}
 
 	err = server.AddRouter("/ws/user2", func(ctx context.Context, connCtx *node.ConnectionContext, body []byte) (interface{}, error) {
-		fmt.Println("test", connCtx.GetUserID())
 		ret := &sdk.AuthToken{
 			Token:  "鲨鱼爸爸获取websocket",
 			Secret: connCtx.GetUserIDString(),
@@ -909,7 +908,6 @@ func TestWebSocketSDKUsage(t *testing.T) {
 
 	// 添加业务路由处理器
 	err = server.AddRouter("/ws/user", func(ctx context.Context, connCtx *node.ConnectionContext, body []byte) (interface{}, error) {
-		fmt.Println("test", connCtx.GetUserID())
 		ret := &sdk.AuthToken{
 			Token:  "鲨鱼宝宝获取websocket",
 			Secret: connCtx.GetUserIDString(),
@@ -921,7 +919,6 @@ func TestWebSocketSDKUsage(t *testing.T) {
 	}
 
 	err = server.AddRouter("/ws/user2", func(ctx context.Context, connCtx *node.ConnectionContext, body []byte) (interface{}, error) {
-		fmt.Println("test", connCtx.GetUserID())
 		ret := &sdk.AuthToken{
 			Token:  "鲨鱼爸爸获取websocket",
 			Secret: connCtx.GetUserIDString(),
@@ -2161,7 +2158,6 @@ func TestWebSocketServer(t *testing.T) {
 
 	// 添加业务路由处理器
 	err = server.AddRouter("/ws/user", func(ctx context.Context, connCtx *node.ConnectionContext, body []byte) (interface{}, error) {
-		fmt.Println("test", connCtx.GetUserID())
 		ret := &sdk.AuthToken{
 			Token:  "鲨鱼宝宝获取websocket",
 			Secret: connCtx.GetUserIDString(),
@@ -2173,7 +2169,6 @@ func TestWebSocketServer(t *testing.T) {
 	}
 
 	err = server.AddRouter("/ws/user2", func(ctx context.Context, connCtx *node.ConnectionContext, body []byte) (interface{}, error) {
-		fmt.Println("test", connCtx.GetUserID())
 		ret := &sdk.AuthToken{
 			Token:  "鲨鱼爸爸获取websocket",
 			Secret: connCtx.GetUserIDString(),

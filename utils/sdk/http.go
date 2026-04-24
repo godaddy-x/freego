@@ -16,16 +16,6 @@ import (
 	"github.com/valyala/fasthttp"
 )
 
-// AuthToken 认证令牌结构体
-// 包含JWT token、动态secret和过期时间
-//
-//easyjson:json
-type AuthToken struct {
-	Token   string `json:"token"`   // JWT认证令牌
-	Secret  string `json:"secret"`  // 动态生成的AES密钥(Base64编码)
-	Expired int64  `json:"expired"` // 令牌过期时间戳(Unix秒)
-}
-
 // HttpSDK FreeGo HTTP客户端SDK
 // 支持 X25519 密钥协商 + AES-GCM、强制双向 Ed25519 外层签名、JWT 等
 //

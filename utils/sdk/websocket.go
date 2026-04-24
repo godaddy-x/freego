@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/godaddy-x/freego/utils/crypto"
@@ -158,6 +159,9 @@ type SocketSDK struct {
 
 	// 消息订阅相关
 	subscriptions sync.Map // 路由 -> 订阅信息 (线程安全)
+
+	// 采样计数：响应匹配 miss 的高频告警限频
+	responseNonceMiss uint64
 }
 
 // AuthObject 设置WebSocket客户端的登录认证对象
@@ -949,7 +953,13 @@ func (s *SocketSDK) websocketMessageListenerHandle(body []byte) {
 				}
 			}
 		} else {
-			zlog.Warn("no waiting channel found for nonce", 0, zlog.String("nonce", res.Nonce))
+			// 高频压测下该分支可能大量出现（超时后响应晚到），按 1/1024 采样，避免日志风暴反向拖慢性能
+			miss := atomic.AddUint64(&s.responseNonceMiss, 1)
+			if miss&1023 == 1 {
+				zlog.Warn("no waiting channel found for nonce (sampled)", 0,
+					zlog.String("nonce", res.Nonce),
+					zlog.Int64("miss_total", int64(miss)))
+			}
 		}
 	} else if res.Code == 300 {
 		// 推送消息：这是服务端主动推送的消息
