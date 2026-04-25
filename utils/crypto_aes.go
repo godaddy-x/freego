@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"time"
 )
 
 func PKCS7Padding(ciphertext []byte, blockSize int) []byte {
@@ -94,48 +93,14 @@ func GetAesIVSecure() []byte {
 	return GetRandomSecure(aes.BlockSize)
 }
 
-// GetRandomSecure 使用加密安全的随机数生成器生成指定字节数组（推荐）
+// GetRandomSecure 从 crypto/rand 读取 l 字节。失败时 panic：视为系统级故障，
+// 继续用弱随机源（尤其作 AES-GCM nonce）会破坏安全假设。
 func GetRandomSecure(l int) []byte {
 	randomIV := make([]byte, l)
 	if _, err := io.ReadFull(rand.Reader, randomIV); err != nil {
-		// 记录错误日志，便于调试
-		fmt.Printf("crypto/rand failed: %v, using fallback", err)
-		return GetAesIVFallback(l)
+		panic("crypto/rand failed: " + err.Error())
 	}
 	return randomIV
-}
-
-// GetAesIVFallback 备用IV生成方法（当crypto/rand失败时使用）
-func GetAesIVFallback(l int) []byte {
-	// 修复：使用单次时间戳调用
-	now := time.Now().UnixNano()
-	timeBytes := make([]byte, 8)
-	timeBytes[0] = byte(now >> 56)
-	timeBytes[1] = byte(now >> 48)
-	timeBytes[2] = byte(now >> 40)
-	timeBytes[3] = byte(now >> 32)
-	timeBytes[4] = byte(now >> 24)
-	timeBytes[5] = byte(now >> 16)
-	timeBytes[6] = byte(now >> 8)
-	timeBytes[7] = byte(now)
-
-	// 修复：使用参数 l 而不是硬编码 aes.BlockSize
-	iv := make([]byte, l)
-
-	// 复制时间戳到前8字节（如果长度足够）
-	if l >= 8 {
-		copy(iv[:8], timeBytes)
-	} else {
-		copy(iv, timeBytes[:l])
-		return iv
-	}
-
-	// 修复：使用正确的循环边界
-	for i := 8; i < l; i++ {
-		iv[i] = byte(ModRand(256))
-	}
-
-	return iv
 }
 
 // AesCBCEncryptBase 标准AES-CBC加密，返回IV+密文的Base64编码
