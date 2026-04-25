@@ -1338,15 +1338,15 @@ func TestWebSocketMessageSubscription(t *testing.T) {
 					Plan:    0,
 				}
 
-				// 序列化推送消息
-				pushData, err := utils.JsonMarshal(pushMessage)
-				if err != nil {
-					zlog.Error("failed to marshal push message", 0, zlog.AddError(err))
+				// 广播消息给所有连接的客户端（subject=""）
+				if err := server.GetConnManager().SendToSubject("", targetRouter, map[string]interface{}{
+					"sequence": i,
+					"message":  pushMessage.Message,
+					"data":     pushMessage.Data,
+				}); err != nil {
+					zlog.Error("failed to push message", 0, zlog.AddError(err))
 					continue
 				}
-
-				// 广播消息给所有连接的客户端
-				server.GetConnManager().Broadcast(pushData)
 
 				if zlog.IsDebug() {
 					zlog.Debug("sent push message", 0,
@@ -1450,15 +1450,16 @@ func TestWebSocketMessageSubscription(t *testing.T) {
 						Plan:    0,
 					}
 
-					// 序列化推送消息
-					pushData, err := utils.JsonMarshal(pushMessage)
-					if err != nil {
-						zlog.Error("failed to marshal continuous push message", 0, zlog.AddError(err))
+					// 广播消息给所有连接的客户端（subject=""）
+					if err := server.GetConnManager().SendToSubject("", targetRouter, map[string]interface{}{
+						"sequence": messageCount,
+						"message":  pushMessage.Message,
+						"data":     pushMessage.Data,
+						"time":     currentTime,
+					}); err != nil {
+						zlog.Error("failed to push continuous message", 0, zlog.AddError(err))
 						continue
 					}
-
-					// 广播消息给所有连接的客户端（或者可以改为只推送给特定客户端）
-					server.GetConnManager().Broadcast(pushData)
 
 					if zlog.IsDebug() {
 						zlog.Debug("sent continuous push message", 0,

@@ -12,8 +12,10 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+	"unsafe"
 
 	DIC "github.com/godaddy-x/freego/common"
+	ncommon "github.com/godaddy-x/freego/node/common"
 	"github.com/godaddy-x/freego/zlog"
 
 	"github.com/godaddy-x/freego/cache"
@@ -149,6 +151,45 @@ func (cc *ConnectionContext) GetTokenSecret() []byte {
 	return cc.Subject.GetTokenSecret(utils.Bytes2Str(cc.GetRawTokenBytes()), cc.Server.jwtConfig.TokenKey)
 }
 
+// Parser 解析 WebSocket 业务数据并填充 common.BaseReq 上下文。
+func (cc *ConnectionContext) Parser(body []byte, dst interface{}) error {
+	if len(body) == 0 {
+		return nil
+	}
+	if err := utils.JsonUnmarshal(body, dst); err != nil {
+		msg := "websocket JSON parameter parsing failed"
+		zlog.Error(msg, 0, zlog.String("path", cc.Path), zlog.String("device", cc.getDeviceID()), zlog.AddError(err))
+		return ex.Throw{Msg: msg, Err: err}
+	}
+
+	identify := &ncommon.Identify{}
+	if cc.Subject != nil && cc.Subject.Payload != nil && len(cc.Subject.Payload.Sub) > 0 {
+		identify.ID = cc.Subject.Payload.Sub
+	}
+
+	context := ncommon.Context{
+		Identify:        identify,
+		Path:            cc.Path,
+		RedisCacheAware: cc.Server.RedisCacheAware,
+		LocalCacheAware: cc.Server.LocalCacheAware,
+		Cipher:          cc.Server.Cipher,
+	}
+
+	src := utils.GetPtr(dst, 0)
+	req := ncommon.GetBasePtrReq(src)
+	base := ncommon.BaseReq{
+		Context: context,
+		Offset:  req.Offset,
+		Limit:   req.Limit,
+		PrevID:  req.PrevID,
+		LastID:  req.LastID,
+		CountQ:  req.CountQ,
+		Cmd:     req.Cmd,
+	}
+	*((*ncommon.BaseReq)(unsafe.Pointer(src))) = base
+	return nil
+}
+
 // ConnectionManager 连接管理器：线程安全的连接管理，支持广播、按 subject 推送、过期清理。
 //
 // 设计要点：
@@ -157,12 +198,12 @@ func (cc *ConnectionContext) GetTokenSecret() []byte {
 // - 所有"收集 conn 再关闭/发送"的路径均在 RLock 内只收集指针，在锁外执行 I/O，避免持锁时间过长。
 // - reverseIndex：反向索引 *gws.Conn -> reverseIndexEntry，用于 O(1) 复杂度的 RemoveByConn（适合连接数 > 10000 的场景）。
 type ConnectionManager struct {
-	mu           sync.RWMutex
-	conns        map[string]map[string]*DevConn // subject -> deviceKey -> connection
-	max          int                            // 最大并发连接数（与 limiter 的连接速率限制不同）
-	totalConn    int32                          // 原子计数器：当前总连接数（限流 + 预分配容量）
-	mode         ConnectionUniquenessMode       // 连接唯一性模式
-	broadcastKey string                         // 广播密钥
+	mu                   sync.RWMutex
+	conns                map[string]map[string]*DevConn // subject -> deviceKey -> connection
+	max                  int                            // 最大并发连接数（与 limiter 的连接速率限制不同）
+	totalConn            int32                          // 原子计数器：当前总连接数（限流 + 预分配容量）
+	mode                 ConnectionUniquenessMode       // 连接唯一性模式
+	broadcastKeyProvider func(subject string) string    // 广播密钥动态提供函数（可按 subject 返回）
 
 	// 反向索引：*gws.Conn -> reverseIndexEntry（使用 sync.Map 适合读多写少、key 稳定的场景）
 	reverseIndex sync.Map
@@ -291,8 +332,6 @@ type WsServer struct {
 	heartbeatSvc *HeartbeatService
 	upgrader     *gws.Upgrader // gws 升级器
 
-	broadcastKey string
-
 	// 配置项
 	ping            int           // 心跳间隔（秒）
 	maxConn         int           // 最大并发连接数（与 limiter 的连接速率限制不同）
@@ -323,6 +362,7 @@ type WsServer struct {
 	Cipher          map[int64]crypto.Cipher                 // 8字节 - RSA / Ed25519 等 Cipher 列表（双向外层签名等）
 	RedisCacheAware func(ds ...string) (cache.Cache, error) // 8字节 - 函数指针
 	LocalCacheAware func(ds ...string) (cache.Cache, error) // 8字节 - 函数指针
+	PushKeyProvider func(subject string) string             // 推送签名密钥获取函数：subject=="" 表示全量广播
 
 	// 用于确保 Stop 只执行一次
 	shutdownOnce sync.Once
@@ -420,12 +460,12 @@ func (cv *ConfigValidator) validatePoolConfig(maxConn, limit, bucket, ping int) 
 // -------------------------- ConnectionManager 实现 --------------------------
 
 // NewConnectionManager 创建连接管理器
-func NewConnectionManager(maxConn int, mode ConnectionUniquenessMode, broadcastKey string) *ConnectionManager {
+func NewConnectionManager(maxConn int, mode ConnectionUniquenessMode, broadcastKeyProvider func(subject string) string) *ConnectionManager {
 	return &ConnectionManager{
-		conns:        make(map[string]map[string]*DevConn),
-		max:          maxConn,
-		mode:         mode,
-		broadcastKey: broadcastKey,
+		conns:                make(map[string]map[string]*DevConn),
+		max:                  maxConn,
+		mode:                 mode,
+		broadcastKeyProvider: broadcastKeyProvider,
 	}
 }
 
@@ -607,29 +647,17 @@ func (cm *ConnectionManager) Get(subject, deviceKey string) *DevConn {
 	return nil
 }
 
-// Broadcast 广播消息到所有连接。
-// 连接活性由 LastSeen 与 CleanupExpired 维护；Send 内部会检查 closed 并安全返回错误。
-func (cm *ConnectionManager) Broadcast(data []byte) {
-	n := atomic.LoadInt32(&cm.totalConn)
-	if n < 0 {
-		n = 0
-	}
-	targets := acquireDevConnTargets(int(n))
-	defer releaseDevConnTargets(targets)
-	cm.mu.RLock()
-	for _, subjectConns := range cm.conns {
-		for _, conn := range subjectConns {
-			targets = append(targets, conn)
-		}
-	}
-	cm.mu.RUnlock()
-
-	for _, conn := range targets {
-		_ = conn.Send(data)
-	}
-}
-
-// SendToSubject 发送消息到指定主题的所有连接
+// SendToSubject 按 subject 推送消息（subject=="" 时为全量广播）。
+//
+// 调用约定：
+// - subject: 目标用户标识；传空字符串表示发送给全部在线连接。
+// - router: 业务路由，必填；客户端通常按该路由分发消息。
+// - data: 业务载荷，必填；内部会先 JSON 序列化再 Base64 封装到 JsonResp.Data。
+//
+// 安全与协议：
+// - 本方法会统一构造 JsonResp（Code=300, Message="push", Plan=0）。
+// - 签名密钥来自 broadcastKeyProvider(subject)，支持按用户/广播动态取密钥。
+// - 未配置可用密钥时返回错误，避免发送未签名或弱签名数据。
 func (cm *ConnectionManager) SendToSubject(subject, router string, data interface{}) error {
 	if router == "" {
 		return utils.Error("router is nil")
@@ -664,8 +692,14 @@ func (cm *ConnectionManager) SendToSubject(subject, router string, data interfac
 	// 推送消息签名：与心跳响应不同，推送消息使用服务器专用密钥
 	// 因为推送消息没有用户请求上下文，无法使用connCtx.GetTokenSecret()
 	// 客户端通过预共享的服务器密钥进行验签
-	serverPushKey := utils.Str2Bytes(cm.broadcastKey) // 建议从配置中获取
-	signData := SignBodyMessage(router, jsonResp.Data, pushNonce, jsonResp.Time, jsonResp.Plan, 0, serverPushKey)
+	var broadcastKey string
+	if cm.broadcastKeyProvider != nil {
+		broadcastKey = cm.broadcastKeyProvider(subject)
+	}
+	if len(strings.TrimSpace(broadcastKey)) == 0 {
+		return utils.Error("broadcast key is nil")
+	}
+	signData := SignBodyMessage(router, jsonResp.Data, pushNonce, jsonResp.Time, jsonResp.Plan, 0, utils.Str2Bytes(broadcastKey))
 	jsonResp.Sign = utils.Base64Encode(signData)
 
 	// 发送构造好的JsonResp
@@ -1262,7 +1296,12 @@ func (s *WsServer) NewPool(maxConn, limit, bucket, ping int) error {
 		s.ping = 30
 	}
 
-	s.connManager = NewConnectionManager(maxConn, s.connUniquenessMode, s.broadcastKey)
+	s.connManager = NewConnectionManager(maxConn, s.connUniquenessMode, func(subject string) string {
+		if s.PushKeyProvider == nil {
+			return ""
+		}
+		return s.PushKeyProvider(subject)
+	})
 	s.limiter = rate.NewLimiter(rate.Limit(limit), bucket)
 
 	pingDuration := time.Duration(ping) * time.Second
@@ -1298,9 +1337,9 @@ func (s *WsServer) SetParallelEnabled(enabled bool) {
 	s.initUpgrader()
 }
 
-// SetBroadcastKey 广播数据密钥
-func (s *WsServer) SetBroadcastKey(key string) {
-	s.broadcastKey = key
+// SetPushKeyProvider 设置推送签名密钥获取函数。subject=="" 表示全量广播。
+func (s *WsServer) SetPushKeyProvider(provider func(subject string) string) {
+	s.PushKeyProvider = provider
 }
 
 func (s *WsServer) StartWebsocket(addr string) error {
