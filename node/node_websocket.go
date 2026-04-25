@@ -3,6 +3,7 @@ package node
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -1366,6 +1367,10 @@ func (s *WsServer) StartWebsocket(addr string) error {
 	// 启动HTTP服务器
 	s.server.Addr = addr
 	if err := s.server.ListenAndServe(); err != nil {
+		if errors.Is(err, http.ErrServerClosed) {
+			zlog.Info("server_stopped_gracefully", 0)
+			return nil
+		}
 		zlog.Error("server_start_failed", 0, zlog.AddError(err))
 		return err
 	}

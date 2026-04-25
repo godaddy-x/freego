@@ -53,7 +53,7 @@ func NewSocketSDK(domain string) *SocketSDK {
 		timeout:              120,
 		maxReconnectAttempts: 10,
 		reconnectInterval:    time.Second,
-		maxReconnectInterval: 30 * time.Second,
+		maxReconnectInterval: 8 * time.Second,
 		HealthPing:           15,
 		rootCtx:              rootCtx,
 		rootCancel:           rootCancel,
@@ -148,8 +148,10 @@ type SocketSDK struct {
 	connectedPath        string        // 已连接的WebSocket路径 (用于重连)
 
 	// Token过期回调
-	onTokenExpired   func()    // Token过期时回调，用户可以重新认证
-	tokenExpiredOnce sync.Once // 防止重复调用
+	onTokenExpired      func() // Token过期时回调，用户可以重新认证
+	tokenCallbackActive int32  // 回调执行中标记（0=空闲,1=执行中）
+	tokenCallbackLastAt int64  // 回调最近触发时间戳（unix秒），用于节流
+	tokenMonitorOnce    sync.Once
 
 	// 新增：同步响应映射表 (nonce -> chan JsonResp)
 	responseMap sync.Map // 存储等待响应的通道
@@ -176,7 +178,7 @@ func (s *SocketSDK) AuthObject(object interface{}) {
 // object: AuthToken结构体，包含token、secret、expired字段
 func (s *SocketSDK) AuthToken(object AuthToken) {
 	s.authToken = object
-	s.tokenExpiredOnce = sync.Once{} // 重置token过期回调标志
+	atomic.StoreInt32(&s.tokenCallbackActive, 0) // token刷新后允许再次触发回调
 }
 
 // SetTimeout 设置WebSocket请求的超时时间
@@ -354,8 +356,52 @@ func (s *SocketSDK) ConnectWebSocket(path string) error {
 	s.reconnectMutex.Lock()
 	s.connectedPath = path // 存储连接路径用于重连
 	s.reconnectMutex.Unlock()
+	s.startTokenMonitor()
+	// 主线程同步尝试一次 token 获取，避免首次连接前 token 仍为空
+	if !s.valid() {
+		s.triggerTokenExpiredCallbackSync()
+	}
 
-	return s.connectWebSocketInternal(path, true)
+	err := s.connectWebSocketInternal(path, true)
+	if err == nil {
+		return nil
+	}
+	// 启用自动重连时，首次连接失败转为后台重连，不阻塞业务启动流程。
+	if s.isReconnectEnabled() {
+		go s.startReconnectProcess()
+		if zlog.IsDebug() {
+			zlog.Debug(fmt.Sprintf("initial websocket connect failed, fallback to async reconnect: %v", err), 0)
+		}
+		return nil
+	}
+	return err
+}
+
+func (s *SocketSDK) startTokenMonitor() {
+	s.tokenMonitorOnce.Do(func() {
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			ticker := time.NewTicker(1 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-s.rootCtx.Done():
+					return
+				case <-ticker.C:
+					if !s.valid() {
+						s.triggerTokenExpiredCallback()
+					}
+				}
+			}
+		}()
+	})
+}
+
+func (s *SocketSDK) isReconnectEnabled() bool {
+	s.reconnectMutex.Lock()
+	defer s.reconnectMutex.Unlock()
+	return s.reconnectEnabled
 }
 
 // connectWebSocketInternal WebSocket连接的内部实现方法
@@ -375,7 +421,6 @@ func (s *SocketSDK) connectWebSocketInternal(path string, isInitial bool) error 
 	}
 	if !s.valid() {
 		s.connMutex.Unlock()
-		s.triggerTokenExpiredCallback()
 		return ex.Throw{Msg: "token empty or token expired"}
 	}
 
@@ -693,8 +738,6 @@ func (s *SocketSDK) sendWebSocketAuthHandshake(conn *gws.Conn, path string) erro
 func (s *SocketSDK) SendWebSocketMessage(router string, requestObj, responseObj interface{}, waitResponse, encryptRequest bool, timeout int64) error {
 	// 验证认证信息
 	if !s.valid() {
-		// 触发Token过期回调
-		s.triggerTokenExpiredCallback()
 		return ex.Throw{Msg: "token empty or token expired"}
 	}
 
@@ -760,9 +803,15 @@ func (s *SocketSDK) SendWebSocketMessage(router string, requestObj, responseObj 
 		}
 		return nil
 	case <-time.After(waitTimeout):
-		return ex.Throw{Msg: fmt.Sprintf("wait response timeout (msgID: %s)", jsonBody.Nonce)}
+		return ex.Throw{
+			Code: ex.WS_WAIT,
+			Msg:  fmt.Sprintf("wait response timeout (router=%s, nonce=%s, timeout=%ds)", router, jsonBody.Nonce, int(waitTimeout/time.Second)),
+		}
 	case <-s.connCtx.Done(): // 监听当前连接上下文
-		return ex.Throw{Msg: fmt.Sprintf("connection closed while waiting response (msgID: %s)", jsonBody.Nonce)}
+		return ex.Throw{
+			Code: ex.WS_WAIT,
+			Msg:  fmt.Sprintf("connection closed while waiting response (router=%s, nonce=%s, timeout=%ds)", router, jsonBody.Nonce, int(waitTimeout/time.Second)),
+		}
 	}
 }
 
@@ -773,7 +822,10 @@ func (s *SocketSDK) SendWebSocketMessage(router string, requestObj, responseObj 
 func (s *SocketSDK) verifyWebSocketResponseFromJsonResp(path string, result interface{}, jsonResp *node.JsonResp) error {
 
 	if jsonResp.Code != 200 {
-		return ex.Throw{Msg: fmt.Sprintf("response error: %s", jsonResp.Message)}
+		return ex.Throw{
+			Code: jsonResp.Code,
+			Msg:  fmt.Sprintf("response error (code=%d, router=%s, nonce=%s, message=%s)", jsonResp.Code, path, jsonResp.Nonce, jsonResp.Message),
+		}
 	}
 
 	// 验证服务端响应时间戳，防止重放攻击
@@ -931,36 +983,25 @@ func (s *SocketSDK) websocketMessageListenerHandle(body []byte) {
 		}
 	}
 
-	// 通过code字段区分消息类型：200=响应消息，300=推送消息
-	if res.Code == 200 {
-		// 响应消息：这是对某个请求的响应
-		if zlog.IsDebug() {
-			zlog.Debug("received response message", 0, zlog.String("nonce", res.Nonce), zlog.String("data", res.Data))
-		}
-		respChanVal, loaded := s.responseMap.LoadAndDelete(res.Nonce)
-		if loaded {
-			respChan, ok := respChanVal.(chan *node.JsonResp)
-			if ok {
-				select {
-				case respChan <- &messageCopy:
-					if zlog.IsDebug() {
-						zlog.Debug("response sent to waiting channel successfully", 0, zlog.String("nonce", res.Nonce))
-					}
-				default:
-					// 通道已满或已超时（发送方已放弃等待），直接丢弃
-					zlog.Warn("response channel full or abandoned, dropping response", 0, zlog.String("nonce", res.Nonce))
+	// 先按 nonce 匹配同步响应（无论 code 是 200 还是业务错误码），避免误判成 unknown 后导致等待超时
+	if respChanVal, loaded := s.responseMap.LoadAndDelete(res.Nonce); loaded {
+		respChan, ok := respChanVal.(chan *node.JsonResp)
+		if ok {
+			select {
+			case respChan <- &messageCopy:
+				if zlog.IsDebug() {
+					zlog.Debug("response sent to waiting channel successfully", 0, zlog.String("nonce", res.Nonce), zlog.Int("code", res.Code))
 				}
-			}
-		} else {
-			// 高频压测下该分支可能大量出现（超时后响应晚到），按 1/1024 采样，避免日志风暴反向拖慢性能
-			miss := atomic.AddUint64(&s.responseNonceMiss, 1)
-			if miss&1023 == 1 {
-				zlog.Warn("no waiting channel found for nonce (sampled)", 0,
-					zlog.String("nonce", res.Nonce),
-					zlog.Int64("miss_total", int64(miss)))
+			default:
+				// 通道已满或已超时（发送方已放弃等待），直接丢弃
+				zlog.Warn("response channel full or abandoned, dropping response", 0, zlog.String("nonce", res.Nonce), zlog.Int("code", res.Code))
 			}
 		}
-	} else if res.Code == 300 {
+		return
+	}
+
+	// 通过code字段区分消息类型：300=推送消息，其它未匹配 nonce 的消息按未知处理
+	if res.Code == 300 {
 		// 推送消息：这是服务端主动推送的消息
 		if zlog.IsDebug() {
 			zlog.Debug("received server push message", 0, zlog.String("router", res.Router), zlog.String("nonce", res.Nonce), zlog.String("data", res.Data))
@@ -996,8 +1037,11 @@ func (s *SocketSDK) websocketMessageListenerHandle(body []byte) {
 			go s.onPushMessage(res.Router, pushData)
 		}
 	} else {
-		// 未知消息类型
-		zlog.Warn("received unknown message type", 0, zlog.Int("code", res.Code), zlog.String("nonce", res.Nonce))
+		// 高频压测下该分支可能大量出现（超时后响应晚到/无订阅消息），按 1/1024 采样，避免日志风暴反向拖慢性能
+		miss := atomic.AddUint64(&s.responseNonceMiss, 1)
+		if miss&1023 == 1 {
+			zlog.Warn("received unknown message type (sampled)", 0, zlog.Int("code", res.Code), zlog.String("nonce", res.Nonce), zlog.Int64("miss_total", int64(miss)))
+		}
 	}
 }
 
@@ -1136,7 +1180,8 @@ func (s *SocketSDK) startReconnectProcess() {
 		if zlog.IsDebug() {
 			zlog.Debug("Token expired during reconnect, stopping reconnect process", 0)
 		}
-		s.triggerTokenExpiredCallback()
+		// token 尚未恢复时继续重连流程，避免首次无 token 或回调异步刷新期间直接停止重连
+		go s.startReconnectProcess()
 		return
 	}
 
@@ -1186,13 +1231,44 @@ func (s *SocketSDK) SetTokenExpiredCallback(callback func()) {
 
 func (s *SocketSDK) triggerTokenExpiredCallback() {
 	if s.onTokenExpired != nil {
-		s.tokenExpiredOnce.Do(func() {
-			if zlog.IsDebug() {
-				zlog.Debug("Calling token expired callback", 0)
-			}
-			go s.onTokenExpired()
-		})
+		// 节流：避免多个触发点在短时间内重复拉起 token 回调导致风暴
+		now := utils.UnixSecond()
+		last := atomic.LoadInt64(&s.tokenCallbackLastAt)
+		if now-last < 2 {
+			return
+		}
+		if !atomic.CompareAndSwapInt32(&s.tokenCallbackActive, 0, 1) {
+			return
+		}
+		atomic.StoreInt64(&s.tokenCallbackLastAt, now)
+		if zlog.IsDebug() {
+			zlog.Debug("Calling token expired callback", 0)
+		}
+		go func() {
+			defer atomic.StoreInt32(&s.tokenCallbackActive, 0)
+			s.onTokenExpired()
+		}()
 	}
+}
+
+func (s *SocketSDK) triggerTokenExpiredCallbackSync() {
+	if s.onTokenExpired == nil {
+		return
+	}
+	now := utils.UnixSecond()
+	last := atomic.LoadInt64(&s.tokenCallbackLastAt)
+	if now-last < 2 {
+		return
+	}
+	if !atomic.CompareAndSwapInt32(&s.tokenCallbackActive, 0, 1) {
+		return
+	}
+	atomic.StoreInt64(&s.tokenCallbackLastAt, now)
+	defer atomic.StoreInt32(&s.tokenCallbackActive, 0)
+	if zlog.IsDebug() {
+		zlog.Debug("Calling token expired callback (sync)", 0)
+	}
+	s.onTokenExpired()
 }
 
 func (s *SocketSDK) SetReconnectConfig(enabled bool, maxAttempts int, initialInterval, maxInterval time.Duration) {
@@ -1212,7 +1288,7 @@ func (s *SocketSDK) SetReconnectConfig(enabled bool, maxAttempts int, initialInt
 
 	s.maxReconnectInterval = maxInterval
 	if s.maxReconnectInterval <= s.reconnectInterval {
-		s.maxReconnectInterval = 30 * time.Second // 默认30秒
+		s.maxReconnectInterval = 8 * time.Second // 默认8秒
 	}
 
 	s.reconnectAttempts = 0
@@ -1226,7 +1302,7 @@ func (s *SocketSDK) SetReconnectConfig(enabled bool, maxAttempts int, initialInt
 }
 
 func (s *SocketSDK) EnableReconnect() {
-	s.SetReconnectConfig(true, 10, time.Second, 30*time.Second)
+	s.SetReconnectConfig(true, 10, time.Second, 8*time.Second)
 }
 
 // DisableReconnect 禁用自动重连

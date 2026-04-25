@@ -14,6 +14,7 @@ const (
 	sep     = "∵∴"
 	BIZ     = 100000 // 普通业务异常
 	GRPC    = 300000 // GRPC请求失败
+	WS_WAIT = 999992 // WS等待响应超时
 	WS_SEND = 999993 // WS发送数据失败
 	JSON    = 999994 // JSON转换异常
 	NUMBER  = 999995 // 数值转换异常
