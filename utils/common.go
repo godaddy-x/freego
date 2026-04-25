@@ -33,6 +33,7 @@ import (
 	"github.com/godaddy-x/freego/utils/decimal"
 	"github.com/godaddy-x/freego/utils/snowflake"
 	"github.com/google/uuid"
+	"github.com/xdg-go/pbkdf2"
 	"gopkg.in/yaml.v3"
 )
 
@@ -1129,4 +1130,8 @@ func CompareBase64Sign(sign []byte, target string) bool {
 		return subtle.ConstantTimeCompare(sign, cand[:]) == 1
 	}
 	return false
+}
+
+func NewPasswordBase(pwd, salt []byte, iter int) []byte {
+	return pbkdf2.Key(pwd, salt, iter, 32, sha256.New)
 }
