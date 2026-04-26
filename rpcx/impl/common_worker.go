@@ -1,4 +1,4 @@
-// Package impl 实现 gRPC CommonWorker：P=0 明文；s=SHA256(规范字段)；e=Ed25519(s)；Cipher 为 *crypto.Ed25519Object。
+// Package impl 实现 gRPC CommonWorker：P=0 明文；s=SHA256(规范字段)；e=Ed25519.Sign(SHA256(规范字段))；Cipher 为 *crypto.Ed25519Object。
 package impl
 
 import (
@@ -101,14 +101,14 @@ func RPCXRequestDigestS(d, n []byte, t, p int64, r string, u int64) []byte {
 	return utils.SHA256_BASE(utils.Str2Bytes(msg))
 }
 
-// RPCXResponseDigestS 响应体摘要：SHA256( r|base64(d)|base64(n)|t|p|u|c|m )；签名 s 后再 e=Ed25519(s)。
+// RPCXResponseDigestS 响应体摘要：SHA256( r|base64(d)|base64(n)|t|p|u|c|m )；e 对该摘要做 Ed25519 签名。
 func RPCXResponseDigestS(d, n []byte, t, p int64, r string, u, c int64, m string) []byte {
 	msg := utils.AddStr(r, DIC.SEP, utils.Base64Encode(d), DIC.SEP,
 		utils.Base64Encode(n), DIC.SEP, t, DIC.SEP, p, DIC.SEP, u, DIC.SEP, c, DIC.SEP, m)
 	return utils.SHA256_BASE(utils.Str2Bytes(msg))
 }
 
-// validRequest：仅 P=0；s 为 32 字节 SHA256，e 为 64 字节 Ed25519(s)；校验摘要与对方对 s 的签名。
+// validRequest：仅 P=0；s 为 32 字节 SHA256 摘要，e 为 64 字节 Ed25519 摘要签名；校验摘要与对方签名。
 func (self *CommonWorker) validRequest(req *pb.CommonRequest) (fgocrypto.Cipher, error) {
 	if len(req.R) == 0 {
 		return nil, errors.New("request router is nil")

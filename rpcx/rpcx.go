@@ -35,7 +35,7 @@ func NewRPCManager() *RPCManager {
 }
 
 // AddCipher 注册某一客户端用户 Cipher：*crypto.Ed25519Object（CreateEd25519WithBase64：服务端私钥 + 该客户端公钥）。
-// RPCX 当前仅明文 P=0：s=SHA256(规范字段)，e=Ed25519(s)。
+// RPCX 当前仅明文 P=0：s=SHA256(规范字段)，e=Ed25519.Sign(SHA256(规范字段))。
 func (g *RPCManager) AddCipher(usr int64, cipher crypto.Cipher) error {
 	if cipher == nil {
 		return utils.Error("cipher is nil")

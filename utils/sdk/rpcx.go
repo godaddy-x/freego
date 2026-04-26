@@ -22,7 +22,7 @@ import (
 
 // RPC FreeGo gRPC 客户端 SDK
 // AddCipher：*crypto.Ed25519Object（CreateEd25519WithBase64：本端私钥 + 对端公钥）。
-// 当前仅支持明文 P=0：s = SHA256(规范字段)，e = Ed25519.Sign(本端私钥, s)；暂不支持 P=1。
+// 当前仅支持明文 P=0：s = SHA256(规范字段)，e = Ed25519.Sign(本端私钥, SHA256(规范字段))；暂不支持 P=1。
 type RPC struct {
 	Address       string
 	SSL           bool
