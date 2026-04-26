@@ -166,6 +166,9 @@ func (s *HttpSDK) verifyEd25519Sign(path string, usr int64, respData *node.JsonR
 	if !exists || cipher == nil {
 		return ex.Throw{Msg: "Ed25519 object not found for client, bidirectional Ed25519 signature is required"}
 	}
+	if !utils.CheckStrLen(respData.Valid, 80, 128) {
+		return ex.Throw{Msg: "post response Ed25519 signature length invalid"}
+	}
 	outerSignData := utils.Base64Decode(respData.Valid)
 	defer DIC.ClearData(outerSignData)
 	if err := cipher.Verify(node.DigestBodyMessage(path, respData.Data, respData.Nonce, respData.Time, respData.Plan, usr), outerSignData); err != nil {
@@ -478,14 +481,6 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 		return ex.Throw{Msg: respData.Message}
 	}
 
-	// 验证服务端响应时间戳，防止重放攻击
-	if respData.Time <= 0 {
-		return ex.Throw{Msg: "response time must be > 0"}
-	}
-	if utils.MathAbs(utils.UnixSecond()-respData.Time) > 300 { // 5分钟时间窗口
-		return ex.Throw{Msg: "response time invalid"}
-	}
-
 	validSign, _ := node.SignAndDigestBodyMessage(path, respData.Data, respData.Nonce, respData.Time, respData.Plan, jsonBody.User, sharedKey)
 	// 清理签名验证数据
 	defer DIC.ClearData(validSign)
@@ -500,6 +495,13 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	// 验证Ed25519签名
 	if err := s.verifyEd25519Sign(path, jsonBody.User, respData); err != nil {
 		return err
+	}
+	// 验证服务端响应时间戳，防止重放攻击
+	if respData.Time <= 0 {
+		return ex.Throw{Msg: "response time must be > 0"}
+	}
+	if utils.MathAbs(utils.UnixSecond()-respData.Time) > 300 { // 5分钟时间窗口
+		return ex.Throw{Msg: "response time invalid"}
 	}
 	dec, err := utils.AesGCMDecryptBase(respData.Data, sharedKey, node.AppendBodyMessage(path, "", respData.Nonce, respData.Time, respData.Plan, jsonBody.User))
 	if err != nil {
@@ -790,14 +792,6 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 		return ex.Throw{Msg: "response plan invalid, must be 0 or 1, got: " + utils.AnyToStr(respData.Plan)}
 	}
 
-	// 验证服务端响应时间戳，防止重放攻击
-	if respData.Time <= 0 {
-		return ex.Throw{Msg: "response time must be > 0"}
-	}
-	if utils.MathAbs(utils.UnixSecond()-respData.Time) > 300 { // 5分钟时间窗口
-		return ex.Throw{Msg: "response time invalid"}
-	}
-
 	validSign, _ := node.SignAndDigestBodyMessage(path, respData.Data, respData.Nonce, respData.Time, respData.Plan, jsonBody.User, tokenSecret)
 	// 清理签名验证数据
 	defer DIC.ClearData(validSign)
@@ -812,6 +806,13 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 	// 验证Ed25519签名
 	if err := s.verifyEd25519Sign(path, jsonBody.User, respData); err != nil {
 		return err
+	}
+	// 验证服务端响应时间戳，防止重放攻击
+	if respData.Time <= 0 {
+		return ex.Throw{Msg: "response time must be > 0"}
+	}
+	if utils.MathAbs(utils.UnixSecond()-respData.Time) > 300 { // 5分钟时间窗口
+		return ex.Throw{Msg: "response time invalid"}
 	}
 	var dec []byte
 	if respData.Plan == 0 {

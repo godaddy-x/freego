@@ -953,43 +953,52 @@ func (self *MessageHandler) CheckOuterSign(usr int64, msg, sign []byte) (crypto.
 
 // validWebSocketBody 验证 WebSocket 消息体（签名、时间窗、可选 token 有效期）。
 func (mh *MessageHandler) validWebSocketBody(connCtx *ConnectionContext, rawFrame []byte, body *JsonBody) (crypto.Cipher, error) {
-	if body == nil {
-		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "websocket json body is nil"}
+	if err := mh.validWebSocketBodyCommon(connCtx, body); err != nil {
+		return nil, err
 	}
-	d := body.Data
-	if len(d) == 0 {
-		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "websocket data is nil"}
+	return mh.validWebSocketBodyPlan01Flow(connCtx, body)
+}
+
+func (mh *MessageHandler) validWebSocketBodyCommon(connCtx *ConnectionContext, body *JsonBody) error {
+	if body == nil {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "websocket json body is nil"}
+	}
+	if len(body.Data) == 0 {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "websocket data is nil"}
 	}
 
 	// 只支持 Plan 0（明文）和 1（AES），不再支持 Plan 2
 	if !utils.CheckInt64(body.Plan, 0, 1) {
-		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "websocket plan invalid"}
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "websocket plan invalid"}
 	}
 
 	if !utils.CheckLen(body.Nonce, 8, 32) {
-		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "websocket nonce invalid"}
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "websocket nonce invalid"}
 	}
 	if body.Time <= 0 {
-		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "websocket time must be > 0"}
-	}
-	if utils.MathAbs(utils.UnixSecond()-body.Time) > jwt.FIVE_MINUTES {
-		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "websocket time invalid"}
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "websocket time must be > 0"}
 	}
 
 	// 检查是否需要AES加密
 	if connCtx.RouterConfig != nil && connCtx.RouterConfig.AesRequest && body.Plan != 1 {
-		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "websocket parameters must use encryption"}
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "websocket parameters must use encryption"}
 	}
 
 	if !utils.CheckStrLen(body.Sign, 32, 64) {
-		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "websocket signature length invalid"}
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "websocket signature length invalid"}
+	}
+	if !utils.CheckStrLen(body.Valid, 80, 128) {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "websocket outer signature length invalid"}
 	}
 
 	// 对于Plan 0/1，必须要有token
 	if len(connCtx.GetRawTokenBytes()) == 0 {
-		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "websocket header token is nil"}
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "websocket header token is nil"}
 	}
+	return nil
+}
 
+func (mh *MessageHandler) validWebSocketBodyPlan01Flow(connCtx *ConnectionContext, body *JsonBody) (crypto.Cipher, error) {
 	// 可选：每条消息校验 token 有效期（与 jwt.Verify 一致：提前 15 秒视为过期）
 	if connCtx.Server.validateTokenPerMessage {
 		if connCtx.Subject == nil || connCtx.Subject.Payload == nil {
@@ -1000,25 +1009,26 @@ func (mh *MessageHandler) validWebSocketBody(connCtx *ConnectionContext, rawFram
 		}
 	}
 
-	var sharedKey []byte
-
 	// Plan 0/1使用token secret，用毕清理
-	sharedKey = connCtx.GetTokenSecret()
+	sharedKey := connCtx.GetTokenSecret()
 	if len(sharedKey) == 0 {
 		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "websocket secret is nil"}
 	}
 	defer DIC.ClearData(sharedKey)
 
-	// 构建签名字符串
-	// 使用从header获取的路由标识进行签名验证，支持通过header指定路由
-	sign, digest := SignAndDigestBodyMessage(body.Router, d, body.Nonce, body.Time, body.Plan, body.User, sharedKey)
+	// Step 2: HMAC 验证（快速拒绝）
+	sign, digest := SignAndDigestBodyMessage(body.Router, body.Data, body.Nonce, body.Time, body.Plan, body.User, sharedKey)
 	if !utils.CompareBase64Sign(sign, body.Sign) {
 		return nil, ex.Throw{Code: http.StatusUnauthorized, Msg: "websocket signature verify invalid"}
 	}
 
+	// Step 3: Ed25519 外层验签（身份确认）
 	cipher, err := mh.CheckOuterSign(body.User, digest, utils.Base64Decode(body.Valid))
 	if err != nil {
 		return nil, err
+	}
+	if utils.MathAbs(utils.UnixSecond()-body.Time) > jwt.FIVE_MINUTES {
+		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "websocket time invalid"}
 	}
 
 	return cipher, nil

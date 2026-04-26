@@ -327,6 +327,9 @@ func (s *SocketSDK) verifyEd25519Sign(path string, usr int64, respData *node.Jso
 	if !exists || cipher == nil {
 		return ex.Throw{Msg: "Ed25519 object not found for client, bidirectional Ed25519 signature is required"}
 	}
+	if !utils.CheckStrLen(respData.Valid, 80, 128) {
+		return ex.Throw{Msg: "post response Ed25519 signature length invalid"}
+	}
 	outerSignData := utils.Base64Decode(respData.Valid)
 	defer DIC.ClearData(outerSignData)
 
@@ -672,14 +675,6 @@ func (s *SocketSDK) sendWebSocketAuthHandshake(conn *gws.Conn, path string) erro
 			return ex.Throw{Msg: fmt.Sprintf("handshake failed: %s", response.Message)}
 		}
 
-		// 验证握手响应时间戳，防止重放攻击
-		if response.Time <= 0 {
-			return ex.Throw{Msg: "handshake response time must be > 0"}
-		}
-		if utils.MathAbs(utils.UnixSecond()-response.Time) > 300 { // 5分钟时间窗口
-			return ex.Throw{Msg: "handshake response time invalid"}
-		}
-
 		// 验证响应签名（与HTTP流程保持一致的安全性）
 		tokenSecret := utils.Base64Decode(s.authToken.Secret)
 		defer DIC.ClearData(tokenSecret)
@@ -696,6 +691,13 @@ func (s *SocketSDK) sendWebSocketAuthHandshake(conn *gws.Conn, path string) erro
 		// 验证 Ed25519 外层签名（须配置 ed25519Object）
 		if err := s.verifyEd25519Sign(path, jsonBody.User, response); err != nil {
 			return err
+		}
+		// 验证握手响应时间戳，防止重放攻击
+		if response.Time <= 0 {
+			return ex.Throw{Msg: "handshake response time must be > 0"}
+		}
+		if utils.MathAbs(utils.UnixSecond()-response.Time) > 300 { // 5分钟时间窗口
+			return ex.Throw{Msg: "handshake response time invalid"}
 		}
 
 		// 验证响应数据（握手成功通常返回简单的确认信息）
@@ -828,14 +830,6 @@ func (s *SocketSDK) verifyWebSocketResponseFromJsonResp(path string, result inte
 		}
 	}
 
-	// 验证服务端响应时间戳，防止重放攻击
-	if jsonResp.Time <= 0 {
-		return ex.Throw{Msg: "response time must be > 0"}
-	}
-	if utils.MathAbs(utils.UnixSecond()-jsonResp.Time) > 300 { // 5分钟时间窗口
-		return ex.Throw{Msg: "response time invalid"}
-	}
-
 	tokenSecret := utils.Base64Decode(s.authToken.Secret)
 	defer DIC.ClearData(tokenSecret)
 
@@ -859,6 +853,13 @@ func (s *SocketSDK) verifyWebSocketResponseFromJsonResp(path string, result inte
 
 	if err := cipher.Verify(node.DigestBodyMessage(path, jsonResp.Data, jsonResp.Nonce, jsonResp.Time, jsonResp.Plan, s.ClientNo), outerSignData); err != nil {
 		return ex.Throw{Msg: "response Ed25519 signature verification failed"}
+	}
+	// 验证服务端响应时间戳，防止重放攻击
+	if jsonResp.Time <= 0 {
+		return ex.Throw{Msg: "response time must be > 0"}
+	}
+	if utils.MathAbs(utils.UnixSecond()-jsonResp.Time) > 300 { // 5分钟时间窗口
+		return ex.Throw{Msg: "response time invalid"}
 	}
 
 	var decryptedData []byte

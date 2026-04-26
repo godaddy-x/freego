@@ -2,8 +2,8 @@ package node
 
 import (
 	"bytes"
-	"crypto/hmac"
 	"crypto/hkdf"
+	"crypto/hmac"
 	"crypto/sha256"
 	"io"
 	"net"
@@ -406,7 +406,7 @@ func (self *Context) validReplayAttack(sign string) error {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "replay attack detected"}
 	}
 
-	if err := c.Put(hex, 1, 600); err != nil {
+	if err := c.Put(hex, 1, 300); err != nil {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "cache replay attack record failed", Err: err}
 	}
 	return nil
@@ -433,165 +433,6 @@ func (self *Context) GetCacheObject() (cache.Cache, error) {
 		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "cache object not setting"}
 	}
 	return c, nil
-}
-
-func (self *Context) validJsonBody() error {
-	if self.JsonBody == nil {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "request json body is nil"}
-	}
-	body := self.JsonBody
-	if len(body.Router) > 0 {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "request router invalid"}
-	}
-	d := body.Data
-	if len(d) == 0 {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "request data is nil"}
-	}
-	if !utils.CheckInt64(body.Plan, 0, 1, 2) {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "request plan invalid"}
-	}
-	if !utils.CheckLen(body.Nonce, 16, 64) {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "request nonce invalid"}
-	}
-	if body.Time <= 0 {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "request time must be > 0"}
-	}
-	if utils.MathAbs(utils.UnixSecond()-body.Time) > jwt.FIVE_MINUTES { // 判断绝对时间差超过5分钟
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "request time invalid"}
-	}
-	if self.RouterConfig.AesRequest && body.Plan != 1 {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters must use encryption"}
-	}
-	if !utils.CheckStrLen(body.Sign, 32, 64) {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature length invalid"}
-	}
-
-	if utils.CheckInt64(body.Plan, 0, 1) {
-		if len(self.GetRawTokenBytes()) == 0 {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "request header token is nil"}
-		}
-	}
-
-	var sharedKey []byte // 协商密钥
-	var anonymous bool   // true.匿名状态
-
-	// Plan 2是匿名状态（使用ECC加密，需要特殊处理）
-	if body.Plan == 2 {
-		anonymous = true
-		if !self.RouterConfig.UseRSA {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters must use RSA encryption"}
-		}
-		authBs := self.RequestCtx.Request.Header.Peek(Authorization)
-		if len(authBs) <= 0 || len(authBs) > 1024 {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "client public key invalid"}
-		}
-		public := &PublicKey{}
-		if err := utils.JsonUnmarshal(utils.Base64Decode(authBs), public); err != nil {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "client public key parse error", Err: err}
-		}
-
-		c, err := self.GetCacheObject()
-		if err != nil {
-			return err
-		}
-
-		cipher, exists := self.Cipher[body.User]
-		if !exists {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "cipher not found for user"}
-		}
-		if err := CheckPublicKey(c, public, cipher); err != nil {
-			return err
-		}
-
-		// 使用与CreatePublicKey相同的缓存键计算方式
-		cacheKey := utils.FNV1a64(utils.AddStr(public.Key, ":", public.Usr))
-		var prkObject *PrivateKey
-		if c.Mode() == cache.LOCAL {
-			if v, b, err := c.Get(cacheKey, nil); err != nil || !b {
-				return ex.Throw{Code: http.StatusBadRequest, Msg: "prk read error", Err: err}
-			} else {
-				prkObject = v.(*PrivateKey)
-			}
-		} else {
-			prkObject = &PrivateKey{}
-			if _, b, err := c.Get(cacheKey, prkObject); err != nil || !b {
-				return ex.Throw{Code: http.StatusBadRequest, Msg: "prk read error", Err: err}
-			}
-		}
-		defer c.Del(cacheKey)
-		if len(prkObject.Key) == 0 {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "prk read is nil"}
-		}
-		prk, err := ecc.LoadX25519PrivateKey(utils.Base64Decode(prkObject.Key))
-		if err != nil {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "prk load error", Err: err}
-		}
-		prkBs := prk.Bytes()
-		defer DIC.ClearData(prkBs) // 方法结束清除临时私钥的底层字节
-		pub, err := ecc.LoadX25519PublicKeyFromBase64(public.Tag)
-		if err != nil {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "pub load error", Err: err}
-		}
-		shared, err := ecc.GenSharedKeyX25519(prk, pub)
-		if err != nil || len(shared) == 0 {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "shared key error", Err: err}
-		}
-		sharedKey, err = HKDFKey(shared, prkObject.Noc)
-		defer DIC.ClearData(shared, sharedKey)
-		if err != nil {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "shared key kdf error", Err: err}
-		}
-	}
-
-	// 签名验证：Plan 0/1使用token secret，Plan 2使用sharedKey
-	if len(sharedKey) == 0 {
-		sharedKey = self.GetTokenSecret()
-	}
-	// Secret签名校验
-	sign, digest := SignAndDigestBodyMessage(self.Path, d, body.Nonce, body.Time, body.Plan, body.User, sharedKey)
-	if !utils.CompareBase64Sign(sign, body.Sign) {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature invalid"}
-	}
-	// 外层签名校验（Ed25519）
-	cipher, exists := self.Cipher[body.User]
-	if !exists {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "cipher not found for user"}
-	}
-	cipher, err := self.CheckOuterSign(cipher, digest, utils.Base64Decode(body.Valid))
-	if err != nil {
-		return err
-	}
-	// cipher传递给响应代码
-	self.AddStorage(Cipher, cipher)
-	if err := self.validReplayAttack(body.Sign); err != nil {
-		return err
-	}
-	var rawData []byte
-	if body.Plan == 0 && !anonymous { // 登录状态 P0 Base64
-		rawData = utils.Base64Decode(d)
-		if len(rawData) == 0 {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "parameter Base64 parsing failed"}
-		}
-	} else if body.Plan == 1 && !anonymous { // 登录状态 P1 AES
-		secret := self.GetTokenSecret()
-		defer DIC.ClearData(secret)
-		rawData, err = utils.AesGCMDecryptBase(d, secret[:32], AppendBodyMessage(self.Path, "", self.JsonBody.Nonce, self.JsonBody.Time, self.JsonBody.Plan, self.JsonBody.User))
-		if err != nil {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "failed to parse data", Err: err}
-		}
-	} else if body.Plan == 2 && self.RouterConfig.UseRSA && anonymous { // 非登录状态 P2 ECC+AES
-		rawData, err = utils.AesGCMDecryptBase(d, sharedKey[0:32], AppendBodyMessage(self.Path, "", self.JsonBody.Nonce, self.JsonBody.Time, self.JsonBody.Plan, self.JsonBody.User))
-		if err != nil {
-			return ex.Throw{Code: http.StatusBadRequest, Msg: "failed to parse data", Err: err}
-		}
-		// 复制一份秘钥，执行defer会清空当前秘钥
-		copySharedKey := DIC.CopyData(sharedKey)
-		self.AddStorage(SharedKey, copySharedKey)
-	} else {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters plan invalid"}
-	}
-	self.JsonBody.Data = utils.Bytes2Str(rawData)
-	return nil
 }
 
 func (self *Context) GetHeader(key string) string {
@@ -878,7 +719,7 @@ var (
 		// /key 入口限流：保留突发吸收能力，同时避免无限放大攻击流量
 		Limit:       5000.0, // 每秒5000个令牌
 		Bucket:      15000,  // 桶容量15000
-		Expire:      60000, // 60秒过期
+		Expire:      60000,  // 60秒过期
 		Distributed: false,
 	})
 )
