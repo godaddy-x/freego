@@ -592,7 +592,7 @@ func defaultRenderPre(ctx *Context) error {
 		if cipher == nil {
 			return ex.Throw{Code: http.StatusInternalServerError, Msg: "cipher not found for response signing, bidirectional Ed25519 signature is required"}
 		}
-		result, err := cipher.(crypto.Cipher).Sign(sign)
+		result, err := cipher.(crypto.Cipher).Sign(DigestBodyMessage(ctx.Path, resp.Data, resp.Nonce, resp.Time, resp.Plan, ctx.JsonBody.User))
 		if err != nil {
 			return ex.Throw{Code: http.StatusInternalServerError, Msg: "response sign data failed", Err: err}
 		}

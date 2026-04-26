@@ -307,19 +307,19 @@ func (s *SocketSDK) addEd25519Sign(jsonBody *node.JsonBody) error {
 	if !exists || cipher == nil {
 		return ex.Throw{Msg: "Ed25519 object not found for client, bidirectional Ed25519 signature is required"}
 	}
-	outerSign, err := cipher.Sign(utils.Base64Decode(jsonBody.Sign))
+	outerSign, err := cipher.Sign(node.DigestBodyMessage(jsonBody.Router, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan, jsonBody.User))
 	if err != nil {
 		return ex.Throw{Msg: "Ed25519 sign failed: " + err.Error()}
 	}
 	jsonBody.Valid = utils.Base64Encode(outerSign)
 	DIC.ClearData(outerSign)
 	if zlog.IsDebug() {
-		zlog.Debug(fmt.Sprintf("Ed25519 sign added for HMAC signature: %s", jsonBody.Valid), 0)
+		zlog.Debug(fmt.Sprintf("Ed25519 sign added for body digest: %s", jsonBody.Valid), 0)
 	}
 	return nil
 }
 
-func (s *SocketSDK) verifyEd25519Sign(validSign []byte, respData *node.JsonResp) error {
+func (s *SocketSDK) verifyEd25519Sign(path string, usr int64, respData *node.JsonResp) error {
 	if s.ed25519Object == nil {
 		return ex.Throw{Msg: "Ed25519 object not configured, bidirectional Ed25519 signature is required"}
 	}
@@ -330,7 +330,7 @@ func (s *SocketSDK) verifyEd25519Sign(validSign []byte, respData *node.JsonResp)
 	outerSignData := utils.Base64Decode(respData.Valid)
 	defer DIC.ClearData(outerSignData)
 
-	if err := cipher.Verify(validSign, outerSignData); err != nil {
+	if err := cipher.Verify(node.DigestBodyMessage(path, respData.Data, respData.Nonce, respData.Time, respData.Plan, usr), outerSignData); err != nil {
 		return ex.Throw{Msg: "post response Ed25519 sign verify invalid"}
 	}
 	return nil
@@ -694,7 +694,7 @@ func (s *SocketSDK) sendWebSocketAuthHandshake(conn *gws.Conn, path string) erro
 		}
 
 		// 验证 Ed25519 外层签名（须配置 ed25519Object）
-		if err := s.verifyEd25519Sign(validSign, response); err != nil {
+		if err := s.verifyEd25519Sign(path, jsonBody.User, response); err != nil {
 			return err
 		}
 
@@ -857,7 +857,7 @@ func (s *SocketSDK) verifyWebSocketResponseFromJsonResp(path string, result inte
 		return ex.Throw{Msg: "Ed25519 object not found for client, bidirectional Ed25519 signature is required"}
 	}
 
-	if err := cipher.Verify(validSign, outerSignData); err != nil {
+	if err := cipher.Verify(node.DigestBodyMessage(path, jsonResp.Data, jsonResp.Nonce, jsonResp.Time, jsonResp.Plan, s.ClientNo), outerSignData); err != nil {
 		return ex.Throw{Msg: "response Ed25519 signature verification failed"}
 	}
 

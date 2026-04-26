@@ -138,7 +138,7 @@ func (s *HttpSDK) SetEd25519Object(usr int64, prkB64, peerPubB64 string) error {
 	return nil
 }
 
-func (s *HttpSDK) addEd25519Sign(jsonBody *node.JsonBody) error {
+func (s *HttpSDK) addEd25519Sign(path string, jsonBody *node.JsonBody) error {
 	if s.ed25519Object == nil {
 		return ex.Throw{Msg: "Ed25519 object not configured, bidirectional Ed25519 signature is required"}
 	}
@@ -146,19 +146,19 @@ func (s *HttpSDK) addEd25519Sign(jsonBody *node.JsonBody) error {
 	if !exists || cipher == nil {
 		return ex.Throw{Msg: "Ed25519 object not found for client, bidirectional Ed25519 signature is required"}
 	}
-	outerSign, err := cipher.Sign(utils.Base64Decode(jsonBody.Sign))
+	outerSign, err := cipher.Sign(node.DigestBodyMessage(path, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan, jsonBody.User))
 	if err != nil {
 		return ex.Throw{Msg: "Ed25519 sign failed: " + err.Error()}
 	}
 	jsonBody.Valid = utils.Base64Encode(outerSign)
 	DIC.ClearData(outerSign)
 	if zlog.IsDebug() {
-		zlog.Debug(fmt.Sprintf("Ed25519 sign added for HMAC signature: %s", jsonBody.Valid), 0)
+		zlog.Debug(fmt.Sprintf("Ed25519 sign added for body digest: %s", jsonBody.Valid), 0)
 	}
 	return nil
 }
 
-func (s *HttpSDK) verifyEd25519Sign(validSign []byte, respData *node.JsonResp) error {
+func (s *HttpSDK) verifyEd25519Sign(path string, usr int64, respData *node.JsonResp) error {
 	if s.ed25519Object == nil {
 		return ex.Throw{Msg: "Ed25519 object not configured, bidirectional Ed25519 signature is required"}
 	}
@@ -168,7 +168,7 @@ func (s *HttpSDK) verifyEd25519Sign(validSign []byte, respData *node.JsonResp) e
 	}
 	outerSignData := utils.Base64Decode(respData.Valid)
 	defer DIC.ClearData(outerSignData)
-	if err := cipher.Verify(validSign, outerSignData); err != nil {
+	if err := cipher.Verify(node.DigestBodyMessage(path, respData.Data, respData.Nonce, respData.Time, respData.Plan, usr), outerSignData); err != nil {
 		return ex.Throw{Msg: "post response Ed25519 sign verify invalid"}
 	}
 	return nil
@@ -407,7 +407,7 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	jsonBody.Data = d
 	jsonBody.Sign = utils.Base64Encode(node.SignBodyMessage(path, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan, jsonBody.User, sharedKey))
 	// 添加Ed25519签名
-	if err := s.addEd25519Sign(jsonBody); err != nil {
+	if err := s.addEd25519Sign(path, jsonBody); err != nil {
 		return err
 	}
 
@@ -497,7 +497,7 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	}
 
 	// 验证Ed25519签名
-	if err := s.verifyEd25519Sign(validSign, respData); err != nil {
+	if err := s.verifyEd25519Sign(path, jsonBody.User, respData); err != nil {
 		return err
 	}
 	dec, err := utils.AesGCMDecryptBase(respData.Data, sharedKey, node.AppendBodyMessage(path, "", respData.Nonce, respData.Time, respData.Plan, jsonBody.User))
@@ -730,7 +730,7 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 	}
 	jsonBody.Sign = utils.Base64Encode(node.SignBodyMessage(path, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan, jsonBody.User, tokenSecret))
 	// 添加Ed25519签名
-	if err := s.addEd25519Sign(jsonBody); err != nil {
+	if err := s.addEd25519Sign(path, jsonBody); err != nil {
 		return err
 	}
 
@@ -808,7 +808,7 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 	}
 
 	// 验证Ed25519签名
-	if err := s.verifyEd25519Sign(validSign, respData); err != nil {
+	if err := s.verifyEd25519Sign(path, jsonBody.User, respData); err != nil {
 		return err
 	}
 	var dec []byte

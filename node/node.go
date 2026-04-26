@@ -187,6 +187,11 @@ func AppendBodyMessage(path, data, nonce string, time, plan, usr int64) []byte {
 	return appendBodyMessageTo(nil, path, data, nonce, time, plan, usr)
 }
 
+// DigestBodyMessage returns SHA-256 digest of canonical body message.
+func DigestBodyMessage(path, data, nonce string, time, plan, usr int64) []byte {
+	return utils.SHA256_BASE(AppendBodyMessage(path, data, nonce, time, plan, usr))
+}
+
 func SignBodyMessage(path, data, nonce string, time, plan, usr int64, key []byte) []byte {
 	h := hmac.New(sha256.New, key)
 	sep := DIC.SEP
@@ -546,7 +551,7 @@ func (self *Context) validJsonBody() error {
 	if !exists {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "cipher not found for user"}
 	}
-	cipher, err := self.CheckOuterSign(cipher, sign, utils.Base64Decode(body.Valid))
+	cipher, err := self.CheckOuterSign(cipher, DigestBodyMessage(self.Path, d, body.Nonce, body.Time, body.Plan, body.User), utils.Base64Decode(body.Valid))
 	if err != nil {
 		return err
 	}

@@ -1016,7 +1016,7 @@ func (mh *MessageHandler) validWebSocketBody(connCtx *ConnectionContext, rawFram
 		return nil, ex.Throw{Code: http.StatusUnauthorized, Msg: "websocket signature verify invalid"}
 	}
 
-	cipher, err := mh.CheckOuterSign(body.User, sign, utils.Base64Decode(body.Valid))
+	cipher, err := mh.CheckOuterSign(body.User, DigestBodyMessage(body.Router, d, body.Nonce, body.Time, body.Plan, body.User), utils.Base64Decode(body.Valid))
 	if err != nil {
 		return nil, err
 	}
@@ -1792,7 +1792,7 @@ func replyData(connCtx *ConnectionContext, req requestMeta, cipher crypto.Cipher
 	var validBytes []byte
 	if cipher != nil {
 		var err error
-		validBytes, err = cipher.Sign(sign)
+		validBytes, err = cipher.Sign(DigestBodyMessage(req.Router, jsonResp.Data, jsonResp.Nonce, jsonResp.Time, jsonResp.Plan, req.User))
 		if err != nil {
 			zlog.Error("failed_to_outer_sign_response", 0, zlog.AddError(err), zlog.String("user_id", userID), zlog.String("device_id", deviceID), zlog.String("connection_path", connPath))
 			return
