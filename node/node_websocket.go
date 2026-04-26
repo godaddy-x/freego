@@ -1011,12 +1011,12 @@ func (mh *MessageHandler) validWebSocketBody(connCtx *ConnectionContext, rawFram
 
 	// 构建签名字符串
 	// 使用从header获取的路由标识进行签名验证，支持通过header指定路由
-	sign := SignBodyMessage(body.Router, d, body.Nonce, body.Time, body.Plan, body.User, sharedKey)
+	sign, digest := SignAndDigestBodyMessage(body.Router, d, body.Nonce, body.Time, body.Plan, body.User, sharedKey)
 	if !utils.CompareBase64Sign(sign, body.Sign) {
 		return nil, ex.Throw{Code: http.StatusUnauthorized, Msg: "websocket signature verify invalid"}
 	}
 
-	cipher, err := mh.CheckOuterSign(body.User, DigestBodyMessage(body.Router, d, body.Nonce, body.Time, body.Plan, body.User), utils.Base64Decode(body.Valid))
+	cipher, err := mh.CheckOuterSign(body.User, digest, utils.Base64Decode(body.Valid))
 	if err != nil {
 		return nil, err
 	}
@@ -1786,13 +1786,13 @@ func replyData(connCtx *ConnectionContext, req requestMeta, cipher crypto.Cipher
 	}
 
 	// 生成响应签名（使用同一 secret，避免二次派生）
-	sign := SignBodyMessage(req.Router, jsonResp.Data, jsonResp.Nonce, jsonResp.Time, jsonResp.Plan, req.User, secret)
+	sign, digest := SignAndDigestBodyMessage(req.Router, jsonResp.Data, jsonResp.Nonce, jsonResp.Time, jsonResp.Plan, req.User, secret)
 	jsonResp.Sign = utils.Base64Encode(sign)
 
 	var validBytes []byte
 	if cipher != nil {
 		var err error
-		validBytes, err = cipher.Sign(DigestBodyMessage(req.Router, jsonResp.Data, jsonResp.Nonce, jsonResp.Time, jsonResp.Plan, req.User))
+		validBytes, err = cipher.Sign(digest)
 		if err != nil {
 			zlog.Error("failed_to_outer_sign_response", 0, zlog.AddError(err), zlog.String("user_id", userID), zlog.String("device_id", deviceID), zlog.String("connection_path", connPath))
 			return

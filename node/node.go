@@ -192,6 +192,12 @@ func DigestBodyMessage(path, data, nonce string, time, plan, usr int64) []byte {
 	return utils.SHA256_BASE(AppendBodyMessage(path, data, nonce, time, plan, usr))
 }
 
+// SignAndDigestBodyMessage computes HMAC and SHA-256 digest from one canonical message assembly.
+func SignAndDigestBodyMessage(path, data, nonce string, time, plan, usr int64, key []byte) ([]byte, []byte) {
+	msg := AppendBodyMessage(path, data, nonce, time, plan, usr)
+	return utils.HMAC_SHA256_BASE(msg, key), utils.SHA256_BASE(msg)
+}
+
 func SignBodyMessage(path, data, nonce string, time, plan, usr int64, key []byte) []byte {
 	h := hmac.New(sha256.New, key)
 	sep := DIC.SEP
@@ -542,7 +548,7 @@ func (self *Context) validJsonBody() error {
 		sharedKey = self.GetTokenSecret()
 	}
 	// Secret签名校验
-	sign := self.GetHmac256Sign(d, body.Nonce, body.Time, body.Plan, body.User, sharedKey)
+	sign, digest := SignAndDigestBodyMessage(self.Path, d, body.Nonce, body.Time, body.Plan, body.User, sharedKey)
 	if !utils.CompareBase64Sign(sign, body.Sign) {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature invalid"}
 	}
@@ -551,7 +557,7 @@ func (self *Context) validJsonBody() error {
 	if !exists {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "cipher not found for user"}
 	}
-	cipher, err := self.CheckOuterSign(cipher, DigestBodyMessage(self.Path, d, body.Nonce, body.Time, body.Plan, body.User), utils.Base64Decode(body.Valid))
+	cipher, err := self.CheckOuterSign(cipher, digest, utils.Base64Decode(body.Valid))
 	if err != nil {
 		return err
 	}

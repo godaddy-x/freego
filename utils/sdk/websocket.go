@@ -549,7 +549,7 @@ func (s *SocketSDK) prepareHeartbeatMessage(router string, data interface{}) ([]
 	// 生成签名（心跳也需要签名验证）
 	tokenSecret := utils.Base64Decode(s.authToken.Secret)
 
-	signData := node.SignBodyMessage(jsonBody.Router, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan, jsonBody.User, tokenSecret)
+	signData, _ := node.SignAndDigestBodyMessage(jsonBody.Router, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan, jsonBody.User, tokenSecret)
 	jsonBody.Sign = utils.Base64Encode(signData)
 	DIC.ClearData(signData)    // 立即清理签名数据
 	DIC.ClearData(tokenSecret) // 立即清理token secret
@@ -609,7 +609,7 @@ func (s *SocketSDK) prepareWebSocketMessage(jsonBody *node.JsonBody, data interf
 	}
 
 	// 生成签名
-	signData := node.SignBodyMessage(jsonBody.Router, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan, jsonBody.User, tokenSecret)
+	signData, _ := node.SignAndDigestBodyMessage(jsonBody.Router, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan, jsonBody.User, tokenSecret)
 	jsonBody.Sign = utils.Base64Encode(signData)
 	defer DIC.ClearData(signData)
 
@@ -685,7 +685,7 @@ func (s *SocketSDK) sendWebSocketAuthHandshake(conn *gws.Conn, path string) erro
 		defer DIC.ClearData(tokenSecret)
 
 		// 构建签名字符串（使用握手路径）
-		validSign := node.SignBodyMessage(path, response.Data, response.Nonce, response.Time, response.Plan, jsonBody.User, tokenSecret)
+		validSign, _ := node.SignAndDigestBodyMessage(path, response.Data, response.Nonce, response.Time, response.Plan, jsonBody.User, tokenSecret)
 		defer DIC.ClearData(validSign)
 
 		// 验证HMAC签名
@@ -839,7 +839,7 @@ func (s *SocketSDK) verifyWebSocketResponseFromJsonResp(path string, result inte
 	tokenSecret := utils.Base64Decode(s.authToken.Secret)
 	defer DIC.ClearData(tokenSecret)
 
-	validSign := node.SignBodyMessage(path, jsonResp.Data, jsonResp.Nonce, jsonResp.Time, jsonResp.Plan, s.ClientNo, tokenSecret)
+	validSign, _ := node.SignAndDigestBodyMessage(path, jsonResp.Data, jsonResp.Nonce, jsonResp.Time, jsonResp.Plan, s.ClientNo, tokenSecret)
 	defer DIC.ClearData(validSign)
 
 	if !utils.CompareBase64Sign(validSign, jsonResp.Sign) {

@@ -552,6 +552,7 @@ func defaultRenderPre(ctx *Context) error {
 		resp.Time = utils.UnixSecond()
 		resp.Nonce = utils.RandNonce()
 		var sign []byte
+		var digest []byte
 		if routerConfig.UseRSA { // 非登录状态响应
 			if ctx.JsonBody.Plan == 2 {
 				v := ctx.GetStorage(SharedKey)
@@ -566,7 +567,7 @@ func defaultRenderPre(ctx *Context) error {
 					return ex.Throw{Code: http.StatusInternalServerError, Msg: "encryption response data failed", Err: err}
 				}
 				ctx.DelStorage(SharedKey)
-				sign = ctx.GetHmac256Sign(resp.Data, resp.Nonce, resp.Time, resp.Plan, ctx.JsonBody.User, key)
+				sign, digest = SignAndDigestBodyMessage(ctx.Path, resp.Data, resp.Nonce, resp.Time, resp.Plan, ctx.JsonBody.User, key)
 				resp.Sign = utils.Base64Encode(sign)
 			} else {
 				return ex.Throw{Msg: "anonymous response plan invalid"}
@@ -579,20 +580,20 @@ func defaultRenderPre(ctx *Context) error {
 			if err != nil {
 				return ex.Throw{Code: http.StatusInternalServerError, Msg: "encryption response data failed", Err: err}
 			}
-			sign = ctx.GetHmac256Sign(resp.Data, resp.Nonce, resp.Time, resp.Plan, ctx.JsonBody.User, key)
+			sign, digest = SignAndDigestBodyMessage(ctx.Path, resp.Data, resp.Nonce, resp.Time, resp.Plan, ctx.JsonBody.User, key)
 			resp.Sign = utils.Base64Encode(sign)
 		} else { // 单纯Base64编码格式响应
 			key := ctx.GetTokenSecret()
 			defer DIC.ClearData(key) // 使用完毕清空敏感密钥
 			resp.Data = utils.Base64Encode(data)
-			sign = ctx.GetHmac256Sign(resp.Data, resp.Nonce, resp.Time, resp.Plan, ctx.JsonBody.User, key)
+			sign, digest = SignAndDigestBodyMessage(ctx.Path, resp.Data, resp.Nonce, resp.Time, resp.Plan, ctx.JsonBody.User, key)
 			resp.Sign = utils.Base64Encode(sign)
 		}
 		cipher := ctx.GetStorage(Cipher)
 		if cipher == nil {
 			return ex.Throw{Code: http.StatusInternalServerError, Msg: "cipher not found for response signing, bidirectional Ed25519 signature is required"}
 		}
-		result, err := cipher.(crypto.Cipher).Sign(DigestBodyMessage(ctx.Path, resp.Data, resp.Nonce, resp.Time, resp.Plan, ctx.JsonBody.User))
+		result, err := cipher.(crypto.Cipher).Sign(digest)
 		if err != nil {
 			return ex.Throw{Code: http.StatusInternalServerError, Msg: "response sign data failed", Err: err}
 		}

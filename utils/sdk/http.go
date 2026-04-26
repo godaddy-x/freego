@@ -405,7 +405,8 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 		return ex.Throw{Msg: "request data AES encrypt failed"}
 	}
 	jsonBody.Data = d
-	jsonBody.Sign = utils.Base64Encode(node.SignBodyMessage(path, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan, jsonBody.User, sharedKey))
+	sign, _ := node.SignAndDigestBodyMessage(path, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan, jsonBody.User, sharedKey)
+	jsonBody.Sign = utils.Base64Encode(sign)
 	// 添加Ed25519签名
 	if err := s.addEd25519Sign(path, jsonBody); err != nil {
 		return err
@@ -485,7 +486,7 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 		return ex.Throw{Msg: "response time invalid"}
 	}
 
-	validSign := node.SignBodyMessage(path, respData.Data, respData.Nonce, respData.Time, respData.Plan, jsonBody.User, sharedKey)
+	validSign, _ := node.SignAndDigestBodyMessage(path, respData.Data, respData.Nonce, respData.Time, respData.Plan, jsonBody.User, sharedKey)
 	// 清理签名验证数据
 	defer DIC.ClearData(validSign)
 	isSignOK := utils.CompareBase64Sign(validSign, respData.Sign)
@@ -728,7 +729,8 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 			zlog.Debug(fmt.Sprintf("request data base64: %s", jsonBody.Data), 0)
 		}
 	}
-	jsonBody.Sign = utils.Base64Encode(node.SignBodyMessage(path, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan, jsonBody.User, tokenSecret))
+	sign, _ := node.SignAndDigestBodyMessage(path, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan, jsonBody.User, tokenSecret)
+	jsonBody.Sign = utils.Base64Encode(sign)
 	// 添加Ed25519签名
 	if err := s.addEd25519Sign(path, jsonBody); err != nil {
 		return err
@@ -796,7 +798,7 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 		return ex.Throw{Msg: "response time invalid"}
 	}
 
-	validSign := node.SignBodyMessage(path, respData.Data, respData.Nonce, respData.Time, respData.Plan, jsonBody.User, tokenSecret)
+	validSign, _ := node.SignAndDigestBodyMessage(path, respData.Data, respData.Nonce, respData.Time, respData.Plan, jsonBody.User, tokenSecret)
 	// 清理签名验证数据
 	defer DIC.ClearData(validSign)
 	isSignOK := utils.CompareBase64Sign(validSign, respData.Sign)
