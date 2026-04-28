@@ -2,16 +2,19 @@ package sdk
 
 import (
 	"context"
+	cryptocdh "crypto/ecdh"
 	"crypto/rand"
 	"fmt"
 	"math/big"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/godaddy-x/freego/utils/crypto"
+	ecc "github.com/godaddy-x/eccrypto"
 
 	DIC "github.com/godaddy-x/freego/common"
 	"github.com/godaddy-x/freego/ex"
@@ -32,9 +35,9 @@ const (
 //
 // 默认值:
 // - timeout: 120秒
-// - maxReconnectAttempts: 10
+// - maxReconnectAttempts: -1（无限重连，可由 SetReconnectConfig 改为有限次数）
 // - reconnectInterval: 1秒
-// - maxReconnectInterval: 30秒
+// - maxReconnectInterval: 8秒
 // - HealthPing: 15秒（建议 10–15，内部不超过 15）
 //
 // 返回值:
@@ -51,10 +54,11 @@ func NewSocketSDK(domain string) *SocketSDK {
 	return &SocketSDK{
 		Domain:               domain,
 		timeout:              120,
-		maxReconnectAttempts: 10,
+		maxReconnectAttempts: -1,
 		reconnectInterval:    time.Second,
 		maxReconnectInterval: 8 * time.Second,
 		HealthPing:           15,
+		connectedPath:        DefaultWsRoute,
 		rootCtx:              rootCtx,
 		rootCancel:           rootCancel,
 	}
@@ -115,6 +119,7 @@ type SocketSDK struct {
 	timeout       int64                   // 请求超时时间(秒)
 	authObject    interface{}             // 登录认证对象 (用户名+密码等)
 	authToken     AuthToken               // JWT认证令牌
+	rawAuthHeader string                  // 自定义Authorization头（用于plan2等非JWT建连）
 	broadcastKey  string                  // 广播数据签名密钥
 	SSL           bool                    // 是否启用https
 	ClientNo      int64                   // 客户端ID
@@ -181,6 +186,15 @@ func (s *SocketSDK) AuthToken(object AuthToken) {
 	atomic.StoreInt32(&s.tokenCallbackActive, 0) // token刷新后允许再次触发回调
 }
 
+func (s *SocketSDK) GetAuth() AuthToken {
+	return s.authToken
+}
+
+// SetRawAuthorization 设置连接时直接使用的 Authorization 头（如 plan2 场景）。
+func (s *SocketSDK) SetRawAuthorization(auth string) {
+	s.rawAuthHeader = auth
+}
+
 // SetTimeout 设置WebSocket请求的超时时间
 // timeout: 超时时间(秒)，控制WebSocket消息发送和等待响应的最大时间
 func (s *SocketSDK) SetTimeout(timeout int64) {
@@ -217,6 +231,29 @@ func (s *SocketSDK) SetLanguage(language string) {
 // SetPushMessageCallback 设置服务端主动推送消息的回调函数
 func (s *SocketSDK) SetPushMessageCallback(callback func(router string, data []byte)) {
 	s.onPushMessage = callback
+}
+
+func sanitizeWSPath(path string) (string, error) {
+	p := strings.TrimSpace(path)
+	if len(p) == 0 {
+		return DefaultWsRoute, nil
+	}
+	if p != DefaultWsRoute {
+		return "", ex.Throw{Msg: "websocket path invalid, only /ws is allowed"}
+	}
+	return p, nil
+}
+
+// SetWebSocketPath 设置连接路径。默认固定 /ws，若要覆盖需显式调用本方法。
+func (s *SocketSDK) SetWebSocketPath(path string) error {
+	p, err := sanitizeWSPath(path)
+	if err != nil {
+		return err
+	}
+	s.reconnectMutex.Lock()
+	s.connectedPath = p
+	s.reconnectMutex.Unlock()
+	return nil
 }
 
 // getURI 构建完整的WebSocket连接URI
@@ -352,20 +389,28 @@ func (s *SocketSDK) SetEd25519Object(usr int64, prkB64, peerPubB64 string) error
 	return nil
 }
 
-// ConnectWebSocket 建立WebSocket连接并启动相关服务
-// path: WebSocket连接路径，如"/ws"
+// ConnectWebSocket 建立WebSocket连接并启动相关服务（默认 /ws，可通过 SetWebSocketPath 覆盖）。
 // 返回: 连接成功返回nil，否则返回连接失败的错误信息
-func (s *SocketSDK) ConnectWebSocket(path string) error {
+func (s *SocketSDK) ConnectWebSocket() error {
 	s.reconnectMutex.Lock()
-	s.connectedPath = path // 存储连接路径用于重连
+	p := s.getConnectedPathLocked()
+	s.connectedPath = p // 保持重连路径与当前配置一致
 	s.reconnectMutex.Unlock()
-	s.startTokenMonitor()
-	// 主线程同步尝试一次 token 获取，避免首次连接前 token 仍为空
-	if !s.valid() {
-		s.triggerTokenExpiredCallbackSync()
+
+	p, err := sanitizeWSPath(p)
+	if err != nil {
+		return err
+	}
+	// raw authorization 模式不依赖 token 生命周期，避免触发无意义回调
+	if len(s.rawAuthHeader) == 0 {
+		s.startTokenMonitor()
+		// 主线程同步尝试一次 token 获取，避免首次连接前 token 仍为空
+		if !s.valid() {
+			s.triggerTokenExpiredCallbackSync()
+		}
 	}
 
-	err := s.connectWebSocketInternal(path, true)
+	err = s.connectWebSocketInternal(p, true)
 	if err == nil {
 		return nil
 	}
@@ -392,7 +437,7 @@ func (s *SocketSDK) startTokenMonitor() {
 				case <-s.rootCtx.Done():
 					return
 				case <-ticker.C:
-					if !s.valid() {
+					if len(s.rawAuthHeader) == 0 && !s.valid() {
 						s.triggerTokenExpiredCallback()
 					}
 				}
@@ -422,9 +467,9 @@ func (s *SocketSDK) connectWebSocketInternal(path string, isInitial bool) error 
 		s.connMutex.Unlock()
 		return nil
 	}
-	if !s.valid() {
+	if !s.valid() && len(s.rawAuthHeader) == 0 {
 		s.connMutex.Unlock()
-		return ex.Throw{Msg: "token empty or token expired"}
+		return ex.Throw{Msg: "token empty or token expired, and raw authorization is empty"}
 	}
 
 	// 取消旧的连接上下文（安全）
@@ -451,7 +496,11 @@ func (s *SocketSDK) connectWebSocketInternal(path string, isInitial bool) error 
 
 	// 设置认证头（gws Dialer）
 	header := http.Header{}
-	header.Set("Authorization", s.authToken.Token)
+	authHeader := s.authToken.Token
+	if len(authHeader) == 0 {
+		authHeader = s.rawAuthHeader
+	}
+	header.Set("Authorization", authHeader)
 	header.Set("Language", s.language)
 
 	if zlog.IsDebug() {
@@ -484,13 +533,15 @@ func (s *SocketSDK) connectWebSocketInternal(path string, isInitial bool) error 
 	// 启动 ReadLoop（gws 客户端需要手动启动）
 	go socket.ReadLoop()
 
-	// 发送认证握手消息
-	if err := s.sendWebSocketAuthHandshake(socket, path); err != nil {
-		socket.WriteClose(1000, []byte("handshake failed"))
-		if zlog.IsDebug() {
-			zlog.Debug(fmt.Sprintf("WebSocket handshake failed: %v", err), 0)
+	// JWT模式下发送认证握手；raw authorization 模式跳过
+	if s.valid() {
+		if err := s.sendWebSocketAuthHandshake(socket, path); err != nil {
+			socket.WriteClose(1000, []byte("handshake failed"))
+			if zlog.IsDebug() {
+				zlog.Debug(fmt.Sprintf("WebSocket handshake failed: %v", err), 0)
+			}
+			return err
 		}
-		return err
 	}
 
 	// 第三阶段：更新连接状态（再次获取锁）
@@ -522,6 +573,357 @@ func (s *SocketSDK) connectWebSocketInternal(path string, isInitial bool) error 
 	s.wg.Add(1)
 	go s.websocketHeartbeat()
 
+	return nil
+}
+
+// SendWebSocketRawBody 直接发送已构造好的 JsonBody（用于 plan2/key-login 等自定义流程）。
+func (s *SocketSDK) SendWebSocketRawBody(body *node.JsonBody, waitResponse bool, timeout int64) (*node.JsonResp, error) {
+	if body == nil {
+		return nil, ex.Throw{Msg: "json body is nil"}
+	}
+	if waitResponse && !utils.CheckLen(body.Nonce, 8, 32) {
+		return nil, ex.Throw{Msg: "json body nonce invalid"}
+	}
+	bytesData, err := utils.JsonMarshal(body)
+	if err != nil {
+		return nil, ex.Throw{Msg: "jsonBody marshal failed"}
+	}
+	defer DIC.ClearData(bytesData)
+
+	var respChan chan *node.JsonResp
+	if waitResponse {
+		respChan = make(chan *node.JsonResp, 1)
+		s.responseMap.Store(body.Nonce, respChan)
+		defer s.responseMap.LoadAndDelete(body.Nonce)
+	}
+
+	s.connMutex.Lock()
+	if !s.isConnected || s.conn == nil {
+		s.connMutex.Unlock()
+		return nil, ex.Throw{Msg: "WebSocket not connected, call ConnectWebSocket first"}
+	}
+	conn := s.conn
+	if err := conn.WriteMessage(gws.OpcodeText, bytesData); err != nil {
+		s.connMutex.Unlock()
+		return nil, ex.Throw{Msg: "WebSocket message send failed: " + err.Error()}
+	}
+	s.connMutex.Unlock()
+
+	if !waitResponse {
+		return nil, nil
+	}
+
+	waitTimeout := 10 * time.Second
+	if timeout > 0 {
+		waitTimeout = time.Duration(timeout) * time.Second
+	}
+	select {
+	case resp := <-respChan:
+		return resp, nil
+	case <-time.After(waitTimeout):
+		return nil, ex.Throw{
+			Code: ex.WS_WAIT,
+			Msg:  fmt.Sprintf("wait raw response timeout (router=%s, nonce=%s, timeout=%ds)", body.Router, body.Nonce, int(waitTimeout/time.Second)),
+		}
+	case <-s.connCtx.Done():
+		return nil, ex.Throw{
+			Code: ex.WS_WAIT,
+			Msg:  fmt.Sprintf("connection closed while waiting raw response (router=%s, nonce=%s, timeout=%ds)", body.Router, body.Nonce, int(waitTimeout/time.Second)),
+		}
+	}
+}
+
+// ConnectWebSocketWithRawAuth 使用自定义 Authorization 头建立连接（适合 plan2 首连）。
+func (s *SocketSDK) ConnectWebSocketWithRawAuth(path, authHeader string) error {
+	if len(authHeader) == 0 {
+		return ex.Throw{Msg: "authorization header is empty"}
+	}
+	p, err := sanitizeWSPath(path)
+	if err != nil {
+		return err
+	}
+	s.SetRawAuthorization(authHeader)
+	if err := s.SetWebSocketPath(p); err != nil {
+		return err
+	}
+	return s.ConnectWebSocket()
+}
+
+func (s *SocketSDK) buildPlan2BootstrapAuthorization() (string, error) {
+	if s.ed25519Object == nil {
+		return "", ex.Throw{Msg: "Ed25519 object not configured, bidirectional Ed25519 signature is required"}
+	}
+	cipher, exists := s.ed25519Object[s.ClientNo]
+	if !exists || cipher == nil {
+		return "", ex.Throw{Msg: "Ed25519 object not found for client, bidirectional Ed25519 signature is required"}
+	}
+	pub, err := node.CreatePublicKey(
+		utils.Base64Encode(utils.GetRandomSecure(32)),
+		utils.Base64Encode(utils.GetRandomSecure(32)),
+		s.ClientNo,
+		cipher,
+	)
+	if err != nil {
+		return "", err
+	}
+	authBytes, err := utils.JsonMarshal(pub)
+	if err != nil {
+		return "", ex.Throw{Msg: "plan2 bootstrap authorization marshal failed"}
+	}
+	defer DIC.ClearData(authBytes)
+	return utils.Base64Encode(authBytes), nil
+}
+
+// GetWebSocketPlan2Auth 通过 /key 路由完成 key 协商，返回用于重连的 raw Authorization 与共享密钥。
+func (s *SocketSDK) GetWebSocketPlan2Auth(keyRouter string, timeout int64) (string, []byte, error) {
+	if len(strings.TrimSpace(keyRouter)) == 0 {
+		return "", nil, ex.Throw{Msg: "key router is empty"}
+	}
+	if s.ed25519Object == nil {
+		return "", nil, ex.Throw{Msg: "Ed25519 object not configured, bidirectional Ed25519 signature is required"}
+	}
+	cipher, exists := s.ed25519Object[s.ClientNo]
+	if !exists || cipher == nil {
+		return "", nil, ex.Throw{Msg: "Ed25519 object not found for client, bidirectional Ed25519 signature is required"}
+	}
+
+	reqPublic, err := node.CreatePublicKey(
+		utils.Base64Encode(utils.GetRandomSecure(32)),
+		utils.Base64Encode(utils.GetRandomSecure(32)),
+		s.ClientNo,
+		cipher,
+	)
+	if err != nil {
+		return "", nil, err
+	}
+	reqData, err := utils.JsonMarshal(reqPublic)
+	if err != nil {
+		return "", nil, ex.Throw{Msg: "plan2 key request marshal failed"}
+	}
+	defer DIC.ClearData(reqData)
+
+	jsonBody := node.GetJsonBody()
+	defer node.PutJsonBody(jsonBody)
+	jsonBody.Time = utils.UnixSecond()
+	jsonBody.Nonce = utils.GetUUID(true)
+	jsonBody.Plan = 0
+	jsonBody.Router = keyRouter
+	jsonBody.User = s.ClientNo
+	jsonBody.Data = utils.Base64Encode(reqData)
+
+	sign, _ := node.SignAndDigestBodyMessage(jsonBody.Router, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan, jsonBody.User, []byte{})
+	jsonBody.Sign = utils.Base64Encode(sign)
+	if err := s.addEd25519Sign(jsonBody); err != nil {
+		return "", nil, err
+	}
+
+	resp, err := s.SendWebSocketRawBody(jsonBody, true, timeout)
+	if err != nil {
+		return "", nil, err
+	}
+	if resp == nil {
+		return "", nil, ex.Throw{Msg: "plan2 key response is nil"}
+	}
+	if resp.Code != 200 {
+		return "", nil, ex.Throw{Code: resp.Code, Msg: resp.Message}
+	}
+	if resp.Time <= 0 || utils.MathAbs(utils.UnixSecond()-resp.Time) > 300 {
+		return "", nil, ex.Throw{Msg: "plan2 key response time invalid"}
+	}
+	validSign, _ := node.SignAndDigestBodyMessage(keyRouter, resp.Data, resp.Nonce, resp.Time, resp.Plan, s.ClientNo, []byte{})
+	defer DIC.ClearData(validSign)
+	if !utils.CompareBase64Sign(validSign, resp.Sign) {
+		return "", nil, ex.Throw{Msg: "plan2 key response signature verification failed"}
+	}
+	if err := s.verifyEd25519Sign(keyRouter, s.ClientNo, resp); err != nil {
+		return "", nil, err
+	}
+	respData := utils.Base64Decode(resp.Data)
+	defer DIC.ClearData(respData)
+	if len(respData) == 0 {
+		return "", nil, ex.Throw{Msg: "plan2 key response data is empty"}
+	}
+	serverPub := &node.PublicKey{}
+	if err := utils.JsonUnmarshal(respData, serverPub); err != nil {
+		return "", nil, ex.Throw{Msg: "plan2 key response parse failed"}
+	}
+	if err := node.CheckPublicKey(nil, serverPub, cipher); err != nil {
+		return "", nil, err
+	}
+
+	xKey := &crypto.X25519Object{}
+	if err := xKey.CreateX25519(); err != nil {
+		return "", nil, ex.Throw{Msg: "create x25519 key exchange object error: " + err.Error()}
+	}
+	prk, _ := xKey.GetPrivateKey()
+	xPrk, ok := prk.(*cryptocdh.PrivateKey)
+	if !ok || xPrk == nil {
+		return "", nil, ex.Throw{Msg: "x25519 private key invalid"}
+	}
+	prkBytes := xPrk.Bytes()
+	defer DIC.ClearData(prkBytes)
+
+	serverXPub, err := ecc.LoadX25519PublicKeyFromBase64(serverPub.Key)
+	if err != nil {
+		return "", nil, ex.Throw{Msg: "load server x25519 public key failed"}
+	}
+	sharedRaw, err := ecc.GenSharedKeyX25519(xPrk, serverXPub)
+	if err != nil {
+		return "", nil, ex.Throw{Msg: "X25519 shared secret failed"}
+	}
+	defer DIC.ClearData(sharedRaw)
+	sharedKey, err := node.HKDFKey(sharedRaw, serverPub.Noc)
+	if err != nil {
+		return "", nil, ex.Throw{Msg: "HKDF shared key failed"}
+	}
+
+	authPub, err := node.CreatePublicKey(serverPub.Key, utils.Base64Encode(xPrk.PublicKey().Bytes()), s.ClientNo, cipher)
+	if err != nil {
+		DIC.ClearData(sharedKey)
+		return "", nil, err
+	}
+	authBytes, err := utils.JsonMarshal(authPub)
+	if err != nil {
+		DIC.ClearData(sharedKey)
+		return "", nil, ex.Throw{Msg: "plan2 authorization marshal failed"}
+	}
+	defer DIC.ClearData(authBytes)
+	return utils.Base64Encode(authBytes), sharedKey, nil
+}
+
+// LoginByWebSocketPlan2Auto 自动完成 WS plan2 的 key + login 全流程，并将登录响应写入 responseObj。
+// 连接路径默认使用 SDK 当前路径配置（默认 /ws，可通过 SetWebSocketPath 覆盖）。
+func (s *SocketSDK) LoginByWebSocketPlan2Auto(keyRouter, loginRouter string, requestObj, responseObj interface{}, timeout int64) error {
+	if requestObj == nil || responseObj == nil {
+		return ex.Throw{Msg: "params invalid"}
+	}
+	s.reconnectMutex.Lock()
+	wsPath := s.getConnectedPathLocked()
+	s.reconnectMutex.Unlock()
+	bootstrapAuth, err := s.buildPlan2BootstrapAuthorization()
+	if err != nil {
+		return err
+	}
+	if err := s.ConnectWebSocketWithRawAuth(wsPath, bootstrapAuth); err != nil {
+		return err
+	}
+
+	authHeader, sharedKey, err := s.GetWebSocketPlan2Auth(keyRouter, timeout)
+	if err != nil {
+		s.DisconnectWebSocket()
+		return err
+	}
+	defer DIC.ClearData(sharedKey)
+
+	s.DisconnectWebSocket()
+	if err := s.ConnectWebSocketWithRawAuth(wsPath, authHeader); err != nil {
+		return err
+	}
+	if err := s.SendWebSocketPlan2Message(loginRouter, requestObj, responseObj, sharedKey, timeout); err != nil {
+		return err
+	}
+	// 自动流程成功后切回 JWT 模式，避免后续复用同一 SDK 时误走 raw-auth 分支。
+	s.rawAuthHeader = ""
+	return nil
+}
+
+// SendWebSocketPlan2Message 发送 plan2 消息（AES-GCM + HMAC + Ed25519），用于 key/login 等流程。
+func (s *SocketSDK) SendWebSocketPlan2Message(router string, requestObj, responseObj interface{}, sharedKey []byte, timeout int64) error {
+	if len(router) == 0 || requestObj == nil || responseObj == nil {
+		return ex.Throw{Msg: "params invalid"}
+	}
+	if len(sharedKey) < 32 {
+		return ex.Throw{Msg: "shared key invalid"}
+	}
+	if s.ed25519Object == nil {
+		return ex.Throw{Msg: "Ed25519 object not configured, bidirectional Ed25519 signature is required"}
+	}
+
+	jsonData, err := utils.JsonMarshal(requestObj)
+	if err != nil {
+		return ex.Throw{Msg: "request data marshal failed"}
+	}
+	defer DIC.ClearData(jsonData)
+
+	jsonBody := node.GetJsonBody()
+	defer node.PutJsonBody(jsonBody)
+	jsonBody.Time = utils.UnixSecond()
+	jsonBody.Nonce = utils.GetUUID(true)
+	jsonBody.Plan = 2
+	jsonBody.Router = router
+	jsonBody.User = s.ClientNo
+
+	enc, err := utils.AesGCMEncryptBase(jsonData, sharedKey[:32], node.AppendBodyMessage(jsonBody.Router, "", jsonBody.Nonce, jsonBody.Time, jsonBody.Plan, jsonBody.User))
+	if err != nil {
+		return ex.Throw{Msg: "plan2 data encrypt failed"}
+	}
+	jsonBody.Data = enc
+	signData, _ := node.SignAndDigestBodyMessage(jsonBody.Router, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan, jsonBody.User, sharedKey)
+	jsonBody.Sign = utils.Base64Encode(signData)
+	DIC.ClearData(signData)
+
+	if err := s.addEd25519Sign(jsonBody); err != nil {
+		return err
+	}
+
+	resp, err := s.SendWebSocketRawBody(jsonBody, true, timeout)
+	if err != nil {
+		return err
+	}
+	if resp == nil {
+		return ex.Throw{Msg: "plan2 response is nil"}
+	}
+	if resp.Code != 200 {
+		return ex.Throw{Code: resp.Code, Msg: resp.Message}
+	}
+	if resp.Time <= 0 || utils.MathAbs(utils.UnixSecond()-resp.Time) > 300 {
+		return ex.Throw{Msg: "response time invalid"}
+	}
+
+	validSign, _ := node.SignAndDigestBodyMessage(router, resp.Data, resp.Nonce, resp.Time, resp.Plan, s.ClientNo, sharedKey)
+	defer DIC.ClearData(validSign)
+	if !utils.CompareBase64Sign(validSign, resp.Sign) {
+		return ex.Throw{Msg: "plan2 response signature verification failed"}
+	}
+	if err := s.verifyEd25519Sign(router, s.ClientNo, resp); err != nil {
+		return err
+	}
+
+	var dec []byte
+	switch resp.Plan {
+	case 2, 1:
+		dec, err = utils.AesGCMDecryptBase(resp.Data, sharedKey[:32], node.AppendBodyMessage(router, "", resp.Nonce, resp.Time, resp.Plan, s.ClientNo))
+		if err != nil {
+			return ex.Throw{Msg: "plan2 response data decrypt failed"}
+		}
+	case 0:
+		dec = utils.Base64Decode(resp.Data)
+	default:
+		return ex.Throw{Msg: "response plan invalid"}
+	}
+	defer DIC.ClearData(dec)
+	if len(dec) == 0 {
+		return ex.Throw{Msg: "response data is empty"}
+	}
+	if err := utils.JsonUnmarshalFast(dec, responseObj); err != nil {
+		return ex.Throw{Msg: "response data unmarshal failed"}
+	}
+	return nil
+}
+
+// LoginByWebSocketPlan2 通过 WebSocket plan2 登录，并自动写入 AuthToken。
+func (s *SocketSDK) LoginByWebSocketPlan2(loginRouter string, requestObj interface{}, sharedKey []byte, timeout int64) error {
+	if len(loginRouter) == 0 {
+		return ex.Throw{Msg: "login router is empty"}
+	}
+	resp := AuthToken{}
+	if err := s.SendWebSocketPlan2Message(loginRouter, requestObj, &resp, sharedKey, timeout); err != nil {
+		return err
+	}
+	s.AuthToken(resp)
+	if len(resp.Token) > 0 {
+		s.rawAuthHeader = ""
+	}
 	return nil
 }
 
@@ -910,6 +1312,12 @@ func (s *SocketSDK) websocketHeartbeat() {
 		case <-s.connCtx.Done():
 			return
 		case <-timer.C:
+			// 匿名/raw-auth 且尚未拿到 JWT 时不发送 /ws/ping（服务端普通路由会要求 token）。
+			// 一旦 token 就绪，即使 rawAuthHeader 尚未清理，也允许发送业务心跳。
+			if len(s.rawAuthHeader) > 0 && !s.valid() {
+				timer.Reset(getInterval())
+				continue
+			}
 			bytesData, _, err := s.prepareHeartbeatMessage("/ws/ping", "ping")
 			if err != nil {
 				if zlog.IsDebug() {
@@ -1177,11 +1585,11 @@ func (s *SocketSDK) startReconnectProcess() {
 		return
 	}
 
-	if !s.valid() {
+	if !s.valid() && len(s.rawAuthHeader) == 0 {
 		if zlog.IsDebug() {
-			zlog.Debug("Token expired during reconnect, stopping reconnect process", 0)
+			zlog.Debug("reconnect skipped: token invalid and raw authorization empty", 0)
 		}
-		// token 尚未恢复时继续重连流程，避免首次无 token 或回调异步刷新期间直接停止重连
+		// 无可用鉴权信息时延后重试，避免热循环；保留下一次由外部刷新token或设置rawAuth后恢复
 		go s.startReconnectProcess()
 		return
 	}
@@ -1279,7 +1687,7 @@ func (s *SocketSDK) SetReconnectConfig(enabled bool, maxAttempts int, initialInt
 	s.reconnectEnabled = enabled
 	s.maxReconnectAttempts = maxAttempts
 	if s.maxReconnectAttempts <= 0 && s.maxReconnectAttempts != -1 {
-		s.maxReconnectAttempts = 10 // 默认10次
+		s.maxReconnectAttempts = -1 // 非法值按默认：无限重连
 	}
 
 	s.reconnectInterval = initialInterval
@@ -1303,7 +1711,7 @@ func (s *SocketSDK) SetReconnectConfig(enabled bool, maxAttempts int, initialInt
 }
 
 func (s *SocketSDK) EnableReconnect() {
-	s.SetReconnectConfig(true, 10, time.Second, 8*time.Second)
+	s.SetReconnectConfig(true, -1, time.Second, 8*time.Second)
 }
 
 // DisableReconnect 禁用自动重连
@@ -1457,7 +1865,7 @@ func (s *SocketSDK) Close() {
 //
 // // 1. 连接WebSocket
 // wsSdk := NewSocketSDK()
-// err := wsSdk.ConnectWebSocket("/ws")
+// err := wsSdk.ConnectWebSocket()
 // if err != nil {
 //     log.Fatal(err)
 // }

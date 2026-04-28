@@ -10,7 +10,6 @@ import (
 	"crypto/sha256"
 	"strings"
 
-	"github.com/godaddy-x/freego/cache"
 	"github.com/godaddy-x/freego/utils"
 )
 
@@ -158,10 +157,6 @@ func (self *Subject) CheckReady() bool {
 		return false
 	}
 	return true
-}
-
-func (self *Subject) SetCache(cache cache.Cache) {
-	self.cache = cache
 }
 
 func (self *Subject) GetSub(b []byte) string {

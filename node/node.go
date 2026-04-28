@@ -81,6 +81,8 @@ type Configs struct {
 type RouterConfig struct {
 	Guest       bool // 游客模式,原始请求 false.否 true.是 - 1字节
 	UseRSA      bool // 非登录状态使用RSA模式请求 false.否 true.是 - 1字节
+	KeyRoute    bool // WebSocket plan2 key 路由（仅允许匿名 plan0）
+	LoginRoute  bool // WebSocket plan2 login 路由（仅允许 plan2）
 	AesRequest  bool // 请求是否必须AES加密 false.否 true.是 - 1字节
 	AesResponse bool // 响应是否必须AES加密 false.否 true.是 - 1字节
 }
@@ -602,21 +604,6 @@ func (self *Context) resetResponse() {
 }
 
 func (self *Context) resetSubject() {
-	// 对象池已预创建，无需nil检查
-
-	// 设置Subject的cache字段
-	if self.LocalCacheAware != nil {
-		if cache, err := self.LocalCacheAware(); err == nil {
-			self.Subject.SetCache(cache)
-		} else {
-			// 本地缓存获取失败时，设置为空
-			self.Subject.SetCache(nil)
-		}
-	} else {
-		// 没有配置本地缓存时，设置为空
-		self.Subject.SetCache(nil)
-	}
-
 	// 优化：批量重置Payload字段
 	payload := self.Subject.Payload
 	payload.Sub = ""

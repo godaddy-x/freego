@@ -19,6 +19,7 @@ import (
 	ncommon "github.com/godaddy-x/freego/node/common"
 	"github.com/godaddy-x/freego/zlog"
 
+	ecc "github.com/godaddy-x/eccrypto"
 	"github.com/godaddy-x/freego/cache"
 	rate "github.com/godaddy-x/freego/cache/limiter"
 	"github.com/godaddy-x/freego/ex"
@@ -372,6 +373,15 @@ type WsServer struct {
 
 	// 存储 socket 到 connCtx 的映射
 	connContextMap sync.Map // key: *gws.Conn, value: *ConnectionContext
+
+	// plan2 每请求临时共享密钥（TTLCache），消费即删除
+	plan2SharedKey *cache.TTLCache[string, []byte]
+
+	// WebSocket 安全时间窗（秒），用于消息时戳校验
+	authTimeWindowSeconds int64
+
+	// Plan2 临时共享密钥 TTL（秒）
+	plan2SharedKeyTTLSeconds int64
 }
 
 // ErrorHandler WebSocket错误处理器（统一错误处理）
@@ -866,7 +876,11 @@ func (mh *MessageHandler) Process(connCtx *ConnectionContext, body []byte, jb *J
 
 	// 解析WebSocket消息体
 	if err := utils.JsonUnmarshalFast(body, jb); err != nil {
-		zlog.Error("websocket message json unmarshal failed", 0, zlog.ByteString("raw_body", body), zlog.AddError(err))
+		if zlog.IsDebug() {
+			zlog.Error("websocket message json unmarshal failed", 0, zlog.String("frame_preview", wsFrameHexPreview(body, 128)), zlog.Int("frame_len", len(body)), zlog.AddError(err))
+		} else {
+			zlog.Error("websocket message json unmarshal failed", 0, zlog.Int("frame_len", len(body)), zlog.AddError(err))
+		}
 		return nil, nil, ex.Throw{Code: http.StatusBadRequest, Msg: "invalid JSON format"}
 	}
 
@@ -874,7 +888,7 @@ func (mh *MessageHandler) Process(connCtx *ConnectionContext, body []byte, jb *J
 	isHeartbeat := jb.Router == "/ws/ping"
 
 	// 验证消息体（按照HTTP协议标准）
-	cipher, err := mh.validWebSocketBody(connCtx, body, jb)
+	cipher, sharedKey, err := mh.validWebSocketBody(connCtx, body, jb)
 	if err != nil {
 		if zlog.IsDebug() {
 			zlog.Error("websocket message validation failed", 0,
@@ -890,6 +904,11 @@ func (mh *MessageHandler) Process(connCtx *ConnectionContext, body []byte, jb *J
 		}
 		return nil, nil, err
 	}
+	defer func() {
+		if sharedKey != nil {
+			DIC.ClearData(sharedKey)
+		}
+	}()
 
 	// 心跳包 /ws/ping：只更新 Last 与指标，不返回 PONG。
 	// 设计要点：服务端不回 pong，降低服务端写压力；连接活性靠客户端定时 ping + 服务端读超时与 CleanupExpired 判定。
@@ -898,14 +917,14 @@ func (mh *MessageHandler) Process(connCtx *ConnectionContext, body []byte, jb *J
 		connCtx.Server.recordHeartbeat(true)
 
 		if zlog.IsDebug() {
-			zlog.Debug("heartbeat_received_and_updated", 0, zlog.String("subject", connCtx.Subject.GetSub(nil)), zlog.String("device", connCtx.getDeviceID()), zlog.String("connection_path", connCtx.Path), zlog.String("nonce", jb.Nonce))
+			zlog.Debug("heartbeat_received_and_updated", 0, zlog.String("subject", connCtx.GetUserIDString()), zlog.String("device", connCtx.getDeviceID()), zlog.String("connection_path", connCtx.Path), zlog.String("nonce", jb.Nonce))
 		}
 
 		return cipher, nil, nil
 	}
 
 	// 解密业务数据
-	bizData, err := mh.decryptWebSocketData(connCtx, jb)
+	bizData, err := mh.decryptWebSocketData(connCtx, jb, sharedKey)
 	if err != nil {
 		if zlog.IsDebug() {
 			zlog.Error("websocket data decryption failed", 0,
@@ -924,18 +943,24 @@ func (mh *MessageHandler) Process(connCtx *ConnectionContext, body []byte, jb *J
 
 	// 根据消息中的路由选择处理器
 	handle := mh.handle // 默认处理器
-	if jb.Router != "" {
-		if routeInfo, exists := connCtx.Server.routes[jb.Router]; exists {
-			handle = routeInfo.Handle
-			if zlog.IsDebug() {
-				zlog.Debug("using route-specific handler", 0, zlog.String("router", jb.Router))
-			}
-		} else {
-			zlog.Warn("no handler found for router, using default", 0, zlog.String("router", jb.Router))
+	if jb.Router == "" {
+		return nil, nil, ex.Throw{Code: http.StatusBadRequest, Msg: "websocket router is nil"}
+	}
+	if routeInfo, exists := connCtx.Server.routes[jb.Router]; exists && routeInfo != nil && routeInfo.Handle != nil {
+		handle = routeInfo.Handle
+		if zlog.IsDebug() {
+			zlog.Debug("using route-specific handler", 0, zlog.String("router", jb.Router))
 		}
+	} else {
+		return nil, nil, ex.Throw{Code: http.StatusNotFound, Msg: "websocket router not found"}
 	}
 
 	result, err := handle(connCtx.ctx, connCtx, bizData)
+	if err == nil && jb.Plan == 2 && len(sharedKey) > 0 {
+		sharedKeyID := connCtx.Server.plan2SharedKeyID(connCtx, jb.Nonce)
+		connCtx.Server.setPlan2SharedKey(sharedKeyID, sharedKey)
+		sharedKey = nil
+	}
 	return cipher, result, err
 }
 
@@ -952,14 +977,55 @@ func (self *MessageHandler) CheckOuterSign(usr int64, msg, sign []byte) (crypto.
 }
 
 // validWebSocketBody 验证 WebSocket 消息体（签名、时间窗、可选 token 有效期）。
-func (mh *MessageHandler) validWebSocketBody(connCtx *ConnectionContext, rawFrame []byte, body *JsonBody) (crypto.Cipher, error) {
-	if err := mh.validWebSocketBodyCommon(connCtx, body); err != nil {
-		return nil, err
+func (mh *MessageHandler) validWebSocketBody(connCtx *ConnectionContext, rawFrame []byte, body *JsonBody) (crypto.Cipher, []byte, error) {
+	effectiveConfig := mh.resolveRouterConfig(connCtx, body)
+	if err := mh.validWebSocketBodyCommon(connCtx, body, effectiveConfig); err != nil {
+		return nil, nil, err
+	}
+	// 新逻辑：UseRSA=true 的路由走 plan2
+	if mh.isPlan2Route(effectiveConfig) {
+		if isPlan2KeyRoute(effectiveConfig) {
+			if body.Plan != 0 {
+				return nil, nil, ex.Throw{Code: http.StatusBadRequest, Msg: "websocket key route requires plan0"}
+			}
+			return mh.validWebSocketBodyPlan2KeyFlow(connCtx, body)
+		}
+		if !isPlan2LoginRoute(effectiveConfig) {
+			return nil, nil, ex.Throw{Code: http.StatusBadRequest, Msg: "websocket plan2 route must be key or login route"}
+		}
+		if body.Plan != 2 {
+			return nil, nil, ex.Throw{Code: http.StatusBadRequest, Msg: "websocket plan2 route requires plan2"}
+		}
+		return mh.validWebSocketBodyPlan2Flow(connCtx, body)
+	}
+	// 旧逻辑：其余路由走 plan0/1 + token 模式
+	if !utils.CheckInt64(body.Plan, 0, 1) {
+		return nil, nil, ex.Throw{Code: http.StatusBadRequest, Msg: "websocket plan invalid"}
 	}
 	return mh.validWebSocketBodyPlan01Flow(connCtx, body)
 }
 
-func (mh *MessageHandler) validWebSocketBodyCommon(connCtx *ConnectionContext, body *JsonBody) error {
+func (mh *MessageHandler) resolveRouterConfig(connCtx *ConnectionContext, body *JsonBody) *RouterConfig {
+	if connCtx == nil {
+		return nil
+	}
+	effectiveConfig := connCtx.RouterConfig
+	if connCtx.Server != nil && body != nil && len(body.Router) > 0 {
+		if routeInfo, ok := connCtx.Server.routes[body.Router]; ok && routeInfo != nil && routeInfo.RouterConfig != nil {
+			effectiveConfig = routeInfo.RouterConfig
+		}
+	}
+	return effectiveConfig
+}
+
+func (mh *MessageHandler) isPlan2Route(cfg *RouterConfig) bool {
+	if cfg == nil || !cfg.UseRSA {
+		return false
+	}
+	return true
+}
+
+func (mh *MessageHandler) validWebSocketBodyCommon(connCtx *ConnectionContext, body *JsonBody, effectiveConfig *RouterConfig) error {
 	if body == nil {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "websocket json body is nil"}
 	}
@@ -967,8 +1033,8 @@ func (mh *MessageHandler) validWebSocketBodyCommon(connCtx *ConnectionContext, b
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "websocket data is nil"}
 	}
 
-	// 只支持 Plan 0（明文）和 1（AES），不再支持 Plan 2
-	if !utils.CheckInt64(body.Plan, 0, 1) {
+	// 支持 Plan 0（明文）、1（AES）、2（key/login 模式）
+	if !utils.CheckInt64(body.Plan, 0, 1, 2) {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "websocket plan invalid"}
 	}
 
@@ -980,7 +1046,7 @@ func (mh *MessageHandler) validWebSocketBodyCommon(connCtx *ConnectionContext, b
 	}
 
 	// 检查是否需要AES加密
-	if connCtx.RouterConfig != nil && connCtx.RouterConfig.AesRequest && body.Plan != 1 {
+	if effectiveConfig != nil && effectiveConfig.AesRequest && body.Plan != 1 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "websocket parameters must use encryption"}
 	}
 
@@ -991,51 +1057,123 @@ func (mh *MessageHandler) validWebSocketBodyCommon(connCtx *ConnectionContext, b
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "websocket outer signature length invalid"}
 	}
 
-	// 对于Plan 0/1，必须要有token
-	if len(connCtx.GetRawTokenBytes()) == 0 {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "websocket header token is nil"}
+	// plan2 仅允许在 UseRSA=true 的路由
+	if body.Plan == 2 && !mh.isPlan2Route(effectiveConfig) {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "websocket plan2 requires UseRSA route"}
+	}
+
+	// 非 plan2（旧逻辑）必须是已登录连接
+	// 例外：标记为 keyRoute 的 UseRSA 路由允许匿名 plan0 作为 plan2 引导入口。
+	if body.Plan != 2 {
+		if mh.isPlan2Route(effectiveConfig) && isPlan2KeyRoute(effectiveConfig) {
+			return nil
+		}
+		if connCtx == nil || connCtx.Subject == nil || connCtx.Subject.Payload == nil || len(connCtx.Subject.Payload.Sub) == 0 {
+			return ex.Throw{Code: http.StatusUnauthorized, Msg: "token required"}
+		}
+		if len(connCtx.GetRawTokenBytes()) == 0 {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "websocket header token is nil"}
+		}
 	}
 	return nil
 }
 
-func (mh *MessageHandler) validWebSocketBodyPlan01Flow(connCtx *ConnectionContext, body *JsonBody) (crypto.Cipher, error) {
+func (mh *MessageHandler) validWebSocketBodyPlan01Flow(connCtx *ConnectionContext, body *JsonBody) (crypto.Cipher, []byte, error) {
 	// 可选：每条消息校验 token 有效期（与 jwt.Verify 一致：提前 15 秒视为过期）
 	if connCtx.Server.validateTokenPerMessage {
 		if connCtx.Subject == nil || connCtx.Subject.Payload == nil {
-			return nil, ex.Throw{Code: http.StatusUnauthorized, Msg: "token not ready"}
+			return nil, nil, ex.Throw{Code: http.StatusUnauthorized, Msg: "token not ready"}
 		}
 		if connCtx.Subject.Payload.Exp <= utils.UnixSecond()-15 {
-			return nil, ex.Throw{Code: http.StatusUnauthorized, Msg: "token expired or invalid"}
+			return nil, nil, ex.Throw{Code: http.StatusUnauthorized, Msg: "token expired or invalid"}
 		}
 	}
 
 	// Plan 0/1使用token secret，用毕清理
 	sharedKey := connCtx.GetTokenSecret()
 	if len(sharedKey) == 0 {
-		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "websocket secret is nil"}
+		return nil, nil, ex.Throw{Code: http.StatusBadRequest, Msg: "websocket secret is nil"}
 	}
-	defer DIC.ClearData(sharedKey)
 
 	// Step 2: HMAC 验证（快速拒绝）
 	sign, digest := SignAndDigestBodyMessage(body.Router, body.Data, body.Nonce, body.Time, body.Plan, body.User, sharedKey)
 	if !utils.CompareBase64Sign(sign, body.Sign) {
-		return nil, ex.Throw{Code: http.StatusUnauthorized, Msg: "websocket signature verify invalid"}
+		DIC.ClearData(sharedKey)
+		return nil, nil, ex.Throw{Code: http.StatusUnauthorized, Msg: "websocket signature verify invalid"}
 	}
 
 	// Step 3: Ed25519 外层验签（身份确认）
 	cipher, err := mh.CheckOuterSign(body.User, digest, utils.Base64Decode(body.Valid))
 	if err != nil {
-		return nil, err
+		DIC.ClearData(sharedKey)
+		return nil, nil, err
 	}
-	if utils.MathAbs(utils.UnixSecond()-body.Time) > jwt.FIVE_MINUTES {
-		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "websocket time invalid"}
+	if connCtx == nil || connCtx.Server == nil || !connCtx.Server.isWithinAuthTimeWindow(body.Time) {
+		DIC.ClearData(sharedKey)
+		return nil, nil, ex.Throw{Code: http.StatusBadRequest, Msg: "websocket time invalid"}
 	}
+	if err := connCtx.Server.validReplayAttack(body.Sign); err != nil {
+		DIC.ClearData(sharedKey)
+		return nil, nil, err
+	}
+	return cipher, sharedKey, nil
+}
 
-	return cipher, nil
+func (mh *MessageHandler) validWebSocketBodyPlan2Flow(connCtx *ConnectionContext, body *JsonBody) (crypto.Cipher, []byte, error) {
+	cipher, exists := mh.cipher[body.User]
+	if !exists {
+		return nil, nil, ex.Throw{Code: http.StatusBadRequest, Msg: "cipher not found for user"}
+	}
+	outerDigest := DigestBodyMessage(body.Router, body.Data, body.Nonce, body.Time, body.Plan, body.User)
+	cipher, err := connCtx.Server.CheckOuterSign(cipher, outerDigest, utils.Base64Decode(body.Valid))
+	if err != nil {
+		return nil, nil, err
+	}
+	sharedKey, err := connCtx.Server.negotiatePlan2SharedKey(connCtx.GetRawTokenBytes(), body.User)
+	if err != nil {
+		return nil, nil, err
+	}
+	sign := SignBodyMessage(body.Router, body.Data, body.Nonce, body.Time, body.Plan, body.User, sharedKey)
+	if !utils.CompareBase64Sign(sign, body.Sign) {
+		DIC.ClearData(sharedKey)
+		return nil, nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request signature invalid"}
+	}
+	if connCtx == nil || connCtx.Server == nil || !connCtx.Server.isWithinAuthTimeWindow(body.Time) {
+		DIC.ClearData(sharedKey)
+		return nil, nil, ex.Throw{Code: http.StatusBadRequest, Msg: "websocket time invalid"}
+	}
+	if err := connCtx.Server.validReplayAttack(body.Sign); err != nil {
+		DIC.ClearData(sharedKey)
+		return nil, nil, err
+	}
+	return cipher, sharedKey, nil
+}
+
+func (mh *MessageHandler) validWebSocketBodyPlan2KeyFlow(connCtx *ConnectionContext, body *JsonBody) (crypto.Cipher, []byte, error) {
+	cipher, exists := mh.cipher[body.User]
+	if !exists {
+		return nil, nil, ex.Throw{Code: http.StatusBadRequest, Msg: "cipher not found for user"}
+	}
+	// /key 首次协商阶段还没有共享密钥，HMAC 使用空 key，身份认证由外层 Ed25519 + PublicKey 校验共同完成。
+	sign, digest := SignAndDigestBodyMessage(body.Router, body.Data, body.Nonce, body.Time, body.Plan, body.User, []byte{})
+	if !utils.CompareBase64Sign(sign, body.Sign) {
+		return nil, nil, ex.Throw{Code: http.StatusUnauthorized, Msg: "websocket signature verify invalid"}
+	}
+	cipher, err := connCtx.Server.CheckOuterSign(cipher, digest, utils.Base64Decode(body.Valid))
+	if err != nil {
+		return nil, nil, err
+	}
+	if connCtx == nil || connCtx.Server == nil || !connCtx.Server.isWithinAuthTimeWindow(body.Time) {
+		return nil, nil, ex.Throw{Code: http.StatusBadRequest, Msg: "websocket time invalid"}
+	}
+	if err := connCtx.Server.validReplayAttack(body.Sign); err != nil {
+		return nil, nil, err
+	}
+	return cipher, nil, nil
 }
 
 // decryptWebSocketData 解密WebSocket数据（参考HTTP协议）
-func (mh *MessageHandler) decryptWebSocketData(connCtx *ConnectionContext, body *JsonBody) ([]byte, error) {
+func (mh *MessageHandler) decryptWebSocketData(connCtx *ConnectionContext, body *JsonBody, sharedKey []byte) ([]byte, error) {
 	if body == nil {
 		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "websocket json body is nil"}
 	}
@@ -1049,14 +1187,25 @@ func (mh *MessageHandler) decryptWebSocketData(connCtx *ConnectionContext, body 
 		}
 		return rawData, nil
 	case 1: // AES-GCM加密
-		secret := connCtx.GetTokenSecret()
+		secret := sharedKey
+		if len(secret) == 0 {
+			secret = connCtx.GetTokenSecret()
+		}
 		if len(secret) < 32 {
 			return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "websocket aes secret length invalid"}
 		}
-		defer DIC.ClearData(secret)
 		rawData, err := utils.AesGCMDecryptBase(d, secret[:32], AppendBodyMessage(body.Router, "", body.Nonce, body.Time, body.Plan, body.User))
 		if err != nil {
 			return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "websocket aes decrypt failed", Err: err}
+		}
+		return rawData, nil
+	case 2: // Plan2 AES-GCM
+		if len(sharedKey) < 32 {
+			return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "websocket plan2 secret length invalid"}
+		}
+		rawData, err := utils.AesGCMDecryptBase(d, sharedKey[:32], AppendBodyMessage(body.Router, "", body.Nonce, body.Time, body.Plan, body.User))
+		if err != nil {
+			return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "websocket plan2 decrypt failed", Err: err}
 		}
 		return rawData, nil
 	default:
@@ -1156,7 +1305,7 @@ func (h *WsEventHandler) OnOpen(socket *gws.Conn) {
 			if connCtx.Subject != nil && connCtx.Subject.Payload != nil {
 				deviceID = connCtx.Subject.Payload.Dev
 			}
-			zlog.Info("CLIENT_CONNECTED", 0, zlog.String("client_address", socket.RemoteAddr().String()), zlog.String("user_id", connCtx.Subject.GetSub(nil)), zlog.String("device_id", deviceID))
+			zlog.Info("CLIENT_CONNECTED", 0, zlog.String("client_address", socket.RemoteAddr().String()), zlog.String("user_id", connCtx.GetUserIDString()), zlog.String("device_id", deviceID))
 		}
 	}
 }
@@ -1234,11 +1383,14 @@ func NewWsServer(connUniquenessMode ConnectionUniquenessMode) *WsServer {
 		connUniquenessMode: connUniquenessMode,
 		maxBodyLen:         DefaultWsMaxBodyLen,
 		parallelEnabled:    true,
-		idleTimeout:        3600 * time.Second, // 默枧1小时空闲超时
+		idleTimeout:        60 * time.Second, // 默认空闲超时（NewPool 会按 2*ping 覆盖）
 		errorHandler:       &ErrorHandler{},
 		configValidator:    &ConfigValidator{},
 		metrics:            &WebSocketMetrics{startTime: time.Now()},
+		authTimeWindowSeconds:  jwt.FIVE_MINUTES,
+		plan2SharedKeyTTLSeconds: 30,
 	}
+	s.plan2SharedKey = cache.NewTTLCache[string, []byte](2048)
 
 	// 自动添加默认的连接路由处理器
 	err := s.AddRouter(DefaultWsRoute, func(ctx context.Context, connCtx *ConnectionContext, body []byte) (interface{}, error) {
@@ -1273,6 +1425,49 @@ func (s *WsServer) initUpgrader() {
 	})
 }
 
+// SetAuthTimeWindowSeconds 设置请求时间窗（秒）。<=0 时忽略。
+func (s *WsServer) SetAuthTimeWindowSeconds(seconds int64) {
+	if seconds <= 0 {
+		return
+	}
+	s.authTimeWindowSeconds = seconds
+}
+
+// SetPlan2SharedKeyTTLSeconds 设置 plan2 临时共享密钥 TTL（秒）。<=0 时忽略。
+func (s *WsServer) SetPlan2SharedKeyTTLSeconds(seconds int64) {
+	if seconds <= 0 {
+		return
+	}
+	s.plan2SharedKeyTTLSeconds = seconds
+}
+
+func (s *WsServer) isWithinAuthTimeWindow(ts int64) bool {
+	window := s.authTimeWindowSeconds
+	if window <= 0 {
+		window = jwt.FIVE_MINUTES
+	}
+	return utils.MathAbs(utils.UnixSecond()-ts) <= window
+}
+
+func isPlan2KeyRoute(cfg *RouterConfig) bool {
+	return cfg != nil && cfg.KeyRoute
+}
+
+func isPlan2LoginRoute(cfg *RouterConfig) bool {
+	return cfg != nil && cfg.LoginRoute
+}
+
+func (s *WsServer) isPlan2KeyRouterByPath(route string) bool {
+	if s == nil || len(strings.TrimSpace(route)) == 0 {
+		return false
+	}
+	ri, ok := s.routes[route]
+	if !ok || ri == nil {
+		return false
+	}
+	return isPlan2KeyRoute(ri.RouterConfig)
+}
+
 // AddRouter 注册路由：path -> Handle。应在 StartWebsocket 之前完成所有注册。
 // 不支持在服务启动后动态添加：消息循环中会无锁读 s.routes，动态添加会产生并发读写风险。
 func (s *WsServer) AddRouter(path string, handle Handle, routerConfig *RouterConfig) error {
@@ -1282,6 +1477,12 @@ func (s *WsServer) AddRouter(path string, handle Handle, routerConfig *RouterCon
 
 	if routerConfig == nil {
 		routerConfig = &RouterConfig{}
+	}
+	if routerConfig.KeyRoute && routerConfig.LoginRoute {
+		return utils.Error("router config invalid: keyRoute and loginRoute cannot both be true")
+	}
+	if (routerConfig.KeyRoute || routerConfig.LoginRoute) && !routerConfig.UseRSA {
+		return utils.Error("router config invalid: key/login route must set UseRSA=true")
 	}
 
 	s.routes[path] = &RouteInfo{
@@ -1296,6 +1497,13 @@ func (s *WsServer) AddRouter(path string, handle Handle, routerConfig *RouterCon
 // bucket    = 100          // 令牌桶容量（突发消息缓冲）
 // ping      = 15           // 心跳间隔（秒）
 func (s *WsServer) NewPool(maxConn, limit, bucket, ping int) error {
+	// 默认空闲超时取 2 倍 ping（例如 ping=15s => 30s 无活跃即踢线）
+	return s.NewPoolWithIdleTimeout(maxConn, limit, bucket, ping, ping*2)
+}
+
+// NewPoolWithIdleTimeout 创建连接池并设置心跳周期与空闲踢线时间（秒）。
+// idleTimeoutSeconds <= 0 时回退为 2 倍 ping。
+func (s *WsServer) NewPoolWithIdleTimeout(maxConn, limit, bucket, ping, idleTimeoutSeconds int) error {
 	if err := s.configValidator.validatePoolConfig(maxConn, limit, bucket, ping); err != nil {
 		return err
 	}
@@ -1306,6 +1514,10 @@ func (s *WsServer) NewPool(maxConn, limit, bucket, ping int) error {
 	} else {
 		s.ping = 30
 	}
+	if idleTimeoutSeconds <= 0 {
+		idleTimeoutSeconds = s.ping * 2
+	}
+	s.idleTimeout = time.Duration(idleTimeoutSeconds) * time.Second
 
 	s.connManager = NewConnectionManager(maxConn, s.connUniquenessMode, func(subject string) string {
 		if s.PushKeyProvider == nil {
@@ -1315,14 +1527,20 @@ func (s *WsServer) NewPool(maxConn, limit, bucket, ping int) error {
 	})
 	s.limiter = rate.NewLimiter(rate.Limit(limit), bucket)
 
-	pingDuration := time.Duration(ping) * time.Second
+	pingDuration := time.Duration(s.ping) * time.Second
 	s.heartbeatSvc = NewHeartbeatService(pingDuration, s.idleTimeout, s.connManager)
 	return nil
 }
 
 // SetIdleTimeout 设置连接空闲超时时间
 func (s *WsServer) SetIdleTimeout(timeout time.Duration) {
+	if timeout <= 0 {
+		return
+	}
 	s.idleTimeout = timeout
+	if s.heartbeatSvc != nil {
+		s.heartbeatSvc.timeout = timeout
+	}
 }
 
 // SetValidateTokenPerMessage 设置是否在每条消息时校验 token 有效期（validWebSocketBody 内生效）。
@@ -1496,6 +1714,11 @@ func (s *WsServer) StopWebsocket() (err error) {
 		if s.globalCancel != nil {
 			s.globalCancel()
 		}
+		// 主动清理 plan2 临时共享密钥，避免进程结束前敏感数据驻留。
+		if s.plan2SharedKey != nil {
+			s.plan2SharedKey.Close()
+			s.plan2SharedKey = nil
+		}
 
 		// 停止HTTP服务器
 		if s.server != nil {
@@ -1558,9 +1781,8 @@ func (s *WsServer) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "too many connections", http.StatusTooManyRequests)
 		return
 	}
-
-	// JWT 校验
-	subject, rawToken, err := s.validateTokenFromRequest(r, path)
+	// 连接鉴权（JWT 或 Plan2 公钥头）
+	subject, rawToken, err := s.validateConnectAuthFromRequest(r, path)
 	if err != nil {
 		if exErr, ok := err.(ex.Throw); ok {
 			http.Error(w, exErr.Msg, exErr.Code)
@@ -1586,44 +1808,60 @@ func (s *WsServer) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	s.connContextMap.Store(socket, connCtx)
 
 	// 添加到连接管理器（maxConn 在此处限制并发连接总数）
-	if err := s.connManager.Add(connCtx.DevConn); err != nil {
-		connCtx.cancel()
-		socket.WriteClose(1000, []byte("connection limit exceeded"))
-		zlog.Error("conn_manager_add_failed", 0, zlog.AddError(err))
-		return
+	if s.connManager != nil {
+		if err := s.connManager.Add(connCtx.DevConn); err != nil {
+			connCtx.cancel()
+			socket.WriteClose(1000, []byte("connection limit exceeded"))
+			zlog.Error("conn_manager_add_failed", 0, zlog.AddError(err))
+			return
+		}
 	}
 
 	// 启动 ReadLoop
 	go socket.ReadLoop()
 }
 
-// validateTokenFromRequest 在升级前校验 JWT
-func (s *WsServer) validateTokenFromRequest(r *http.Request, path string) (*jwt.Subject, []byte, error) {
+// validateConnectAuthFromRequest 在升级前校验 JWT 或 plan2 公钥头
+func (s *WsServer) validateConnectAuthFromRequest(r *http.Request, path string) (*jwt.Subject, []byte, error) {
 	authHeader := []byte(r.Header.Get("Authorization"))
 	if len(authHeader) == 0 {
 		return nil, nil, ex.Throw{Code: http.StatusUnauthorized, Msg: "missing authorization header"}
 	}
 
 	subject := &jwt.Subject{Payload: &jwt.Payload{}}
-	if s.LocalCacheAware != nil {
-		c, err := s.LocalCacheAware()
-		if err != nil {
-			return nil, nil, ex.Throw{Code: http.StatusServiceUnavailable, Msg: "missing cache object", Err: err}
-		}
-		subject.SetCache(c)
+	if err := subject.Verify(authHeader, s.jwtConfig.TokenKey); err == nil && subject.CheckReady() {
+		rawToken := make([]byte, len(authHeader))
+		copy(rawToken, authHeader)
+		return subject, rawToken, nil
+	} else if err != nil && zlog.IsDebug() {
+		zlog.Debug("jwt_verify_failed_fallback_plan2", 0, zlog.AddError(err))
 	}
 
-	if err := subject.Verify(authHeader, s.jwtConfig.TokenKey); err != nil {
-		return nil, nil, ex.Throw{Code: http.StatusUnauthorized, Msg: "invalid or expired token", Err: err}
+	// 回退：允许 plan2 连接头（Authorization=base64(PublicKey JSON)）
+	pub, err := parsePlan2PublicKey(authHeader)
+	if err != nil {
+		return nil, nil, ex.Throw{Code: http.StatusUnauthorized, Msg: "invalid authorization format", Err: err}
 	}
-
-	if !subject.CheckReady() {
-		return nil, nil, ex.Throw{Code: http.StatusUnauthorized, Msg: "token not ready"}
+	cipher, exists := s.Cipher[pub.Usr]
+	if !exists || cipher == nil {
+		return nil, nil, ex.Throw{Code: http.StatusBadRequest, Msg: "cipher not found for user"}
 	}
-
+	c, err := s.GetCacheObject()
+	if err != nil {
+		return nil, nil, err
+	}
+	// 连接升级前执行一次强校验，防止匿名连接占用资源。
+	if err := CheckPublicKey(c, pub, cipher); err != nil {
+		return nil, nil, err
+	}
 	rawToken := make([]byte, len(authHeader))
 	copy(rawToken, authHeader)
-	return subject, rawToken, nil
+	return nil, rawToken, nil
+}
+
+// validateTokenFromRequest 在升级前校验 JWT（兼容历史调用）
+func (s *WsServer) validateTokenFromRequest(r *http.Request, path string) (*jwt.Subject, []byte, error) {
+	return s.validateConnectAuthFromRequest(r, path)
 }
 
 func (s *WsServer) createConnectionContext(subject *jwt.Subject, socket *gws.Conn, path string, routerConfig *RouterConfig, rawToken []byte) *ConnectionContext {
@@ -1634,9 +1872,20 @@ func (s *WsServer) createConnectionContext(subject *jwt.Subject, socket *gws.Con
 		devID = subject.Payload.Dev
 	}
 	if len(strings.TrimSpace(devID)) == 0 {
-		devID = subject.GetDev(rawToken)
+		if subject != nil {
+			devID = subject.GetDev(rawToken)
+		}
 	}
-	subID := subject.GetSub(nil)
+	subID := ""
+	if subject != nil {
+		subID = subject.GetSub(nil)
+	}
+	if len(strings.TrimSpace(subID)) == 0 {
+		subID = utils.AddStr("anon:", utils.GetUUID(true))
+	}
+	if len(strings.TrimSpace(devID)) == 0 {
+		devID = "anon"
+	}
 
 	// Last 使用原子写入，与 UpdateLast/LastSeen 一致，便于 CleanupExpired 无锁读取
 	now := utils.UnixSecond()
@@ -1717,8 +1966,6 @@ func (s *WsServer) processMessage(connCtx *ConnectionContext, message []byte) {
 			} else {
 				zlog.Warn("WS_TRACE_PROCESS_FAILED", 0,
 					zlog.String("conn_id", connID),
-					zlog.String("subject", subject),
-					zlog.String("device", device),
 					zlog.String("router", router),
 					zlog.String("nonce", nonce),
 					zlog.Int64("plan", plan),
@@ -1751,6 +1998,13 @@ func (s *WsServer) processMessage(connCtx *ConnectionContext, message []byte) {
 // replyData 将业务返回值写回客户端。
 // 设计要点：Handle 仅返回业务对象（或 nil），统一由此处构造 JsonResp 并完成签名/加密/发送，避免外层构造池化 JsonResp 带来的所有权误用。
 func replyData(connCtx *ConnectionContext, req requestMeta, cipher crypto.Cipher, reply interface{}) {
+	sharedKeyID := connCtx.Server.plan2SharedKeyID(connCtx, req.Nonce)
+	if reply == nil && req.Plan == 2 {
+		// plan2 下即使无回包也要清理临时共享密钥，避免内存驻留
+		if secret := connCtx.Server.takePlan2SharedKey(sharedKeyID); len(secret) > 0 {
+			DIC.ClearData(secret)
+		}
+	}
 	if reply == nil {
 		return
 	}
@@ -1775,16 +2029,27 @@ func replyData(connCtx *ConnectionContext, req requestMeta, cipher crypto.Cipher
 		return
 	}
 
-	// 派生密钥：用于响应加密(Plan==1)与签名，用毕统一清理以降低驻留风险
-	secret := connCtx.GetTokenSecret()
-	if len(secret) == 0 || len(secret) < 32 {
+	// 响应密钥：Plan2 复用本请求协商密钥，Plan0/1 使用 token 派生密钥
+	secret := connCtx.Server.takePlan2SharedKey(sharedKeyID)
+	allowEmptySecret := false
+	if req.Plan != 2 && len(secret) == 0 {
+		if req.Plan == 0 && connCtx != nil && connCtx.Server != nil && connCtx.Server.isPlan2KeyRouterByPath(req.Router) {
+			allowEmptySecret = true
+			secret = []byte{}
+		} else {
+			secret = connCtx.GetTokenSecret()
+		}
+	}
+	if (!allowEmptySecret && len(secret) == 0) || (!allowEmptySecret && len(secret) < 32) {
 		zlog.Error("response_secret_missing", 0, zlog.String("user_id", userID), zlog.String("device_id", deviceID), zlog.String("connection_path", connPath))
 		return
 	}
-	defer DIC.ClearData(secret)
+	if len(secret) > 0 {
+		defer DIC.ClearData(secret)
+	}
 
 	aad := AppendBodyMessage(req.Router, "", jsonResp.Nonce, jsonResp.Time, jsonResp.Plan, req.User)
-	if req.Plan == 1 {
+	if req.Plan == 1 || req.Plan == 2 {
 		encryptedData, err := utils.AesGCMEncryptBase(respData, secret[:32], aad)
 		if err != nil {
 			zlog.Error("response_data_encrypt_failed", 0, zlog.AddError(err), zlog.String("user_id", userID), zlog.String("device_id", deviceID), zlog.String("connection_path", connPath))
@@ -1822,6 +2087,161 @@ func replyData(connCtx *ConnectionContext, req requestMeta, cipher crypto.Cipher
 		return // 发送失败通常意味着连接已断开
 	}
 
+}
+
+func parsePlan2PublicKey(rawAuth []byte) (*PublicKey, error) {
+	if len(rawAuth) == 0 || len(rawAuth) > MAX_TOKEN_LEN {
+		return nil, utils.Error("authorization length invalid")
+	}
+	public := &PublicKey{}
+	if err := utils.JsonUnmarshal(utils.Base64Decode(rawAuth), public); err != nil {
+		return nil, err
+	}
+	if public.Usr < 0 {
+		return nil, utils.Error("authorization user invalid")
+	}
+	return public, nil
+}
+
+// BuildPlan2KeyResponse 处理 plan2 的 /key 交换流程，供上层路由直接复用。
+// 该方法会校验请求公钥、生成服务端临时 X25519 密钥、返回签名公钥并写入临时私钥缓存。
+func (s *WsServer) BuildPlan2KeyResponse(req *PublicKey) (*PublicKey, error) {
+	if s == nil || req == nil {
+		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request public key is nil"}
+	}
+	cipherObj, exists := s.Cipher[req.Usr]
+	if !exists || cipherObj == nil {
+		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "cipher not found for user"}
+	}
+	c, err := s.GetCacheObject()
+	if err != nil {
+		return nil, err
+	}
+	if err := CheckPublicKey(c, req, cipherObj); err != nil {
+		return nil, err
+	}
+	prk, err := ecc.CreateX25519()
+	if err != nil {
+		return nil, err
+	}
+	resp, err := CreatePublicKey(utils.Base64Encode(prk.PublicKey().Bytes()), utils.Base64Encode(utils.GetRandomSecure(32)), req.Usr, cipherObj)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.Put(utils.FNV1a64(utils.AddStr(resp.Key, ":", resp.Usr)), &PrivateKey{
+		Key: utils.Base64Encode(prk.Bytes()),
+		Noc: resp.Noc,
+	}, 180); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+func (s *WsServer) negotiatePlan2SharedKey(rawAuth []byte, usr int64) ([]byte, error) {
+	public, err := parsePlan2PublicKey(rawAuth)
+	if err != nil {
+		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "client public key parse error", Err: err}
+	}
+	if public.Usr != usr {
+		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request user mismatch"}
+	}
+	c, err := s.GetCacheObject()
+	if err != nil {
+		return nil, err
+	}
+	cacheKey := utils.FNV1a64(utils.AddStr(public.Key, ":", public.Usr))
+	prkObject := &PrivateKey{}
+	if _, b, err := c.Get(cacheKey, prkObject); err != nil || !b {
+		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "prk read error", Err: err}
+	}
+	defer c.Del(cacheKey)
+	if len(prkObject.Key) == 0 {
+		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "prk read is nil"}
+	}
+	prk, err := ecc.LoadX25519PrivateKey(utils.Base64Decode(prkObject.Key))
+	if err != nil {
+		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "prk load error", Err: err}
+	}
+	prkBs := prk.Bytes()
+	defer DIC.ClearData(prkBs)
+	pub, err := ecc.LoadX25519PublicKeyFromBase64(public.Tag)
+	if err != nil {
+		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "pub load error", Err: err}
+	}
+	shared, err := ecc.GenSharedKeyX25519(prk, pub)
+	if err != nil || len(shared) == 0 {
+		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "shared key error", Err: err}
+	}
+	defer DIC.ClearData(shared)
+	sharedKey, err := HKDFKey(shared, prkObject.Noc)
+	if err != nil {
+		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "shared key kdf error", Err: err}
+	}
+	return sharedKey, nil
+}
+
+func (s *WsServer) validReplayAttack(sign string) error {
+	c, err := s.GetCacheObject()
+	if err != nil {
+		return err
+	}
+	hex := utils.FNV1a64(sign)
+	b, err := c.Exists(hex)
+	if err != nil {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "cache operation failed", Err: err}
+	}
+	if b {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "replay attack detected"}
+	}
+	if err := c.Put(hex, 1, 300); err != nil {
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "cache replay attack record failed", Err: err}
+	}
+	return nil
+}
+
+func (s *WsServer) setPlan2SharedKey(id string, key []byte) {
+	if s == nil || s.plan2SharedKey == nil || len(id) == 0 || len(key) == 0 {
+		return
+	}
+	ttl := s.plan2SharedKeyTTLSeconds
+	if ttl <= 0 {
+		ttl = 30
+	}
+	k := make([]byte, len(key))
+	copy(k, key)
+	s.plan2SharedKey.Set(id, k, ttl)
+}
+
+func (s *WsServer) takePlan2SharedKey(id string) []byte {
+	if s == nil || s.plan2SharedKey == nil || len(id) == 0 {
+		return nil
+	}
+	key, ok := s.plan2SharedKey.Get(id)
+	if !ok || len(key) == 0 {
+		return nil
+	}
+	s.plan2SharedKey.Delete(id)
+	return key
+}
+
+func (s *WsServer) plan2SharedKeyID(connCtx *ConnectionContext, nonce string) string {
+	if len(nonce) == 0 {
+		return ""
+	}
+	if connCtx == nil {
+		return nonce
+	}
+	return utils.AddStr(connCtx.wsTraceConnID(), "|", nonce)
+}
+
+func (s *WsServer) CheckOuterSign(cipher crypto.Cipher, msg, sign []byte) (crypto.Cipher, error) {
+	if cipher == nil {
+		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request cipher invalid"}
+	}
+	if err := cipher.Verify(msg, sign); err != nil {
+		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request signature invalid"}
+	}
+	return cipher, nil
 }
 
 func (s *WsServer) gracefulShutdown() {

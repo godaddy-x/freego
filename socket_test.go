@@ -161,7 +161,7 @@ func TestWebSocketManyClient(t *testing.T) {
 				wsSdk.SetClientNo(1)
 				_ = wsSdk.SetEd25519Object(wsSdk.ClientNo, clientPrk, serverPub)
 				wsSdk.SetHealthPing(10)
-				if err := wsSdk.ConnectWebSocket("/ws"); err != nil {
+				if err := wsSdk.ConnectWebSocket(); err != nil {
 					failMu.Lock()
 					connectFails++
 					failMu.Unlock()
@@ -213,7 +213,7 @@ func TestWebSocketManyClient(t *testing.T) {
 // TestWebSocketStressConnectionRate1Minute 压测「1 分钟内成功建连次数（吞吐）」：建连后立即断开，测的是握手速率而非并发在线。
 // 若要看「同一时间窗内有多少连接能到位并保持」，请用 TestWebSocketStressConnectionsHeld1Minute。
 //
-// 与 TestWebSocketManyClient 相同方式生成 JWT；每个 worker 循环：新 token → ConnectWebSocket("/ws") → 立即 DisconnectWebSocket。
+// 与 TestWebSocketManyClient 相同方式生成 JWT；每个 worker 循环：新 token → ConnectWebSocket() → 立即 DisconnectWebSocket。
 //
 // 前置：已启动 WS 服务（默认 localhost:8088），JWT 与 TestWebSocketManyClient 一致（TokenKey=123456），且服务端已配置与 socket_test 一致的 Ed25519（clientPrk/serverPub）。
 //
@@ -276,7 +276,7 @@ func TestWebSocketStressConnectionRate1Minute(t *testing.T) {
 				_ = wsSdk.SetEd25519Object(wsSdk.ClientNo, clientPrk, serverPub)
 				wsSdk.SetHealthPing(30)
 
-				if err := wsSdk.ConnectWebSocket("/ws"); err != nil {
+				if err := wsSdk.ConnectWebSocket(); err != nil {
 					atomic.AddUint64(&failCnt, 1)
 					continue
 				}
@@ -394,7 +394,7 @@ func stressHeldWave(ctx context.Context, serverAddr string, workers, jitterMS in
 			_ = wsSdk.SetEd25519Object(wsSdk.ClientNo, clientPrk, serverPub)
 			wsSdk.SetHealthPing(30)
 
-			if err := wsSdk.ConnectWebSocket("/ws"); err != nil {
+			if err := wsSdk.ConnectWebSocket(); err != nil {
 				atomic.AddUint64(&failHeld, 1)
 				reasons.Add(err)
 				return
@@ -409,7 +409,7 @@ func stressHeldWave(ctx context.Context, serverAddr string, workers, jitterMS in
 }
 
 // TestWebSocketStressConnectionsHeld1Minute 压测「固定时间窗内有多少条连接能成功到位并保持到窗口结束」。
-// 每个 goroutine：独立 JWT（NextSID）→ ConnectWebSocket("/ws") → 阻塞到时间窗结束 → Disconnect。
+// 每个 goroutine：独立 JWT（NextSID）→ ConnectWebSocket() → 阻塞到时间窗结束 → Disconnect。
 // 默认约 1.6 万并发尝试、保持 3 分钟（可按环境变量改）；成功数即该窗口内稳定活跃连接数上界估计。
 // 若有建连失败，会按 err.Error() 归类打印原因明细。
 //
@@ -666,7 +666,7 @@ func TestWebSocketSendRoundTripPerf(t *testing.T) {
 			wsSdk.SetClientNo(1)
 			_ = wsSdk.SetEd25519Object(wsSdk.ClientNo, clientPrk, serverPub)
 			wsSdk.SetHealthPing(30)
-			if err := wsSdk.ConnectWebSocket("/ws"); err != nil {
+			if err := wsSdk.ConnectWebSocket(); err != nil {
 				atomic.AddUint64(&connFail, 1)
 				connectReasons.Add(err)
 				return
@@ -843,6 +843,41 @@ func TestCreateWsServer(t *testing.T) {
 	}
 
 	// 添加业务路由处理器
+	err = server.AddRouter("/ws/key", func(ctx context.Context, connCtx *node.ConnectionContext, body []byte) (interface{}, error) {
+		req := &node.PublicKey{}
+		if err := utils.JsonUnmarshal(body, req); err != nil {
+			return nil, err
+		}
+		return server.BuildPlan2KeyResponse(req)
+	}, &node.RouterConfig{UseRSA: true, KeyRoute: true})
+	if err != nil {
+		t.Fatalf("Failed to add key router: %v", err)
+	}
+
+	err = server.AddRouter("/ws/login", func(ctx context.Context, connCtx *node.ConnectionContext, body []byte) (interface{}, error) {
+		req := &sdk.AuthToken{}
+		if err := utils.JsonUnmarshal(body, req); err != nil {
+			return nil, err
+		}
+		jwtConfig := jwt.JwtConfig{
+			TokenTyp: jwt.JWT,
+			TokenAlg: jwt.HS256,
+			TokenKey: "123456",
+			TokenExp: jwt.TWO_WEEK,
+		}
+		subject := &jwt.Subject{}
+		token := subject.Create("1").Dev("APP").Generate(jwtConfig)
+		secret := subject.GetTokenSecret(token, jwtConfig.TokenKey)
+		return &sdk.AuthToken{
+			Token:   token,
+			Secret:  utils.Base64Encode(secret),
+			Expired: utils.UnixSecond() + jwtConfig.TokenExp,
+		}, nil
+	}, &node.RouterConfig{UseRSA: true, LoginRoute: true})
+	if err != nil {
+		t.Fatalf("Failed to add login router: %v", err)
+	}
+
 	err = server.AddRouter("/ws/user", func(ctx context.Context, connCtx *node.ConnectionContext, body []byte) (interface{}, error) {
 		//fmt.Println("test", connCtx.GetUserID())
 		ret := &sdk.AuthToken{
@@ -871,6 +906,47 @@ func TestCreateWsServer(t *testing.T) {
 	if err := server.StartWebsocket(serverAddr); err != nil {
 		t.Errorf("Server start failed: %v", err)
 	}
+}
+
+func TestWebSocketPlan2LoginGetToken(t *testing.T) {
+	wsUserSdk := sdk.NewSocketSDK("localhost:8088")
+	wsUserSdk.SetClientNo(1)
+	wsUserSdk.SetLanguage("zh-CN")
+	if err := wsUserSdk.SetEd25519Object(1, clientPrk, serverPub); err != nil {
+		t.Fatalf("set user sdk ed25519 failed: %v", err)
+	}
+	wsUserSdk.SetTokenExpiredCallback(func() {
+		loginSdk := sdk.NewSocketSDK("localhost:8088")
+		loginSdk.SetClientNo(1)
+		loginSdk.SetLanguage("zh-CN")
+		if err := loginSdk.SetEd25519Object(1, clientPrk, serverPub); err != nil {
+			t.Logf("token callback set ed25519 failed: %v", err)
+			return
+		}
+		defer loginSdk.DisconnectWebSocket()
+		req := sdk.AuthToken{Token: "plan2_refresh"}
+		resp := sdk.AuthToken{}
+		if err := loginSdk.LoginByWebSocketPlan2Auto("/ws/key", "/ws/login", &req, &resp, 5); err != nil {
+			t.Logf("token callback plan2 auto login failed: %v", err)
+			return
+		}
+		fmt.Println("token: ", resp)
+		wsUserSdk.AuthToken(resp) // 回调里自动填充 token
+	})
+	if err := wsUserSdk.ConnectWebSocket(); err != nil {
+		t.Fatalf("connect with jwt token failed: %v", err)
+	}
+	defer wsUserSdk.DisconnectWebSocket()
+
+	userReq := map[string]interface{}{"test": "plan2_to_user"}
+	userResp := &sdk.AuthToken{}
+	if err := wsUserSdk.SendWebSocketMessage("/ws/user", userReq, userResp, true, false, 5); err != nil {
+		t.Fatalf("ws user route call failed: %v", err)
+	}
+	if len(userResp.Token) == 0 {
+		t.Fatalf("invalid user response: %+v", userResp)
+	}
+	fmt.Println("user: ", userResp)
 }
 
 // TestWebSocketSDKUsage 测试完整的SDK使用流程（包含服务器管理）
@@ -982,7 +1058,7 @@ func TestWebSocketSDKUsage(t *testing.T) {
 
 	// 5. 尝试连接WebSocket（预期成功，因为服务器已启动）
 	fmt.Println("5. 尝试连接WebSocket（预期成功）...")
-	err = wsSdk.ConnectWebSocket("/ws")
+	err = wsSdk.ConnectWebSocket()
 	if err != nil {
 		t.Error("连接失败：", err)
 		return
@@ -1229,7 +1305,7 @@ func TestWebSocketTokenExpiredCallback(t *testing.T) {
 	})
 
 	// 3. 尝试连接（应该触发token过期回调）
-	err = wsSdk.ConnectWebSocket("/ws")
+	err = wsSdk.ConnectWebSocket()
 	if err != nil {
 		// 预期的错误，因为初始token已过期
 		if !strings.Contains(err.Error(), "token empty or token expired") {
@@ -1251,7 +1327,7 @@ func TestWebSocketTokenExpiredCallback(t *testing.T) {
 	}
 
 	// 6. 再次尝试连接（应该成功，因为token已刷新）
-	err = wsSdk.ConnectWebSocket("/ws")
+	err = wsSdk.ConnectWebSocket()
 	if err != nil {
 		t.Fatalf("Failed to connect after token refresh: %v", err)
 	}
@@ -1578,7 +1654,7 @@ func TestWebSocketMessageSubscription(t *testing.T) {
 		wsSdk.AuthToken(authToken)
 
 		// 连接到服务器
-		err = wsSdk.ConnectWebSocket("/ws")
+		err = wsSdk.ConnectWebSocket()
 		if err != nil {
 			t.Fatalf("Failed to connect WebSocket: %v", err)
 		}
@@ -1665,7 +1741,7 @@ func TestWebSocketMessageSubscription(t *testing.T) {
 		wsSdk.AuthToken(authToken)
 
 		// 连接到服务器
-		err = wsSdk.ConnectWebSocket("/ws")
+		err = wsSdk.ConnectWebSocket()
 		if err != nil {
 			t.Fatalf("Failed to connect WebSocket: %v", err)
 		}
@@ -1754,7 +1830,7 @@ func TestWebSocketMessageSubscription(t *testing.T) {
 		defer wsSdk.UnsubscribeMessage(testRouter)
 
 		// 连接到服务器
-		err = wsSdk.ConnectWebSocket("/ws")
+		err = wsSdk.ConnectWebSocket()
 		if err != nil {
 			t.Fatalf("Failed to connect WebSocket: %v", err)
 		}
@@ -1783,7 +1859,7 @@ func TestWebSocketMessageSubscription(t *testing.T) {
 		wsSdk.AuthToken(authToken)
 
 		// 重新连接（这会触发自动重新订阅）
-		err = wsSdk.ConnectWebSocket("/ws")
+		err = wsSdk.ConnectWebSocket()
 		if err != nil {
 			t.Fatalf("Failed to reconnect WebSocket: %v", err)
 		}
@@ -1845,7 +1921,7 @@ func TestWebSocketMessageSizeLimit(t *testing.T) {
 	wsSdk.AuthToken(authToken)
 
 	// 连接WebSocket
-	err := wsSdk.ConnectWebSocket("/ws")
+	err := wsSdk.ConnectWebSocket()
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
 	}
@@ -1963,7 +2039,7 @@ func TestWebSocketClientUnexpectedDisconnect(t *testing.T) {
 	})
 	wsSdk.SetClientNo(1)
 	_ = wsSdk.SetEd25519Object(wsSdk.ClientNo, clientPrk, serverPub)
-	if err := wsSdk.ConnectWebSocket("/ws"); err != nil {
+	if err := wsSdk.ConnectWebSocket(); err != nil {
 		t.Fatalf("reconnect after disconnect test failed: %v", err)
 	}
 	defer wsSdk.DisconnectWebSocket()
@@ -2106,7 +2182,7 @@ func TestWebSocketErrorHandling(t *testing.T) {
 	}
 	wsSdk.AuthToken(authToken)
 
-	err := wsSdk.ConnectWebSocket("/ws")
+	err := wsSdk.ConnectWebSocket()
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
 	}
@@ -2261,11 +2337,11 @@ func TestWebSocketClient(t *testing.T) {
 
 	// 4. 启用自动重连
 	fmt.Println("4. 启用自动重连...")
-	wsSdk.EnableReconnect() // 启用重连，最大尝试10次，初始间隔1秒，最大间隔30秒
+	wsSdk.EnableReconnect() // 启用重连，默认无限次，初始间隔1秒，最大间隔8秒
 
 	// 5. 尝试连接WebSocket（预期成功，因为服务器已启动）
 	fmt.Println("5. 尝试连接WebSocket（预期成功）...")
-	_ = wsSdk.ConnectWebSocket("/ws")
+	_ = wsSdk.ConnectWebSocket()
 
 	// 6. 发送WebSocket消息
 	fmt.Println("6. 发送WebSocket消息...")
