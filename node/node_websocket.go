@@ -388,6 +388,36 @@ type WsServer struct {
 type ErrorHandler struct {
 }
 
+func sanitizeWSErrorDetail(detail string) string {
+	detail = strings.TrimSpace(detail)
+	if len(detail) == 0 {
+		return ""
+	}
+	// Keep single-line detail for clients/log parsers.
+	detail = strings.ReplaceAll(detail, "\r", " ")
+	detail = strings.ReplaceAll(detail, "\n", " ")
+	for strings.Contains(detail, "  ") {
+		detail = strings.ReplaceAll(detail, "  ", " ")
+	}
+	// Cap length to avoid oversized websocket error frames.
+	if len(detail) > 240 {
+		detail = detail[:240] + "..."
+	}
+	return detail
+}
+
+func wsErrorDetail(err error) string {
+	if err == nil {
+		return ""
+	}
+	throw := ex.Catch(err)
+	// Prefer business message; fallback to original chained error text.
+	if msg := sanitizeWSErrorDetail(throw.Msg); len(msg) > 0 {
+		return msg
+	}
+	return sanitizeWSErrorDetail(throw.ErrMsg)
+}
+
 func (eh *ErrorHandler) handleConnectionError(connCtx *ConnectionContext, err error, operation string, fallbackNonce string) {
 	// 准备上下文信息
 	userID := connCtx.GetUserIDString()
@@ -410,6 +440,9 @@ func (eh *ErrorHandler) handleConnectionError(connCtx *ConnectionContext, err er
 		defer PutJsonResp(resp)
 		resp.Code = ex.WS_SEND
 		resp.Message = "websocket error: " + operation
+		if detail := wsErrorDetail(err); len(detail) > 0 {
+			resp.Message = resp.Message + ": " + detail
+		}
 		resp.Time = utils.UnixSecond()
 
 		if len(fallbackNonce) > 0 {

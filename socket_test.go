@@ -885,7 +885,7 @@ func TestCreateWsServer(t *testing.T) {
 			Secret: connCtx.GetUserIDString(),
 		}
 		return ret, nil
-	}, &node.RouterConfig{})
+	}, &node.RouterConfig{AesRequest: true, AesResponse: true})
 	if err != nil {
 		t.Fatalf("Failed to add router: %v", err)
 	}
@@ -940,7 +940,7 @@ func TestWebSocketPlan2LoginGetToken(t *testing.T) {
 
 	userReq := map[string]interface{}{"test": "plan2_to_user"}
 	userResp := &sdk.AuthToken{}
-	if err := wsUserSdk.SendWebSocketMessage("/ws/user", userReq, userResp, true, false, 5); err != nil {
+	if err := wsUserSdk.SendWebSocketMessage("/ws/user", userReq, userResp, true, true, 5); err != nil {
 		t.Fatalf("ws user route call failed: %v", err)
 	}
 	if len(userResp.Token) == 0 {
