@@ -118,7 +118,7 @@ type SocketSDK struct {
 	language      string                  // 语言设置 (HTTP头)
 	timeout       int64                   // 请求超时时间(秒)
 	authObject    interface{}             // 登录认证对象 (用户名+密码等)
-	authToken     AuthToken               // JWT认证令牌
+	authToken     atomic.Pointer[AuthToken] // JWT认证令牌（原子快照）
 	rawAuthHeader string                  // 自定义Authorization头（用于plan2等非JWT建连）
 	broadcastKey  string                  // 广播数据签名密钥
 	SSL           bool                    // 是否启用https
@@ -131,6 +131,8 @@ type SocketSDK struct {
 	connMutex   sync.Mutex
 	isConnected bool // 连接状态
 	connecting  bool // 是否正在建立连接中（防止并发连接）
+	// 当前连接绑定的 token secret 快照，避免 token 刷新与重连窗口期出现签名混用。
+	connectedTokenSecret atomic.Pointer[string]
 
 	// 上下文管理（关键修复）
 	rootCtx    context.Context    // SDK全局上下文（用于Close）
@@ -182,17 +184,27 @@ func (s *SocketSDK) AuthObject(object interface{}) {
 // 设置登录成功后获得的令牌，用于后续WebSocket消息的身份认证
 // object: AuthToken结构体，包含token、secret、expired字段
 func (s *SocketSDK) AuthToken(object AuthToken) {
-	s.authToken = object
-	atomic.StoreInt32(&s.tokenCallbackActive, 0) // token刷新后允许再次触发回调
+	token := object
+	s.authToken.Store(&token)
 }
 
 func (s *SocketSDK) GetAuth() AuthToken {
-	return s.authToken
+	if token := s.authToken.Load(); token != nil {
+		return *token
+	}
+	return AuthToken{}
 }
 
 // SetRawAuthorization 设置连接时直接使用的 Authorization 头（如 plan2 场景）。
 func (s *SocketSDK) SetRawAuthorization(auth string) {
 	s.rawAuthHeader = auth
+}
+
+func (s *SocketSDK) getTokenSecretForSigning() string {
+	if p := s.connectedTokenSecret.Load(); p != nil && len(*p) > 0 {
+		return *p
+	}
+	return s.GetAuth().Secret
 }
 
 // SetTimeout 设置WebSocket请求的超时时间
@@ -324,13 +336,14 @@ func (s *SocketSDK) decryptPushMessageData(res *node.JsonResp) ([]byte, error) {
 // 检查令牌是否存在、secret是否存在，以及是否即将过期(提前1小时预警)
 // 返回: true表示令牌有效，false表示需要重新认证
 func (s *SocketSDK) valid() bool {
-	if len(s.authToken.Token) == 0 {
+	auth := s.GetAuth()
+	if len(auth.Token) == 0 {
 		return false
 	}
-	if len(s.authToken.Secret) == 0 {
+	if len(auth.Secret) == 0 {
 		return false
 	}
-	if utils.UnixSecond() > s.authToken.Expired {
+	if utils.UnixSecond() > auth.Expired {
 		return false
 	}
 	return true
@@ -437,7 +450,8 @@ func (s *SocketSDK) startTokenMonitor() {
 				case <-s.rootCtx.Done():
 					return
 				case <-ticker.C:
-					if len(s.rawAuthHeader) == 0 && !s.valid() {
+					// 仅在“未连接”状态触发过期回调；已连接会话按连接态继续工作，等断线重连时再刷新 token。
+					if len(s.rawAuthHeader) == 0 && !s.valid() && !s.IsWebSocketConnected() {
 						s.triggerTokenExpiredCallback()
 					}
 				}
@@ -496,7 +510,8 @@ func (s *SocketSDK) connectWebSocketInternal(path string, isInitial bool) error 
 
 	// 设置认证头（gws Dialer）
 	header := http.Header{}
-	authHeader := s.authToken.Token
+	authSnapshot := s.GetAuth()
+	authHeader := authSnapshot.Token
 	if len(authHeader) == 0 {
 		authHeader = s.rawAuthHeader
 	}
@@ -548,6 +563,12 @@ func (s *SocketSDK) connectWebSocketInternal(path string, isInitial bool) error 
 	s.connMutex.Lock()
 	s.conn = socket
 	s.isConnected = true
+	if len(authSnapshot.Token) > 0 {
+		secret := authSnapshot.Secret
+		s.connectedTokenSecret.Store(&secret)
+	} else {
+		s.connectedTokenSecret.Store(nil)
+	}
 	s.connMutex.Unlock()
 
 	// 重置重连计数
@@ -952,7 +973,7 @@ func (s *SocketSDK) prepareHeartbeatMessage(router string, data interface{}) ([]
 	DIC.ClearData(jsonData) // 立即清理序列化后的数据
 
 	// 生成签名（心跳也需要签名验证）
-	tokenSecret := utils.Base64Decode(s.authToken.Secret)
+	tokenSecret := utils.Base64Decode(s.getTokenSecretForSigning())
 
 	signData, _ := node.SignAndDigestBodyMessage(jsonBody.Router, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan, jsonBody.User, tokenSecret)
 	jsonBody.Sign = utils.Base64Encode(signData)
@@ -993,7 +1014,7 @@ func (s *SocketSDK) prepareWebSocketMessage(jsonBody *node.JsonBody, data interf
 	defer DIC.ClearData(jsonData)
 
 	// 解码token secret用于加密和签名
-	tokenSecret := utils.Base64Decode(s.authToken.Secret)
+	tokenSecret := utils.Base64Decode(s.getTokenSecretForSigning())
 	defer DIC.ClearData(tokenSecret)
 
 	// 根据plan决定是否加密
@@ -1078,7 +1099,7 @@ func (s *SocketSDK) sendWebSocketAuthHandshake(conn *gws.Conn, path string) erro
 		}
 
 		// 验证响应签名（与HTTP流程保持一致的安全性）
-		tokenSecret := utils.Base64Decode(s.authToken.Secret)
+		tokenSecret := utils.Base64Decode(s.getTokenSecretForSigning())
 		defer DIC.ClearData(tokenSecret)
 
 		// 构建签名字符串（使用握手路径）
@@ -1140,11 +1161,6 @@ func (s *SocketSDK) sendWebSocketAuthHandshake(conn *gws.Conn, path string) erro
 // timeout: 等待响应的超时时间(秒)
 // 返回: 发送成功返回nil，否则返回发送失败的错误信息
 func (s *SocketSDK) SendWebSocketMessage(router string, requestObj, responseObj interface{}, waitResponse, encryptRequest bool, timeout int64) error {
-	// 验证认证信息
-	if !s.valid() {
-		return ex.Throw{Msg: "token empty or token expired"}
-	}
-
 	// 使用通用方法准备消息数据
 	jsonBody := node.GetJsonBody()
 	defer node.PutJsonBody(jsonBody)
@@ -1175,6 +1191,9 @@ func (s *SocketSDK) SendWebSocketMessage(router string, requestObj, responseObj 
 	s.connMutex.Lock()
 	if !s.isConnected || s.conn == nil {
 		s.connMutex.Unlock()
+		if !s.valid() {
+			return ex.Throw{Msg: "token empty or token expired"}
+		}
 		return ex.Throw{Msg: "WebSocket not connected, call ConnectWebSocket first"}
 	}
 	conn := s.conn
@@ -1232,7 +1251,7 @@ func (s *SocketSDK) verifyWebSocketResponseFromJsonResp(path string, result inte
 		}
 	}
 
-	tokenSecret := utils.Base64Decode(s.authToken.Secret)
+	tokenSecret := utils.Base64Decode(s.getTokenSecretForSigning())
 	defer DIC.ClearData(tokenSecret)
 
 	validSign, _ := node.SignAndDigestBodyMessage(path, jsonResp.Data, jsonResp.Nonce, jsonResp.Time, jsonResp.Plan, s.ClientNo, tokenSecret)
@@ -1494,6 +1513,7 @@ func (s *SocketSDK) disconnectWebSocketInternal(triggerReconnect bool) {
 		s.conn = nil
 	}
 	s.isConnected = false
+	s.connectedTokenSecret.Store(nil)
 	s.connMutex.Unlock()
 
 	if zlog.IsDebug() {
@@ -1640,13 +1660,22 @@ func (s *SocketSDK) SetTokenExpiredCallback(callback func()) {
 
 func (s *SocketSDK) triggerTokenExpiredCallback() {
 	if s.onTokenExpired != nil {
+		// 二次校验：可能外层判定过期后，token 已在其他协程完成刷新。
+		if s.valid() || len(s.rawAuthHeader) > 0 {
+			return
+		}
 		// 节流：避免多个触发点在短时间内重复拉起 token 回调导致风暴
 		now := utils.UnixSecond()
 		last := atomic.LoadInt64(&s.tokenCallbackLastAt)
-		if now-last < 2 {
+		if now-last < 5 {
 			return
 		}
 		if !atomic.CompareAndSwapInt32(&s.tokenCallbackActive, 0, 1) {
+			return
+		}
+		// 抢到执行权后再次校验，避免等待期间 token 已恢复仍发起重复回调。
+		if s.valid() || len(s.rawAuthHeader) > 0 {
+			atomic.StoreInt32(&s.tokenCallbackActive, 0)
 			return
 		}
 		atomic.StoreInt64(&s.tokenCallbackLastAt, now)
@@ -1664,12 +1693,19 @@ func (s *SocketSDK) triggerTokenExpiredCallbackSync() {
 	if s.onTokenExpired == nil {
 		return
 	}
+	if s.valid() || len(s.rawAuthHeader) > 0 {
+		return
+	}
 	now := utils.UnixSecond()
 	last := atomic.LoadInt64(&s.tokenCallbackLastAt)
-	if now-last < 2 {
+	if now-last < 5 {
 		return
 	}
 	if !atomic.CompareAndSwapInt32(&s.tokenCallbackActive, 0, 1) {
+		return
+	}
+	if s.valid() || len(s.rawAuthHeader) > 0 {
+		atomic.StoreInt32(&s.tokenCallbackActive, 0)
 		return
 	}
 	atomic.StoreInt64(&s.tokenCallbackLastAt, now)
