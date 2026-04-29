@@ -13,8 +13,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/godaddy-x/freego/utils/crypto"
 	ecc "github.com/godaddy-x/eccrypto"
+	"github.com/godaddy-x/freego/utils/crypto"
 
 	DIC "github.com/godaddy-x/freego/common"
 	"github.com/godaddy-x/freego/ex"
@@ -114,20 +114,20 @@ func (h *ClientEventHandler) OnMessage(socket *gws.Conn, message *gws.Message) {
 }
 
 type SocketSDK struct {
-	Domain        string                  // API域名 (如:api.example.com)
-	language      string                  // 语言设置 (HTTP头)
-	timeout       int64                   // 请求超时时间(秒)
-	authObject    interface{}             // 登录认证对象 (用户名+密码等)
+	Domain        string                    // API域名 (如:api.example.com)
+	language      string                    // 语言设置 (HTTP头)
+	timeout       int64                     // 请求超时时间(秒)
+	authObject    interface{}               // 登录认证对象 (用户名+密码等)
 	authToken     atomic.Pointer[AuthToken] // JWT认证令牌（原子快照）
-	rawAuthHeader string                  // 自定义Authorization头（用于plan2等非JWT建连）
-	broadcastKey  string                  // 广播数据签名密钥
-	SSL           bool                    // 是否启用https
-	ClientNo      int64                   // 客户端ID
-	ed25519Object map[int64]crypto.Cipher // Ed25519 双向外层签名
-	HealthPing    int                     // 心跳间隔/秒，建议 10–15，内部最大 15
+	rawAuthHeader string                    // 自定义Authorization头（用于plan2等非JWT建连）
+	broadcastKey  string                    // 广播数据签名密钥
+	SSL           bool                      // 是否启用https
+	ClientNo      int64                     // 客户端ID
+	ed25519Object map[int64]crypto.Cipher   // Ed25519 双向外层签名
+	HealthPing    int                       // 心跳间隔/秒，建议 10–15，内部最大 15
 
 	// WebSocket连接相关（gws 使用 *gws.Conn）
-	conn        *gws.Conn    // gws WebSocket 连接
+	conn        *gws.Conn // gws WebSocket 连接
 	connMutex   sync.Mutex
 	isConnected bool // 连接状态
 	connecting  bool // 是否正在建立连接中（防止并发连接）
@@ -1556,7 +1556,7 @@ func (s *SocketSDK) calculateReconnectInterval() time.Duration {
 }
 
 func (s *SocketSDK) startReconnectProcess() {
-	zlog.Info("startReconnectProcess called", 0)
+	//zlog.Info("startReconnectProcess called", 0)
 	s.reconnectMutex.Lock()
 
 	if !s.reconnectEnabled {
@@ -1615,7 +1615,7 @@ func (s *SocketSDK) startReconnectProcess() {
 	}
 
 	if err := s.connectWebSocketInternal(path, false); err != nil {
-		zlog.Error(fmt.Sprintf("Reconnect attempt %d failed: %v", currentAttempt, err), 0)
+		zlog.Error(fmt.Sprintf("Reconnect attempt %d failed", currentAttempt), 0, zlog.String("errorMsg", ex.Catch(err).Msg))
 		go s.startReconnectProcess()
 	} else {
 		zlog.Info(fmt.Sprintf("Reconnect attempt %d successful", currentAttempt), 0)
