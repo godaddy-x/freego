@@ -159,7 +159,7 @@ func TestWebSocketManyClient(t *testing.T) {
 				wsSdk := sdk.NewSocketSDK(serverAddr)
 				wsSdk.AuthToken(u)
 				wsSdk.SetClientNo(1)
-				_ = wsSdk.SetEd25519Object(wsSdk.ClientNo, clientPrk, serverPub)
+				_ = wsSdk.SetEd25519Object(wsSdk.GetClientNo(), clientPrk, serverPub)
 				wsSdk.SetHealthPing(10)
 				if err := wsSdk.ConnectWebSocket(); err != nil {
 					failMu.Lock()
@@ -273,7 +273,7 @@ func TestWebSocketStressConnectionRate1Minute(t *testing.T) {
 				wsSdk := sdk.NewSocketSDK(serverAddr)
 				wsSdk.AuthToken(auth)
 				wsSdk.SetClientNo(1)
-				_ = wsSdk.SetEd25519Object(wsSdk.ClientNo, clientPrk, serverPub)
+				_ = wsSdk.SetEd25519Object(wsSdk.GetClientNo(), clientPrk, serverPub)
 				wsSdk.SetHealthPing(30)
 
 				if err := wsSdk.ConnectWebSocket(); err != nil {
@@ -391,7 +391,7 @@ func stressHeldWave(ctx context.Context, serverAddr string, workers, jitterMS in
 			wsSdk := sdk.NewSocketSDK(serverAddr)
 			wsSdk.AuthToken(auth)
 			wsSdk.SetClientNo(1)
-			_ = wsSdk.SetEd25519Object(wsSdk.ClientNo, clientPrk, serverPub)
+			_ = wsSdk.SetEd25519Object(wsSdk.GetClientNo(), clientPrk, serverPub)
 			wsSdk.SetHealthPing(30)
 
 			if err := wsSdk.ConnectWebSocket(); err != nil {
@@ -664,7 +664,7 @@ func TestWebSocketSendRoundTripPerf(t *testing.T) {
 			wsSdk := sdk.NewSocketSDK(serverAddr)
 			wsSdk.AuthToken(auth)
 			wsSdk.SetClientNo(1)
-			_ = wsSdk.SetEd25519Object(wsSdk.ClientNo, clientPrk, serverPub)
+			_ = wsSdk.SetEd25519Object(wsSdk.GetClientNo(), clientPrk, serverPub)
 			wsSdk.SetHealthPing(30)
 			if err := wsSdk.ConnectWebSocket(); err != nil {
 				atomic.AddUint64(&connFail, 1)
@@ -918,7 +918,6 @@ func TestWebSocketPlan2LoginGetToken(t *testing.T) {
 	wsUserSdk.SetTokenExpiredCallback(func() {
 		loginSdk := sdk.NewSocketSDK("localhost:8088")
 		loginSdk.SetClientNo(1)
-		loginSdk.SetLanguage("zh-CN")
 		if err := loginSdk.SetEd25519Object(1, clientPrk, serverPub); err != nil {
 			t.Logf("token callback set ed25519 failed: %v", err)
 			return
@@ -1053,7 +1052,7 @@ func TestWebSocketSDKUsage(t *testing.T) {
 	wsSdk.AuthToken(authToken)
 
 	wsSdk.SetClientNo(1)
-	wsSdk.SetEd25519Object(wsSdk.ClientNo, clientPrk, serverPub)
+	wsSdk.SetEd25519Object(wsSdk.GetClientNo(), clientPrk, serverPub)
 	wsSdk.SetHealthPing(5)
 
 	// 5. 尝试连接WebSocket（预期成功，因为服务器已启动）
@@ -2038,7 +2037,7 @@ func TestWebSocketClientUnexpectedDisconnect(t *testing.T) {
 		Expired: subject.Payload.Exp,
 	})
 	wsSdk.SetClientNo(1)
-	_ = wsSdk.SetEd25519Object(wsSdk.ClientNo, clientPrk, serverPub)
+	_ = wsSdk.SetEd25519Object(wsSdk.GetClientNo(), clientPrk, serverPub)
 	if err := wsSdk.ConnectWebSocket(); err != nil {
 		t.Fatalf("reconnect after disconnect test failed: %v", err)
 	}
@@ -2300,7 +2299,7 @@ func TestWebSocketClient(t *testing.T) {
 	wsSdk.AuthToken(authToken)
 
 	wsSdk.SetClientNo(1)
-	wsSdk.SetEd25519Object(wsSdk.ClientNo, clientPrk, serverPub)
+	wsSdk.SetEd25519Object(wsSdk.GetClientNo(), clientPrk, serverPub)
 	wsSdk.SetHealthPing(3) // 3秒心跳间隔，便于测试
 
 	// 设置推送消息回调 - 客户端通过code=300识别推送消息，已自动处理验签和解密

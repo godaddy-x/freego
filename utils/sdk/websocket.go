@@ -47,17 +47,17 @@ const (
 //
 //	sdk := NewSocketSDK("api.example.com")
 //	sdk.AuthToken(AuthToken{...})
-//	sdk.ClientNo = 12345
+//	sdk.SetClientNo(12345)
 func NewSocketSDK(domain string) *SocketSDK {
 	rootCtx, rootCancel := context.WithCancel(context.Background())
 
 	return &SocketSDK{
-		Domain:               domain,
+		domain:               normalizeWSHost(domain),
 		timeout:              120,
 		maxReconnectAttempts: -1,
 		reconnectInterval:    time.Second,
 		maxReconnectInterval: 8 * time.Second,
-		HealthPing:           15,
+		healthPing:           15,
 		connectedPath:        DefaultWsRoute,
 		rootCtx:              rootCtx,
 		rootCancel:           rootCancel,
@@ -114,17 +114,17 @@ func (h *ClientEventHandler) OnMessage(socket *gws.Conn, message *gws.Message) {
 }
 
 type SocketSDK struct {
-	Domain        string                    // API域名 (如:api.example.com)
+	domain        string                    // API域名 (如:api.example.com)，经 SetDomain / NewSocketSDK 规范化
 	language      string                    // 语言设置 (HTTP头)
 	timeout       int64                     // 请求超时时间(秒)
 	authObject    interface{}               // 登录认证对象 (用户名+密码等)
 	authToken     atomic.Pointer[AuthToken] // JWT认证令牌（原子快照）
 	rawAuthHeader string                    // 自定义Authorization头（用于plan2等非JWT建连）
 	broadcastKey  string                    // 广播数据签名密钥
-	SSL           bool                      // 是否启用https
-	ClientNo      int64                     // 客户端ID
+	ssl           bool                      // 是否启用https
+	clientNo      int64                     // 客户端ID
 	ed25519Object map[int64]crypto.Cipher   // Ed25519 双向外层签名
-	HealthPing    int                       // 心跳间隔/秒，建议 10–15，内部最大 15
+	healthPing    int                       // 心跳间隔/秒，建议 10–15，内部最大 15
 
 	// WebSocket连接相关（gws 使用 *gws.Conn）
 	conn        *gws.Conn // gws WebSocket 连接
@@ -200,11 +200,59 @@ func (s *SocketSDK) SetRawAuthorization(auth string) {
 	s.rawAuthHeader = auth
 }
 
+// normalizeWSHost 规范化域名/host:port：去空白并转小写，避免大小写混用导致 URI 不一致。
+func normalizeWSHost(host string) string {
+	return strings.ToLower(strings.TrimSpace(host))
+}
+
+// SetDomain 设置 WebSocket 连接的域名或 host:port（如 api.example.com 或 api.example.com:443）。
+func (s *SocketSDK) SetDomain(domain string) {
+	s.domain = normalizeWSHost(domain)
+}
+
+// GetDomain 返回当前配置的域名/host（只读）。
+func (s *SocketSDK) GetDomain() string {
+	return s.domain
+}
+
+// GetClientNo 返回当前客户端编号（只读）。
+func (s *SocketSDK) GetClientNo() int64 {
+	return s.clientNo
+}
+
+// GetSSL 返回是否使用 wss（只读）。
+func (s *SocketSDK) GetSSL() bool {
+	return s.ssl
+}
+
 func (s *SocketSDK) getTokenSecretForSigning() string {
 	if p := s.connectedTokenSecret.Load(); p != nil && len(*p) > 0 {
 		return *p
 	}
 	return s.GetAuth().Secret
+}
+
+// decodeJWTSecretBase64String 将 JWT Secret 的 Base64 字符串解码并校验长度（AES-256 密钥材料至少 32 字节）。
+// 成功返回的字节须由调用方 DIC.ClearData；失败时不会泄漏未清理的长切片。
+func decodeJWTSecretBase64String(b64 string) ([]byte, error) {
+	s := strings.TrimSpace(b64)
+	if len(s) == 0 {
+		return nil, ex.Throw{Msg: "jwt token secret is empty, set AuthToken or wait for reconnect"}
+	}
+	raw := utils.Base64Decode(s)
+	if len(raw) < 32 {
+		if len(raw) > 0 {
+			DIC.ClearData(raw)
+		}
+		return nil, ex.Throw{Msg: "jwt token secret invalid: base64 decoded length must be at least 32 bytes"}
+	}
+	return raw, nil
+}
+
+// decodeTokenSecretForSend 当前用于签名的 Secret 字符串（连接快照或 AuthToken）解码并校验。
+// 返回的字节须由调用方 DIC.ClearData。
+func (s *SocketSDK) decodeTokenSecretForSend() ([]byte, error) {
+	return decodeJWTSecretBase64String(s.getTokenSecretForSigning())
 }
 
 // SetTimeout 设置WebSocket请求的超时时间
@@ -227,17 +275,26 @@ func (s *SocketSDK) SetHealthPing(t int) {
 	if t > maxHealthPing {
 		t = maxHealthPing
 	}
-	s.HealthPing = t
+	s.healthPing = t
 }
 
 func (s *SocketSDK) SetClientNo(clientNo int64) {
-	s.ClientNo = clientNo
+	s.clientNo = clientNo
+}
+
+func (s *SocketSDK) SetSSL(ssl bool) {
+	s.ssl = ssl
 }
 
 // SetLanguage 设置WebSocket请求的语言标识
 // language: 语言代码，如"zh-CN"、"en-US"，用于服务端国际化支持
 func (s *SocketSDK) SetLanguage(language string) {
-	s.language = language
+	lang := strings.TrimSpace(language)
+	if lang == "" {
+		s.language = ""
+		return
+	}
+	s.language = strings.ToLower(lang)
 }
 
 // SetPushMessageCallback 设置服务端主动推送消息的回调函数
@@ -273,11 +330,11 @@ func (s *SocketSDK) SetWebSocketPath(path string) error {
 // 返回: 完整的WebSocket URI，支持ws和wss协议
 func (s *SocketSDK) getURI(path string) string {
 	var p string
-	if s.SSL {
-		u := url.URL{Scheme: "wss", Host: s.Domain, Path: path}
+	if s.ssl {
+		u := url.URL{Scheme: "wss", Host: s.domain, Path: path}
 		p = u.String()
 	} else {
-		u := url.URL{Scheme: "ws", Host: s.Domain, Path: path}
+		u := url.URL{Scheme: "ws", Host: s.domain, Path: path}
 		p = u.String()
 	}
 	return p
@@ -333,19 +390,21 @@ func (s *SocketSDK) decryptPushMessageData(res *node.JsonResp) ([]byte, error) {
 }
 
 // valid 验证当前认证令牌是否有效
-// 检查令牌是否存在、secret是否存在，以及是否即将过期(提前1小时预警)
+// 检查令牌是否存在、secret 非空且 Base64 解码后长度满足 AES 使用下限，以及未过期。
 // 返回: true表示令牌有效，false表示需要重新认证
 func (s *SocketSDK) valid() bool {
 	auth := s.GetAuth()
 	if len(auth.Token) == 0 {
 		return false
 	}
-	if len(auth.Secret) == 0 {
-		return false
-	}
 	if utils.UnixSecond() > auth.Expired {
 		return false
 	}
+	raw, err := decodeJWTSecretBase64String(auth.Secret)
+	if err != nil {
+		return false
+	}
+	DIC.ClearData(raw)
 	return true
 }
 
@@ -353,7 +412,7 @@ func (s *SocketSDK) addEd25519Sign(jsonBody *node.JsonBody) error {
 	if s.ed25519Object == nil {
 		return ex.Throw{Msg: "Ed25519 object not configured, bidirectional Ed25519 signature is required"}
 	}
-	cipher, exists := s.ed25519Object[s.ClientNo]
+	cipher, exists := s.ed25519Object[s.clientNo]
 	if !exists || cipher == nil {
 		return ex.Throw{Msg: "Ed25519 object not found for client, bidirectional Ed25519 signature is required"}
 	}
@@ -373,7 +432,7 @@ func (s *SocketSDK) verifyEd25519Sign(path string, usr int64, respData *node.Jso
 	if s.ed25519Object == nil {
 		return ex.Throw{Msg: "Ed25519 object not configured, bidirectional Ed25519 signature is required"}
 	}
-	cipher, exists := s.ed25519Object[s.ClientNo]
+	cipher, exists := s.ed25519Object[s.clientNo]
 	if !exists || cipher == nil {
 		return ex.Throw{Msg: "Ed25519 object not found for client, bidirectional Ed25519 signature is required"}
 	}
@@ -674,14 +733,14 @@ func (s *SocketSDK) buildPlan2BootstrapAuthorization() (string, error) {
 	if s.ed25519Object == nil {
 		return "", ex.Throw{Msg: "Ed25519 object not configured, bidirectional Ed25519 signature is required"}
 	}
-	cipher, exists := s.ed25519Object[s.ClientNo]
+	cipher, exists := s.ed25519Object[s.clientNo]
 	if !exists || cipher == nil {
 		return "", ex.Throw{Msg: "Ed25519 object not found for client, bidirectional Ed25519 signature is required"}
 	}
 	pub, err := node.CreatePublicKey(
 		utils.Base64Encode(utils.GetRandomSecure(32)),
 		utils.Base64Encode(utils.GetRandomSecure(32)),
-		s.ClientNo,
+		s.clientNo,
 		cipher,
 	)
 	if err != nil {
@@ -703,7 +762,7 @@ func (s *SocketSDK) GetWebSocketPlan2Auth(keyRouter string, timeout int64) (stri
 	if s.ed25519Object == nil {
 		return "", nil, ex.Throw{Msg: "Ed25519 object not configured, bidirectional Ed25519 signature is required"}
 	}
-	cipher, exists := s.ed25519Object[s.ClientNo]
+	cipher, exists := s.ed25519Object[s.clientNo]
 	if !exists || cipher == nil {
 		return "", nil, ex.Throw{Msg: "Ed25519 object not found for client, bidirectional Ed25519 signature is required"}
 	}
@@ -711,7 +770,7 @@ func (s *SocketSDK) GetWebSocketPlan2Auth(keyRouter string, timeout int64) (stri
 	reqPublic, err := node.CreatePublicKey(
 		utils.Base64Encode(utils.GetRandomSecure(32)),
 		utils.Base64Encode(utils.GetRandomSecure(32)),
-		s.ClientNo,
+		s.clientNo,
 		cipher,
 	)
 	if err != nil {
@@ -729,7 +788,7 @@ func (s *SocketSDK) GetWebSocketPlan2Auth(keyRouter string, timeout int64) (stri
 	jsonBody.Nonce = utils.GetUUID(true)
 	jsonBody.Plan = 0
 	jsonBody.Router = keyRouter
-	jsonBody.User = s.ClientNo
+	jsonBody.User = s.clientNo
 	jsonBody.Data = utils.Base64Encode(reqData)
 
 	sign, _ := node.SignAndDigestBodyMessage(jsonBody.Router, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan, jsonBody.User, []byte{})
@@ -751,12 +810,12 @@ func (s *SocketSDK) GetWebSocketPlan2Auth(keyRouter string, timeout int64) (stri
 	if resp.Time <= 0 || utils.MathAbs(utils.UnixSecond()-resp.Time) > 300 {
 		return "", nil, ex.Throw{Msg: "plan2 key response time invalid"}
 	}
-	validSign, _ := node.SignAndDigestBodyMessage(keyRouter, resp.Data, resp.Nonce, resp.Time, resp.Plan, s.ClientNo, []byte{})
+	validSign, _ := node.SignAndDigestBodyMessage(keyRouter, resp.Data, resp.Nonce, resp.Time, resp.Plan, s.clientNo, []byte{})
 	defer DIC.ClearData(validSign)
 	if !utils.CompareBase64Sign(validSign, resp.Sign) {
 		return "", nil, ex.Throw{Msg: "plan2 key response signature verification failed"}
 	}
-	if err := s.verifyEd25519Sign(keyRouter, s.ClientNo, resp); err != nil {
+	if err := s.verifyEd25519Sign(keyRouter, s.clientNo, resp); err != nil {
 		return "", nil, err
 	}
 	respData := utils.Base64Decode(resp.Data)
@@ -798,7 +857,7 @@ func (s *SocketSDK) GetWebSocketPlan2Auth(keyRouter string, timeout int64) (stri
 		return "", nil, ex.Throw{Msg: "HKDF shared key failed"}
 	}
 
-	authPub, err := node.CreatePublicKey(serverPub.Key, utils.Base64Encode(xPrk.PublicKey().Bytes()), s.ClientNo, cipher)
+	authPub, err := node.CreatePublicKey(serverPub.Key, utils.Base64Encode(xPrk.PublicKey().Bytes()), s.clientNo, cipher)
 	if err != nil {
 		DIC.ClearData(sharedKey)
 		return "", nil, err
@@ -872,7 +931,7 @@ func (s *SocketSDK) SendWebSocketPlan2Message(router string, requestObj, respons
 	jsonBody.Nonce = utils.GetUUID(true)
 	jsonBody.Plan = 2
 	jsonBody.Router = router
-	jsonBody.User = s.ClientNo
+	jsonBody.User = s.clientNo
 
 	enc, err := utils.AesGCMEncryptBase(jsonData, sharedKey[:32], node.AppendBodyMessage(jsonBody.Router, "", jsonBody.Nonce, jsonBody.Time, jsonBody.Plan, jsonBody.User))
 	if err != nil {
@@ -901,19 +960,19 @@ func (s *SocketSDK) SendWebSocketPlan2Message(router string, requestObj, respons
 		return ex.Throw{Msg: "response time invalid"}
 	}
 
-	validSign, _ := node.SignAndDigestBodyMessage(router, resp.Data, resp.Nonce, resp.Time, resp.Plan, s.ClientNo, sharedKey)
+	validSign, _ := node.SignAndDigestBodyMessage(router, resp.Data, resp.Nonce, resp.Time, resp.Plan, s.clientNo, sharedKey)
 	defer DIC.ClearData(validSign)
 	if !utils.CompareBase64Sign(validSign, resp.Sign) {
 		return ex.Throw{Msg: "plan2 response signature verification failed"}
 	}
-	if err := s.verifyEd25519Sign(router, s.ClientNo, resp); err != nil {
+	if err := s.verifyEd25519Sign(router, s.clientNo, resp); err != nil {
 		return err
 	}
 
 	var dec []byte
 	switch resp.Plan {
 	case 2, 1:
-		dec, err = utils.AesGCMDecryptBase(resp.Data, sharedKey[:32], node.AppendBodyMessage(router, "", resp.Nonce, resp.Time, resp.Plan, s.ClientNo))
+		dec, err = utils.AesGCMDecryptBase(resp.Data, sharedKey[:32], node.AppendBodyMessage(router, "", resp.Nonce, resp.Time, resp.Plan, s.clientNo))
 		if err != nil {
 			return ex.Throw{Msg: "plan2 response data decrypt failed"}
 		}
@@ -966,14 +1025,17 @@ func (s *SocketSDK) prepareHeartbeatMessage(router string, data interface{}) ([]
 	jsonBody.Nonce = heartbeatUUID
 	jsonBody.Router = router
 	jsonBody.Plan = 0 // 心跳使用明文
-	jsonBody.User = s.ClientNo
+	jsonBody.User = s.clientNo
 
 	// 根据plan设置数据
 	jsonBody.Data = utils.Base64Encode(utils.Bytes2Str(jsonData))
 	DIC.ClearData(jsonData) // 立即清理序列化后的数据
 
 	// 生成签名（心跳也需要签名验证）
-	tokenSecret := utils.Base64Decode(s.getTokenSecretForSigning())
+	tokenSecret, err := s.decodeTokenSecretForSend()
+	if err != nil {
+		return nil, "", err
+	}
 
 	signData, _ := node.SignAndDigestBodyMessage(jsonBody.Router, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan, jsonBody.User, tokenSecret)
 	jsonBody.Sign = utils.Base64Encode(signData)
@@ -1013,8 +1075,11 @@ func (s *SocketSDK) prepareWebSocketMessage(jsonBody *node.JsonBody, data interf
 	}
 	defer DIC.ClearData(jsonData)
 
-	// 解码token secret用于加密和签名
-	tokenSecret := utils.Base64Decode(s.getTokenSecretForSigning())
+	// 解码 token secret 用于加密和签名（发送前强校验，避免空/过短导致切片越界或无效包）
+	tokenSecret, err := s.decodeTokenSecretForSend()
+	if err != nil {
+		return nil, nil, err
+	}
 	defer DIC.ClearData(tokenSecret)
 
 	// 根据plan决定是否加密
@@ -1070,7 +1135,7 @@ func (s *SocketSDK) sendWebSocketAuthHandshake(conn *gws.Conn, path string) erro
 	jsonBody.Nonce = utils.GetUUID(true)
 	jsonBody.Plan = 1
 	jsonBody.Router = path
-	jsonBody.User = s.ClientNo
+	jsonBody.User = s.clientNo
 	_, bytesData, err := s.prepareWebSocketMessage(jsonBody, "auth_handshake")
 	if err != nil {
 		return err
@@ -1099,7 +1164,10 @@ func (s *SocketSDK) sendWebSocketAuthHandshake(conn *gws.Conn, path string) erro
 		}
 
 		// 验证响应签名（与HTTP流程保持一致的安全性）
-		tokenSecret := utils.Base64Decode(s.getTokenSecretForSigning())
+		tokenSecret, err := s.decodeTokenSecretForSend()
+		if err != nil {
+			return err
+		}
 		defer DIC.ClearData(tokenSecret)
 
 		// 构建签名字符串（使用握手路径）
@@ -1171,7 +1239,7 @@ func (s *SocketSDK) SendWebSocketMessage(router string, requestObj, responseObj 
 		jsonBody.Plan = 1
 	}
 	jsonBody.Router = router
-	jsonBody.User = s.ClientNo
+	jsonBody.User = s.clientNo
 	// 使用指定的路由路径进行签名和路由分发
 	jsonBody, bytesData, err := s.prepareWebSocketMessage(jsonBody, requestObj)
 	if err != nil {
@@ -1251,10 +1319,13 @@ func (s *SocketSDK) verifyWebSocketResponseFromJsonResp(path string, result inte
 		}
 	}
 
-	tokenSecret := utils.Base64Decode(s.getTokenSecretForSigning())
+	tokenSecret, err := s.decodeTokenSecretForSend()
+	if err != nil {
+		return err
+	}
 	defer DIC.ClearData(tokenSecret)
 
-	validSign, _ := node.SignAndDigestBodyMessage(path, jsonResp.Data, jsonResp.Nonce, jsonResp.Time, jsonResp.Plan, s.ClientNo, tokenSecret)
+	validSign, _ := node.SignAndDigestBodyMessage(path, jsonResp.Data, jsonResp.Nonce, jsonResp.Time, jsonResp.Plan, s.clientNo, tokenSecret)
 	defer DIC.ClearData(validSign)
 
 	if !utils.CompareBase64Sign(validSign, jsonResp.Sign) {
@@ -1267,12 +1338,12 @@ func (s *SocketSDK) verifyWebSocketResponseFromJsonResp(path string, result inte
 	if s.ed25519Object == nil {
 		return ex.Throw{Msg: "Ed25519 object not configured, bidirectional Ed25519 signature is required"}
 	}
-	cipher, exists := s.ed25519Object[s.ClientNo]
+	cipher, exists := s.ed25519Object[s.clientNo]
 	if !exists || cipher == nil {
 		return ex.Throw{Msg: "Ed25519 object not found for client, bidirectional Ed25519 signature is required"}
 	}
 
-	if err := cipher.Verify(node.DigestBodyMessage(path, jsonResp.Data, jsonResp.Nonce, jsonResp.Time, jsonResp.Plan, s.ClientNo), outerSignData); err != nil {
+	if err := cipher.Verify(node.DigestBodyMessage(path, jsonResp.Data, jsonResp.Nonce, jsonResp.Time, jsonResp.Plan, s.clientNo), outerSignData); err != nil {
 		return ex.Throw{Msg: "response Ed25519 signature verification failed"}
 	}
 	// 验证服务端响应时间戳，防止重放攻击
@@ -1284,10 +1355,10 @@ func (s *SocketSDK) verifyWebSocketResponseFromJsonResp(path string, result inte
 	}
 
 	var decryptedData []byte
-	var err error
 	if jsonResp.Plan == 1 {
-		decryptedData, err = utils.AesGCMDecryptBase(jsonResp.Data, tokenSecret[:32], node.AppendBodyMessage(path, "", jsonResp.Nonce, jsonResp.Time, jsonResp.Plan, s.ClientNo))
-		if err != nil {
+		var decErr error
+		decryptedData, decErr = utils.AesGCMDecryptBase(jsonResp.Data, tokenSecret[:32], node.AppendBodyMessage(path, "", jsonResp.Nonce, jsonResp.Time, jsonResp.Plan, s.clientNo))
+		if decErr != nil {
 			return ex.Throw{Msg: "response data decrypt failed"}
 		}
 	} else {
@@ -1312,7 +1383,7 @@ func (s *SocketSDK) websocketHeartbeat() {
 
 	// 动态计算心跳间隔的辅助函数
 	getInterval := func() time.Duration {
-		healthPing := s.HealthPing
+		healthPing := s.healthPing
 		if healthPing <= 0 {
 			healthPing = 15
 		}

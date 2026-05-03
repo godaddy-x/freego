@@ -1410,17 +1410,17 @@ func NewWsServer(connUniquenessMode ConnectionUniquenessMode) *WsServer {
 	globalCtx, globalCancel := context.WithCancel(context.Background())
 
 	s := &WsServer{
-		routes:             make(map[string]*RouteInfo),
-		globalCtx:          globalCtx,
-		globalCancel:       globalCancel,
-		connUniquenessMode: connUniquenessMode,
-		maxBodyLen:         DefaultWsMaxBodyLen,
-		parallelEnabled:    true,
-		idleTimeout:        60 * time.Second, // 默认空闲超时（NewPool 会按 2*ping 覆盖）
-		errorHandler:       &ErrorHandler{},
-		configValidator:    &ConfigValidator{},
-		metrics:            &WebSocketMetrics{startTime: time.Now()},
-		authTimeWindowSeconds:  jwt.FIVE_MINUTES,
+		routes:                   make(map[string]*RouteInfo),
+		globalCtx:                globalCtx,
+		globalCancel:             globalCancel,
+		connUniquenessMode:       connUniquenessMode,
+		maxBodyLen:               DefaultWsMaxBodyLen,
+		parallelEnabled:          true,
+		idleTimeout:              60 * time.Second, // 默认空闲超时（NewPool 会按 2*ping 覆盖）
+		errorHandler:             &ErrorHandler{},
+		configValidator:          &ConfigValidator{},
+		metrics:                  &WebSocketMetrics{startTime: time.Now()},
+		authTimeWindowSeconds:    jwt.FIVE_MINUTES,
 		plan2SharedKeyTTLSeconds: 30,
 	}
 	s.plan2SharedKey = cache.NewTTLCache[string, []byte](2048)
