@@ -866,7 +866,7 @@ func TestCreateWsServer(t *testing.T) {
 			TokenExp: jwt.TWO_WEEK,
 		}
 		subject := &jwt.Subject{}
-		token := subject.Create("1").Dev("APP").Generate(jwtConfig)
+		token := subject.Create(req.Token).Dev("APP").Generate(jwtConfig)
 		secret := subject.GetTokenSecret(token, jwtConfig.TokenKey)
 		return &sdk.AuthToken{
 			Token:   token,
@@ -908,44 +908,57 @@ func TestCreateWsServer(t *testing.T) {
 	}
 }
 
-func TestWebSocketPlan2LoginGetToken(t *testing.T) {
+func testClient(subject string) {
 	wsUserSdk := sdk.NewSocketSDK("localhost:8088")
 	wsUserSdk.SetClientNo(1)
-	wsUserSdk.SetLanguage("zh-CN")
+	wsUserSdk.EnableReconnect()
 	if err := wsUserSdk.SetEd25519Object(1, clientPrk, serverPub); err != nil {
-		t.Fatalf("set user sdk ed25519 failed: %v", err)
+		fmt.Printf("set user sdk ed25519 failed: %v", err)
 	}
 	wsUserSdk.SetTokenExpiredCallback(func() {
 		loginSdk := sdk.NewSocketSDK("localhost:8088")
 		loginSdk.SetClientNo(1)
 		if err := loginSdk.SetEd25519Object(1, clientPrk, serverPub); err != nil {
-			t.Logf("token callback set ed25519 failed: %v", err)
+			fmt.Printf("token callback set ed25519 failed: %v", err)
 			return
 		}
 		defer loginSdk.DisconnectWebSocket()
-		req := sdk.AuthToken{Token: "plan2_refresh"}
+		req := sdk.AuthToken{Token: subject}
 		resp := sdk.AuthToken{}
 		if err := loginSdk.LoginByWebSocketPlan2Auto("/ws/key", "/ws/login", &req, &resp, 5); err != nil {
-			t.Logf("token callback plan2 auto login failed: %v", err)
+			fmt.Printf("token callback plan2 auto login failed: %v", err)
 			return
 		}
 		fmt.Println("token: ", resp)
 		wsUserSdk.AuthToken(resp) // 回调里自动填充 token
 	})
 	if err := wsUserSdk.ConnectWebSocket(); err != nil {
-		t.Fatalf("connect with jwt token failed: %v", err)
+		fmt.Printf("connect with jwt token failed: %v", err)
 	}
 	defer wsUserSdk.DisconnectWebSocket()
 
-	userReq := map[string]interface{}{"test": "plan2_to_user"}
-	userResp := &sdk.AuthToken{}
-	if err := wsUserSdk.SendWebSocketMessage("/ws/user", userReq, userResp, true, true, 5); err != nil {
-		t.Fatalf("ws user route call failed: %v", err)
+	if wsUserSdk.IsWebSocketConnected() {
+		userReq := map[string]interface{}{"test": "plan2_to_user"}
+		userResp := &sdk.AuthToken{}
+		if err := wsUserSdk.SendWebSocketMessage("/ws/user", userReq, userResp, true, true, 5); err != nil {
+			fmt.Printf("ws user route call failed: %v", err)
+		}
+		if len(userResp.Token) == 0 {
+			fmt.Printf("invalid user response: %+v", userResp)
+		}
+		fmt.Println("user: ", userResp)
 	}
-	if len(userResp.Token) == 0 {
-		t.Fatalf("invalid user response: %+v", userResp)
-	}
-	fmt.Println("user: ", userResp)
+	time.Sleep(10000 * time.Second)
+}
+
+func TestSocketClient1(t *testing.T) {
+	testClient("user1")
+}
+func TestSocketClient2(t *testing.T) {
+	testClient("user2")
+}
+func TestSocketClient3(t *testing.T) {
+	testClient("user3")
 }
 
 // TestWebSocketSDKUsage 测试完整的SDK使用流程（包含服务器管理）

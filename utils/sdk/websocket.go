@@ -29,6 +29,29 @@ const (
 	DefaultWsRoute = "/ws" // 默认WebSocket路由路径
 )
 
+// abortDanglingGwsClient 关闭已启动 ReadLoop、但尚未写入 SocketSDK.s.conn 的 gws 客户端（例如握手失败），
+// 避免 ReadLoop 与底层 TCP 长期悬挂影响后续重连。
+func abortDanglingGwsClient(c *gws.Conn, code uint16, reason string) {
+	if c == nil {
+		return
+	}
+	_ = c.WriteClose(code, []byte(reason))
+	if nc := c.NetConn(); nc != nil {
+		_ = nc.Close()
+	}
+}
+
+func (s *SocketSDK) gwsHandshakeTimeout() time.Duration {
+	sec := s.timeout
+	if sec <= 0 {
+		sec = 30
+	}
+	if sec > 300 {
+		sec = 300
+	}
+	return time.Duration(sec) * time.Second
+}
+
 // NewSocketSDK 创建新的WebSocket SDK实例并设置默认值
 //
 // domain: API域名，如"api.example.com"
@@ -92,9 +115,9 @@ func (h *ClientEventHandler) OnClose(socket *gws.Conn, err error) {
 	if zlog.IsDebug() {
 		zlog.Debug("gws client closed", 0, zlog.AddError(err))
 	}
-	// 触发断开连接逻辑
+	// 触发断开连接逻辑：必须带上关闭的 socket，避免旧连接晚到的 OnClose 误伤已替换的新连接。
 	if h.sdk != nil {
-		h.sdk.disconnectWebSocket()
+		h.sdk.disconnectWebSocketInternal(true, socket)
 	}
 }
 
@@ -152,6 +175,8 @@ type SocketSDK struct {
 	lastReconnectTime    time.Time     // 上次重连时间
 	reconnectMutex       sync.Mutex    // 重连互斥锁
 	reconnecting         bool          // 是否正在重连中（防止并发重连）
+	reconnectPending     int32         // atomic：为 1 表示曾有 startReconnectProcess 因「已在重连」被跳过，本轮结束后须补一次调度
+	reconnectCredWaitRounds uint64     // atomic：无 JWT/raw 的空转轮数，仅用于日志（与 reconnectAttempts 解耦；后者在无凭证分支会回退故不会单调涨）
 	connectedPath        string        // 已连接的WebSocket路径 (用于重连)
 
 	// Token过期回调
@@ -186,6 +211,11 @@ func (s *SocketSDK) AuthObject(object interface{}) {
 func (s *SocketSDK) AuthToken(object AuthToken) {
 	token := object
 	s.authToken.Store(&token)
+	// 典型场景：先起客户端、回调里 Plan2 登录成功后写入 JWT；此时主重连协程可能仍在退避 sleep 中。
+	// 主动补一次调度，避免「凭证已就绪却仍等满当前退避窗口」甚至与 coalesce 竞态叠加导致迟迟不 dial。
+	if s.valid() && s.isReconnectEnabled() && !s.IsWebSocketConnected() {
+		go s.startReconnectProcess()
+	}
 }
 
 func (s *SocketSDK) GetAuth() AuthToken {
@@ -489,6 +519,7 @@ func (s *SocketSDK) ConnectWebSocket() error {
 	// 启用自动重连时，首次连接失败转为后台重连，不阻塞业务启动流程。
 	if s.isReconnectEnabled() {
 		go s.startReconnectProcess()
+		zlog.Info("initial websocket connect failed, starting async reconnect", 0, zlog.String("errorMsg", ex.Catch(err).Msg))
 		if zlog.IsDebug() {
 			zlog.Debug(fmt.Sprintf("initial websocket connect failed, fallback to async reconnect: %v", err), 0)
 		}
@@ -545,13 +576,11 @@ func (s *SocketSDK) connectWebSocketInternal(path string, isInitial bool) error 
 		return ex.Throw{Msg: "token empty or token expired, and raw authorization is empty"}
 	}
 
-	// 取消旧的连接上下文（安全）
+	// 取消旧连接上下文；新 connCtx/connCancel 仅在拨号+握手成功后与 s.conn 一并写入，
+	// 避免「s.conn 仍指向旧连接时提前切换 ctx」导致旧 OnClose / disconnect 误 cancel 新拨号使用的 context。
 	if s.connCancel != nil {
 		s.connCancel()
 	}
-
-	// 创建新的连接上下文（绑定到 rootCtx）
-	s.connCtx, s.connCancel = context.WithCancel(s.rootCtx)
 
 	// 设置连接中标志，防止并发连接
 	s.connecting = true
@@ -592,6 +621,7 @@ func (s *SocketSDK) connectWebSocketInternal(path string, isInitial bool) error 
 		RequestHeader:       header,
 		ReadMaxPayloadSize:  1024 * 1024 * 10,
 		WriteMaxPayloadSize: 1024 * 1024 * 10,
+		HandshakeTimeout:    s.gwsHandshakeTimeout(),
 		// 显式串行 OnMessage：websocketMessageListenerHandle 内每帧独立 GetJsonResp，无共享 conn 级 JsonBody；
 		// 若将来改为 true，须保证本函数及 responseMap/订阅回调全路径可重入（与 gws Server 侧 Parallel 策略对齐后再开）。
 		ParallelEnabled: false,
@@ -610,7 +640,7 @@ func (s *SocketSDK) connectWebSocketInternal(path string, isInitial bool) error 
 	// JWT模式下发送认证握手；raw authorization 模式跳过
 	if s.valid() {
 		if err := s.sendWebSocketAuthHandshake(socket, path); err != nil {
-			socket.WriteClose(1000, []byte("handshake failed"))
+			abortDanglingGwsClient(socket, 1000, "handshake failed")
 			if zlog.IsDebug() {
 				zlog.Debug(fmt.Sprintf("WebSocket handshake failed: %v", err), 0)
 			}
@@ -618,8 +648,9 @@ func (s *SocketSDK) connectWebSocketInternal(path string, isInitial bool) error 
 		}
 	}
 
-	// 第三阶段：更新连接状态（再次获取锁）
+	// 第三阶段：更新连接状态（再次获取锁）；在此绑定 connCtx，与 s.conn 生命周期一致。
 	s.connMutex.Lock()
+	s.connCtx, s.connCancel = context.WithCancel(s.rootCtx)
 	s.conn = socket
 	s.isConnected = true
 	if len(authSnapshot.Token) > 0 {
@@ -1558,17 +1589,42 @@ func (s *SocketSDK) DisconnectWebSocket() {
 }
 
 func (s *SocketSDK) disconnectWebSocket() {
-	s.disconnectWebSocketInternal(true) // 连接丢失时触发重连
+	s.disconnectWebSocketInternal(true, nil) // 连接丢失时触发重连
 }
 
 func (s *SocketSDK) disconnectWebSocketNoReconnect() {
-	s.disconnectWebSocketInternal(false) // 主动断开时不触发重连
+	s.disconnectWebSocketInternal(false, nil) // 主动断开时不触发重连
 }
 
-func (s *SocketSDK) disconnectWebSocketInternal(triggerReconnect bool) {
-	// 只取消当前连接上下文，不影响重连能力
-	if s.connCancel != nil {
-		s.connCancel()
+// disconnectWebSocketInternal 断开当前 WebSocket。
+// eventConn: 若为 nil（用户主动断开/心跳失败等），始终处理当前 s.conn；若为 gws OnClose 的 socket：
+//   - 若 s.conn != nil 且与 eventConn 不是同一指针：说明已是新物理连接上的 OnClose 迟到，必须忽略（否则会误关新连、误 cancel 新 ctx）。
+//   - 若 s.conn == nil：迟到关闭，不再 WriteClose/cancel；若仍处于 isConnected（异常态）则补一次重连，否则视为与首轮断开重复、直接返回。
+func (s *SocketSDK) disconnectWebSocketInternal(triggerReconnect bool, eventConn *gws.Conn) {
+	s.connMutex.Lock()
+	if eventConn != nil && s.conn != nil && s.conn != eventConn {
+		s.connMutex.Unlock()
+		return
+	}
+	if eventConn != nil && s.conn == nil {
+		was := s.isConnected
+		s.connMutex.Unlock()
+		if triggerReconnect && s.reconnectEnabled && was {
+			go s.startReconnectProcess()
+		}
+		return
+	}
+	wasConnected := s.isConnected
+	conn := s.conn
+	cancelFn := s.connCancel
+	s.conn = nil
+	s.isConnected = false
+	s.connectedTokenSecret.Store(nil)
+	s.connCancel = nil
+	s.connMutex.Unlock()
+
+	if cancelFn != nil {
+		cancelFn()
 	}
 
 	// 不关闭通道，仅从 map 删除。等待方会因 connCtx.Done() 或超时自然退出，避免向已关闭通道发送导致 panic
@@ -1577,15 +1633,9 @@ func (s *SocketSDK) disconnectWebSocketInternal(triggerReconnect bool) {
 		return true
 	})
 
-	s.connMutex.Lock()
-	wasConnected := s.isConnected
-	if s.conn != nil {
-		_ = s.conn.WriteClose(1000, []byte("client disconnect"))
-		s.conn = nil
+	if conn != nil {
+		_ = conn.WriteClose(1000, []byte("client disconnect"))
 	}
-	s.isConnected = false
-	s.connectedTokenSecret.Store(nil)
-	s.connMutex.Unlock()
 
 	if zlog.IsDebug() {
 		zlog.Debug("WebSocket connection closed", 0)
@@ -1638,8 +1688,10 @@ func (s *SocketSDK) startReconnectProcess() {
 
 	// 检查是否已有重连在进行中
 	if s.reconnecting {
+		// 必须记下「被跳过」，否则并发 OnClose/多路 go startReconnect 会永久丢一次重连（表现为断线后假死且无日志）。
+		atomic.StoreInt32(&s.reconnectPending, 1)
 		if zlog.IsDebug() {
-			zlog.Debug("reconnect already in progress, skipping", 0)
+			zlog.Debug("reconnect already in progress, coalesced (pending follow-up)", 0)
 		}
 		s.reconnectMutex.Unlock()
 		return
@@ -1662,11 +1714,26 @@ func (s *SocketSDK) startReconnectProcess() {
 	path := s.getConnectedPathLocked()
 	s.reconnectMutex.Unlock()
 
-	// 确保重连标志最终重置
+	// 确保重连标志最终重置；若有被合并的「待补重连」，在本轮退出后再起一轮（且须在 reconnecting 已清之后）。
 	defer func() {
 		s.reconnectMutex.Lock()
 		s.reconnecting = false
 		s.reconnectMutex.Unlock()
+
+		if s.rootCtx.Err() != nil {
+			atomic.StoreInt32(&s.reconnectPending, 0)
+			return
+		}
+		if atomic.SwapInt32(&s.reconnectPending, 0) != 1 {
+			return
+		}
+		if !s.isReconnectEnabled() {
+			return
+		}
+		if s.IsWebSocketConnected() {
+			return
+		}
+		go s.startReconnectProcess()
 	}()
 
 	// 等待时监听 rootCtx（只有用户主动 Close 才退出）
@@ -1677,16 +1744,37 @@ func (s *SocketSDK) startReconnectProcess() {
 	}
 
 	if !s.valid() && len(s.rawAuthHeader) == 0 {
+		// 未走到 dial，故不会出现「Reconnect attempt N failed」；仅 Debug 时容易误以为重连没跑。
+		// 无凭证分支会对 reconnectAttempts 回退，currentAttempt 会长期为 1；用 credentialWaitRound 反映真实空转次数。
+		waitRound := atomic.AddUint64(&s.reconnectCredWaitRounds, 1)
+		zlog.Info("reconnect waiting for credentials (no JWT and no raw authorization)", 0, zlog.Uint64("credentialWaitRound", waitRound))
 		if zlog.IsDebug() {
 			zlog.Debug("reconnect skipped: token invalid and raw authorization empty", 0)
 		}
+		// 本轮在入口已对 reconnectAttempts++，但未消耗 dial；回退以免长时间空转让 attempt 无限堆积、退避语义失真。
+		s.reconnectMutex.Lock()
+		if s.reconnectAttempts > 0 {
+			s.reconnectAttempts--
+		}
+		s.reconnectMutex.Unlock()
 		// 无可用鉴权信息时延后重试，避免热循环；保留下一次由外部刷新token或设置rawAuth后恢复
 		go s.startReconnectProcess()
 		return
 	}
 
-	if err := s.connectWebSocketInternal(path, false); err != nil {
-		zlog.Error(fmt.Sprintf("Reconnect attempt %d failed", currentAttempt), 0, zlog.String("errorMsg", ex.Catch(err).Msg))
+	var connectErr error
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				zlog.Error(fmt.Sprintf("Reconnect attempt %d panic", currentAttempt), 0, zlog.Any("panic", r))
+				connectErr = ex.Throw{Msg: fmt.Sprintf("websocket reconnect panic: %v", r)}
+			}
+		}()
+		connectErr = s.connectWebSocketInternal(path, false)
+	}()
+
+	if connectErr != nil {
+		zlog.Error(fmt.Sprintf("Reconnect attempt %d failed", currentAttempt), 0, zlog.String("errorMsg", ex.Catch(connectErr).Msg))
 		go s.startReconnectProcess()
 	} else {
 		zlog.Info(fmt.Sprintf("Reconnect attempt %d successful", currentAttempt), 0)
@@ -1713,6 +1801,9 @@ func (s *SocketSDK) ForceReconnect() error {
 	s.reconnecting = false // 重置重连标志，允许强制重连
 	path := s.getConnectedPathLocked()
 	s.reconnectMutex.Unlock()
+
+	// 须先同步拆掉当前连接：connectWebSocketInternal(isInitial=false) 在 isConnected 仍为 true 时会直接 return nil，根本不会拨号。
+	s.disconnectWebSocketNoReconnect()
 
 	return s.connectWebSocketInternal(path, false)
 }
@@ -1810,6 +1901,7 @@ func (s *SocketSDK) SetReconnectConfig(enabled bool, maxAttempts int, initialInt
 	s.reconnectAttempts = 0
 	s.lastReconnectTime = time.Time{}
 	s.reconnecting = false // 重置重连标志
+	atomic.StoreInt32(&s.reconnectPending, 0)
 
 	if zlog.IsDebug() {
 		zlog.Debug(fmt.Sprintf("WebSocket reconnect config set: enabled=%t, maxAttempts=%d, interval=%v, maxInterval=%v",
@@ -1827,6 +1919,7 @@ func (s *SocketSDK) DisableReconnect() {
 	defer s.reconnectMutex.Unlock()
 	s.reconnectEnabled = false
 	s.reconnecting = false // 重置重连标志
+	atomic.StoreInt32(&s.reconnectPending, 0)
 }
 
 func (s *SocketSDK) GetReconnectStatus() (enabled bool, attempts int, maxAttempts int, reconnecting bool, nextReconnectTime time.Time) {
