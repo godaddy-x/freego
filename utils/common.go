@@ -1135,3 +1135,27 @@ func CompareBase64Sign(sign []byte, target string) bool {
 func NewPasswordBase(pwd, salt []byte, iter int) []byte {
 	return pbkdf2.Key(pwd, salt, iter, 32, sha256.New)
 }
+
+func Int64ToArgs(data []int64) []interface{} {
+	out := make([]interface{}, len(data))
+	for i, id := range data {
+		out[i] = id
+	}
+	return out
+}
+
+func StringToArgs(data []string) []interface{} {
+	out := make([]interface{}, len(data))
+	for i, id := range data {
+		out[i] = id
+	}
+	return out
+}
+
+func Float64ToArgs(data []float64) []interface{} {
+	out := make([]interface{}, len(data))
+	for i, id := range data {
+		out[i] = id
+	}
+	return out
+}
