@@ -20,6 +20,7 @@ import (
 	"github.com/godaddy-x/freego/zlog"
 
 	ecc "github.com/godaddy-x/eccrypto"
+	gocache "github.com/patrickmn/go-cache"
 	"github.com/godaddy-x/freego/cache"
 	rate "github.com/godaddy-x/freego/cache/limiter"
 	"github.com/godaddy-x/freego/ex"
@@ -374,8 +375,8 @@ type WsServer struct {
 	// 存储 socket 到 connCtx 的映射
 	connContextMap sync.Map // key: *gws.Conn, value: *ConnectionContext
 
-	// plan2 每请求临时共享密钥（TTLCache），消费即删除
-	plan2SharedKey *cache.TTLCache[string, []byte]
+	// plan2 每请求临时共享密钥（go-cache），消费即删除
+	plan2SharedKey *gocache.Cache
 
 	// WebSocket 安全时间窗（秒），用于消息时戳校验
 	authTimeWindowSeconds int64
@@ -1423,7 +1424,11 @@ func NewWsServer(connUniquenessMode ConnectionUniquenessMode) *WsServer {
 		authTimeWindowSeconds:    jwt.FIVE_MINUTES,
 		plan2SharedKeyTTLSeconds: 30,
 	}
-	s.plan2SharedKey = cache.NewTTLCache[string, []byte](2048)
+	defTTL := time.Duration(s.plan2SharedKeyTTLSeconds) * time.Second
+	if s.plan2SharedKeyTTLSeconds <= 0 {
+		defTTL = 30 * time.Second
+	}
+	s.plan2SharedKey = gocache.New(defTTL, time.Minute)
 
 	// 自动添加默认的连接路由处理器
 	err := s.AddRouter(DefaultWsRoute, func(ctx context.Context, connCtx *ConnectionContext, body []byte) (interface{}, error) {
@@ -1749,7 +1754,7 @@ func (s *WsServer) StopWebsocket() (err error) {
 		}
 		// 主动清理 plan2 临时共享密钥，避免进程结束前敏感数据驻留。
 		if s.plan2SharedKey != nil {
-			s.plan2SharedKey.Close()
+			s.plan2SharedKey.Flush()
 			s.plan2SharedKey = nil
 		}
 
@@ -2242,19 +2247,25 @@ func (s *WsServer) setPlan2SharedKey(id string, key []byte) {
 	}
 	k := make([]byte, len(key))
 	copy(k, key)
-	s.plan2SharedKey.Set(id, k, ttl)
+	s.plan2SharedKey.Set(id, k, time.Duration(ttl)*time.Second)
 }
 
 func (s *WsServer) takePlan2SharedKey(id string) []byte {
 	if s == nil || s.plan2SharedKey == nil || len(id) == 0 {
 		return nil
 	}
-	key, ok := s.plan2SharedKey.Get(id)
+	x, ok := s.plan2SharedKey.Get(id)
+	if !ok || x == nil {
+		return nil
+	}
+	key, ok := x.([]byte)
 	if !ok || len(key) == 0 {
 		return nil
 	}
 	s.plan2SharedKey.Delete(id)
-	return key
+	out := make([]byte, len(key))
+	copy(out, key)
+	return out
 }
 
 func (s *WsServer) plan2SharedKeyID(connCtx *ConnectionContext, nonce string) string {

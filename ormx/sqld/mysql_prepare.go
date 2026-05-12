@@ -99,7 +99,7 @@ type prepareManager struct {
 func newPrepareManager() *prepareManager {
 	pm := &prepareManager{
 		creating:     make(map[string]*sync.Mutex),
-		cacheStmt:    cache.NewLocalCache(2000),
+		cacheStmt:    cache.NewLocalCache(),
 		shutdownChan: make(chan struct{}),
 	}
 	return pm
@@ -400,7 +400,7 @@ func (pm *prepareManager) Shutdown() {
 		// 等待异步清理完成
 		pm.waitForPendingCleanups(pendingCleanups)
 
-		// 关闭 TTLCache
+		// 清空本地 prepare 缓存
 		if pm.cacheStmt != nil {
 			_ = pm.cacheStmt.Flush()
 		}
