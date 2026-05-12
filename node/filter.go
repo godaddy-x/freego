@@ -346,55 +346,46 @@ func (self *RoleFilter) DoFilter(chain Filter, ctx *Context, args ...interface{}
 	if !ctx.Authenticated() {
 		return chain.DoFilter(chain, ctx, args...)
 	}
-	// 优化：只调用一次roleRealm(false)，同时获取need和has信息，减少性能开销
-	need, err := ctx.roleRealm(ctx, false) // 获取所需角色配置
+	// 优化：只调用一次 roleRealm(ctx)，在回调内根据当前请求组装 NeedRole/HasRole，减少往返
+	check, err := ctx.roleRealm(ctx)
 	if err != nil {
 		return err
 	}
-	if need == nil { // 无授权资源配置,跳过
+	if check == nil { // 无授权资源配置,跳过
 		return chain.DoFilter(chain, ctx, args...)
 	}
-	if len(need.NeedRole) == 0 { // 无授权角色配置跳过
+	if len(check.NeedRole) == 0 { // 无授权角色配置跳过
 		return chain.DoFilter(chain, ctx, args...)
-	}
-	// 再次调用roleRealm(true)获取用户拥有角色（保持原有逻辑，支持分离查询）
-	has, err := ctx.roleRealm(ctx, true) // 获取拥有角色配置
-	if err != nil {
-		return err
-	}
-	var hasRoles []int64
-	if has != nil && len(has.HasRole) > 0 {
-		hasRoles = has.HasRole
 	}
 
 	// 优化：直接遍历hasRoles，对need.NeedRole进行匹配
-	if need.MatchAll {
+	if check.MatchAll {
 		// MatchAll: 必须满足所有所需角色
 		// 对每个needRole检查是否在hasRoles中存在
 		// 时间复杂度O(m*n)，但实际应用中角色数量通常很少(≤10个)，性能开销可忽略
-		for _, needRole := range need.NeedRole {
+		for _, needRole := range check.NeedRole {
 			found := false
-			for _, hasRole := range hasRoles {
+			for _, hasRole := range check.HasRole {
 				if hasRole == needRole {
 					found = true
 					break
 				}
 			}
 			if !found {
-				return ex.Throw{Code: http.StatusUnauthorized, Msg: "access defined"}
+				return ex.Throw{Code: http.StatusUnauthorized, Msg: "access denied"}
 			}
 		}
 		return chain.DoFilter(chain, ctx, args...)
 	} else {
 		// MatchAny: 只需满足任意一个所需角色
-		for _, hasRole := range hasRoles {
-			for _, needRole := range need.NeedRole {
+		for _, hasRole := range check.HasRole {
+			for _, needRole := range check.NeedRole {
 				if hasRole == needRole {
 					return chain.DoFilter(chain, ctx, args...)
 				}
 			}
 		}
-		return ex.Throw{Code: http.StatusUnauthorized, Msg: "access defined"}
+		return ex.Throw{Code: http.StatusUnauthorized, Msg: "access denied"}
 	}
 }
 

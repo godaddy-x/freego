@@ -134,11 +134,11 @@ type Context struct {
 	RouterConfig *RouterConfig          // 8字节 - 指针
 
 	// 8字节函数指针字段组 (5个字段，40字节)
-	RedisCacheAware func(ds ...string) (cache.Cache, error)                // 8字节 - 函数指针
-	LocalCacheAware func(ds ...string) (cache.Cache, error)                // 8字节 - 函数指针
-	roleRealm       func(ctx *Context, onlyRole bool) (*Permission, error) // 8字节 - 函数指针
-	postHandle      PostHandle                                             // 8字节 - 函数指针
-	errorHandle     ErrorHandle                                            // 8字节 - 函数指针
+	RedisCacheAware func(ds ...string) (cache.Cache, error) // 8字节 - 函数指针
+	LocalCacheAware func(ds ...string) (cache.Cache, error) // 8字节 - 函数指针
+	roleRealm       func(ctx *Context) (*Permission, error) // 8字节 - 函数指针
+	postHandle      PostHandle                              // 8字节 - 函数指针
+	errorHandle     ErrorHandle                             // 8字节 - 函数指针
 
 	// 8字节其他字段组 (2个字段)
 	Cipher  map[int64]crypto.Cipher // 8字节 - slice

@@ -334,7 +334,7 @@ func (self *HttpNode) AddLanguageByJson(langDs string, bs []byte) error {
 	return nil
 }
 
-func (self *HttpNode) AddRoleRealm(roleRealm func(ctx *Context, onlyRole bool) (*Permission, error)) error {
+func (self *HttpNode) AddRoleRealm(roleRealm func(ctx *Context) (*Permission, error)) error {
 	self.readyContext()
 	self.Context.roleRealm = roleRealm
 	zlog.Info("add permission realm successful", 0)

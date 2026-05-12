@@ -141,15 +141,12 @@ const (
 	clientPub = "dZLsS8SkeRl1IobI++c/Bk/l4dK3w8TNEznV6kCNX6I="
 )
 
-func roleRealm(ctx *node.Context, onlyRole bool) (*node.Permission, error) {
+func roleRealm(ctx *node.Context) (*node.Permission, error) {
 	permission := &node.Permission{}
-	if onlyRole {
-		permission.HasRole = []int64{1, 2, 3, 4}
-		return permission, nil
-	}
 	//permission.Ready = true
 	//permission.MatchAll = true
 	permission.NeedRole = []int64{2, 3, 4}
+	permission.HasRole = []int64{1, 2, 3, 4}
 	return permission, nil
 }
 
