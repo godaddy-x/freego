@@ -337,7 +337,7 @@ func (self *RoleFilter) DoFilter(chain Filter, ctx *Context, args ...interface{}
 	// 2. 检查用户是否已通过身份认证，未认证则跳过权限检查
 	// 3. 通过roleRealm获取所需的角色列表(need.NeedRole)和用户拥有的角色列表(has.HasRole)
 	// 4. 根据MatchAll标志判断是"全部匹配"还是"任意匹配"
-	// 5. 匹配失败返回403未授权，匹配成功则继续执行后续过滤器
+	// 5. 匹配失败返回 403 Forbidden（已认证但无角色权限），匹配成功则继续执行后续过滤器
 	// 安全增强：必须配置权限方法且已验证身份才能进行权限检查
 	if ctx.roleRealm == nil {
 		return chain.DoFilter(chain, ctx, args...)
@@ -372,7 +372,7 @@ func (self *RoleFilter) DoFilter(chain Filter, ctx *Context, args ...interface{}
 				}
 			}
 			if !found {
-				return ex.Throw{Code: http.StatusUnauthorized, Msg: "access denied"}
+				return ex.Throw{Code: http.StatusForbidden, Msg: "access denied"}
 			}
 		}
 		return chain.DoFilter(chain, ctx, args...)
@@ -385,7 +385,7 @@ func (self *RoleFilter) DoFilter(chain Filter, ctx *Context, args ...interface{}
 				}
 			}
 		}
-		return ex.Throw{Code: http.StatusUnauthorized, Msg: "access denied"}
+		return ex.Throw{Code: http.StatusForbidden, Msg: "access denied"}
 	}
 }
 
