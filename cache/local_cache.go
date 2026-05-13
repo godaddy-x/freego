@@ -56,6 +56,9 @@ func (self *LocalMapManager) GetInt64(key string) (int64, error) {
 	if !ok || v == nil {
 		return 0, nil
 	}
+	if ret, check := v.(int64); check {
+		return ret, nil
+	}
 	if ret, err := utils.StrToInt64(utils.AnyToStr(v)); err != nil {
 		return 0, err
 	} else {

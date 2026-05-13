@@ -162,6 +162,27 @@ func HKDFKey(shared []byte, nonce string) ([]byte, error) {
 	return hkdf.Key(sha256.New, shared, utils.Base64Decode(nonce), SharedInfo, 32)
 }
 
+// GetUserIDString 获取用户ID string类型
+func (self *Context) GetUserIDString() string {
+	if self.Subject == nil || self.Subject.Payload == nil || len(self.Subject.Payload.Sub) == 0 {
+		return ""
+	}
+	return self.Subject.Payload.Sub
+}
+
+// GetUserIDInt64 获取用户ID int64类型, 零值认为是无用户信息
+func (self *Context) GetUserIDInt64() int64 {
+	if self.Subject == nil || self.Subject.Payload == nil || len(self.Subject.Payload.Sub) == 0 {
+		return 0
+	}
+	r, err := utils.StrToInt64(self.Subject.Payload.Sub)
+	if err != nil {
+		zlog.Error("GetUserIDInt64 error", 0, zlog.String("sub", self.Subject.Payload.Sub), zlog.AddError(err))
+		return 0
+	}
+	return r
+}
+
 func appendBodyMessageTo(dst []byte, path, data, nonce string, t, plan, usr int64) []byte {
 	const int64MaxLen = 20
 	sep := DIC.SEP

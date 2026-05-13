@@ -20,7 +20,6 @@ import (
 	"github.com/godaddy-x/freego/zlog"
 
 	ecc "github.com/godaddy-x/eccrypto"
-	gocache "github.com/patrickmn/go-cache"
 	"github.com/godaddy-x/freego/cache"
 	rate "github.com/godaddy-x/freego/cache/limiter"
 	"github.com/godaddy-x/freego/ex"
@@ -28,6 +27,7 @@ import (
 	"github.com/godaddy-x/freego/utils/crypto"
 	"github.com/godaddy-x/freego/utils/jwt"
 	"github.com/lxzan/gws"
+	gocache "github.com/patrickmn/go-cache"
 )
 
 // WebSocket服务器实现
@@ -132,6 +132,19 @@ func (cc *ConnectionContext) GetUserIDString() string {
 		return ""
 	}
 	return cc.Subject.Payload.Sub
+}
+
+// GetUserIDInt64 获取用户ID int64类型
+func (cc *ConnectionContext) GetUserIDInt64() int64 {
+	if cc.Subject == nil || cc.Subject.Payload == nil || len(cc.Subject.Payload.Sub) == 0 {
+		return 0
+	}
+	r, err := utils.StrToInt64(cc.Subject.Payload.Sub)
+	if err != nil {
+		zlog.Error("GetUserIDInt64 error", 0, zlog.String("sub", cc.Subject.Payload.Sub), zlog.AddError(err))
+		return 0
+	}
+	return r
 }
 
 // getDeviceID 获取设备 ID，用于日志上下文
