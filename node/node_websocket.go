@@ -340,6 +340,16 @@ type WebSocketMetrics struct {
 	startTime     time.Time // 启动时间
 }
 
+// WsMessagePreFilter 在单条 WS 业务消息已完成解密且路由命中之后、调用业务 Handle 之前执行。
+// 返回非 nil 时终止本条处理（与 Handle 返回错误一致，不发送成功回包）。
+// 使用约定：仅在 StartWebsocket 监听前 AddWsPreFilter；/ws/ping 与未命中路由不进入此前置链。
+type WsMessagePreFilter func(ctx context.Context, connCtx *ConnectionContext, jb *JsonBody, bizData []byte) error
+
+// WsMessagePostFilter 在业务 Handle 返回之后、构造成功回包（replyData）之前执行。
+// handleErr 为 Handle 的 error；仅做日志时返回 nil。若 handleErr 为 nil 且本函数返回非 nil，则本条按错误处理。
+// handleErr 非 nil 时，本函数返回值被忽略。使用约定：仅在监听前 AddWsPostFilter。
+type WsMessagePostFilter func(ctx context.Context, connCtx *ConnectionContext, jb *JsonBody, bizData []byte, reply interface{}, handleErr error) error
+
 // WsServer WebSocket服务器核心结构体
 type WsServer struct {
 	server       *http.Server          // 标准 HTTP 服务器
@@ -396,6 +406,10 @@ type WsServer struct {
 
 	// Plan2 临时共享密钥 TTL（秒）
 	plan2SharedKeyTTLSeconds int64
+
+	// 业务消息前置/后置过滤：与 HttpNode.filters 相同约定——仅在初始化/监听前注册，监听运行期只读遍历，无每消息 copy。
+	wsPreFilters  []WsMessagePreFilter
+	wsPostFilters []WsMessagePostFilter
 }
 
 // ErrorHandler WebSocket错误处理器（统一错误处理）
@@ -1002,7 +1016,35 @@ func (mh *MessageHandler) Process(connCtx *ConnectionContext, body []byte, jb *J
 		return nil, nil, ex.Throw{Code: http.StatusNotFound, Msg: "websocket router not found"}
 	}
 
+	c := connCtx.ctx
+	if c == nil {
+		c = context.Background()
+	}
+	if sv := connCtx.Server; sv != nil {
+		for _, f := range sv.wsPreFilters {
+			if f == nil {
+				continue
+			}
+			if err := f(c, connCtx, jb, bizData); err != nil {
+				return nil, nil, err
+			}
+		}
+	}
+
 	result, err := handle(connCtx.ctx, connCtx, bizData)
+
+	if sv := connCtx.Server; sv != nil {
+		for _, f := range sv.wsPostFilters {
+			if f == nil {
+				continue
+			}
+			if e2 := f(c, connCtx, jb, bizData, result, err); err == nil && e2 != nil {
+				err = e2
+				result = nil
+			}
+		}
+	}
+
 	if err == nil && jb.Plan == 2 && len(sharedKey) > 0 {
 		sharedKeyID := connCtx.Server.plan2SharedKeyID(connCtx, jb.Nonce)
 		connCtx.Server.setPlan2SharedKey(sharedKeyID, sharedKey)
@@ -1490,6 +1532,26 @@ func (s *WsServer) SetPlan2SharedKeyTTLSeconds(seconds int64) {
 		return
 	}
 	s.plan2SharedKeyTTLSeconds = seconds
+}
+
+// AddWsPreFilter 注册 WebSocket 业务前置过滤器（在解密完成且路由命中之后、Handle 之前执行）。
+// 使用约定：仅在 StartWebsocket 监听前调用；监听运行期间不得再调用（与 HttpNode.AddFilter 一致）。
+func (s *WsServer) AddWsPreFilter(f WsMessagePreFilter) {
+	if s == nil || f == nil {
+		return
+	}
+	s.wsPreFilters = append(s.wsPreFilters, f)
+	zlog.Info("add_websocket_pre_filter", 0, zlog.Int("total", len(s.wsPreFilters)))
+}
+
+// AddWsPostFilter 注册 WebSocket 业务后置过滤器（在 Handle 返回之后、replyData 之前执行）。
+// 使用约定：仅在 StartWebsocket 监听前调用。
+func (s *WsServer) AddWsPostFilter(f WsMessagePostFilter) {
+	if s == nil || f == nil {
+		return
+	}
+	s.wsPostFilters = append(s.wsPostFilters, f)
+	zlog.Info("add_websocket_post_filter", 0, zlog.Int("total", len(s.wsPostFilters)))
 }
 
 func (s *WsServer) isWithinAuthTimeWindow(ts int64) bool {

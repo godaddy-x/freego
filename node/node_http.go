@@ -224,6 +224,8 @@ func (self *HttpNode) Bytes(ctx *Context, data []byte) error {
 	return ctx.Bytes(data)
 }
 
+// AddFilter 追加自定义过滤器（按 Order 与内置过滤器合并排序见 StartServer 内 createFilterChain）。
+// 使用约定：仅在服务监听前、初始化阶段调用；监听运行期间不得再调用，否则与并发请求执行 DoFilter 不安全。
 func (self *HttpNode) AddFilter(object *FilterObject) {
 	self.readyContext()
 	if object == nil {
@@ -242,7 +244,7 @@ func (self *HttpNode) createCtxPool() sync.Pool {
 		// 设置静态配置（启动时确定）
 		ctx.configs = self.Context.configs
 		ctx.router = self.Context.router
-		ctx.filterChain = &filterChain{filters: self.filters} // 直接设置过滤器列表
+		ctx.filterChain = &filterChain{filters: self.filters} // 池化对象首次占位；每条请求 reset 会用当前 HttpNode.filters 覆盖
 
 		// 预创建可重用对象
 		ctx.System = &System{}

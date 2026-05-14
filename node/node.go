@@ -62,6 +62,9 @@ var (
 
 // HookNode 结构体 - 32字节 (2个字段，8字节对齐，无填充)
 // 排列优化：指针字段在前，slice字段在后
+//
+// filters：须在进程初始化阶段完成 AddFilter；StartServer 内会经 createFilterChain 整体替换为排序后的链。
+// 约定：监听并处理请求期间不得再 AddFilter（无并发 append 与 DoFilter 遍历同一切片的安全保证）。
 type HookNode struct {
 	Context *Context        // 8字节 - 指针字段
 	filters []*FilterObject // 24字节 (8+8+8) - slice字段
@@ -580,9 +583,12 @@ func (self *Context) reset(ctx *Context, handle PostHandle, request *fasthttp.Re
 	self.RouterConfig = self.configs.routerConfigs[self.Path]
 	self.postCompleted = false
 
-	// 过滤器链重置（优化：减少条件检查）
+	// 过滤器链：每条请求绑定当前 HttpNode.filters（与 StartServer 中 createFilterChain 结果一致，无每请求分配）
+	if self.filterChain == nil {
+		self.filterChain = &filterChain{}
+	}
+	self.filterChain.filters = fs
 	self.filterChain.pos = 0
-	// 注意：filters已在对象池中预设，无需重置
 
 	// 重置请求处理对象
 	self.resetJsonBody()
