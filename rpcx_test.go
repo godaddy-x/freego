@@ -15,7 +15,7 @@ import (
 	"github.com/godaddy-x/freego/utils/crypto"
 )
 
-// Ed25519 与 socket_test.go 一致：服务端 (serverPrk, clientPub)，客户端 (clientPrk, serverPub)
+// ML-DSA 与 test_pq_keys.go 一致：服务端 (pqServerPrk, pqClientPub)，客户端 (pqClientPrk, pqServerPub)
 
 // TestHandler 测试业务处理器
 func testHandle(ctx context.Context, req *pb.TestRequest) (*pb.TestResponse, error) {
@@ -33,7 +33,7 @@ func TestGRPCManager_StartServer(t *testing.T) {
 	// 创建GRPC管理器
 	manager := rpcx.NewRPCManager()
 
-	cipher, err := crypto.CreateEd25519WithBase64(serverPrk, clientPub)
+	cipher, err := crypto.CreateMLDSA87WithBase64(pqServerPrk, pqClientPub)
 	if err != nil {
 		t.Fatalf("cipher: %v", err)
 	}
@@ -57,7 +57,7 @@ func TestGRPCManager_StartServer(t *testing.T) {
 // TestRpcSDK_Basic 基础功能测试
 func TestRpcSDK_Basic(t *testing.T) {
 
-	cipher, err := crypto.CreateEd25519WithBase64(clientPrk, serverPub)
+	cipher, err := crypto.CreateMLDSA87WithBase64(pqClientPrk, pqServerPub)
 	if err != nil {
 		t.Fatalf("cipher: %v", err)
 	}

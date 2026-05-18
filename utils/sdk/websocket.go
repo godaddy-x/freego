@@ -2,7 +2,6 @@ package sdk
 
 import (
 	"context"
-	cryptocdh "crypto/ecdh"
 	"crypto/rand"
 	"fmt"
 	"math/big"
@@ -13,7 +12,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	ecc "github.com/godaddy-x/eccrypto"
 	"github.com/godaddy-x/freego/utils/crypto"
 
 	DIC "github.com/godaddy-x/freego/common"
@@ -146,7 +144,7 @@ type SocketSDK struct {
 	broadcastKey  string                    // 广播数据签名密钥
 	ssl           bool                      // 是否启用https
 	clientNo      int64                     // 客户端ID
-	ed25519Object map[int64]crypto.Cipher   // Ed25519 双向外层签名
+	mldsaObject map[int64]crypto.Cipher // Plan2：ML-DSA-87 外层签
 	healthPing    int                       // 心跳间隔/秒，建议 10–15，内部最大 15
 
 	// WebSocket连接相关（gws 使用 *gws.Conn）
@@ -438,56 +436,58 @@ func (s *SocketSDK) valid() bool {
 	return true
 }
 
-func (s *SocketSDK) addEd25519Sign(jsonBody *node.JsonBody) error {
-	if s.ed25519Object == nil {
-		return ex.Throw{Msg: "Ed25519 object not configured, bidirectional Ed25519 signature is required"}
+func (s *SocketSDK) addOuterSign(jsonBody *node.JsonBody, plan2KeyBootstrap bool) error {
+	if !node.JsonBodyRequiresOuterSignature(jsonBody.Plan, plan2KeyBootstrap) {
+		return nil
 	}
-	cipher, exists := s.ed25519Object[s.clientNo]
+	if s.mldsaObject == nil {
+		return ex.Throw{Msg: "ML-DSA object not configured"}
+	}
+	cipher, exists := s.mldsaObject[s.clientNo]
 	if !exists || cipher == nil {
-		return ex.Throw{Msg: "Ed25519 object not found for client, bidirectional Ed25519 signature is required"}
+		return ex.Throw{Msg: "ML-DSA object not found for client"}
 	}
 	outerSign, err := cipher.Sign(node.DigestBodyMessage(jsonBody.Router, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan, jsonBody.User))
 	if err != nil {
-		return ex.Throw{Msg: "Ed25519 sign failed: " + err.Error()}
+		return ex.Throw{Msg: "ML-DSA sign failed: " + err.Error()}
 	}
 	jsonBody.Valid = utils.Base64Encode(outerSign)
 	DIC.ClearData(outerSign)
-	if zlog.IsDebug() {
-		zlog.Debug(fmt.Sprintf("Ed25519 sign added for body digest: %s", jsonBody.Valid), 0)
-	}
 	return nil
 }
 
-func (s *SocketSDK) verifyEd25519Sign(path string, usr int64, respData *node.JsonResp) error {
-	if s.ed25519Object == nil {
-		return ex.Throw{Msg: "Ed25519 object not configured, bidirectional Ed25519 signature is required"}
+func (s *SocketSDK) verifyOuterSign(path string, usr int64, respData *node.JsonResp) error {
+	if !node.PlanRequiresOuterSignature(respData.Plan) {
+		return nil
 	}
-	cipher, exists := s.ed25519Object[s.clientNo]
+	if s.mldsaObject == nil {
+		return ex.Throw{Msg: "ML-DSA object not configured"}
+	}
+	cipher, exists := s.mldsaObject[s.clientNo]
 	if !exists || cipher == nil {
-		return ex.Throw{Msg: "Ed25519 object not found for client, bidirectional Ed25519 signature is required"}
+		return ex.Throw{Msg: "ML-DSA object not found for client"}
 	}
-	if !utils.CheckStrLen(respData.Valid, 80, 128) {
-		return ex.Throw{Msg: "post response Ed25519 signature length invalid"}
+	if !crypto.CheckOuterSignatureB64Valid(respData.Valid) {
+		return ex.Throw{Msg: "response outer signature length invalid"}
 	}
 	outerSignData := utils.Base64Decode(respData.Valid)
 	defer DIC.ClearData(outerSignData)
-
 	if err := cipher.Verify(node.DigestBodyMessage(path, respData.Data, respData.Nonce, respData.Time, respData.Plan, usr), outerSignData); err != nil {
-		return ex.Throw{Msg: "post response Ed25519 sign verify invalid"}
+		return ex.Throw{Msg: "response ML-DSA sign verify invalid"}
 	}
 	return nil
 }
 
-// SetEd25519Object 配置当前 WebSocket 客户端身份：本端 Ed25519 私钥 + 对端（服务端）Ed25519 公钥；与服务端 Ws AddCipher 独立、互为镜像。
-func (s *SocketSDK) SetEd25519Object(usr int64, prkB64, peerPubB64 string) error {
-	if s.ed25519Object == nil {
-		s.ed25519Object = make(map[int64]crypto.Cipher)
+// SetMLDSA87Object 配置 Plan2 WebSocket 客户端身份（与服务端 WsServer.AddPQCipher 镜像）。
+func (s *SocketSDK) SetMLDSA87Object(usr int64, prkB64, peerPubB64 string) error {
+	if s.mldsaObject == nil {
+		s.mldsaObject = make(map[int64]crypto.Cipher)
 	}
-	cipher, err := crypto.CreateEd25519WithBase64(prkB64, peerPubB64)
+	cipher, err := crypto.CreateMLDSA87WithBase64(prkB64, peerPubB64)
 	if err != nil {
 		return err
 	}
-	s.ed25519Object[usr] = cipher
+	s.mldsaObject[usr] = cipher
 	return nil
 }
 
@@ -761,12 +761,12 @@ func (s *SocketSDK) ConnectWebSocketWithRawAuth(path, authHeader string) error {
 }
 
 func (s *SocketSDK) buildPlan2BootstrapAuthorization() (string, error) {
-	if s.ed25519Object == nil {
-		return "", ex.Throw{Msg: "Ed25519 object not configured, bidirectional Ed25519 signature is required"}
+	if s.mldsaObject == nil {
+		return "", ex.Throw{Msg: "ML-DSA object not configured"}
 	}
-	cipher, exists := s.ed25519Object[s.clientNo]
+	cipher, exists := s.mldsaObject[s.clientNo]
 	if !exists || cipher == nil {
-		return "", ex.Throw{Msg: "Ed25519 object not found for client, bidirectional Ed25519 signature is required"}
+		return "", ex.Throw{Msg: "ML-DSA object not found for client"}
 	}
 	pub, err := node.CreatePublicKey(
 		utils.Base64Encode(utils.GetRandomSecure(32)),
@@ -790,12 +790,12 @@ func (s *SocketSDK) GetWebSocketPlan2Auth(keyRouter string, timeout int64) (stri
 	if len(strings.TrimSpace(keyRouter)) == 0 {
 		return "", nil, ex.Throw{Msg: "key router is empty"}
 	}
-	if s.ed25519Object == nil {
-		return "", nil, ex.Throw{Msg: "Ed25519 object not configured, bidirectional Ed25519 signature is required"}
+	if s.mldsaObject == nil {
+		return "", nil, ex.Throw{Msg: "ML-DSA object not configured"}
 	}
-	cipher, exists := s.ed25519Object[s.clientNo]
+	cipher, exists := s.mldsaObject[s.clientNo]
 	if !exists || cipher == nil {
-		return "", nil, ex.Throw{Msg: "Ed25519 object not found for client, bidirectional Ed25519 signature is required"}
+		return "", nil, ex.Throw{Msg: "ML-DSA object not found for client"}
 	}
 
 	reqPublic, err := node.CreatePublicKey(
@@ -824,7 +824,7 @@ func (s *SocketSDK) GetWebSocketPlan2Auth(keyRouter string, timeout int64) (stri
 
 	sign, _ := node.SignAndDigestBodyMessage(jsonBody.Router, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan, jsonBody.User, []byte{})
 	jsonBody.Sign = utils.Base64Encode(sign)
-	if err := s.addEd25519Sign(jsonBody); err != nil {
+	if err := s.addOuterSign(jsonBody, true); err != nil {
 		return "", nil, err
 	}
 
@@ -846,7 +846,7 @@ func (s *SocketSDK) GetWebSocketPlan2Auth(keyRouter string, timeout int64) (stri
 	if !utils.CompareBase64Sign(validSign, resp.Sign) {
 		return "", nil, ex.Throw{Msg: "plan2 key response signature verification failed"}
 	}
-	if err := s.verifyEd25519Sign(keyRouter, s.clientNo, resp); err != nil {
+	if err := s.verifyOuterSign(keyRouter, s.clientNo, resp); err != nil {
 		return "", nil, err
 	}
 	respData := utils.Base64Decode(resp.Data)
@@ -862,25 +862,13 @@ func (s *SocketSDK) GetWebSocketPlan2Auth(keyRouter string, timeout int64) (stri
 		return "", nil, err
 	}
 
-	xKey := &crypto.X25519Object{}
-	if err := xKey.CreateX25519(); err != nil {
-		return "", nil, ex.Throw{Msg: "create x25519 key exchange object error: " + err.Error()}
-	}
-	prk, _ := xKey.GetPrivateKey()
-	xPrk, ok := prk.(*cryptocdh.PrivateKey)
-	if !ok || xPrk == nil {
-		return "", nil, ex.Throw{Msg: "x25519 private key invalid"}
-	}
-	prkBytes := xPrk.Bytes()
-	defer DIC.ClearData(prkBytes)
-
-	serverXPub, err := ecc.LoadX25519PublicKeyFromBase64(serverPub.Key)
+	sharedB64, kemCtB64, err := crypto.EncapsulateToPeer(serverPub.Key)
 	if err != nil {
-		return "", nil, ex.Throw{Msg: "load server x25519 public key failed"}
+		return "", nil, ex.Throw{Msg: "ML-KEM encapsulate failed: " + err.Error()}
 	}
-	sharedRaw, err := ecc.GenSharedKeyX25519(xPrk, serverXPub)
-	if err != nil {
-		return "", nil, ex.Throw{Msg: "X25519 shared secret failed"}
+	sharedRaw := utils.Base64Decode(sharedB64)
+	if len(sharedRaw) == 0 {
+		return "", nil, ex.Throw{Msg: "ML-KEM shared secret invalid"}
 	}
 	defer DIC.ClearData(sharedRaw)
 	sharedKey, err := node.HKDFKey(sharedRaw, serverPub.Noc)
@@ -888,7 +876,7 @@ func (s *SocketSDK) GetWebSocketPlan2Auth(keyRouter string, timeout int64) (stri
 		return "", nil, ex.Throw{Msg: "HKDF shared key failed"}
 	}
 
-	authPub, err := node.CreatePublicKey(serverPub.Key, utils.Base64Encode(xPrk.PublicKey().Bytes()), s.clientNo, cipher)
+	authPub, err := node.CreatePublicKey(serverPub.Key, kemCtB64, s.clientNo, cipher)
 	if err != nil {
 		DIC.ClearData(sharedKey)
 		return "", nil, err
@@ -938,7 +926,7 @@ func (s *SocketSDK) LoginByWebSocketPlan2Auto(keyRouter, loginRouter string, req
 	return nil
 }
 
-// SendWebSocketPlan2Message 发送 plan2 消息（AES-GCM + HMAC + Ed25519），用于 key/login 等流程。
+// SendWebSocketPlan2Message 发送 plan2 消息（AES-GCM + HMAC + ML-DSA），用于 key/login 等流程。
 func (s *SocketSDK) SendWebSocketPlan2Message(router string, requestObj, responseObj interface{}, sharedKey []byte, timeout int64) error {
 	if len(router) == 0 || requestObj == nil || responseObj == nil {
 		return ex.Throw{Msg: "params invalid"}
@@ -946,8 +934,8 @@ func (s *SocketSDK) SendWebSocketPlan2Message(router string, requestObj, respons
 	if len(sharedKey) < 32 {
 		return ex.Throw{Msg: "shared key invalid"}
 	}
-	if s.ed25519Object == nil {
-		return ex.Throw{Msg: "Ed25519 object not configured, bidirectional Ed25519 signature is required"}
+	if s.mldsaObject == nil {
+		return ex.Throw{Msg: "ML-DSA object not configured"}
 	}
 
 	jsonData, err := utils.JsonMarshal(requestObj)
@@ -973,7 +961,7 @@ func (s *SocketSDK) SendWebSocketPlan2Message(router string, requestObj, respons
 	jsonBody.Sign = utils.Base64Encode(signData)
 	DIC.ClearData(signData)
 
-	if err := s.addEd25519Sign(jsonBody); err != nil {
+	if err := s.addOuterSign(jsonBody, false); err != nil {
 		return err
 	}
 
@@ -996,7 +984,7 @@ func (s *SocketSDK) SendWebSocketPlan2Message(router string, requestObj, respons
 	if !utils.CompareBase64Sign(validSign, resp.Sign) {
 		return ex.Throw{Msg: "plan2 response signature verification failed"}
 	}
-	if err := s.verifyEd25519Sign(router, s.clientNo, resp); err != nil {
+	if err := s.verifyOuterSign(router, s.clientNo, resp); err != nil {
 		return err
 	}
 
@@ -1073,13 +1061,6 @@ func (s *SocketSDK) prepareHeartbeatMessage(router string, data interface{}) ([]
 	DIC.ClearData(signData)    // 立即清理签名数据
 	DIC.ClearData(tokenSecret) // 立即清理token secret
 
-	// 添加 Ed25519 外层签名（如果配置了）
-	if s.ed25519Object != nil {
-		if err := s.addEd25519Sign(jsonBody); err != nil {
-			return nil, "", err
-		}
-	}
-
 	bytesData, err := utils.JsonMarshal(jsonBody)
 	if err != nil {
 		return nil, "", ex.Throw{Msg: "heartbeat jsonBody marshal failed"}
@@ -1134,11 +1115,6 @@ func (s *SocketSDK) prepareWebSocketMessage(jsonBody *node.JsonBody, data interf
 	signData, _ := node.SignAndDigestBodyMessage(jsonBody.Router, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan, jsonBody.User, tokenSecret)
 	jsonBody.Sign = utils.Base64Encode(signData)
 	defer DIC.ClearData(signData)
-
-	// 添加 Ed25519 外层签名
-	if err := s.addEd25519Sign(jsonBody); err != nil {
-		return nil, nil, err
-	}
 
 	// 序列化最终的JsonBody
 	bytesData, err := utils.JsonMarshal(jsonBody)
@@ -1210,10 +1186,6 @@ func (s *SocketSDK) sendWebSocketAuthHandshake(conn *gws.Conn, path string) erro
 			return ex.Throw{Msg: "handshake response signature verification failed"}
 		}
 
-		// 验证 Ed25519 外层签名（须配置 ed25519Object）
-		if err := s.verifyEd25519Sign(path, jsonBody.User, response); err != nil {
-			return err
-		}
 		// 验证握手响应时间戳，防止重放攻击
 		if response.Time <= 0 {
 			return ex.Throw{Msg: "handshake response time must be > 0"}
@@ -1363,19 +1335,10 @@ func (s *SocketSDK) verifyWebSocketResponseFromJsonResp(path string, result inte
 		return ex.Throw{Msg: "response signature verification failed"}
 	}
 
-	outerSignData := utils.Base64Decode(jsonResp.Valid)
-	defer DIC.ClearData(outerSignData)
-
-	if s.ed25519Object == nil {
-		return ex.Throw{Msg: "Ed25519 object not configured, bidirectional Ed25519 signature is required"}
-	}
-	cipher, exists := s.ed25519Object[s.clientNo]
-	if !exists || cipher == nil {
-		return ex.Throw{Msg: "Ed25519 object not found for client, bidirectional Ed25519 signature is required"}
-	}
-
-	if err := cipher.Verify(node.DigestBodyMessage(path, jsonResp.Data, jsonResp.Nonce, jsonResp.Time, jsonResp.Plan, s.clientNo), outerSignData); err != nil {
-		return ex.Throw{Msg: "response Ed25519 signature verification failed"}
+	if node.PlanRequiresOuterSignature(jsonResp.Plan) {
+		if err := s.verifyOuterSign(path, s.clientNo, jsonResp); err != nil {
+			return err
+		}
 	}
 	// 验证服务端响应时间戳，防止重放攻击
 	if jsonResp.Time <= 0 {

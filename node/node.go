@@ -21,6 +21,7 @@ import (
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/node/common"
 	"github.com/godaddy-x/freego/utils"
+	fgocrypto "github.com/godaddy-x/freego/utils/crypto"
 	"github.com/godaddy-x/freego/utils/crypto"
 	"github.com/godaddy-x/freego/utils/jwt"
 	"github.com/godaddy-x/freego/zlog"
@@ -56,9 +57,18 @@ const (
 
 var (
 	MAX_BODY_LEN  = 200000 // 最大参数值长度
-	MAX_TOKEN_LEN = 2048   // 最大Token值长度
+	MAX_TOKEN_LEN = 2048   // JWT 等常规 Authorization 上限；Plan2 见 maxAuthorizationHeaderLen
 	MAX_CODE_LEN  = 1024   // 最大Code值长度
 )
+
+// maxAuthorizationHeaderLen Plan2 为 base64(PublicKey JSON)，须容纳 ML-KEM + ML-DSA 外层签名。
+func maxAuthorizationHeaderLen() int {
+	n := MAX_TOKEN_LEN
+	if plan2 := fgocrypto.MaxPlan2AuthorizationB64Len(); plan2 > n {
+		n = plan2
+	}
+	return n
+}
 
 // HookNode 结构体 - 32字节 (2个字段，8字节对齐，无填充)
 // 排列优化：指针字段在前，slice字段在后
@@ -143,9 +153,9 @@ type Context struct {
 	postHandle      PostHandle                              // 8字节 - 函数指针
 	errorHandle     ErrorHandle                             // 8字节 - 函数指针
 
-	// 8字节其他字段组 (2个字段)
-	Cipher  map[int64]crypto.Cipher // 8字节 - slice
-	Storage map[string]interface{}  // 8字节 - map
+	// 8字节其他字段组 (3个字段)
+	PQCipher map[int64]crypto.Cipher // Plan2：ML-DSA-87 外层签
+	Storage  map[string]interface{}
 
 	// bool字段 (1字节，会产生填充)
 	postCompleted bool // 1字节 - bool
@@ -278,7 +288,7 @@ func (self *Context) GetHmac256Sign(d, n string, t, p, u int64, key []byte) []by
 	return SignBodyMessage(self.Path, d, n, t, p, u, key)
 }
 
-// CheckOuterSign 校验外层数字签名（经 cipher.Verify；典型为 Ed25519Object）。
+// CheckOuterSign 校验外层数字签名（经 cipher.Verify；ML-DSA-87）。
 func (self *Context) CheckOuterSign(cipher crypto.Cipher, msg, sign []byte) (crypto.Cipher, error) {
 	if cipher == nil {
 		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request cipher invalid"}
@@ -348,7 +358,7 @@ func (self *Context) Parser(dst interface{}) error {
 		System:          &common.System{Name: self.System.Name, Version: self.System.Version},
 		RedisCacheAware: self.RedisCacheAware,
 		LocalCacheAware: self.LocalCacheAware,
-		Cipher:          self.Cipher,
+		Cipher:          self.PQCipher,
 	}
 	src := utils.GetPtr(dst, 0)
 	req := common.GetBasePtrReq(src)
@@ -396,7 +406,7 @@ func (self *Context) readParams() error {
 	}
 	// 安全请求模式
 	auth := self.GetRawTokenBytes()
-	if len(auth) > MAX_TOKEN_LEN {
+	if len(auth) > maxAuthorizationHeaderLen() {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "authorization parameters length is too long"}
 	}
 	if body == nil || len(body) == 0 {
@@ -554,12 +564,10 @@ func (self *Context) reset(ctx *Context, handle PostHandle, request *fasthttp.Re
 	if self.LocalCacheAware == nil {
 		self.LocalCacheAware = ctx.LocalCacheAware
 	}
-	// Cipher是全局配置，通常只在系统启动时设置一次
-	if len(self.Cipher) == 0 && len(ctx.Cipher) > 0 {
-		// 深拷贝Cipher map，避免多个context共享同一个map引用
-		self.Cipher = make(map[int64]crypto.Cipher, len(ctx.Cipher))
-		for k, v := range ctx.Cipher {
-			self.Cipher[k] = v
+	if len(self.PQCipher) == 0 && len(ctx.PQCipher) > 0 {
+		self.PQCipher = make(map[int64]crypto.Cipher, len(ctx.PQCipher))
+		for k, v := range ctx.PQCipher {
+			self.PQCipher[k] = v
 		}
 	}
 	// 如果RSA已有值（全局配置），保持不变
@@ -696,7 +704,7 @@ func CheckPublicKey(c cache.Cache, requestObject *PublicKey, cipher crypto.Ciphe
 	if len(requestObject.Tag) < 32 {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request tag invalid"}
 	}
-	if len(requestObject.Sig) < 32 {
+	if !fgocrypto.CheckOuterSignatureB64Valid(requestObject.Sig) {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request sig invalid"}
 	}
 	if len(requestObject.Noc) < 32 {
@@ -716,7 +724,7 @@ func CheckPublicKey(c cache.Cache, requestObject *PublicKey, cipher crypto.Ciphe
 			return ex.Throw{Code: http.StatusBadRequest, Msg: "request noc duplicated"}
 		}
 	}
-	// 外层签名验证（Ed25519）
+	// 外层签名验证（Plan2 PublicKey 握手：ML-DSA-87）
 	if err := cipher.Verify(utils.Str2Bytes(utils.AddStr(requestObject.Key, DIC.SEP, requestObject.Tag, DIC.SEP, requestObject.Noc, DIC.SEP, requestObject.Exp, DIC.SEP, requestObject.Usr)), utils.Base64Decode(requestObject.Sig)); err != nil {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request verify sig invalid"}
 	}
@@ -744,7 +752,7 @@ func (self *Context) CreatePublicKey() (*PublicKey, error) {
 		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request data is nil"}
 	}
 
-	if len(self.JsonBody.Data) > 1024 {
+	if len(self.JsonBody.Data) > fgocrypto.MaxPublicKeyJSONLen() {
 		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request data too long"}
 	}
 
@@ -757,10 +765,10 @@ func (self *Context) CreatePublicKey() (*PublicKey, error) {
 		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request usr invalid"}
 	}
 
-	cipher, exists := self.Cipher[checkObject.Usr]
+	cipher, exists := self.PQCipher[checkObject.Usr]
 	if !exists {
 		zlog.Error("CreatePublicKey usr error", 0, zlog.String("ip", self.RemoteIP()), zlog.Int64("usr", checkObject.Usr))
-		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "cipher not found for user"}
+		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "plan2 cipher not found for user"}
 	}
 
 	// 增加限流器控制USR访问量
@@ -777,18 +785,19 @@ func (self *Context) CreatePublicKey() (*PublicKey, error) {
 		return nil, err
 	}
 
-	// 生成ECC密钥对 - ECC库应该是线程安全的
-	prk, err := ecc.CreateX25519()
+	dk, err := ecc.CreateMLKEM1024()
 	if err != nil {
-		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "x25519 key generation failed", Err: err}
+		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "ML-KEM key generation failed", Err: err}
 	}
+	serverEkB64 := utils.Base64Encode(ecc.GetMLKEM1024EncapsulationKeyBytes(dk.EncapsulationKey()))
+	dkB64 := ecc.MLKEM1024DecapsulationKeyToBase64(dk)
 
-	requestObject, err := CreatePublicKey(utils.Base64Encode(prk.PublicKey().Bytes()), utils.Base64Encode(utils.GetRandomSecure(32)), checkObject.Usr, cipher)
+	requestObject, err := CreatePublicKey(serverEkB64, utils.Base64Encode(utils.GetRandomSecure(32)), checkObject.Usr, cipher)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := c.Put(utils.FNV1a64(utils.AddStr(requestObject.Key, ":", requestObject.Usr)), &PrivateKey{Key: utils.Base64Encode(prk.Bytes()), Noc: requestObject.Noc}, 180); err != nil {
+	if err := c.Put(utils.FNV1a64(utils.AddStr(requestObject.Key, ":", requestObject.Usr)), &PrivateKey{Key: dkB64, Noc: requestObject.Noc}, 180); err != nil {
 		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "prk cache setting error", Err: err}
 	}
 

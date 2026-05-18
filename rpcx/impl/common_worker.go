@@ -1,4 +1,4 @@
-// Package impl 实现 gRPC CommonWorker：P=0 明文；s=SHA256(规范字段)；e=Ed25519.Sign(SHA256(规范字段))；Cipher 为 *crypto.Ed25519Object。
+// Package impl 实现 gRPC CommonWorker：P=0 明文；s=SHA256(规范字段)；e=ML-DSA.Sign(SHA256(规范字段))；Cipher 为 *crypto.MLDSA87Object。
 package impl
 
 import (
@@ -85,11 +85,11 @@ func (self *CommonWorker) Do(ctx context.Context, req *pb.CommonRequest) (*pb.Co
 	return self.buildSuccessResponse(cipher, req, bizResp)
 }
 
-// rpcxEd25519Cipher RPCX 当前仅支持明文 P=0，Cipher 须为 *crypto.Ed25519Object（CreateEd25519WithBase64）。
-func rpcxEd25519Cipher(c fgocrypto.Cipher) (*fgocrypto.Ed25519Object, error) {
-	ed, ok := c.(*fgocrypto.Ed25519Object)
+// rpcxMLDSACipher RPCX 当前仅支持明文 P=0，Cipher 须为 *crypto.MLDSA87Object（CreateMLDSA87WithBase64）。
+func rpcxMLDSACipher(c fgocrypto.Cipher) (*fgocrypto.MLDSA87Object, error) {
+	ed, ok := c.(*fgocrypto.MLDSA87Object)
 	if !ok || ed == nil {
-		return nil, errors.New("RPCX: cipher must be *crypto.Ed25519Object (CreateEd25519WithBase64)")
+		return nil, errors.New("RPCX: cipher must be *crypto.MLDSA87Object (CreateMLDSA87WithBase64)")
 	}
 	return ed, nil
 }
@@ -101,14 +101,14 @@ func RPCXRequestDigestS(d, n []byte, t, p int64, r string, u int64) []byte {
 	return utils.SHA256_BASE(utils.Str2Bytes(msg))
 }
 
-// RPCXResponseDigestS 响应体摘要：SHA256( r|base64(d)|base64(n)|t|p|u|c|m )；e 对该摘要做 Ed25519 签名。
+// RPCXResponseDigestS 响应体摘要：SHA256( r|base64(d)|base64(n)|t|p|u|c|m )；e 对该摘要做 ML-DSA 签名。
 func RPCXResponseDigestS(d, n []byte, t, p int64, r string, u, c int64, m string) []byte {
 	msg := utils.AddStr(r, DIC.SEP, utils.Base64Encode(d), DIC.SEP,
 		utils.Base64Encode(n), DIC.SEP, t, DIC.SEP, p, DIC.SEP, u, DIC.SEP, c, DIC.SEP, m)
 	return utils.SHA256_BASE(utils.Str2Bytes(msg))
 }
 
-// validRequest：仅 P=0；s 为 32 字节 SHA256 摘要，e 为 64 字节 Ed25519 摘要签名；校验摘要与对方签名。
+// validRequest：仅 P=0；s 为 32 字节 SHA256 摘要，e 为 ML-DSA-87 摘要签名；校验摘要与对方签名。
 func (self *CommonWorker) validRequest(req *pb.CommonRequest) (fgocrypto.Cipher, error) {
 	if len(req.R) == 0 {
 		return nil, errors.New("request router is nil")
@@ -131,8 +131,8 @@ func (self *CommonWorker) validRequest(req *pb.CommonRequest) (fgocrypto.Cipher,
 	if len(req.S) != 32 {
 		return nil, errors.New("request s must be 32-byte SHA256 digest")
 	}
-	if len(req.E) != 64 {
-		return nil, errors.New("request e must be 64-byte Ed25519 signature")
+	if !fgocrypto.CheckRPCXSignatureValid(req.E) {
+		return nil, errors.New("request e must be ML-DSA-87 signature")
 	}
 
 	cipher, exists := self.GetCipher()[req.U]
@@ -140,7 +140,7 @@ func (self *CommonWorker) validRequest(req *pb.CommonRequest) (fgocrypto.Cipher,
 		return nil, errors.New("request cipher not found")
 	}
 
-	ed, err := rpcxEd25519Cipher(cipher)
+	ml, err := rpcxMLDSACipher(cipher)
 	if err != nil {
 		return nil, err
 	}
@@ -149,8 +149,8 @@ func (self *CommonWorker) validRequest(req *pb.CommonRequest) (fgocrypto.Cipher,
 	if !utils.CompareSign(sWant, req.S) {
 		return nil, errors.New("request digest s invalid")
 	}
-	if err := ed.Verify(req.S, req.E); err != nil {
-		return nil, errors.New("request ed25519 signature invalid")
+	if err := ml.Verify(req.S, req.E); err != nil {
+		return nil, errors.New("request ML-DSA signature invalid")
 	}
 
 	c := self.GetLocalCache()
@@ -179,7 +179,7 @@ func PackAny(data proto.Message) (*anypb.Any, error) {
 }
 
 func (self *CommonWorker) buildSuccessResponse(cipher fgocrypto.Cipher, req *pb.CommonRequest, bizResp proto.Message) (*pb.CommonResponse, error) {
-	ed, err := rpcxEd25519Cipher(cipher)
+	ml, err := rpcxMLDSACipher(cipher)
 	if err != nil {
 		return nil, err
 	}
@@ -200,7 +200,7 @@ func (self *CommonWorker) buildSuccessResponse(cipher fgocrypto.Cipher, req *pb.
 	}
 
 	s := RPCXResponseDigestS(res.D.Value, res.N, res.T, res.P, res.R, req.U, res.C, res.M)
-	eBytes, err := ed.Sign(s)
+	eBytes, err := ml.Sign(s)
 	if err != nil {
 		return nil, err
 	}

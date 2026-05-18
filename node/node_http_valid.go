@@ -3,11 +3,11 @@ package node
 import (
 	"net/http"
 
-	ecc "github.com/godaddy-x/eccrypto"
 	"github.com/godaddy-x/freego/cache"
 	DIC "github.com/godaddy-x/freego/common"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/utils"
+	fgocrypto "github.com/godaddy-x/freego/utils/crypto"
 	"github.com/godaddy-x/freego/utils/jwt"
 )
 
@@ -35,26 +35,16 @@ func (self *Context) validJsonBodyPlan01Flow(body *JsonBody) error {
 	defer DIC.ClearData(sharedKey)
 
 	// Step 2: HMAC 验证（快速拒绝大多数无效请求）
-	sign, digest := SignAndDigestBodyMessage(self.Path, body.Data, body.Nonce, body.Time, body.Plan, body.User, sharedKey)
+	sign, _ := SignAndDigestBodyMessage(self.Path, body.Data, body.Nonce, body.Time, body.Plan, body.User, sharedKey)
 	if !utils.CompareBase64Sign(sign, body.Sign) {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature invalid"}
 	}
 
-	// Step 3: Ed25519 外层签名验证（身份确认）
-	cipher, exists := self.Cipher[body.User]
-	if !exists {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "cipher not found for user"}
-	}
-	cipher, err = self.CheckOuterSign(cipher, digest, utils.Base64Decode(body.Valid))
-	if err != nil {
-		return err
-	}
 	if err := self.validJsonBodyTimeWindow(body); err != nil {
 		return err
 	}
 
-	// Step 4: 有状态深度校验（时间窗、重放检测）后进入解密与业务处理。
-	self.AddStorage(Cipher, cipher)
+	// Step 3: 有状态深度校验（时间窗、重放检测）后进入解密与业务处理（Plan0/1 无外层 Valid）
 	if err := self.validReplayAttack(body.Sign); err != nil {
 		return err
 	}
@@ -77,15 +67,14 @@ func (self *Context) validJsonBodyPlan01Flow(body *JsonBody) error {
 
 func (self *Context) validJsonBodyPlan2Flow(body *JsonBody) error {
 	// Plan2 独立流程：
-	// 1) Ed25519 验签（提前拒绝伪造请求）
-	// 2) 握手材料校验 + ECDH/HKDF 协商 sharedKey
+	// 1) ML-DSA 验签（提前拒绝伪造请求）
+	// 2) 握手材料校验 + ML-KEM/HKDF 协商 sharedKey
 	// 3) HMAC 验证（会话完整性）
 	// 4) 时间窗 + 重放检查（有状态校验）
 	// 5) AES-GCM 解密，并缓存 sharedKey 供响应复用
-	// Step 2: Ed25519 外层签名验证（身份确认，提前拒绝无效请求）
-	cipher, exists := self.Cipher[body.User]
+	cipher, exists := self.PQCipher[body.User]
 	if !exists {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "cipher not found for user"}
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "plan2 cipher not found for user"}
 	}
 	cipher, err := self.CheckOuterSign(cipher, DigestBodyMessage(self.Path, body.Data, body.Nonce, body.Time, body.Plan, body.User), utils.Base64Decode(body.Valid))
 	if err != nil {
@@ -149,9 +138,10 @@ func (self *Context) validJsonBodyCommon(body *JsonBody) error {
 	if !utils.CheckStrLen(body.Sign, 32, 64) {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "request signature length invalid"}
 	}
-	// Ed25519 原始签名 64 字节，对应 base64 常见长度约 88 字符（放宽边界避免编码差异）。
-	if !utils.CheckStrLen(body.Valid, 80, 128) {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "request outer signature length invalid"}
+	if JsonBodyRequiresOuterSignature(body.Plan, false) {
+		if !fgocrypto.CheckOuterSignatureB64Valid(body.Valid) {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "request outer signature length invalid"}
+		}
 	}
 	return nil
 }
@@ -180,10 +170,10 @@ func (self *Context) getPlan01DerivedKey(body *JsonBody) ([]byte, error) {
 
 func (self *Context) negotiatePlan2SharedKey(body *JsonBody) ([]byte, error) {
 	if !self.RouterConfig.UseRSA {
-		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters must use RSA encryption"}
+		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters must use plan2 (ML-KEM) route"}
 	}
 	authBs := self.RequestCtx.Request.Header.Peek(Authorization)
-	if len(authBs) <= 0 || len(authBs) > 1024 {
+	if len(authBs) <= 0 || len(authBs) > fgocrypto.MaxPlan2AuthorizationB64Len() {
 		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "client public key invalid"}
 	}
 	public := &PublicKey{}
@@ -196,9 +186,9 @@ func (self *Context) negotiatePlan2SharedKey(body *JsonBody) ([]byte, error) {
 		return nil, err
 	}
 
-	cipher, exists := self.Cipher[body.User]
+	cipher, exists := self.PQCipher[body.User]
 	if !exists {
-		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "cipher not found for user"}
+		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "plan2 cipher not found for user"}
 	}
 	if err := CheckPublicKey(c, public, cipher); err != nil {
 		return nil, err
@@ -222,19 +212,9 @@ func (self *Context) negotiatePlan2SharedKey(body *JsonBody) ([]byte, error) {
 	if len(prkObject.Key) == 0 {
 		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "prk read is nil"}
 	}
-	prk, err := ecc.LoadX25519PrivateKey(utils.Base64Decode(prkObject.Key))
-	if err != nil {
-		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "prk load error", Err: err}
-	}
-	prkBs := prk.Bytes()
-	defer DIC.ClearData(prkBs)
-	pub, err := ecc.LoadX25519PublicKeyFromBase64(public.Tag)
-	if err != nil {
-		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "pub load error", Err: err}
-	}
-	shared, err := ecc.GenSharedKeyX25519(prk, pub)
+	shared, err := fgocrypto.DecapsulatePeerCiphertext(prkObject.Key, public.Tag)
 	if err != nil || len(shared) == 0 {
-		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "shared key error", Err: err}
+		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "ML-KEM shared key error", Err: err}
 	}
 	defer DIC.ClearData(shared)
 	sharedKey, err := HKDFKey(shared, prkObject.Noc)

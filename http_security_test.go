@@ -17,9 +17,6 @@ const (
 	testAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxOTg5NTgzMzQ1MTA4OTEwMDgxIiwiYXVkIjoiIiwiaXNzIjoiIiwiZGV2IjoiQVBQIiwianRpIjoiV292R29Lb0NRZUorYUY0cFVRR2VJQT09IiwiZXh0IjoiIiwiaWF0IjowLCJleHAiOjE3NjQzOTgyMDh9.89JrFfOqT3gcAf++S1LM9L0gUMAkhRlLLAOKQzfnZtc="
 	testTokenSecret = "qFbtP73t3hzhChX2wa1o+D/ebwgppSwkq6MAwyz1ApvNjpYowD4dyZQM2Cjct8J2VFuwIB1VYP77m+KBCoruMw=="
 	testTokenExpire = 1764398208
-
-	testServerPub = "fv02u4YEdfVdkQOI5PT50HZYz7xyZln7FTMjxjWYVhw="
-	testClientPrk = "T9arYQw2qGrcyN1kLvrVyP7jXKJe+cXIW5RNFXrvLEx1kuxLxKR5GXUihsj75z8GT+Xh0rfDxM0TOdXqQI1fog=="
 )
 
 var securityHttpSDK = NewSecuritySDK()
@@ -30,7 +27,7 @@ func NewSecuritySDK() *sdk.HttpSDK {
 		KeyPath:   "/key",
 		LoginPath: "/login",
 	}
-	_ = newObject.SetEd25519Object(1, testClientPrk, testServerPub)
+	newObject.SetClientNo(1)
 	return newObject
 }
 

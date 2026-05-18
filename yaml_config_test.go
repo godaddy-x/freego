@@ -15,9 +15,9 @@ func TestPrintSecretKey(t *testing.T) {
 	fmt.Println("密钥32：", utils.Base64Encode(utils.GetRandomSecure(32)))
 }
 
-func TestPrintEd25519Key(t *testing.T) {
-	crypto.PrintEd25519Base64()
-	crypto.PrintEd25519Base64()
+func TestPrintMLDSA87Key(t *testing.T) {
+	crypto.PrintMLDSA87Base64()
+	crypto.PrintMLDSA87Base64()
 }
 
 func TestLoadYamlConfig(t *testing.T) {

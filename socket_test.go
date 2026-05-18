@@ -28,15 +28,6 @@ import (
 )
 
 const (
-	// 服务端 Ed25519 私钥（与 utils/crypto TestFixtureEd25519KeysB64 种子 freego-ed25519-server 一致）
-	serverPrk = "iOtq+nAOZieY+puLqeFPw3CvrI1OO8iQ9GrhccdovZ5+/Ta7hgR19V2RA4jk9PnQdljPvHJmWfsVMyPGNZhWHA=="
-	// 服务端 Ed25519 公钥
-	serverPub = "fv02u4YEdfVdkQOI5PT50HZYz7xyZln7FTMjxjWYVhw="
-	// 客户端 Ed25519 私钥（种子 freego-ed25519-client）
-	clientPrk = "T9arYQw2qGrcyN1kLvrVyP7jXKJe+cXIW5RNFXrvLEx1kuxLxKR5GXUihsj75z8GT+Xh0rfDxM0TOdXqQI1fog=="
-	// 客户端 Ed25519 公钥
-	clientPub = "dZLsS8SkeRl1IobI++c/Bk/l4dK3w8TNEznV6kCNX6I="
-
 	// wsTestServerPool 用于 TestCreateWsServer / TestWebSocketSDKUsage：提高 maxConn、放宽 Upgrade 限流，
 	// 便于压测高并发；生产环境请按容量收紧。单机若句柄/端口耗尽需调 OS 或降低 wsTestServerMaxConn。
 	wsTestServerMaxConn     = 200000 // 最大并发连接数
@@ -159,7 +150,7 @@ func TestWebSocketManyClient(t *testing.T) {
 				wsSdk := sdk.NewSocketSDK(serverAddr)
 				wsSdk.AuthToken(u)
 				wsSdk.SetClientNo(1)
-				_ = wsSdk.SetEd25519Object(wsSdk.GetClientNo(), clientPrk, serverPub)
+				_ = wsSdk.SetMLDSA87Object(wsSdk.GetClientNo(), pqClientPrk, pqServerPub)
 				wsSdk.SetHealthPing(10)
 				if err := wsSdk.ConnectWebSocket(); err != nil {
 					failMu.Lock()
@@ -273,7 +264,7 @@ func TestWebSocketStressConnectionRate1Minute(t *testing.T) {
 				wsSdk := sdk.NewSocketSDK(serverAddr)
 				wsSdk.AuthToken(auth)
 				wsSdk.SetClientNo(1)
-				_ = wsSdk.SetEd25519Object(wsSdk.GetClientNo(), clientPrk, serverPub)
+				_ = wsSdk.SetMLDSA87Object(wsSdk.GetClientNo(), pqClientPrk, pqServerPub)
 				wsSdk.SetHealthPing(30)
 
 				if err := wsSdk.ConnectWebSocket(); err != nil {
@@ -391,7 +382,7 @@ func stressHeldWave(ctx context.Context, serverAddr string, workers, jitterMS in
 			wsSdk := sdk.NewSocketSDK(serverAddr)
 			wsSdk.AuthToken(auth)
 			wsSdk.SetClientNo(1)
-			_ = wsSdk.SetEd25519Object(wsSdk.GetClientNo(), clientPrk, serverPub)
+			_ = wsSdk.SetMLDSA87Object(wsSdk.GetClientNo(), pqClientPrk, pqServerPub)
 			wsSdk.SetHealthPing(30)
 
 			if err := wsSdk.ConnectWebSocket(); err != nil {
@@ -664,7 +655,7 @@ func TestWebSocketSendRoundTripPerf(t *testing.T) {
 			wsSdk := sdk.NewSocketSDK(serverAddr)
 			wsSdk.AuthToken(auth)
 			wsSdk.SetClientNo(1)
-			_ = wsSdk.SetEd25519Object(wsSdk.GetClientNo(), clientPrk, serverPub)
+			_ = wsSdk.SetMLDSA87Object(wsSdk.GetClientNo(), pqClientPrk, pqServerPub)
 			wsSdk.SetHealthPing(30)
 			if err := wsSdk.ConnectWebSocket(); err != nil {
 				atomic.AddUint64(&connFail, 1)
@@ -833,8 +824,8 @@ func TestCreateWsServer(t *testing.T) {
 	})
 
 	// 增加双向验签的Ed25519
-	cipher, _ := crypto.CreateEd25519WithBase64(serverPrk, clientPub)
-	server.AddCipher(1, cipher)
+	cipher, _ := crypto.CreateMLDSA87WithBase64(pqServerPrk, pqClientPub)
+	server.AddPQCipher(1, cipher)
 
 	// 配置连接池（限流见文件顶部 wsTestServer* 常量）
 	err := server.NewPool(wsTestServerMaxConn, wsTestServerConnPerSec, wsTestServerConnBurst, wsTestServerPingSeconds)
@@ -912,13 +903,13 @@ func testClient(subject string) {
 	wsUserSdk := sdk.NewSocketSDK("localhost:8088")
 	wsUserSdk.SetClientNo(1)
 	wsUserSdk.EnableReconnect()
-	if err := wsUserSdk.SetEd25519Object(1, clientPrk, serverPub); err != nil {
+	if err := wsUserSdk.SetMLDSA87Object(1, pqClientPrk, pqServerPub); err != nil {
 		fmt.Printf("set user sdk ed25519 failed: %v", err)
 	}
 	wsUserSdk.SetTokenExpiredCallback(func() {
 		loginSdk := sdk.NewSocketSDK("localhost:8088")
 		loginSdk.SetClientNo(1)
-		if err := loginSdk.SetEd25519Object(1, clientPrk, serverPub); err != nil {
+		if err := loginSdk.SetMLDSA87Object(1, pqClientPrk, pqServerPub); err != nil {
 			fmt.Printf("token callback set ed25519 failed: %v", err)
 			return
 		}
@@ -985,8 +976,8 @@ func TestWebSocketSDKUsage(t *testing.T) {
 	})
 
 	// 增加双向验签的Ed25519
-	cipher, _ := crypto.CreateEd25519WithBase64(serverPrk, clientPub)
-	server.AddCipher(1, cipher)
+	cipher, _ := crypto.CreateMLDSA87WithBase64(pqServerPrk, pqClientPub)
+	server.AddPQCipher(1, cipher)
 
 	// 配置连接池（限流见文件顶部 wsTestServer* 常量）
 	err := server.NewPool(wsTestServerMaxConn, wsTestServerConnPerSec, wsTestServerConnBurst, wsTestServerPingSeconds)
@@ -1065,7 +1056,7 @@ func TestWebSocketSDKUsage(t *testing.T) {
 	wsSdk.AuthToken(authToken)
 
 	wsSdk.SetClientNo(1)
-	wsSdk.SetEd25519Object(wsSdk.GetClientNo(), clientPrk, serverPub)
+	wsSdk.SetMLDSA87Object(wsSdk.GetClientNo(), pqClientPrk, pqServerPub)
 	wsSdk.SetHealthPing(5)
 
 	// 5. 尝试连接WebSocket（预期成功，因为服务器已启动）
@@ -1229,8 +1220,8 @@ func TestWebSocketTokenExpiredCallback(t *testing.T) {
 		TokenExp: jwt.TWO_WEEK,
 	})
 
-	cipher, _ := crypto.CreateEd25519WithBase64(serverPrk, clientPub)
-	server.AddCipher(1, cipher)
+	cipher, _ := crypto.CreateMLDSA87WithBase64(pqServerPrk, pqClientPub)
+	server.AddPQCipher(1, cipher)
 
 	err := server.NewPool(100, 10, 5, 30)
 	if err != nil {
@@ -1272,7 +1263,7 @@ func TestWebSocketTokenExpiredCallback(t *testing.T) {
 	wsSdk := sdk.NewSocketSDK(serverAddr)
 
 	// 确保Ed25519密钥设置正确
-	if err := wsSdk.SetEd25519Object(1, clientPrk, serverPub); err != nil {
+	if err := wsSdk.SetMLDSA87Object(1, pqClientPrk, pqServerPub); err != nil {
 		t.Fatalf("Failed to set Ed25519 object: %v", err)
 	}
 
@@ -1382,8 +1373,8 @@ func TestWebSocketMessageSubscription(t *testing.T) {
 	})
 
 	// 增加双向验签的Ed25519
-	cipher, _ := crypto.CreateEd25519WithBase64(serverPrk, clientPub)
-	server.AddCipher(1, cipher)
+	cipher, _ := crypto.CreateMLDSA87WithBase64(pqServerPrk, pqClientPub)
+	server.AddPQCipher(1, cipher)
 
 	// 配置连接池
 	err := server.NewPool(100, 10, 5, 30)
@@ -2001,8 +1992,8 @@ func TestWebSocketClientUnexpectedDisconnect(t *testing.T) {
 		TokenKey: "123456",
 		TokenExp: jwt.TWO_WEEK,
 	})
-	cipher, _ := crypto.CreateEd25519WithBase64(serverPrk, clientPub)
-	server.AddCipher(1, cipher)
+	cipher, _ := crypto.CreateMLDSA87WithBase64(pqServerPrk, pqClientPub)
+	server.AddPQCipher(1, cipher)
 	if err := server.NewPool(10, 20, 100, 15); err != nil {
 		t.Fatalf("NewPool failed: %v", err)
 	}
@@ -2050,7 +2041,7 @@ func TestWebSocketClientUnexpectedDisconnect(t *testing.T) {
 		Expired: subject.Payload.Exp,
 	})
 	wsSdk.SetClientNo(1)
-	_ = wsSdk.SetEd25519Object(wsSdk.GetClientNo(), clientPrk, serverPub)
+	_ = wsSdk.SetMLDSA87Object(wsSdk.GetClientNo(), pqClientPrk, pqServerPub)
 	if err := wsSdk.ConnectWebSocket(); err != nil {
 		t.Fatalf("reconnect after disconnect test failed: %v", err)
 	}
@@ -2159,8 +2150,8 @@ func TestWebSocketErrorHandling(t *testing.T) {
 	})
 
 	// 增加双向验签的Ed25519
-	cipher, _ := crypto.CreateEd25519WithBase64(serverPrk, clientPub)
-	server.AddCipher(1, cipher)
+	cipher, _ := crypto.CreateMLDSA87WithBase64(pqServerPrk, pqClientPub)
+	server.AddPQCipher(1, cipher)
 
 	// 初始化连接池和心跳服务
 	if err := server.NewPool(100, 10, 5, 30); err != nil {
@@ -2236,8 +2227,8 @@ func TestWebSocketServer(t *testing.T) {
 	})
 
 	// 增加双向验签的Ed25519
-	cipher, _ := crypto.CreateEd25519WithBase64(serverPrk, clientPub)
-	server.AddCipher(1, cipher)
+	cipher, _ := crypto.CreateMLDSA87WithBase64(pqServerPrk, pqClientPub)
+	server.AddPQCipher(1, cipher)
 
 	// 配置连接池
 	err := server.NewPool(100, 10, 5, 30)
@@ -2312,7 +2303,7 @@ func TestWebSocketClient(t *testing.T) {
 	wsSdk.AuthToken(authToken)
 
 	wsSdk.SetClientNo(1)
-	wsSdk.SetEd25519Object(wsSdk.GetClientNo(), clientPrk, serverPub)
+	wsSdk.SetMLDSA87Object(wsSdk.GetClientNo(), pqClientPrk, pqServerPub)
 	wsSdk.SetHealthPing(3) // 3秒心跳间隔，便于测试
 
 	// 设置推送消息回调 - 客户端通过code=300识别推送消息，已自动处理验签和解密

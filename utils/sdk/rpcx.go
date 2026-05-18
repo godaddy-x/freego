@@ -21,15 +21,15 @@ import (
 )
 
 // RPC FreeGo gRPC 客户端 SDK
-// AddCipher：*crypto.Ed25519Object（CreateEd25519WithBase64：本端私钥 + 对端公钥）。
-// 当前仅支持明文 P=0：s = SHA256(规范字段)，e = Ed25519.Sign(本端私钥, SHA256(规范字段))；暂不支持 P=1。
+// AddCipher：*crypto.MLDSA87Object（CreateMLDSA87WithBase64：本端私钥 + 对端公钥）。
+// 当前仅支持明文 P=0：s = SHA256(规范字段)，e = ML-DSA.Sign(本端私钥, SHA256(规范字段))；暂不支持 P=1。
 type RPC struct {
 	Address       string
 	SSL           bool
 	timeout       int64
 	language      string
 	clientNo      int64
-	ed25519Object map[int64]crypto.Cipher
+	mldsaObject   map[int64]crypto.Cipher
 
 	conn      *grpc.ClientConn
 	client    pb.CommonWorkerClient
@@ -65,15 +65,15 @@ func (r *RPC) SetLanguage(language string) *RPC {
 	return r
 }
 
-// AddCipher 注册 *crypto.Ed25519Object。
+// AddCipher 注册 *crypto.MLDSA87Object。
 func (r *RPC) AddCipher(usr int64, cipher crypto.Cipher) *RPC {
 	if cipher == nil {
 		return r
 	}
-	if r.ed25519Object == nil {
-		r.ed25519Object = make(map[int64]crypto.Cipher)
+	if r.mldsaObject == nil {
+		r.mldsaObject = make(map[int64]crypto.Cipher)
 	}
-	r.ed25519Object[usr] = cipher
+	r.mldsaObject[usr] = cipher
 	return r
 }
 
@@ -87,8 +87,8 @@ func (r *RPC) Connect() error {
 		return nil
 	}
 
-	if len(r.ed25519Object) == 0 {
-		return fmt.Errorf("RPCX cipher not configured (use crypto.CreateEd25519WithBase64)")
+	if len(r.mldsaObject) == 0 {
+		return fmt.Errorf("RPCX cipher not configured (use crypto.CreateMLDSA87WithBase64)")
 	}
 
 	if r.timeout <= 0 {
@@ -136,14 +136,11 @@ func (r *RPC) Call(router string, requestObj, responseObj proto.Message, encrypt
 }
 
 func (r *RPC) CallWithTimeout(router string, requestObj, responseObj proto.Message, encrypted bool, timeout int64) error {
-	//if encrypted {
-	//	return fmt.Errorf("RPCX 暂不支持 P=1，请使用 Call(..., encrypted=false)")
-	//}
 	return r.post(router, requestObj, responseObj, timeout)
 }
 
 func (r *RPC) post(router string, requestObj, responseObj proto.Message, timeout int64) error {
-	cipher, exists := r.ed25519Object[r.clientNo]
+	cipher, exists := r.mldsaObject[r.clientNo]
 	if !exists || cipher == nil {
 		return fmt.Errorf("cipher not found for client")
 	}
@@ -212,12 +209,12 @@ func (r *RPC) verifyResponse(resp *pb.CommonResponse) error {
 		return fmt.Errorf("response time invalid")
 	}
 
-	cipher, exists := r.ed25519Object[r.clientNo]
+	cipher, exists := r.mldsaObject[r.clientNo]
 	if !exists || cipher == nil {
 		return fmt.Errorf("cipher not found for client")
 	}
 
-	if len(resp.S) != 32 || len(resp.E) != 64 {
+	if len(resp.S) != 32 || !crypto.CheckRPCXSignatureValid(resp.E) {
 		return fmt.Errorf("response s/e length invalid")
 	}
 
@@ -227,7 +224,7 @@ func (r *RPC) verifyResponse(resp *pb.CommonResponse) error {
 	}
 
 	if err := cipher.Verify(resp.S, resp.E); err != nil {
-		return fmt.Errorf("response ed25519: %v", err)
+		return fmt.Errorf("response ML-DSA: %v", err)
 	}
 
 	return nil

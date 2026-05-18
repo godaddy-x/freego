@@ -80,10 +80,10 @@ var messageHandlerPool = sync.Pool{
 }
 
 // GetMessageHandler 从池中获取一个MessageHandler对象
-func GetMessageHandler(cipher map[int64]crypto.Cipher, handle Handle) *MessageHandler {
+func GetMessageHandler(pqCipher map[int64]crypto.Cipher, handle Handle) *MessageHandler {
 	mh := messageHandlerPool.Get().(*MessageHandler)
-	mh.cipher = cipher // 设置外层签名用 Cipher（如 Ed25519Object）
-	mh.handle = handle // 设置路由处理器
+	mh.pqCipher = pqCipher
+	mh.handle = handle
 	return mh
 }
 
@@ -96,6 +96,6 @@ func PutMessageHandler(mh *MessageHandler) {
 	// 注意：rsa字段不需要重置，因为它是共享的只读数据
 	// handle字段会在下次获取时重新设置
 	mh.handle = nil
-	mh.cipher = nil
+	mh.pqCipher = nil
 	messageHandlerPool.Put(mh)
 }

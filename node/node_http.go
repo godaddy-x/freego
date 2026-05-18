@@ -82,10 +82,10 @@ func (self *HttpNode) StartServer(addr string) {
 	// 初始化限流器（Redis准备就绪后）
 	initRateLimiters()
 
-	if len(self.Context.Cipher) == 0 {
-		panic("Ed25519 (outer sign) cipher not configured, bidirectional signature is required for server")
+	if len(self.Context.PQCipher) == 0 {
+		panic("ML-DSA (plan2 outer sign) cipher not configured, AddPQCipher is required")
 	}
-	zlog.Info("outer sign cipher configured for users", 0, zlog.Int("users", len(self.Context.Cipher)))
+	zlog.Info("plan2 ML-DSA outer sign configured for users", 0, zlog.Int("users", len(self.Context.PQCipher)))
 
 	if self.Context.RedisCacheAware != nil {
 		zlog.Info("redis cache service has been started successful", 0)
@@ -93,10 +93,6 @@ func (self *HttpNode) StartServer(addr string) {
 	if self.Context.LocalCacheAware != nil {
 		zlog.Info("local cache service has been started successful", 0)
 	}
-	if len(self.Context.Cipher) != 0 {
-		zlog.Info("ECC certificate service has been started successful", 0)
-	}
-
 	// 创建上下文用于优雅关闭
 	_, self.cancel = context.WithCancel(context.Background())
 
@@ -104,6 +100,7 @@ func (self *HttpNode) StartServer(addr string) {
 	self.server = &fasthttp.Server{
 		Handler:            self.Context.router.Handler,
 		MaxRequestBodySize: MAX_BODY_LEN,
+		ReadBufferSize:     crypto.MinFasthttpReadBufferSize(),
 		// 保持 Keep-Alive 启用以获得更好的性能
 		// 但在关闭时会主动处理 Keep-Alive 连接
 	}
@@ -265,7 +262,7 @@ func (self *HttpNode) readyContext() {
 	if self.Context == nil {
 		self.Context = &Context{}
 		self.Context.configs = &Configs{}
-		self.Context.Cipher = make(map[int64]crypto.Cipher)
+		self.Context.PQCipher = make(map[int64]crypto.Cipher)
 		self.Context.configs.routerConfigs = make(map[string]*RouterConfig)
 		self.Context.configs.langConfigs = make(map[string]map[string]string)
 		self.Context.configs.jwtConfig = jwt.JwtConfig{}
@@ -296,14 +293,14 @@ func (self *HttpNode) AddLocalCache(cacheAware CacheAware) {
 	}
 }
 
-// AddCipher 注册本 HTTP 服务端对某一客户端用户 key 的验签对象：须 crypto.CreateEd25519WithBase64（服务端 Ed25519 私钥，该客户端 Ed25519 公钥）。
-// 与客户端 HttpSDK.SetEd25519Object 互为镜像；与 WebSocket、gRPC 服务配置相互独立。
-func (self *HttpNode) AddCipher(key int64, cipher crypto.Cipher) error {
+// AddPQCipher 注册 Plan2（ML-DSA-87）外层验签：须 crypto.CreateMLDSA87WithBase64（服务端 ML-DSA 私钥，该客户端 ML-DSA 公钥）。
+// 与客户端 HttpSDK.SetMLDSA87Object 互为镜像；Plan0/Plan1 不使用外层 Valid 签名。
+func (self *HttpNode) AddPQCipher(key int64, cipher crypto.Cipher) error {
 	if cipher == nil {
 		return utils.Error("cipher is nil")
 	}
 	self.readyContext()
-	self.Context.Cipher[key] = cipher
+	self.Context.PQCipher[key] = cipher
 	return nil
 }
 
@@ -591,16 +588,18 @@ func defaultRenderPre(ctx *Context) error {
 			sign, digest = SignAndDigestBodyMessage(ctx.Path, resp.Data, resp.Nonce, resp.Time, resp.Plan, ctx.JsonBody.User, key)
 			resp.Sign = utils.Base64Encode(sign)
 		}
-		cipher := ctx.GetStorage(Cipher)
-		if cipher == nil {
-			return ex.Throw{Code: http.StatusInternalServerError, Msg: "cipher not found for response signing, bidirectional Ed25519 signature is required"}
+		if PlanRequiresOuterSignature(ctx.JsonBody.Plan) {
+			cipher := ctx.GetStorage(Cipher)
+			if cipher == nil {
+				return ex.Throw{Code: http.StatusInternalServerError, Msg: "cipher not found for plan2 response signing"}
+			}
+			result, err := cipher.(crypto.Cipher).Sign(digest)
+			if err != nil {
+				return ex.Throw{Code: http.StatusInternalServerError, Msg: "response sign data failed", Err: err}
+			}
+			ctx.DelStorage(Cipher)
+			resp.Valid = utils.Base64Encode(result)
 		}
-		result, err := cipher.(crypto.Cipher).Sign(digest)
-		if err != nil {
-			return ex.Throw{Code: http.StatusInternalServerError, Msg: "response sign data failed", Err: err}
-		}
-		ctx.DelStorage(Cipher)
-		resp.Valid = utils.Base64Encode(result)
 		if result, err := utils.JsonMarshal(resp); err != nil {
 			return ex.Throw{Code: http.StatusInternalServerError, Msg: "response JSON data failed", Err: err}
 		} else {

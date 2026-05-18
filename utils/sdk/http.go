@@ -1,14 +1,12 @@
 package sdk
 
 import (
-	cryptocdh "crypto/ecdh"
 	"fmt"
 	"time"
 
 	DIC "github.com/godaddy-x/freego/common"
 	"github.com/godaddy-x/freego/utils/crypto"
 
-	ecc "github.com/godaddy-x/eccrypto"
 	"github.com/godaddy-x/freego/ex"
 	"github.com/godaddy-x/freego/node"
 	"github.com/godaddy-x/freego/utils"
@@ -17,30 +15,24 @@ import (
 )
 
 // HttpSDK FreeGo HTTP客户端SDK
-// 支持 X25519 密钥协商 + AES-GCM、强制双向 Ed25519 外层签名、JWT 等
-//
-// 安全特性:
-// - AES-256-GCM 认证加密
-// - HMAC-SHA256 完整性验证
-// - 强制双向 Ed25519 签名 (必须配置)
-// - 动态密钥协商 (X25519 + HKDF)
-// - 防重放攻击 (时间戳+Nonce)
+// Plan0/1：JWT + HMAC（可选 AES-GCM）；Plan2：ML-KEM + ML-DSA + AES-GCM
 //
 // 使用模式:
-// - PostByECC: 匿名访问，使用 X25519 协商会话密钥 (须配置 Ed25519 双向签名)
-// - PostByAuth: 登录后访问，使用JWT令牌 (须配置 Ed25519 双向签名)
+// - PostByECC: Plan2 匿名访问（ML-KEM + ML-DSA，须 SetMLDSA87Object）
+// - PostByAuth: Plan0/1 登录后访问（JWT + HMAC，无外层 Valid）
 type HttpSDK struct {
-	Domain        string                      // API域名 (如: https://api.example.com)
-	AuthDomain    string                      // 认证域名 (可选，用于/key和/login接口)
-	KeyPath       string                      // 公钥获取路径 (默认: /key)
-	LoginPath     string                      // 登录路径 (默认: /login)
-	language      string                      // 语言设置 (HTTP头)
-	timeout       int64                       // 请求超时时间(秒)
-	ClientNo      int64                       // 客户端编号
-	authObject    func() (interface{}, error) // 登录认证对象 (用户名+密码等)
-	authToken     AuthToken                   // JWT认证令牌
-	ed25519Object map[int64]crypto.Cipher     // Ed25519 双向外层签名（本端私钥 + 对端公钥）
-	x25519Peer    crypto.Cipher               // 可选：复用的 X25519 临时密钥（实现 Cipher，一般留空由 PostByECC 每次生成）
+	Domain         string                      // API域名 (如: https://api.example.com)
+	AuthDomain     string                      // 认证域名 (可选，用于/key和/login接口)
+	KeyPath        string                      // 公钥获取路径 (默认: /key)
+	LoginPath      string                      // 登录路径 (默认: /login)
+	language       string                      // 语言设置 (HTTP头)
+	timeout        int64                       // 请求超时时间(秒)
+	ClientNo       int64                       // 客户端编号
+	authObject     func() (interface{}, error) // 登录认证对象 (用户名+密码等)
+	authToken      AuthToken                   // JWT认证令牌
+	mldsaObject map[int64]crypto.Cipher // Plan2：ML-DSA-87
+	plan2SharedB64 string                      // Plan2：ML-KEM 共享秘密（Base64）
+	plan2KemCtB64  string                      // Plan2：KEM 密文（写入 Authorization PublicKey.Tag）
 }
 
 // NewHttpSDK 创建新的HttpSDK实例并设置默认值
@@ -124,62 +116,58 @@ func (s *HttpSDK) SetLanguage(language string) {
 	s.language = language
 }
 
-// SetEd25519Object 配置当前 HTTP 客户端身份：本端 Ed25519 私钥 + 对端（服务端）Ed25519 公钥。
-// 与服务端 HttpNode.AddCipher 独立；镜像关系见 crypto.CreateEd25519WithBase64 注释。
-func (s *HttpSDK) SetEd25519Object(usr int64, prkB64, peerPubB64 string) error {
-	if s.ed25519Object == nil {
-		s.ed25519Object = make(map[int64]crypto.Cipher)
+// SetMLDSA87Object 配置 Plan2 客户端身份：本端 ML-DSA-87 私钥 + 服务端 ML-DSA 公钥（与 HttpNode.AddPQCipher 镜像）。
+func (s *HttpSDK) SetMLDSA87Object(usr int64, prkB64, peerPubB64 string) error {
+	if s.mldsaObject == nil {
+		s.mldsaObject = make(map[int64]crypto.Cipher)
 	}
-	cipher, err := crypto.CreateEd25519WithBase64(prkB64, peerPubB64)
+	cipher, err := crypto.CreateMLDSA87WithBase64(prkB64, peerPubB64)
 	if err != nil {
 		return err
 	}
-	s.ed25519Object[usr] = cipher
+	s.mldsaObject[usr] = cipher
 	return nil
 }
 
-func (s *HttpSDK) addEd25519Sign(path string, jsonBody *node.JsonBody) error {
-	if s.ed25519Object == nil {
-		return ex.Throw{Msg: "Ed25519 object not configured, bidirectional Ed25519 signature is required"}
+func (s *HttpSDK) addOuterSign(path string, jsonBody *node.JsonBody, plan2KeyBootstrap bool) error {
+	if !node.JsonBodyRequiresOuterSignature(jsonBody.Plan, plan2KeyBootstrap) {
+		return nil
 	}
-	cipher, exists := s.ed25519Object[s.ClientNo]
+	if s.mldsaObject == nil {
+		return ex.Throw{Msg: "ML-DSA object not configured, bidirectional outer signature is required for plan2"}
+	}
+	cipher, exists := s.mldsaObject[s.ClientNo]
 	if !exists || cipher == nil {
-		return ex.Throw{Msg: "Ed25519 object not found for client, bidirectional Ed25519 signature is required"}
+		return ex.Throw{Msg: "ML-DSA object not found for client"}
 	}
 	outerSign, err := cipher.Sign(node.DigestBodyMessage(path, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan, jsonBody.User))
 	if err != nil {
-		return ex.Throw{Msg: "Ed25519 sign failed: " + err.Error()}
+		return ex.Throw{Msg: "ML-DSA sign failed: " + err.Error()}
 	}
 	jsonBody.Valid = utils.Base64Encode(outerSign)
 	DIC.ClearData(outerSign)
-	if zlog.IsDebug() {
-		zlog.Debug(fmt.Sprintf("Ed25519 sign added for body digest: %s", jsonBody.Valid), 0)
-	}
 	return nil
 }
 
-func (s *HttpSDK) verifyEd25519Sign(path string, usr int64, respData *node.JsonResp) error {
-	if s.ed25519Object == nil {
-		return ex.Throw{Msg: "Ed25519 object not configured, bidirectional Ed25519 signature is required"}
+func (s *HttpSDK) verifyOuterSign(path string, usr int64, respData *node.JsonResp) error {
+	if !node.PlanRequiresOuterSignature(respData.Plan) {
+		return nil
 	}
-	cipher, exists := s.ed25519Object[s.ClientNo]
+	if s.mldsaObject == nil {
+		return ex.Throw{Msg: "ML-DSA object not configured"}
+	}
+	cipher, exists := s.mldsaObject[s.ClientNo]
 	if !exists || cipher == nil {
-		return ex.Throw{Msg: "Ed25519 object not found for client, bidirectional Ed25519 signature is required"}
+		return ex.Throw{Msg: "ML-DSA object not found for client"}
 	}
-	if !utils.CheckStrLen(respData.Valid, 80, 128) {
-		return ex.Throw{Msg: "post response Ed25519 signature length invalid"}
+	if !crypto.CheckOuterSignatureB64Valid(respData.Valid) {
+		return ex.Throw{Msg: "post response outer signature length invalid"}
 	}
 	outerSignData := utils.Base64Decode(respData.Valid)
 	defer DIC.ClearData(outerSignData)
 	if err := cipher.Verify(node.DigestBodyMessage(path, respData.Data, respData.Nonce, respData.Time, respData.Plan, usr), outerSignData); err != nil {
-		return ex.Throw{Msg: "post response Ed25519 sign verify invalid"}
+		return ex.Throw{Msg: "post response ML-DSA sign verify invalid"}
 	}
-	return nil
-}
-
-// SetX25519Object 设置预生成的 X25519 临时密钥对象，用于复用密钥对（少见场景）。
-func (s *HttpSDK) SetX25519Object(object *crypto.X25519Object) error {
-	s.x25519Peer = object
 	return nil
 }
 
@@ -214,38 +202,17 @@ func (s *HttpSDK) getURI(path string) string {
 	return s.Domain + path
 }
 
-// GetPublicKey 获取服务端 X25519 临时公钥并建立 Plan2 安全信道
-// 核心流程：请求 /key、校验 Ed25519、生成本端 X25519 临时密钥对。
-//
-// 执行流程:
-// 1. 生成本端临时 X25519 密钥对（每次 PostByECC 一轮协商）
-// 2. 构造公钥交换请求
-// 3. 请求服务端 KeyPath 获取服务端临时公钥
-// 4. 校验服务端 Ed25519 等（由 node.CheckPublicKey 等完成）
-// 5. 返回本端 X25519 对象与服务端 PublicKey 封装
-//
-// 安全特性:
-// - X25519 密钥协商 + HKDF：前向保密（PFS）
-// - 临时密钥：每次请求新密钥对
-// - 强制 Ed25519：验证对端身份
-//
-// 返回值:
-//   - *crypto.X25519Object: 客户端临时 X25519 密钥（含私钥）
-//   - *node.PublicKey: 服务端公钥与随机数等
-//   - crypto.Cipher: Ed25519 校验用 Cipher
-//   - error: 错误信息
-//
-// 注意:
-// - 须预先配置 ed25519Object
-// - X25519 私钥敏感，用完应清零（PostByECC 内 defer 已处理）
-func (s *HttpSDK) GetPublicKey() (*crypto.X25519Object, *node.PublicKey, crypto.Cipher, error) {
-	if s.ed25519Object == nil {
-		return nil, nil, nil, ex.Throw{Msg: "Ed25519 object not configured, bidirectional Ed25519 signature is required"}
+// GetPublicKey 获取服务端 ML-KEM 封装公钥并执行客户端封装（Plan2 /key）。
+func (s *HttpSDK) GetPublicKey() (*crypto.MLKEM1024Object, *node.PublicKey, crypto.Cipher, error) {
+	if s.mldsaObject == nil {
+		return nil, nil, nil, ex.Throw{Msg: "ML-DSA object not configured for plan2"}
 	}
-	cipher, exists := s.ed25519Object[s.ClientNo]
+	cipher, exists := s.mldsaObject[s.ClientNo]
 	if !exists || cipher == nil {
-		return nil, nil, nil, ex.Throw{Msg: "Ed25519 object not found for client, bidirectional Ed25519 signature is required"}
+		return nil, nil, nil, ex.Throw{Msg: "ML-DSA object not found for client"}
 	}
+	s.plan2SharedB64 = ""
+	s.plan2KemCtB64 = ""
 	public, err := node.CreatePublicKey(utils.Base64Encode(utils.GetRandomSecure(32)), utils.Base64Encode(utils.GetRandomSecure(32)), s.ClientNo, cipher)
 	if err != nil {
 		return nil, nil, nil, err
@@ -254,9 +221,7 @@ func (s *HttpSDK) GetPublicKey() (*crypto.X25519Object, *node.PublicKey, crypto.
 	if err != nil {
 		return nil, nil, nil, ex.Throw{Msg: "request object json marshal error: " + err.Error(), Err: err}
 	}
-	// 清理临时公钥数据
 	defer DIC.ClearData(publicBody)
-	// 发送请求
 	request := fasthttp.AcquireRequest()
 	request.Header.SetMethod("POST")
 	request.SetRequestURI(s.getURI(s.KeyPath))
@@ -279,9 +244,6 @@ func (s *HttpSDK) GetPublicKey() (*crypto.X25519Object, *node.PublicKey, crypto.
 	if !utils.JsonValid(respBytes) {
 		return nil, nil, nil, ex.Throw{Msg: "request public error: " + utils.Bytes2Str(respBytes)}
 	}
-	if zlog.IsDebug() {
-		zlog.Debug(fmt.Sprintf("response message: %s", utils.Bytes2Str(respBytes)), 0)
-	}
 	responseObject := &node.PublicKey{}
 	if err := utils.JsonUnmarshal(respBytes, responseObject); err != nil {
 		return nil, nil, nil, ex.Throw{Msg: "request public key parse error: " + err.Error()}
@@ -289,31 +251,32 @@ func (s *HttpSDK) GetPublicKey() (*crypto.X25519Object, *node.PublicKey, crypto.
 	if err := node.CheckPublicKey(nil, responseObject, cipher); err != nil {
 		return nil, nil, nil, err
 	}
-	// 生成本端临时 X25519 密钥对
-	xKey := &crypto.X25519Object{}
-	if err := xKey.CreateX25519(); err != nil {
-		return nil, nil, nil, ex.Throw{Msg: "create x25519 key exchange object error: " + err.Error()}
+	sharedB64, kemCtB64, err := crypto.EncapsulateToPeer(responseObject.Key)
+	if err != nil {
+		return nil, nil, nil, ex.Throw{Msg: "ML-KEM encapsulate failed: " + err.Error()}
 	}
-	return xKey, responseObject, cipher, nil
+	s.plan2SharedB64 = sharedB64
+	s.plan2KemCtB64 = kemCtB64
+	return &crypto.MLKEM1024Object{}, responseObject, cipher, nil
 }
 
-// PostByECC 通过 X25519 + HKDF + AES-GCM + 强制 Ed25519 发送 POST（Plan2，匿名场景）
+// PostByECC 通过 ML-KEM + HKDF + AES-GCM + ML-DSA 发送 POST（Plan2，匿名场景）
 //
 // 安全协议栈 (从下到上):
 // 1. TLS 1.2+（传输层，由部署保证）
-// 2. X25519 共享秘密 + HKDF → 会话密钥，再 AES-256-GCM
+// 2. ML-KEM 共享秘密 + HKDF → 会话密钥，再 AES-256-GCM
 // 3. HMAC-SHA256 完整性
-// 4. 双向 Ed25519
+// 4. 双向 ML-DSA
 //
 // 执行流程:
-// 1. GetPublicKey：服务端临时 X25519 公钥 + 本端临时密钥对
-// 2. GenSharedKeyX25519 得到共享字节
+// 1. GetPublicKey：服务端 ML-KEM 封装公钥 + 客户端封装
+// 2. ML-KEM 得到共享字节
 // 3. HKDF 派生对称密钥
 // 4. AES-GCM 加密请求体
 // 5. HMAC-SHA256
-// 6. Ed25519 签名
+// 6. ML-DSA 签名
 // 7. 发送请求
-// 8. 校验响应 HMAC / Ed25519
+// 8. 校验响应 HMAC / ML-DSA
 // 9. AES-GCM 解密响应
 //
 // 参数:
@@ -326,7 +289,7 @@ func (s *HttpSDK) GetPublicKey() (*crypto.X25519Object, *node.PublicKey, crypto.
 //
 // 安全特性:
 // - 前向保密性 (PFS): 每次请求使用新密钥
-// - 完美前向保密: X25519 临时密钥不依赖长期对称密钥
+// - 完美前向保密: ML-KEM 每次协商独立共享秘密
 // - 双向认证: 客户端和服务端相互验证身份
 // - 防重放攻击: 时间戳 + Nonce机制
 //
@@ -342,34 +305,20 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	if len(path) == 0 || requestObj == nil || responseObj == nil {
 		return ex.Throw{Msg: "params invalid"}
 	}
-	xKey, public, cipher, err := s.GetPublicKey()
+	_, public, cipher, err := s.GetPublicKey()
 	if err != nil {
 		return err
 	}
-	defer func() {
-		if xKey != nil {
-			if prk, getErr := xKey.GetPrivateKey(); getErr == "" && prk != nil {
-				if xPrk, ok := prk.(*cryptocdh.PrivateKey); ok {
-					DIC.ClearData(xPrk.Bytes())
-				}
-			}
-		}
-	}()
-
-	pub, err := ecc.LoadX25519PublicKeyFromBase64(public.Key)
-	if err != nil {
-		return ex.Throw{Msg: "load X25519 public key failed"}
+	if len(s.plan2SharedB64) == 0 || len(s.plan2KemCtB64) == 0 {
+		return ex.Throw{Msg: "ML-KEM session missing after GetPublicKey"}
 	}
-	prk, _ := xKey.GetPrivateKey()
-	prkBytes := prk.(*cryptocdh.PrivateKey).Bytes()
-	x25519Shared, err := ecc.GenSharedKeyX25519(prk.(*cryptocdh.PrivateKey), pub)
-	if err != nil {
-		return ex.Throw{Msg: "X25519 shared secret failed"}
-	}
-	defer DIC.ClearData(x25519Shared)
 
-	sharedKey, err := node.HKDFKey(x25519Shared, public.Noc)
-	defer DIC.ClearData(prkBytes, sharedKey) // 清除 X25519 私钥原始字节与 HKDF 输出
+	sharedRaw := utils.Base64Decode(s.plan2SharedB64)
+	if len(sharedRaw) == 0 {
+		return ex.Throw{Msg: "ML-KEM shared secret invalid"}
+	}
+	sharedKey, err := node.HKDFKey(sharedRaw, public.Noc)
+	defer DIC.ClearData(sharedRaw, sharedKey)
 	if err != nil {
 		return ex.Throw{Msg: "HKDF shared key failed"}
 	}
@@ -377,7 +326,7 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	jsonBody := node.GetJsonBody()
 	defer node.PutJsonBody(jsonBody)
 	jsonBody.Time = utils.UnixSecond()
-	jsonBody.Nonce = utils.RandNonce()
+	assignProtocolNonce(jsonBody)
 	jsonBody.Plan = 2
 	jsonBody.User = s.ClientNo
 
@@ -398,9 +347,8 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	// 清理JSON序列化数据
 	defer DIC.ClearData(jsonData)
 	if zlog.IsDebug() {
-		zlog.Debug(fmt.Sprintf("server key: %s", public.Key), 0)
-		zlog.Debug(fmt.Sprintf("client key: %s", xKey.PublicKeyBase64), 0)
-		zlog.Debug(fmt.Sprintf("shared key: %s", utils.Base64Encode(sharedKey)), 0)
+		zlog.Debug(fmt.Sprintf("server ek: %s", public.Key), 0)
+		zlog.Debug(fmt.Sprintf("kem ct: %s", s.plan2KemCtB64), 0)
 	}
 	// 使用 AES-GCM 加密，Nonce 作为 AAD
 	d, err := utils.AesGCMEncryptBase(utils.Str2Bytes(jsonBody.Data), sharedKey, node.AppendBodyMessage(path, "", jsonBody.Nonce, jsonBody.Time, jsonBody.Plan, jsonBody.User))
@@ -410,25 +358,21 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 	jsonBody.Data = d
 	sign, _ := node.SignAndDigestBodyMessage(path, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan, jsonBody.User, sharedKey)
 	jsonBody.Sign = utils.Base64Encode(sign)
-	// 添加Ed25519签名
-	if err := s.addEd25519Sign(path, jsonBody); err != nil {
+	if err := s.addOuterSign(path, jsonBody, false); err != nil {
 		return err
 	}
 
 	bytesData, err := utils.JsonMarshal(jsonBody)
-	// 注意：不能清理d，因为jsonBody.Data仍然引用着它
-	// d的数据会在jsonBody的生命周期结束后被清理
 	if err != nil {
 		return ex.Throw{Msg: "jsonBody data JsonMarshal invalid"}
 	}
-	// 清理序列化后的请求数据
 	defer DIC.ClearData(bytesData)
 	if zlog.IsDebug() {
 		zlog.Debug("request data: ", 0)
 		zlog.Debug(utils.Bytes2Str(bytesData), 0)
 	}
 
-	key, err := node.CreatePublicKey(public.Key, utils.Base64Encode(prk.(*cryptocdh.PrivateKey).PublicKey().Bytes()), s.ClientNo, cipher)
+	key, err := node.CreatePublicKey(public.Key, s.plan2KemCtB64, s.ClientNo, cipher)
 	if err != nil {
 		return err
 	}
@@ -492,15 +436,13 @@ func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) er
 		zlog.Debug(fmt.Sprintf("response sign verify: %t", isSignOK), 0)
 	}
 
-	// 验证Ed25519签名
-	if err := s.verifyEd25519Sign(path, jsonBody.User, respData); err != nil {
+	if err := s.verifyOuterSign(path, jsonBody.User, respData); err != nil {
 		return err
 	}
-	// 验证服务端响应时间戳，防止重放攻击
 	if respData.Time <= 0 {
 		return ex.Throw{Msg: "response time must be > 0"}
 	}
-	if utils.MathAbs(utils.UnixSecond()-respData.Time) > 300 { // 5分钟时间窗口
+	if utils.MathAbs(utils.UnixSecond()-respData.Time) > 300 {
 		return ex.Throw{Msg: "response time invalid"}
 	}
 	dec, err := utils.AesGCMDecryptBase(respData.Data, sharedKey, node.AppendBodyMessage(path, "", respData.Nonce, respData.Time, respData.Plan, jsonBody.User))
@@ -626,26 +568,23 @@ func (s *HttpSDK) GetAuth() AuthToken {
 	return AuthToken{Token: s.authToken.Token, Secret: s.authToken.Secret, Expired: s.authToken.Expired}
 }
 
-// PostByAuth 通过JWT认证+强制Ed25519模式发送POST请求
-// 适用于登录后的业务API调用，使用令牌进行身份认证
+// PostByAuth 通过 JWT 认证发送 POST 请求（Plan0/1，无外层 Valid 签名）
+// 适用于登录后的业务 API 调用，使用令牌进行身份认证
 //
 // 安全协议栈:
 // 1. TLS 1.2+ (网络层加密)
 // 2. JWT令牌认证 (身份验证)
 // 3. AES-GCM或Base64 (数据加密，可选)
 // 4. HMAC-SHA256 (数据完整性)
-// 5. 强制双向Ed25519签名验证 (必须配置)
 //
 // 执行流程:
 // 1. 检查认证状态，自动登录 (如果需要)
 // 2. 获取认证令牌 (Token + Secret)
 // 3. 根据encrypted参数选择加密方式
 // 4. 生成HMAC-SHA256签名
-// 5. 添加Ed25519签名 (如果配置)
-// 6. 发送HTTP请求 (Authorization头)
-// 7. 验证响应HMAC签名
-// 8. 验证响应Ed25519签名 (如果配置)
-// 9. 解密响应数据
+// 5. 发送HTTP请求 (Authorization头)
+// 6. 验证响应HMAC签名
+// 7. 解密响应数据
 //
 // 参数:
 //   - path: API路径，如"/user/info"
@@ -660,7 +599,7 @@ func (s *HttpSDK) GetAuth() AuthToken {
 // - JWT令牌认证: 身份验证和授权
 // - 动态Secret: 每次登录生成新的AES密钥
 // - 可选加密: 支持明文(Base64)和加密传输
-// - 双向签名: 可配置Ed25519提供金融级安全
+// - 外层 Valid 签名仅 Plan2（PostByECC）使用 ML-DSA
 //
 // 使用场景:
 // - 用户登录后的业务API调用
@@ -668,7 +607,7 @@ func (s *HttpSDK) GetAuth() AuthToken {
 // - 中等安全要求的场景
 //
 // 性能特点:
-// - 比 PostByECC（Plan2 / X25519 协商）更快：复用令牌，无每请求协商
+// - 比 PostByECC（Plan2 / ML-KEM 协商）更快：复用令牌，无每请求协商
 // - 支持高并发 (令牌复用)
 // - 适合高频API调用
 //
@@ -733,10 +672,6 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 	}
 	sign, _ := node.SignAndDigestBodyMessage(path, jsonBody.Data, jsonBody.Nonce, jsonBody.Time, jsonBody.Plan, jsonBody.User, tokenSecret)
 	jsonBody.Sign = utils.Base64Encode(sign)
-	// 添加Ed25519签名
-	if err := s.addEd25519Sign(path, jsonBody); err != nil {
-		return err
-	}
 
 	bytesData, err := utils.JsonMarshal(jsonBody)
 	if err != nil {
@@ -803,10 +738,6 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 		zlog.Debug(fmt.Sprintf("response sign verify: %t", isSignOK), 0)
 	}
 
-	// 验证Ed25519签名
-	if err := s.verifyEd25519Sign(path, jsonBody.User, respData); err != nil {
-		return err
-	}
 	// 验证服务端响应时间戳，防止重放攻击
 	if respData.Time <= 0 {
 		return ex.Throw{Msg: "response time must be > 0"}
@@ -885,7 +816,7 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 // - 主要用于向后兼容和简单场景
 //
 // 注意:
-// - 不支持Ed25519签名
+// - 不支持 ML-DSA 外层签名（仅 Plan2 路径使用）
 // - 使用固定的AES-CBC加密 (非GCM模式)
 // - HMAC签名算法略有不同
 func BuildRequestObject(path string, requestObj interface{}, secret string, encrypted ...bool) ([]byte, error) {

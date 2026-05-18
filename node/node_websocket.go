@@ -188,7 +188,7 @@ func (cc *ConnectionContext) Parser(body []byte, dst interface{}) error {
 		Path:            cc.Path,
 		RedisCacheAware: cc.Server.RedisCacheAware,
 		LocalCacheAware: cc.Server.LocalCacheAware,
-		Cipher:          cc.Server.Cipher,
+		Cipher:          cc.Server.PQCipher,
 	}
 
 	src := utils.GetPtr(dst, 0)
@@ -262,8 +262,8 @@ func releaseDevConnTargets(s []*DevConn) {
 
 // MessageHandler 消息处理器：统一处理消息校验、解码、路由
 type MessageHandler struct {
-	cipher map[int64]crypto.Cipher
-	handle Handle
+	pqCipher map[int64]crypto.Cipher
+	handle   Handle
 }
 
 // HeartbeatService 心跳服务：gws 已内置 ping/pong，此服务仅用于定期清理过期连接
@@ -385,7 +385,7 @@ type WsServer struct {
 
 	// ECC和缓存配置（用于Plan 2）
 	// 8字节函数指针字段组 (5个字段，40字节)
-	Cipher          map[int64]crypto.Cipher                 // 8字节 - RSA / Ed25519 等 Cipher 列表（双向外层签名等）
+	PQCipher        map[int64]crypto.Cipher                 // Plan2：ML-DSA-87
 	RedisCacheAware func(ds ...string) (cache.Cache, error) // 8字节 - 函数指针
 	LocalCacheAware func(ds ...string) (cache.Cache, error) // 8字节 - 函数指针
 	PushKeyProvider func(subject string) string             // 推送签名密钥获取函数：subject=="" 表示全量广播
@@ -1053,11 +1053,11 @@ func (mh *MessageHandler) Process(connCtx *ConnectionContext, body []byte, jb *J
 	return cipher, result, err
 }
 
-// CheckOuterSign 按用户 ID 取 Cipher 并校验外层签名（cipher.Verify；典型为 Ed25519Object）。
+// CheckOuterSign 按用户 ID 取 ML-DSA Cipher 并校验外层签名。
 func (self *MessageHandler) CheckOuterSign(usr int64, msg, sign []byte) (crypto.Cipher, error) {
-	cipher, exists := self.cipher[usr]
+	cipher, exists := self.pqCipher[usr]
 	if !exists || cipher == nil {
-		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "cipher not found for user, bidirectional Ed25519 signature is required"}
+		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "plan2 cipher not found for user"}
 	}
 	if err := cipher.Verify(msg, sign); err != nil {
 		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request signature invalid"}
@@ -1142,8 +1142,10 @@ func (mh *MessageHandler) validWebSocketBodyCommon(connCtx *ConnectionContext, b
 	if !utils.CheckStrLen(body.Sign, 32, 64) {
 		return ex.Throw{Code: http.StatusBadRequest, Msg: "websocket signature length invalid"}
 	}
-	if !utils.CheckStrLen(body.Valid, 80, 128) {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "websocket outer signature length invalid"}
+	if JsonBodyRequiresOuterSignature(body.Plan, false) {
+		if !crypto.CheckOuterSignatureB64Valid(body.Valid) {
+			return ex.Throw{Code: http.StatusBadRequest, Msg: "websocket outer signature length invalid"}
+		}
 	}
 
 	// plan2 仅允许在 UseRSA=true 的路由
@@ -1185,17 +1187,10 @@ func (mh *MessageHandler) validWebSocketBodyPlan01Flow(connCtx *ConnectionContex
 	}
 
 	// Step 2: HMAC 验证（快速拒绝）
-	sign, digest := SignAndDigestBodyMessage(body.Router, body.Data, body.Nonce, body.Time, body.Plan, body.User, sharedKey)
+	sign, _ := SignAndDigestBodyMessage(body.Router, body.Data, body.Nonce, body.Time, body.Plan, body.User, sharedKey)
 	if !utils.CompareBase64Sign(sign, body.Sign) {
 		DIC.ClearData(sharedKey)
 		return nil, nil, ex.Throw{Code: http.StatusUnauthorized, Msg: "websocket signature verify invalid"}
-	}
-
-	// Step 3: Ed25519 外层验签（身份确认）
-	cipher, err := mh.CheckOuterSign(body.User, digest, utils.Base64Decode(body.Valid))
-	if err != nil {
-		DIC.ClearData(sharedKey)
-		return nil, nil, err
 	}
 	if connCtx == nil || connCtx.Server == nil || !connCtx.Server.isWithinAuthTimeWindow(body.Time) {
 		DIC.ClearData(sharedKey)
@@ -1205,13 +1200,13 @@ func (mh *MessageHandler) validWebSocketBodyPlan01Flow(connCtx *ConnectionContex
 		DIC.ClearData(sharedKey)
 		return nil, nil, err
 	}
-	return cipher, sharedKey, nil
+	return nil, sharedKey, nil
 }
 
 func (mh *MessageHandler) validWebSocketBodyPlan2Flow(connCtx *ConnectionContext, body *JsonBody) (crypto.Cipher, []byte, error) {
-	cipher, exists := mh.cipher[body.User]
+	cipher, exists := mh.pqCipher[body.User]
 	if !exists {
-		return nil, nil, ex.Throw{Code: http.StatusBadRequest, Msg: "cipher not found for user"}
+		return nil, nil, ex.Throw{Code: http.StatusBadRequest, Msg: "plan2 cipher not found for user"}
 	}
 	outerDigest := DigestBodyMessage(body.Router, body.Data, body.Nonce, body.Time, body.Plan, body.User)
 	cipher, err := connCtx.Server.CheckOuterSign(cipher, outerDigest, utils.Base64Decode(body.Valid))
@@ -1239,11 +1234,11 @@ func (mh *MessageHandler) validWebSocketBodyPlan2Flow(connCtx *ConnectionContext
 }
 
 func (mh *MessageHandler) validWebSocketBodyPlan2KeyFlow(connCtx *ConnectionContext, body *JsonBody) (crypto.Cipher, []byte, error) {
-	cipher, exists := mh.cipher[body.User]
+	cipher, exists := mh.pqCipher[body.User]
 	if !exists {
-		return nil, nil, ex.Throw{Code: http.StatusBadRequest, Msg: "cipher not found for user"}
+		return nil, nil, ex.Throw{Code: http.StatusBadRequest, Msg: "plan2 cipher not found for user"}
 	}
-	// /key 首次协商阶段还没有共享密钥，HMAC 使用空 key，身份认证由外层 Ed25519 + PublicKey 校验共同完成。
+	// /key 首次协商阶段还没有共享密钥，HMAC 使用空 key，身份认证由外层 ML-DSA + PublicKey 校验共同完成。
 	sign, digest := SignAndDigestBodyMessage(body.Router, body.Data, body.Nonce, body.Time, body.Plan, body.User, []byte{})
 	if !utils.CompareBase64Sign(sign, body.Sign) {
 		return nil, nil, ex.Throw{Code: http.StatusUnauthorized, Msg: "websocket signature verify invalid"}
@@ -1955,7 +1950,7 @@ func (s *WsServer) validateConnectAuthFromRequest(r *http.Request, path string) 
 	if err != nil {
 		return nil, nil, ex.Throw{Code: http.StatusUnauthorized, Msg: "invalid authorization format", Err: err}
 	}
-	cipher, exists := s.Cipher[pub.Usr]
+	cipher, exists := s.PQCipher[pub.Usr]
 	if !exists || cipher == nil {
 		return nil, nil, ex.Throw{Code: http.StatusBadRequest, Msg: "cipher not found for user"}
 	}
@@ -2048,7 +2043,7 @@ func (s *WsServer) processMessage(connCtx *ConnectionContext, message []byte) {
 		zlog.Error("NO_DEFAULT_ROUTE_CONFIGURED", 0, zlog.String("expected_route", DefaultWsRoute))
 		return
 	}
-	messageHandler := GetMessageHandler(s.Cipher, routeInfo.Handle)
+	messageHandler := GetMessageHandler(s.PQCipher, routeInfo.Handle)
 	defer PutMessageHandler(messageHandler)
 
 	cipher, reply, err := messageHandler.Process(connCtx, message, jsonBody)
@@ -2177,16 +2172,14 @@ func replyData(connCtx *ConnectionContext, req requestMeta, cipher crypto.Cipher
 	sign, digest := SignAndDigestBodyMessage(req.Router, jsonResp.Data, jsonResp.Nonce, jsonResp.Time, jsonResp.Plan, req.User, secret)
 	jsonResp.Sign = utils.Base64Encode(sign)
 
-	var validBytes []byte
-	if cipher != nil {
-		var err error
-		validBytes, err = cipher.Sign(digest)
+	if cipher != nil && req.Plan == 2 {
+		validBytes, err := cipher.Sign(digest)
 		if err != nil {
 			zlog.Error("failed_to_outer_sign_response", 0, zlog.AddError(err), zlog.String("user_id", userID), zlog.String("device_id", deviceID), zlog.String("connection_path", connPath))
 			return
 		}
+		jsonResp.Valid = utils.Base64Encode(validBytes)
 	}
-	jsonResp.Valid = utils.Base64Encode(validBytes)
 
 	// 发送JsonResp格式的响应
 	replyBytes, err := utils.JsonMarshal(jsonResp)
@@ -2203,7 +2196,7 @@ func replyData(connCtx *ConnectionContext, req requestMeta, cipher crypto.Cipher
 }
 
 func parsePlan2PublicKey(rawAuth []byte) (*PublicKey, error) {
-	if len(rawAuth) == 0 || len(rawAuth) > MAX_TOKEN_LEN {
+	if len(rawAuth) == 0 || len(rawAuth) > crypto.MaxPlan2AuthorizationB64Len() {
 		return nil, utils.Error("authorization length invalid")
 	}
 	public := &PublicKey{}
@@ -2216,15 +2209,14 @@ func parsePlan2PublicKey(rawAuth []byte) (*PublicKey, error) {
 	return public, nil
 }
 
-// BuildPlan2KeyResponse 处理 plan2 的 /key 交换流程，供上层路由直接复用。
-// 该方法会校验请求公钥、生成服务端临时 X25519 密钥、返回签名公钥并写入临时私钥缓存。
+// BuildPlan2KeyResponse 处理 plan2 的 /key 交换（ML-KEM + ML-DSA）。
 func (s *WsServer) BuildPlan2KeyResponse(req *PublicKey) (*PublicKey, error) {
 	if s == nil || req == nil {
 		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request public key is nil"}
 	}
-	cipherObj, exists := s.Cipher[req.Usr]
+	cipherObj, exists := s.PQCipher[req.Usr]
 	if !exists || cipherObj == nil {
-		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "cipher not found for user"}
+		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "plan2 cipher not found for user"}
 	}
 	c, err := s.GetCacheObject()
 	if err != nil {
@@ -2233,18 +2225,17 @@ func (s *WsServer) BuildPlan2KeyResponse(req *PublicKey) (*PublicKey, error) {
 	if err := CheckPublicKey(c, req, cipherObj); err != nil {
 		return nil, err
 	}
-	prk, err := ecc.CreateX25519()
+	dk, err := ecc.CreateMLKEM1024()
 	if err != nil {
 		return nil, err
 	}
-	resp, err := CreatePublicKey(utils.Base64Encode(prk.PublicKey().Bytes()), utils.Base64Encode(utils.GetRandomSecure(32)), req.Usr, cipherObj)
+	serverEkB64 := utils.Base64Encode(ecc.GetMLKEM1024EncapsulationKeyBytes(dk.EncapsulationKey()))
+	dkB64 := ecc.MLKEM1024DecapsulationKeyToBase64(dk)
+	resp, err := CreatePublicKey(serverEkB64, utils.Base64Encode(utils.GetRandomSecure(32)), req.Usr, cipherObj)
 	if err != nil {
 		return nil, err
 	}
-	if err := c.Put(utils.FNV1a64(utils.AddStr(resp.Key, ":", resp.Usr)), &PrivateKey{
-		Key: utils.Base64Encode(prk.Bytes()),
-		Noc: resp.Noc,
-	}, 180); err != nil {
+	if err := c.Put(utils.FNV1a64(utils.AddStr(resp.Key, ":", resp.Usr)), &PrivateKey{Key: dkB64, Noc: resp.Noc}, 180); err != nil {
 		return nil, err
 	}
 	return resp, nil
@@ -2271,19 +2262,9 @@ func (s *WsServer) negotiatePlan2SharedKey(rawAuth []byte, usr int64) ([]byte, e
 	if len(prkObject.Key) == 0 {
 		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "prk read is nil"}
 	}
-	prk, err := ecc.LoadX25519PrivateKey(utils.Base64Decode(prkObject.Key))
-	if err != nil {
-		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "prk load error", Err: err}
-	}
-	prkBs := prk.Bytes()
-	defer DIC.ClearData(prkBs)
-	pub, err := ecc.LoadX25519PublicKeyFromBase64(public.Tag)
-	if err != nil {
-		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "pub load error", Err: err}
-	}
-	shared, err := ecc.GenSharedKeyX25519(prk, pub)
+	shared, err := crypto.DecapsulatePeerCiphertext(prkObject.Key, public.Tag)
 	if err != nil || len(shared) == 0 {
-		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "shared key error", Err: err}
+		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "ML-KEM shared key error", Err: err}
 	}
 	defer DIC.ClearData(shared)
 	sharedKey, err := HKDFKey(shared, prkObject.Noc)
@@ -2411,16 +2392,15 @@ func (self *WsServer) AddLocalCache(cacheAware CacheAware) {
 	}
 }
 
-// AddCipher 注册本 WebSocket 服务端对 usr 的验签 Cipher；双向 Ed25519 时为 CreateEd25519WithBase64（服务端私钥，该客户端公钥），与 SocketSDK.SetEd25519Object 镜像。
-// 应在 StartWebsocket 之前完成所有注册。不支持运行期动态添加（MessageHandler 无锁读 Cipher，动态添加有并发风险）；若以后需要运行期扩展再考虑加锁或 copy-on-write 等方案。
-func (self *WsServer) AddCipher(usr int64, cipher crypto.Cipher) error {
-	if self.Cipher == nil {
-		self.Cipher = make(map[int64]crypto.Cipher)
+// AddPQCipher 注册 Plan2 ML-DSA-87 验签（与 HttpNode.AddPQCipher 一致）。
+func (self *WsServer) AddPQCipher(usr int64, cipher crypto.Cipher) error {
+	if self.PQCipher == nil {
+		self.PQCipher = make(map[int64]crypto.Cipher)
 	}
 	if cipher == nil {
 		return utils.Error("cipher is nil")
 	}
-	self.Cipher[usr] = cipher
+	self.PQCipher[usr] = cipher
 	return nil
 }
 

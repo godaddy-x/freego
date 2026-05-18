@@ -28,8 +28,15 @@ func NewSDK() *sdk.HttpSDK {
 		LoginPath: "/login",
 	}
 	newObject.SetClientNo(1)
-	_ = newObject.SetEd25519Object(newObject.ClientNo, clientPrk, serverPub)
+	_ = newObject.SetMLDSA87Object(newObject.ClientNo, pqClientPrk, pqServerPub)
 	return newObject
+}
+
+// NewPlan2SDK Plan2（/login 等）使用 ML-DSA + ML-KEM，与 node/test/webapp AddPQCipher 配对。
+func NewPlan2SDK() *sdk.HttpSDK {
+	s := NewSDK()
+	_ = s.SetMLDSA87Object(s.ClientNo, pqClientPrk, pqServerPub)
+	return s
 }
 
 func TestGetPublicKey(t *testing.T) {
@@ -41,10 +48,10 @@ func TestGetPublicKey(t *testing.T) {
 }
 
 func TestECCLogin(t *testing.T) {
-	_ = httpSDK.SetEd25519Object(1, clientPrk, serverPub)
+	plan2SDK := NewPlan2SDK()
 	requestData := sdk.AuthToken{Token: "AI工具人，鲨鱼宝宝！！！"}
 	responseData := sdk.AuthToken{}
-	if err := httpSDK.PostByECC("/login", &requestData, &responseData); err != nil {
+	if err := plan2SDK.PostByECC("/login", &requestData, &responseData); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println(responseData)
@@ -100,18 +107,18 @@ func BenchmarkHttpSDK_PostByAuth(b *testing.B) {
 			if err != nil {
 				b.Logf("认证请求失败: %v", err)
 			}
+			if len(responseData.Token) == 0 {
+				b.Fatal("token is nil")
+			}
 		}
 	})
 }
 
-// BenchmarkHttpSDK_PostByECC ECC请求性能基准测试
-// 测试 Plan2（X25519）在并发执行下的性能表现和稳定性
+// BenchmarkHttpSDK_PostByECC Plan2 压测（ML-KEM + ML-DSA）
+// HttpSDK 的 plan2SharedB64/plan2KemCtB64 非并发安全，须每 goroutine 独立实例。
 func BenchmarkHttpSDK_PostByECC(b *testing.B) {
-	// 每个goroutine创建独立的SDK实例，避免并发冲突
-	goroutineSDK := NewSDK()
-	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
-
+		goroutineSDK := NewPlan2SDK()
 		localCounter := 0
 		for pb.Next() {
 			localCounter++
@@ -127,10 +134,12 @@ func BenchmarkHttpSDK_PostByECC(b *testing.B) {
 
 			for retry := 0; retry <= maxRetries; retry++ {
 				err = goroutineSDK.PostByECC("/login", &requestData, &responseData)
+				if responseData.Token == "" {
+					panic("invalid token")
+				}
 				if err == nil {
 					break // 成功则跳出重试循环
 				}
-
 				// 检查是否是时间戳过期错误
 				errStr := err.Error()
 				if strings.Contains(errStr, "request time invalid") && retry < maxRetries {

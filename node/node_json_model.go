@@ -30,8 +30,22 @@ type JsonBody struct {
 
 	// 8字节字段组 (2个int64字段，16字节)
 	Time int64 `json:"t"` // 8字节 - int64字段
-	Plan int64 `json:"p"` // 8字节 - 0.默认(登录状态) 1.AES(登录状态) 2.RSA/ECC模式(匿名状态)
+	Plan int64 `json:"p"` // 8字节 - 0.默认(登录状态) 1.AES(登录状态) 2.Plan2(ML-KEM+ML-DSA匿名)
 	User int64 `json:"u"` // 8字节 - 客户端ID
+}
+
+// PlanRequiresOuterSignature Plan2 业务报文（p=2）需要 ML-DSA 外层签名。
+func PlanRequiresOuterSignature(plan int64) bool {
+	return plan == 2
+}
+
+// JsonBodyRequiresOuterSignature 是否校验/生成 JsonBody.Valid（ML-DSA）。
+// plan2KeyBootstrap：WebSocket Plan2 /key 握手使用 p=0，但仍须 ML-DSA。
+func JsonBodyRequiresOuterSignature(plan int64, plan2KeyBootstrap bool) bool {
+	if plan == 2 {
+		return true
+	}
+	return plan2KeyBootstrap && plan == 0
 }
 
 // JsonResp 结构体 - 96字节 (7个字段，8字节对齐，无填充)
