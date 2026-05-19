@@ -83,7 +83,7 @@ func (self *HttpNode) StartServer(addr string) {
 	initRateLimiters()
 
 	if len(self.Context.PQCipher) == 0 {
-		panic("ML-DSA (plan2 outer sign) cipher not configured, AddPQCipher is required")
+		panic("ML-DSA (plan2 outer sign) cipher not configured, AddCipher is required")
 	}
 	zlog.Info("plan2 ML-DSA outer sign configured for users", 0, zlog.Int("users", len(self.Context.PQCipher)))
 
@@ -293,9 +293,9 @@ func (self *HttpNode) AddLocalCache(cacheAware CacheAware) {
 	}
 }
 
-// AddPQCipher 注册 Plan2（ML-DSA-87）外层验签：须 crypto.CreateMLDSA87WithBase64（服务端 ML-DSA 私钥，该客户端 ML-DSA 公钥）。
+// AddCipher 注册 Plan2（ML-DSA-87）外层验签：须 crypto.CreateMLDSA87WithBase64（服务端 ML-DSA 私钥，该客户端 ML-DSA 公钥）。
 // 与客户端 HttpSDK.SetMLDSA87Object 互为镜像；Plan0/Plan1 不使用外层 Valid 签名。
-func (self *HttpNode) AddPQCipher(key int64, cipher crypto.Cipher) error {
+func (self *HttpNode) AddCipher(key int64, cipher crypto.Cipher) error {
 	if cipher == nil {
 		return utils.Error("cipher is nil")
 	}

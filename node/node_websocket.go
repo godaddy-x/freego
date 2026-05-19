@@ -2392,8 +2392,8 @@ func (self *WsServer) AddLocalCache(cacheAware CacheAware) {
 	}
 }
 
-// AddPQCipher 注册 Plan2 ML-DSA-87 验签（与 HttpNode.AddPQCipher 一致）。
-func (self *WsServer) AddPQCipher(usr int64, cipher crypto.Cipher) error {
+// AddCipher 注册 Plan2 ML-DSA-87 验签（与 HttpNode.AddCipher 一致）。
+func (self *WsServer) AddCipher(usr int64, cipher crypto.Cipher) error {
 	if self.PQCipher == nil {
 		self.PQCipher = make(map[int64]crypto.Cipher)
 	}

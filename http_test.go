@@ -32,7 +32,7 @@ func NewSDK() *sdk.HttpSDK {
 	return newObject
 }
 
-// NewPlan2SDK Plan2（/login 等）使用 ML-DSA + ML-KEM，与 node/test/webapp AddPQCipher 配对。
+// NewPlan2SDK Plan2（/login 等）使用 ML-DSA + ML-KEM，与 node/test/webapp AddCipher 配对。
 func NewPlan2SDK() *sdk.HttpSDK {
 	s := NewSDK()
 	_ = s.SetMLDSA87Object(s.ClientNo, pqClientPrk, pqServerPub)

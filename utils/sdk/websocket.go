@@ -478,7 +478,7 @@ func (s *SocketSDK) verifyOuterSign(path string, usr int64, respData *node.JsonR
 	return nil
 }
 
-// SetMLDSA87Object 配置 Plan2 WebSocket 客户端身份（与服务端 WsServer.AddPQCipher 镜像）。
+// SetMLDSA87Object 配置 Plan2 WebSocket 客户端身份（与服务端 WsServer.AddCipher 镜像）。
 func (s *SocketSDK) SetMLDSA87Object(usr int64, prkB64, peerPubB64 string) error {
 	if s.mldsaObject == nil {
 		s.mldsaObject = make(map[int64]crypto.Cipher)

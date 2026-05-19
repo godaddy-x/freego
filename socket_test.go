@@ -825,7 +825,7 @@ func TestCreateWsServer(t *testing.T) {
 
 	// 增加双向验签的Ed25519
 	cipher, _ := crypto.CreateMLDSA87WithBase64(pqServerPrk, pqClientPub)
-	server.AddPQCipher(1, cipher)
+	server.AddCipher(1, cipher)
 
 	// 配置连接池（限流见文件顶部 wsTestServer* 常量）
 	err := server.NewPool(wsTestServerMaxConn, wsTestServerConnPerSec, wsTestServerConnBurst, wsTestServerPingSeconds)
@@ -977,7 +977,7 @@ func TestWebSocketSDKUsage(t *testing.T) {
 
 	// 增加双向验签的Ed25519
 	cipher, _ := crypto.CreateMLDSA87WithBase64(pqServerPrk, pqClientPub)
-	server.AddPQCipher(1, cipher)
+	server.AddCipher(1, cipher)
 
 	// 配置连接池（限流见文件顶部 wsTestServer* 常量）
 	err := server.NewPool(wsTestServerMaxConn, wsTestServerConnPerSec, wsTestServerConnBurst, wsTestServerPingSeconds)
@@ -1221,7 +1221,7 @@ func TestWebSocketTokenExpiredCallback(t *testing.T) {
 	})
 
 	cipher, _ := crypto.CreateMLDSA87WithBase64(pqServerPrk, pqClientPub)
-	server.AddPQCipher(1, cipher)
+	server.AddCipher(1, cipher)
 
 	err := server.NewPool(100, 10, 5, 30)
 	if err != nil {
@@ -1374,7 +1374,7 @@ func TestWebSocketMessageSubscription(t *testing.T) {
 
 	// 增加双向验签的Ed25519
 	cipher, _ := crypto.CreateMLDSA87WithBase64(pqServerPrk, pqClientPub)
-	server.AddPQCipher(1, cipher)
+	server.AddCipher(1, cipher)
 
 	// 配置连接池
 	err := server.NewPool(100, 10, 5, 30)
@@ -1993,7 +1993,7 @@ func TestWebSocketClientUnexpectedDisconnect(t *testing.T) {
 		TokenExp: jwt.TWO_WEEK,
 	})
 	cipher, _ := crypto.CreateMLDSA87WithBase64(pqServerPrk, pqClientPub)
-	server.AddPQCipher(1, cipher)
+	server.AddCipher(1, cipher)
 	if err := server.NewPool(10, 20, 100, 15); err != nil {
 		t.Fatalf("NewPool failed: %v", err)
 	}
@@ -2151,7 +2151,7 @@ func TestWebSocketErrorHandling(t *testing.T) {
 
 	// 增加双向验签的Ed25519
 	cipher, _ := crypto.CreateMLDSA87WithBase64(pqServerPrk, pqClientPub)
-	server.AddPQCipher(1, cipher)
+	server.AddCipher(1, cipher)
 
 	// 初始化连接池和心跳服务
 	if err := server.NewPool(100, 10, 5, 30); err != nil {
@@ -2228,7 +2228,7 @@ func TestWebSocketServer(t *testing.T) {
 
 	// 增加双向验签的Ed25519
 	cipher, _ := crypto.CreateMLDSA87WithBase64(pqServerPrk, pqClientPub)
-	server.AddPQCipher(1, cipher)
+	server.AddCipher(1, cipher)
 
 	// 配置连接池
 	err := server.NewPool(100, 10, 5, 30)

@@ -162,7 +162,7 @@ func NewHTTP() *MyWebNode {
 	})
 
 	pqCipher, _ := crypto.CreateMLDSA87WithBase64(serverPrk, clientPub)
-	my.AddPQCipher(1, pqCipher)
+	my.AddCipher(1, pqCipher)
 
 	//my.AddRedisCache(func(ds ...string) (cache.Cache, error) {
 	//	rds, err := cache.NewRedis(ds...)
