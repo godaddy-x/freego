@@ -32,7 +32,7 @@
                     └────────────┬──────────────┘
                                  │
                     ┌────────────▼──────────────┐
-                    │  签名层 (HMAC-SHA512→32B) │
+                    │  签名层 (HMAC-SHA256) │
                     │  ┌──────────────────────┐ │
                     │  │ 签名内容:             │ │
                     │  │ path+d+n+t+p+secret  │ │
@@ -90,7 +90,7 @@
         ┌───────────────▼────────────────┐
         │    请求参数解析 & 验证层         │
         │  ┌───────────────────────────┐ │
-        │  │ 1. HMAC-SHA512→32B 验签    │ │
+        │  │ 1. HMAC-SHA256 验签    │ │
         │  │ 2. 时间戳验证 (±5分钟)     │ │
         │  │ 3. 协议 Nonce 去重 (Redis) │ │
         │  │    n = Base64(32 字节)     │ │
@@ -141,7 +141,7 @@
         │  │ 1. JSON 序列化响应数据     │ │
         │  │ 2. AES-GCM 加密            │ │
         │  │    AAD: resp.t+n+p+path   │ │
-        │  │ 3. HMAC-SHA512→32B 签名     │ │
+        │  │ 3. HMAC-SHA256 签名     │ │
         │  │ 4. 构建响应 JSON           │ │
         │  └───────────────────────────┘ │
         └───────────────┬────────────────┘
@@ -197,8 +197,8 @@
 │       认证层安全 (Authentication)        │
 ├─────────────────────────────────────────┤
 │  ✅ JWT Token 验证                       │
-│     • 第三段：HKDF-SHA512(IKM,salt,info)→32B│
-│     • Header.alg 常为 HS256（历史字段名）  │
+│     • 第三段：HMAC-SHA256（HS256，`GetTokenSecretExtract`）│
+│     • Header.alg：`HS256`（与实现一致）    │
 │     • Token 过期检查（exp）              │
 │                                          │
 │  ✅ ML-DSA-87（Plan2 / 可选 RPCX）          │
@@ -208,9 +208,9 @@
 │     • Plan0/1 登录态：仅 JWT + HMAC，无 e 字段 │
 │                                          │
 │  ✅ 动态密钥派生（Token Secret）          │
-│     • HKDF-SHA512 → 32B（RFC 5869）      │
-│     • IKM=TokenKey，salt=SetDynamicSecretKey│
-│     • 业务 `s`：HMAC-SHA512→32B，密钥=GetTokenSecret │
+│     • HMAC-SHA256（`GetTokenSecretExtract`）│
+│     • key=TokenKey，info=KDF/Token 类型 + 完整 JWT│
+│     • 业务 `s`：HMAC-SHA256，密钥=GetTokenSecret │
 │     • 动态计算、不落库                   │
 │                                          │
 │  ✅ RBAC 权限控制                        │
@@ -252,7 +252,7 @@
 │         签名层安全 (Integrity)           │
 ├─────────────────────────────────────────┤
 │  ✅ 完整性 + 身份绑定                      │
-│     • 业务/推送 `s`：统一 HMAC-SHA512→32B（规范串相同）                 │
+│     • 业务/推送 `s`：统一 HMAC-SHA256（规范串相同）                 │
 │     • 登录态 Plan0/1：+（可选）GCM；Plan2 / WS /key：+ ML-DSA `e`      │
 │     • WS 推送 (c=300)：广播密钥，非 JWT Secret                         │
 │     • 可选链路 gRPC/rpcx：SHA256 规范串 + ML-DSA，无对称 MAC           │
@@ -290,11 +290,11 @@
 
 ## 加密传输流程（抗量子攻击实现）
 
-HTTP / WebSocket 主链路按 **Plan0 / Plan1 / Plan2** 分模式；Plan2 承担 **ML-KEM-1024 + ML-DSA-87** 非对称抗量子登录与密钥交换，登录后对称层为 **HKDF-SHA512 + HMAC-SHA512→32B + AES-256-GCM**。
+HTTP / WebSocket 主链路按 **Plan0 / Plan1 / Plan2** 分模式；Plan2 承担 **ML-KEM-1024 + ML-DSA-87** 非对称抗量子登录与密钥交换。**Plan0/1 登录态**对称层为 **HMAC-SHA256 +（可选）AES-256-GCM**；**Plan2** 在 ML-KEM 协商后使用 **HKDF-SHA256 + HMAC-SHA256 + AES-256-GCM**。
 
 ### Plan 0: Base64 模式（登录状态，明文传输）
 
-> **无 ML-DSA 外层签**：仅 JWT 登录态 + HMAC-SHA512→32B；`e` 字段为空。HTTP/WS 共用 Plan01 校验逻辑（HTTP 以 `ctx.Path` 入规范串）。
+> **无 ML-DSA 外层签**：仅 JWT 登录态 + HMAC-SHA256；`e` 字段为空。HTTP/WS 共用 Plan01 校验逻辑（HTTP 以 `ctx.Path` 入规范串）。
 
 ```
 客户端                                服务端
@@ -306,8 +306,8 @@ HTTP / WebSocket 主链路按 **Plan0 / Plan1 / Plan2** 分模式；Plan2 承担
   │  3. n = RandProtocolNonce() (32B)   │
   │     t = Unix 时间戳                 │
   │     ↓                              │
-  │  4. HMAC-SHA512→32B → s            │
-  │     HMAC-SHA512(path+d+n+t+p+u, TokenSecret)[:32]
+  │  4. HMAC-SHA256 → s            │
+  │     HMAC-SHA256(path+d+n+t+p+u, TokenSecret)
   │     ↓                              │
   ├─────────  发送请求  ────────────────▶│
   │    {d, t, n, p:0, s}  (无 e)       │
@@ -339,7 +339,7 @@ HTTP / WebSocket 主链路按 **Plan0 / Plan1 / Plan2** 分模式；Plan2 承担
   │     AAD: t+n+p+path (协议 n 入 AAD) │
   │     (GCM IV 在密文内，12 字节)      │
   │     ↓                              │
-  │  5. HMAC-SHA512→32B → s            │
+  │  5. HMAC-SHA256 → s            │
   │     ↓                              │
   ├─────────  发送请求  ────────────────▶│
   │    {d, t, n, p:1, s}  (无 e)       │
@@ -372,14 +372,14 @@ HTTP / WebSocket 主链路按 **Plan0 / Plan1 / Plan2** 分模式；Plan2 承担
   │     Encapsulate(server_ek)         │
   │     → shared_raw, kem_ct           │
   │     ↓                              │
-  │  4. HKDF 密钥派生（node.HKDFKey）   │
-  │     Key = HKDF(shared_raw, noc)    │
+  │  4. HKDF-SHA256 密钥派生（node.HKDFKey）│
+  │     Key = HKDF-SHA256(shared_raw, noc)│
   │     ↓                              │
   │  5. 业务数据 JSON 序列化            │
   │     ↓                              │
   │  6. AES-256-GCM 加密               │
   │     ↓                              │
-  │  7. HMAC-SHA512→32B → s 字段       │
+  │  7. HMAC-SHA256 → s 字段       │
   │     ↓                              │
   │  8. ML-DSA-87 外层签名 → e 字段     │
   │     Sign(SHA256(path+d+n+t+p+u))   │
@@ -394,7 +394,7 @@ HTTP / WebSocket 主链路按 **Plan0 / Plan1 / Plan2** 分模式；Plan2 承担
   │                                    │
   │  9. 验证客户端 ML-DSA 外层签名        │
   │ 10. Decapsulate(dk, kem_ct)→shared │
-  │ 11. HKDF → sharedKey               │
+  │ 11. HKDF-SHA256 → sharedKey        │
   │ 12. 验证 HMAC、时间戳、Nonce         │
   │ 13. AES-GCM 解密 & 业务处理          │
   │ 14. 响应 GCM + HMAC + ML-DSA Valid   │
@@ -439,7 +439,7 @@ HTTP / WebSocket 主链路按 **Plan0 / Plan1 / Plan2** 分模式；Plan2 承担
    ├─▶ 创建 JWT Token（Subject.Generate）
    │   ┌─────────────────────────────────┐
    │   │ Header:                         │
-   │   │   alg: "HS256" (配置项，非算法)  │
+   │   │   alg: "HS256"                  │
    │   │   typ: "JWT"                    │
    │   │                                 │
    │   │ Payload:                        │
@@ -447,16 +447,15 @@ HTTP / WebSocket 主链路按 **Plan0 / Plan1 / Plan2** 分模式；Plan2 承担
    │   │                                 │
    │   │ Signature (第三段):             │
    │   │   part = b64(header).b64(payload)│
-   │   │   sig = B64( HKDF-SHA512(       │
-   │   │     IKM=TokenKey,               │
-   │   │     salt=动态盐,                │
-   │   │     info=KDF-Verify|Token-Verify|part,│
-   │   │     L=32 ) )                    │
+   │   │   sig = B64( HMAC-SHA256(       │
+   │   │     key=TokenKey,               │
+   │   │     msg=VerifyType|SEP|token,   │
+   │   │     见 GetTokenSecretExtract )  │
    │   └─────────────────────────────────┘
    │
    ├─▶ 动态生成会话密钥（GetTokenSecret）
-   │   └─▶ HKDF-SHA512(IKM=TokenKey, salt, info=KDF-Secret|Token-Secret|完整JWT, 32B)
-   │       • 供 HTTP/WS 业务 HMAC-SHA512→32B / AES-GCM
+   │   └─▶ HMAC-SHA256(key=TokenKey, msg=SecretType|SEP|完整JWT)
+   │       • 供 HTTP/WS 业务 HMAC-SHA256 / AES-GCM
    │       • 每次按需计算、不长期存储
    │
    └─▶ 返回客户端
@@ -485,7 +484,7 @@ HTTP / WebSocket 主链路按 **Plan0 / Plan1 / Plan2** 分模式；Plan2 承担
    │   │   Header: Authorization
    │   │
    │   ├─▶ 验证 Token 第三段（Subject.Verify）
-   │   │   • 复算 HKDF-SHA512 → 32B，与 part3 比较
+   │   │   • 复算 HMAC-SHA256，与 part3 比较
    │   │
    │   ├─▶ 验证 Token 过期
    │   │   • exp < 当前时间 → 拒绝
@@ -550,9 +549,9 @@ HTTP / WebSocket 主链路按 **Plan0 / Plan1 / Plan2** 分模式；Plan2 承担
 | 攻击类型       | 风险等级 | 防护机制                                                               | 防护位置              | 效果        |
 | -------------- | -------- | ---------------------------------------------------------------------- | --------------------- | ----------- |
 | **重放攻击**   | 🔴 高    | 时间戳 (±5 分钟) + Nonce 去重 + 签名缓存                               | Filter Chain + AAD    | ✅ 有效防护 |
-| **中间人攻击** | 🔴 高    | TLS/HTTPS（部署）+ AES-GCM + HMAC-SHA512→32B；Plan2 另加 ML-DSA/ML-KEM | 传输层 + 加密层       | ✅ 有效防护 |
-| **身份伪造**   | 🔴 高    | JWT(HKDF-SHA512) + HMAC-SHA512→32B；Plan2：ML-DSA + ML-KEM             | 认证层 + 加密层       | ✅ 有效防护 |
-| **篡改攻击**   | 🔴 高    | HMAC-SHA512→32B / GCM；Plan2 与 RPCX 叠加 ML-DSA                       | 签名层 + 加密层       | ✅ 有效防护 |
+| **中间人攻击** | 🔴 高    | TLS/HTTPS（部署）+ AES-GCM + HMAC-SHA256；Plan2 另加 ML-DSA/ML-KEM | 传输层 + 加密层       | ✅ 有效防护 |
+| **身份伪造**   | 🔴 高    | JWT（HMAC-SHA256 / HS256）+ 报文 HMAC-SHA256；Plan2：ML-DSA + ML-KEM | 认证层 + 加密层       | ✅ 有效防护 |
+| **篡改攻击**   | 🔴 高    | HMAC-SHA256 / GCM；Plan2 与 RPCX 叠加 ML-DSA                       | 签名层 + 加密层       | ✅ 有效防护 |
 | **跨接口重放** | 🟠 中    | Path 绑定到 AAD                                                        | AAD 验证              | ✅ 有效防护 |
 | **降级攻击**   | 🟠 中    | Plan 绑定到 AAD + 签名                                                 | AAD 验证              | ✅ 有效防护 |
 | **暴力破解**   | 🟠 中    | 三级限流 + Redis 计数器                                                | Filter Chain          | ✅ 有效防护 |
@@ -561,7 +560,7 @@ HTTP / WebSocket 主链路按 **Plan0 / Plan1 / Plan2** 分模式；Plan2 承担
 | **XSS 攻击**   | 🟠 中    | 输入过滤 + 输出转义                                                    | Filter Chain          | ✅ 有效防护 |
 | **CSRF 攻击**  | 🟡 低    | 自定义 Header + 不用 Cookie                                            | 架构设计              | ✅ 有效防护 |
 | **时序攻击**   | 🟡 低    | 常量时间比较 (HMAC)                                                    | crypto/hmac           | ✅ 有效防护 |
-| **会话劫持**   | 🟠 中    | 动态 Secret + Token 绑定                                               | JWT(HKDF) + 业务 HMAC | ✅ 有效防护 |
+| **会话劫持**   | 🟠 中    | 动态 Secret + Token 绑定                                               | JWT(HMAC-SHA256) + 业务 HMAC | ✅ 有效防护 |
 | **权限提升**   | 🟠 中    | RBAC + 角色验证                                                        | RoleFilter            | ✅ 有效防护 |
 | **密钥泄露**   | 🔴 高    | 动态生成 + 不存储 + 短生命周期                                         | GetTokenSecret        | ✅ 有效防护 |
 | **Nonce 碰撞** | 🟡 低    | 协议 `n`：32 字节 CSPRNG (2^256 空间)                                  | crypto/rand           | ✅ 有效防护 |
@@ -574,13 +573,13 @@ HTTP / WebSocket 主链路按 **Plan0 / Plan1 / Plan2** 分模式；Plan2 承担
 | 标准                | 要求         | 框架内相关能力                            | 代码向对齐 |
 | ------------------- | ------------ | ----------------------------------------- | ---------- |
 | **PCI DSS 3.2.1**   | 传输加密     | TLS/HTTPS（部署侧）+ 应用层 AES-256-GCM   | ✅         |
-| **PCI DSS 3.2.1**   | 密钥管理     | HKDF-SHA512 派生 + 业务 HMAC              | ✅         |
+| **PCI DSS 3.2.1**   | 密钥管理     | HMAC-SHA256（JWT/会话）；Plan2：HKDF-SHA256 + 业务 HMAC | ✅         |
 | **PCI DSS 3.2.1**   | 访问控制     | RBAC + JWT                                | ✅         |
-| **ISO 27001**       | 完整性保护   | HMAC-SHA512→32B + GCM Tag                 | ✅         |
+| **ISO 27001**       | 完整性保护   | HMAC-SHA256 + GCM Tag                 | ✅         |
 | **ISO 27001**       | 不可抵赖     | 签名 + 时间戳 + Path 等请求轨迹字段       | ✅         |
 | **NIST SP 800-38D** | GCM 模式     | GCM IV 12B（密文内）+ AAD 含协议 `n`(32B) | ✅         |
 | **NIST SP 800-38D** | 密钥长度     | AES-256 (32 bytes)                        | ✅         |
-| **FIPS 140-2**      | 密钥派生     | HKDF-SHA512 → 32B（RFC 5869）             | ✅         |
+| **FIPS 140-2**      | 密钥派生     | JWT/会话 HMAC-SHA256；Plan2：HKDF-SHA256（RFC 5869）   | ✅         |
 | **FIPS 140-2**      | 随机数生成   | crypto/rand                               | ✅         |
 | **SOX (萨班斯)**    | 审计追踪     | 时间戳 + Nonce + Path                     | ✅         |
 | **GDPR**            | 数据保护     | HTTPS（部署）+ 应用层 AES-GCM 等载荷保护  | ✅         |
@@ -602,15 +601,15 @@ HTTP / WebSocket 主链路按 **Plan0 / Plan1 / Plan2** 分模式；Plan2 承担
 │  🔐 加密强度          ████████████████████  100/100       │
 │     • AES-256-GCM (顶级)                                   │
 │     • ML-DSA-87 / ML-KEM-1024                              │
-│     • HMAC-SHA512→32B（业务/推送统一）                      │
+│     • HMAC-SHA256（业务/推送统一）                      │
 │                                                            │
 │  🛡️ 防护能力          ████████████████████  100/100      │
 │     • 六层防护体系                                         │
 │     • 15 种攻击防护                                        │
-│     • Plan2 / RPCX：ML-DSA；Plan0/1：HMAC-SHA512→32B + JWT              │
+│     • Plan2 / RPCX：ML-DSA；Plan0/1：HMAC-SHA256 + JWT              │
 │                                                            │
 │  🔑 密钥管理          ████████████████████  100/100       │
-│     • JWT/会话：HKDF-SHA512→32B；业务 `s`：HMAC-SHA512→32B  │
+│     • JWT/会话：HMAC-SHA256；业务 `s`：HMAC-SHA256        │
 │     • 不存储敏感信息                                       │
 │     • Token 绑定                                          │
 │                                                            │
@@ -666,17 +665,17 @@ HTTP / WebSocket 主链路按 **Plan0 / Plan1 / Plan2** 分模式；Plan2 承担
 ### 已实现功能 ✅
 
 - ✅ AES-256-GCM 认证加密
-- ✅ HMAC-SHA512→32B 完整性验证（业务与推送统一，`SignBodyMessage`）
+- ✅ HMAC-SHA256 完整性验证（业务与推送统一，`SignBodyMessage`）
 - ✅ ML-DSA-87 外层签：仅 **Plan2**（`p=2`）及 WS Plan2 **`/key` 引导**（字段 `e`）
 - ✅ WebSocket 推送：`PushKeyProvider` / `SetBroadcastKey`（广播密钥）
 - ✅ 协议 Nonce：32 字节 Base64（`RandProtocolNonce` / `ValidProtocolNonce`）
 - ✅ `RouterConfig.UsePlan2` Plan2 匿名路由配置
 - ✅ JWT 认证 + RBAC 授权
-- ✅ JWT 第三段与会话密钥：HKDF-SHA512(IKM, salt, info) → 32 字节；业务 `s` 使用该会话密钥做 HMAC-SHA512→32B
+- ✅ JWT 第三段与会话密钥：`GetTokenSecretExtract` → **HMAC-SHA256**；业务 `s` 使用该会话密钥做 **HMAC-SHA256**
 - ✅ AAD 上下文绑定 (Time + Nonce + Plan + Path)
 - ✅ 三级限流机制
 - ✅ 防重放攻击 (时间戳 + Nonce 去重)
-- ✅ ML-KEM-1024 封装 + HKDF（Plan2 匿名通道；`EncapsulateToPeer` / `DecapsulatePeerCiphertext`）
+- ✅ ML-KEM-1024 封装 + HKDF-SHA256（Plan2 匿名通道；`EncapsulateToPeer` / `DecapsulatePeerCiphertext`）
 - ✅ 零反射高性能 ORM
 
 ---
@@ -693,6 +692,6 @@ HTTP / WebSocket 主链路按 **Plan0 / Plan1 / Plan2** 分模式；Plan2 承担
 
 ---
 
-**文档版本**: v1.14
-**最后更新**: 2026-05-18
+**文档版本**: v1.15
+**最后更新**: 2026-05-19
 **安全等级**: 🏆 金融机构级 (Tier 4)

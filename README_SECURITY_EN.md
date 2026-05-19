@@ -32,7 +32,7 @@
                     └────────────┬──────────────┘
                                  │
                     ┌────────────▼──────────────┐
-                    │  Signature (HMAC-SHA512→32B)│
+                    │  Signature (HMAC-SHA256)│
                     │  ┌──────────────────────┐ │
                     │  │ Sign payload:         │ │
                     │  │ path+d+n+t+p+secret   │ │
@@ -90,7 +90,7 @@
         ┌───────────────▼────────────────┐
         │  Request param parse & validate   │
         │  ┌───────────────────────────┐ │
-        │  │ 1. HMAC-SHA512→32B verify  │ │
+        │  │ 1. HMAC-SHA256 verify  │ │
         │  │ 2. Timestamp (±5 min)      │ │
         │  │ 3. Protocol Nonce dedup    │ │
         │  │    (Redis)                 │ │
@@ -142,7 +142,7 @@
         │  │ 1. JSON serialize response │ │
         │  │ 2. AES-GCM encrypt           │ │
         │  │    AAD: resp.t+n+p+path     │ │
-        │  │ 3. HMAC-SHA512→32B sign      │ │
+        │  │ 3. HMAC-SHA256 sign      │ │
         │  │ 4. Build response JSON       │ │
         │  └───────────────────────────┘ │
         └───────────────┬────────────────┘
@@ -198,8 +198,8 @@
 │       Authentication Security            │
 ├─────────────────────────────────────────┤
 │  ✅ JWT Token validation                 │
-│     • Part 3: HKDF-SHA512(IKM,salt,info)→32B│
-│     • Header.alg often HS256 (legacy field name)│
+│     • Part 3: HMAC-SHA256 (HS256, `GetTokenSecretExtract`)│
+│     • Header.alg: `HS256` (matches implementation)│
 │     • Token expiry check (exp)          │
 │                                          │
 │  ✅ ML-DSA-87 (Plan2 / optional RPCX)      │
@@ -209,9 +209,9 @@
 │     • Plan0/1 logged-in: JWT + HMAC only, no e field │
 │                                          │
 │  ✅ Dynamic key derivation (Token Secret)│
-│     • HKDF-SHA512 → 32B (RFC 5869)      │
-│     • IKM=TokenKey, salt=SetDynamicSecretKey│
-│     • Business `s`: HMAC-SHA512→32B, key=GetTokenSecret │
+│     • HMAC-SHA256 (`GetTokenSecretExtract`)│
+│     • key=TokenKey, info=KDF/Token type + full JWT│
+│     • Business `s`: HMAC-SHA256, key=GetTokenSecret │
 │     • Computed on demand, not persisted  │
 │                                          │
 │  ✅ RBAC access control                  │
@@ -253,7 +253,7 @@
 │         Integrity Security               │
 ├─────────────────────────────────────────┤
 │  ✅ Integrity + identity binding           │
-│     • Business/push `s`: unified HMAC-SHA512→32B (same canonical string)│
+│     • Business/push `s`: unified HMAC-SHA256 (same canonical string)│
 │     • Logged-in Plan0/1: + (optional) GCM; Plan2 / WS /key: + ML-DSA `e`│
 │     • WS push (c=300): broadcast key, not JWT Secret│
 │     • Optional gRPC/rpcx: SHA256 canonical + ML-DSA, no symmetric MAC│
@@ -291,11 +291,11 @@
 
 ## Encrypted Transport Flow (Post-Quantum Implementation)
 
-The HTTP / WebSocket main path uses **Plan0 / Plan1 / Plan2** modes. Plan2 provides **ML-KEM-1024 + ML-DSA-87** post-quantum anonymous login and key exchange; after login the symmetric layer is **HKDF-SHA512 + HMAC-SHA512→32B + AES-256-GCM**.
+The HTTP / WebSocket main path uses **Plan0 / Plan1 / Plan2** modes. Plan2 provides **ML-KEM-1024 + ML-DSA-87** post-quantum anonymous login and key exchange. **Plan0/1 logged-in** symmetric layer: **HMAC-SHA256 + (optional) AES-256-GCM**; **Plan2** after ML-KEM negotiation: **HKDF-SHA256 + HMAC-SHA256 + AES-256-GCM**.
 
 ### Plan 0: Base64 Mode (Logged-in, Plaintext Payload)
 
-> **No ML-DSA outer signature**: JWT session + HMAC-SHA512→32B only; `e` field is empty. HTTP/WS share Plan01 validation (HTTP uses `ctx.Path` in the canonical string).
+> **No ML-DSA outer signature**: JWT session + HMAC-SHA256 only; `e` field is empty. HTTP/WS share Plan01 validation (HTTP uses `ctx.Path` in the canonical string).
 
 ```
 Client                                Server
@@ -307,8 +307,8 @@ Client                                Server
   │  3. n = RandProtocolNonce() (32B)   │
   │     t = Unix timestamp              │
   │     ↓                              │
-  │  4. HMAC-SHA512→32B → s            │
-  │     HMAC-SHA512(path+d+n+t+p+u, TokenSecret)[:32]
+  │  4. HMAC-SHA256 → s            │
+  │     HMAC-SHA256(path+d+n+t+p+u, TokenSecret)
   │     ↓                              │
   ├─────────  Send request  ──────────▶│
   │    {d, t, n, p:0, s}  (no e)       │
@@ -340,7 +340,7 @@ Client                                Server
   │     AAD: t+n+p+path (protocol n in AAD)│
   │     (GCM IV inside ciphertext, 12 bytes)│
   │     ↓                              │
-  │  5. HMAC-SHA512→32B → s            │
+  │  5. HMAC-SHA256 → s            │
   │     ↓                              │
   ├─────────  Send request  ──────────▶│
   │    {d, t, n, p:1, s}  (no e)       │
@@ -373,14 +373,14 @@ Client                                Server
   │     Encapsulate(server_ek)         │
   │     → shared_raw, kem_ct           │
   │     ↓                              │
-  │  4. HKDF key derivation (node.HKDFKey)│
-  │     Key = HKDF(shared_raw, noc)    │
+  │  4. HKDF-SHA256 key derivation (node.HKDFKey)│
+  │     Key = HKDF-SHA256(shared_raw, noc)│
   │     ↓                              │
   │  5. Serialize business data JSON  │
   │     ↓                              │
   │  6. AES-256-GCM encrypt            │
   │     ↓                              │
-  │  7. HMAC-SHA512→32B → s field      │
+  │  7. HMAC-SHA256 → s field      │
   │     ↓                              │
   │  8. ML-DSA-87 outer signature → e  │
   │     Sign(SHA256(path+d+n+t+p+u))   │
@@ -395,7 +395,7 @@ Client                                Server
   │                                    │
   │  9. Verify client ML-DSA outer signature│
   │ 10. Decapsulate(dk, kem_ct)→shared │
-  │ 11. HKDF → sharedKey               │
+  │ 11. HKDF-SHA256 → sharedKey        │
   │ 12. Verify HMAC, timestamp, Nonce  │
   │ 13. AES-GCM decrypt & business logic│
   │ 14. Response GCM + HMAC + ML-DSA Valid│
@@ -440,7 +440,7 @@ Server SendToSubject                     Client SDK
    ├─▶ Create JWT Token (Subject.Generate)
    │   ┌─────────────────────────────────┐
    │   │ Header:                         │
-   │   │   alg: "HS256" (config label, not algorithm)│
+   │   │   alg: "HS256"                  │
    │   │   typ: "JWT"                    │
    │   │                                 │
    │   │ Payload:                        │
@@ -448,16 +448,15 @@ Server SendToSubject                     Client SDK
    │   │                                 │
    │   │ Signature (part 3):             │
    │   │   part = b64(header).b64(payload)│
-   │   │   sig = B64( HKDF-SHA512(       │
-   │   │     IKM=TokenKey,               │
-   │   │     salt=dynamic salt,          │
-   │   │     info=KDF-Verify|Token-Verify|part,│
-   │   │     L=32 ) )                    │
+   │   │   sig = B64( HMAC-SHA256(       │
+   │   │     key=TokenKey,               │
+   │   │     msg=VerifyType|SEP|token,   │
+   │   │     see GetTokenSecretExtract ) │
    │   └─────────────────────────────────┘
    │
    ├─▶ Dynamically generate session key (GetTokenSecret)
-   │   └─▶ HKDF-SHA512(IKM=TokenKey, salt, info=KDF-Secret|Token-Secret|full JWT, 32B)
-   │       • For HTTP/WS business HMAC-SHA512→32B / AES-GCM
+   │   └─▶ HMAC-SHA256(key=TokenKey, msg=SecretType|SEP|full JWT)
+   │       • For HTTP/WS business HMAC-SHA256 / AES-GCM
    │       • Computed on demand, not long-term stored
    │
    └─▶ Return to client
@@ -486,7 +485,7 @@ Server SendToSubject                     Client SDK
    │   │   Header: Authorization
    │   │
    │   ├─▶ Verify Token part 3 (Subject.Verify)
-   │   │   • Recompute HKDF-SHA512 → 32B, compare with part3
+   │   │   • Recompute HMAC-SHA256, compare with part3
    │   │
    │   ├─▶ Verify Token expiry
    │   │   • exp < current time → reject
@@ -551,9 +550,9 @@ Server SendToSubject                     Client SDK
 | Attack Type | Risk | Mitigation | Location | Effect |
 | ------------- | -------- | ------------------------------------------------------------------------------ | ------------------ | ----------- |
 | **Replay attack** | 🔴 High | Timestamp (±5 min) + Nonce dedup + signature cache | Filter Chain + AAD | ✅ Effective |
-| **MITM attack** | 🔴 High | TLS/HTTPS (deployment) + AES-GCM + HMAC-SHA512→32B; Plan2 adds ML-DSA/ML-KEM | Transport + encryption | ✅ Effective |
-| **Identity forgery** | 🔴 High | JWT(HKDF-SHA512) + HMAC-SHA512→32B; Plan2: ML-DSA + ML-KEM | Auth + encryption | ✅ Effective |
-| **Tampering** | 🔴 High | HMAC-SHA512→32B / GCM; Plan2 and RPCX add ML-DSA | Signature + encryption | ✅ Effective |
+| **MITM attack** | 🔴 High | TLS/HTTPS (deployment) + AES-GCM + HMAC-SHA256; Plan2 adds ML-DSA/ML-KEM | Transport + encryption | ✅ Effective |
+| **Identity forgery** | 🔴 High | JWT (HMAC-SHA256 / HS256) + message HMAC-SHA256; Plan2: ML-DSA + ML-KEM | Auth + encryption | ✅ Effective |
+| **Tampering** | 🔴 High | HMAC-SHA256 / GCM; Plan2 and RPCX add ML-DSA | Signature + encryption | ✅ Effective |
 | **Cross-endpoint replay** | 🟠 Medium | Path bound to AAD | AAD verification | ✅ Effective |
 | **Downgrade attack** | 🟠 Medium | Plan bound to AAD + signature | AAD verification | ✅ Effective |
 | **Brute force** | 🟠 Medium | Three-tier rate limit + Redis counters | Filter Chain | ✅ Effective |
@@ -562,7 +561,7 @@ Server SendToSubject                     Client SDK
 | **XSS** | 🟠 Medium | Input filter + output escaping | Filter Chain | ✅ Effective |
 | **CSRF** | 🟡 Low | Custom Header + no Cookie | Architecture | ✅ Effective |
 | **Timing attack** | 🟡 Low | Constant-time compare (HMAC) | crypto/hmac | ✅ Effective |
-| **Session hijacking** | 🟠 Medium | Dynamic Secret + Token binding | JWT(HKDF) + business HMAC | ✅ Effective |
+| **Session hijacking** | 🟠 Medium | Dynamic Secret + Token binding | JWT(HMAC-SHA256) + business HMAC | ✅ Effective |
 | **Privilege escalation** | 🟠 Medium | RBAC + role verification | RoleFilter | ✅ Effective |
 | **Key leakage** | 🔴 High | Dynamic generation + no storage + short lifetime | GetTokenSecret | ✅ Effective |
 | **Nonce collision** | 🟡 Low | Protocol `n`: 32-byte CSPRNG (2^256 space) | crypto/rand | ✅ Effective |
@@ -576,13 +575,13 @@ The table below maps **currently implemented capabilities** in code to common st
 | Standard | Requirement | Framework capability | Code alignment |
 | ------------------- | ------------ | ---------------------------------------- | ---------- |
 | **PCI DSS 3.2.1** | Transport encryption | TLS/HTTPS (deployment) + app-layer AES-256-GCM | ✅ |
-| **PCI DSS 3.2.1** | Key management | HKDF-SHA512 derivation + business HMAC | ✅ |
+| **PCI DSS 3.2.1** | Key management | HMAC-SHA256 (JWT/session); Plan2: HKDF-SHA256 + business HMAC | ✅ |
 | **PCI DSS 3.2.1** | Access control | RBAC + JWT | ✅ |
-| **ISO 27001** | Integrity | HMAC-SHA512→32B + GCM Tag | ✅ |
+| **ISO 27001** | Integrity | HMAC-SHA256 + GCM Tag | ✅ |
 | **ISO 27001** | Non-repudiation | Signature + timestamp + Path and request trace fields | ✅ |
 | **NIST SP 800-38D** | GCM mode | GCM IV 12B (in ciphertext) + AAD includes protocol `n`(32B) | ✅ |
 | **NIST SP 800-38D** | Key length | AES-256 (32 bytes) | ✅ |
-| **FIPS 140-2** | Key derivation | HKDF-SHA512 → 32B (RFC 5869) | ✅ |
+| **FIPS 140-2** | Key derivation | JWT/session HMAC-SHA256; Plan2: HKDF-SHA256 (RFC 5869) | ✅ |
 | **FIPS 140-2** | Random number generation | crypto/rand | ✅ |
 | **SOX (Sarbanes-Oxley)** | Audit trail | Timestamp + Nonce + Path | ✅ |
 | **GDPR** | Data protection | HTTPS (deployment) + app-layer AES-GCM payload protection | ✅ |
@@ -604,15 +603,15 @@ The table below maps **currently implemented capabilities** in code to common st
 │  🔐 Cryptographic strength  ████████████████████  100/100 │
 │     • AES-256-GCM (top tier)                               │
 │     • ML-DSA-87 / ML-KEM-1024                              │
-│     • HMAC-SHA512→32B (unified business/push)              │
+│     • HMAC-SHA256 (unified business/push)              │
 │                                                            │
 │  🛡️ Defense capability      ████████████████████  100/100│
 │     • Six-layer defense                                    │
 │     • 15 attack mitigations                                │
-│     • Plan2 / RPCX: ML-DSA; Plan0/1: HMAC-SHA512→32B + JWT│
+│     • Plan2 / RPCX: ML-DSA; Plan0/1: HMAC-SHA256 + JWT│
 │                                                            │
 │  🔑 Key management          ████████████████████  100/100│
-│     • JWT/session: HKDF-SHA512→32B; business `s`: HMAC-SHA512→32B│
+│     • JWT/session: HMAC-SHA256; business `s`: HMAC-SHA256│
 │     • No storage of sensitive material                     │
 │     • Token binding                                        │
 │                                                            │
@@ -668,17 +667,17 @@ Suitable scenarios:
 ### Implemented ✅
 
 - ✅ AES-256-GCM authenticated encryption
-- ✅ HMAC-SHA512→32B integrity verification (unified business & push, `SignBodyMessage`)
+- ✅ HMAC-SHA256 integrity verification (unified business & push, `SignBodyMessage`)
 - ✅ ML-DSA-87 outer signature: **Plan2** only (`p=2`) and WS Plan2 **`/key` bootstrap** (field `e`)
 - ✅ WebSocket push: `PushKeyProvider` / `SetBroadcastKey` (broadcast key)
 - ✅ Protocol Nonce: 32-byte Base64 (`RandProtocolNonce` / `ValidProtocolNonce`)
 - ✅ `RouterConfig.UsePlan2` Plan2 anonymous route configuration
 - ✅ JWT authentication + RBAC authorization
-- ✅ JWT part 3 and session key: HKDF-SHA512(IKM, salt, info) → 32 bytes; business `s` uses session key for HMAC-SHA512→32B
+- ✅ JWT part 3 and session key: `GetTokenSecretExtract` → **HMAC-SHA256**; business `s` uses that session key for **HMAC-SHA256**
 - ✅ AAD context binding (Time + Nonce + Plan + Path)
 - ✅ Three-tier rate limiting
 - ✅ Anti-replay (timestamp + Nonce deduplication)
-- ✅ ML-KEM-1024 encapsulation + HKDF (Plan2 anonymous channel; `EncapsulateToPeer` / `DecapsulatePeerCiphertext`)
+- ✅ ML-KEM-1024 encapsulation + HKDF-SHA256 (Plan2 anonymous channel; `EncapsulateToPeer` / `DecapsulatePeerCiphertext`)
 - ✅ Zero-reflection high-performance ORM
 
 ---
@@ -695,6 +694,6 @@ Suitable scenarios:
 
 ---
 
-**Document version**: v1.14
-**Last updated**: 2026-05-18
+**Document version**: v1.15
+**Last updated**: 2026-05-19
 **Security tier**: 🏆 Financial Institution Grade (Tier 4)

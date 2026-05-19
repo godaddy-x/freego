@@ -8,7 +8,7 @@
 
 > 🚀 **A Go enterprise framework focused on extreme performance, quantum attack resistance, and strong security** (architecture and flows in [`README_SECURITY_EN.md`](./README_SECURITY_EN.md))
 
-FreeGo targets high-concurrency, security-sensitive workloads: **Plan2 login / key exchange** uses **NIST post-quantum algorithms (ML-KEM-1024 / ML-DSA-87)**; post-login sessions and messages use a unified **SHA-512 family for derivation and MAC (HKDF-SHA512, HMAC-SHA512→32B)**, replacing classic ECC/RSA and SHA-256/HMAC-SHA256 stacks. Core strengths are the **service access layer**, **data access layer**, and the supporting components below:
+FreeGo targets high-concurrency, security-sensitive workloads: **Plan2 login / key exchange** uses **NIST post-quantum algorithms (ML-KEM-1024 / ML-DSA-87)**; logged-in **JWT signatures use HMAC-SHA256 (typical HS256)**, business messages use field **`s` for HMAC-SHA256 integrity**, with optional **AES-256-GCM** for payloads. Core strengths are the **service access layer**, **data access layer**, and the supporting components below:
 
 - **API framework**: HTTP / WebSocket / RPCX ingress, filter chains, authentication, authorization, integrity verification, and anti-replay (see [`README_SECURITY_EN.md`](./README_SECURITY_EN.md)).
 - **ORM framework**: MySQL / Mongo with **minimal reflection on hot paths** and allocation-friendly data access (`ormx`).
@@ -35,8 +35,8 @@ Also includes cache (local and Redis), distributed locks and rate limiting, AMQP
 | -------- | ----------- | ------- |
 | 🚀 High-performance HTTP | HTTP engine with significantly higher throughput than `net/http` in typical benchmarks | 50,000+ QPS per node (hardware-dependent) |
 | 🛡️ Quantum attack resistance | Plan2: **ML-KEM-1024** negotiation + **ML-DSA-87** mutual outer signatures | NIST PQC; login/key exchange without ECC/RSA |
-| 🔐 High-strength symmetric stack | JWT: **HKDF-SHA512→32B**; messages: **HMAC-SHA512→32B** + AES-256-GCM | SHA-512 derivation/MAC; 256-bit keys for Grover margin |
-| 🔒 Anti-replay | Protocol `n` (32B random) + timestamp + `s` (HMAC-SHA512→32B) | Unified MAC for business and push (see security doc) |
+| 🔐 High-strength symmetric stack | JWT: **HMAC-SHA256 (HS256)**; messages: **`s`: HMAC-SHA256** + (optional) AES-256-GCM | Aligns with common JWT / message MAC stacks |
+| 🔒 Anti-replay | Protocol `n` (32B random) + timestamp + `s` (HMAC-SHA256) | Unified MAC for business and push (see security doc) |
 | 👥 RBAC | Role-based access control | Enterprise-grade authorization |
 | ⚡ Three-tier rate limiting | Gateway / method / user limits | Overload protection |
 | 🔧 Filter chain | Full middleware pipeline | Extensible |
@@ -57,16 +57,16 @@ FreeGo uses a **NIST-standardized, production-ready** post-quantum cryptography 
 | Phase | Capability | Algorithm | Quantum-resistant role |
 | ----- | ------------ | --------- | ---------------------- |
 | **Anonymous login / key exchange** | Plan2 (`p=2`) | **ML-KEM-1024** encapsulation + **ML-DSA-87** outer sign | NIST PQC; **1024-level KEM** replaces X25519/ECDH |
-| **Token issue & verify** | JWT third segment | **HKDF-SHA512 → 32B** (not RFC7519 HS256-HMAC) | SHA-512 KDF; avoids classic short-hash HMAC path |
-| **Session secret** | `GetTokenSecret` | **HKDF-SHA512 → 32B** | Strong derived key bound to token for MAC/encryption |
-| **Message integrity** | Field `s` | **HMAC-SHA512 → 32B** | Unified business and push MAC; 32B truncate aligns with AES-256 |
+| **Token issue & verify** | JWT third segment | **HMAC-SHA256 (HS256)** | Standard JWT signature over part3; short `exp` and key rotation |
+| **Session secret** | `GetTokenSecret` | Material derived with the signing key (see source) | For message MAC / (optional) AES-GCM; derived on demand, not stored |
+| **Message integrity** | Field `s` | **HMAC-SHA256** | Unified business and push integrity; matches `SignBodyMessage` (see security doc) |
 | **Payload confidentiality** | Plan1/2 encryption | **AES-256-GCM** | 256-bit keys; ~**128-bit** effective strength under Grover |
 
 **How to read “quantum attack resistant”:**
 
 - **Asymmetric (main PQ upgrade)**: Plan2 login and `/key` handshake use **ML-KEM + ML-DSA**, not Ed25519/X25519/RSA, addressing public-key threats under large-scale quantum models.
-- **Symmetric (after token)**: Token, secret, message MAC, and encryption use **SHA-512 / 256-bit keys**, with typically higher margin than SHA-256/HMAC-SHA256 under quantum analysis (still use key rotation, short token TTL, and TLS).
-- **Scope**: Plan0/1 post-login frames do not carry ML-DSA outer signatures; they rely on **JWT + HMAC-SHA512→32B + (optional) GCM**. For per-frame PQ asymmetric signing, use Plan2 or RPCX ML-DSA paths. Terminate **TLS 1.3** at the gateway when possible.
+- **Symmetric (after token)**: JWT and message MAC use **HMAC-SHA256**; payloads may use **AES-256-GCM**. Combine **key rotation, short `exp`, replay controls (`n`/`t`/`s`), and TLS**.
+- **Scope**: Plan0/1 post-login frames do not carry ML-DSA outer signatures; they rely on **JWT (HMAC-SHA256) + message HMAC-SHA256 + (optional) GCM**. For per-frame PQ outer signatures, use Plan2 or RPCX ML-DSA paths. Terminate **TLS 1.3** at the gateway when possible.
 
 Flows and layered defenses: [`README_SECURITY_EN.md`](./README_SECURITY_EN.md).
 
@@ -87,9 +87,9 @@ Flows and layered defenses: [`README_SECURITY_EN.md`](./README_SECURITY_EN.md).
 │  │ Rate limit │ Params     │ Session    │ RBAC       │ Custom│   │
 │  └────────────┴────────────┴────────────┴────────────┴──────┘   │
 ├─────────────────────────────────────────────────────────────────┤
-│           Security & Crypto (PQ + SHA-512 family)                 │
+│           Security & Crypto (Plan2 PQ + JWT / HMAC-SHA256)        │
 │  ┌────────────┬────────────┬────────────┬────────────┬──────┐   │
-│  │ HKDF/JWT   │ ML-DSA-87  │ ML-KEM-1024│ AES-256-GCM│HMAC512│   │
+│  │ JWT/HS256  │ ML-DSA-87  │ ML-KEM-1024│ AES-256-GCM│HMAC256│   │
 │  └────────────┴────────────┴────────────┴────────────┴──────┘   │
 ├─────────────────────────────────────────────────────────────────┤
 │                Business Logic Layer                               │
@@ -99,9 +99,9 @@ Flows and layered defenses: [`README_SECURITY_EN.md`](./README_SECURITY_EN.md).
 │                 MySQL · MongoDB · Redis · Locks                   │
 └─────────────────────────────────────────────────────────────────┘
 
-Benchmark excerpts (2026-05-18, `http_test.go`, 1m local runs; see [`http_benchmark_report.md`](./http_benchmark_report.md)):
-• `PostByPlan2` (ML-KEM+ML-DSA Plan2 login, `/login`): ≈3,393 TPS  • `PostByPlan01` (JWT+HMAC-SHA512→32B, `/getUser`): ≈52,320 TPS
-• Plan2 ns/op: 912,683  • Plan01 ns/op: 201,899  • Fail rate: 0.00%
+Benchmark excerpts (2026-05-19, `http_test.go`, 1m local runs; see [`http_benchmark_report.md`](./http_benchmark_report.md)):
+• `PostByPlan2` (ML-KEM+ML-DSA Plan2 login, `/login`): ≈3,393 TPS  • `PostByPlan01` (JWT+HMAC-SHA256 logged-in, `/getUser`): ≈52,320 TPS
+• PostByPlan2 ns/op: 358,253  • PostByPlan01 ns/op: 22,932  • Fail rate: 0.00%
 • MySQL FindOne: 11,169 ns/op (FreeGo) vs 16,471 ns/op (GORM)
 • MySQL Update: 180,680 ns/op (FreeGo) vs 358,455 ns/op (GORM)
 • Concurrent connections: 10,000+  • Failure rate: 0.00% (sample batch)
@@ -146,14 +146,14 @@ func main() {
 ### Quantum Attack Resistance & Authentication
 
 - **Plan2 login (PQ)**: **ML-KEM-1024** encapsulation + **ML-DSA-87** mutual outer signatures (`e`); HTTP/WebSocket/RPCX main path no longer uses Ed25519/X25519
-- **JWT**: Third segment is **HKDF-SHA512→32B** verify domain (`Header.alg` often `HS256` as a label only); short `exp` and RBAC
-- **Session secret**: **HKDF-SHA512→32B** via `GetTokenSecret`; derived on demand, not stored
-- **HMAC-SHA512→32B**: Unified integrity MAC for business `s` and push (`SignBodyMessage`)
+- **JWT**: Typically **HMAC-SHA256 (HS256)** for the third segment; short `exp` and RBAC (see `utils/jwt` and route config)
+- **Session secret**: `GetTokenSecret` derives with the signing key on demand, not stored; used for message MAC / (optional) encryption
+- **HMAC-SHA256**: Unified integrity MAC for business `s` and push (`SignBodyMessage`)
 - **AES-256-GCM**: Authenticated encryption (per Plan / route)
 
 ### Post-Login Authentication Modes
 
-- **Plan0/1 (logged in)**: JWT + HMAC-SHA512→32B + (optional) AES-GCM; 256-bit symmetric material
+- **Plan0/1 (logged in)**: JWT (HMAC-SHA256) + message **`s` (HMAC-SHA256)** + (optional) AES-GCM
 - **Plan2 (anonymous)**: Above plus ML-KEM/ML-DSA asymmetric protection (see security doc)
 
 ### Security Mechanisms
@@ -167,7 +167,7 @@ Enforced **before business handlers** on HTTP / WebSocket / RPCX (see source for
 | **Signature dedup** | Block replay of same `s` | `validReplayAttack` caches HMAC signatures |
 | **Canonical binding** | Anti cross-route / downgrade | MAC/AAD bind **path + d + n + t + p (+ u)**; HTTP requires empty `body.r` |
 | **Plan routing** | Mode-specific validation | HTTP uses **`p`**; WS also **`UsePlan2`** + `KeyRoute`/`LoginRoute` |
-| **Dual verify (Plan2)** | Identity + integrity | **ML-DSA** outer `e`, then **HMAC-SHA512→32B** and GCM |
+| **Dual verify (Plan2)** | Identity + integrity | **ML-DSA** outer `e`, then **HMAC-SHA256** (`s`) and GCM |
 | **Push verify** | Anti forged broadcast | `c=300`; same MAC algorithm; **broadcast key** (`PushKeyProvider` / `SetBroadcastKey`) |
 | **Filter chain** | Auth & abuse control | **Three-tier** rate limits; **SessionFilter** (JWT); **RoleFilter** (RBAC) |
 | **Constant-time compare** | Timing attack mitigation | `CompareBase64Sign` / `subtle.ConstantTimeCompare` for `s` |
@@ -175,8 +175,8 @@ Enforced **before business handlers** on HTTP / WebSocket / RPCX (see source for
 **Field cheat sheet:**
 
 - **`n`**: Protocol nonce (32 bytes), ≠ 12-byte GCM IV inside ciphertext, ≠ subscription UUID.
-- **`s`**: Symmetric MAC (HMAC-SHA512→32B); Plan2 also has asymmetric **`e`** (ML-DSA).
-- **Token / Secret**: JWT third segment and session secret are **HKDF-SHA512→32B**, not RFC7519 HS256-HMAC.
+- **`s`**: Symmetric MAC (**HMAC-SHA256**); Plan2 also has asymmetric **`e`** (ML-DSA).
+- **Token / Secret**: JWT uses the **HMAC-SHA256** stack; session secret comes from `GetTokenSecret` with the signing key (see source).
 
 Architecture and Plan flows: [`README_SECURITY_EN.md`](./README_SECURITY_EN.md).
 
@@ -226,7 +226,7 @@ Architecture and Plan flows: [`README_SECURITY_EN.md`](./README_SECURITY_EN.md).
 | Scenario | FreeGo advantage | Typical projects |
 | -------- | ---------------- | ---------------- |
 | 🚀 High performance | Lower `ns/op` than GORM on many MySQL paths (~1.22×–4.25×) | High-concurrency web services |
-| 🔒 Strong security / payments | Plan2 PQ login + SHA-512 token/MAC (see security doc) | Finance, payments |
+| 🔒 Strong security / payments | Plan2 PQ login + JWT / message **HMAC-SHA256** (see security doc) | Finance, payments |
 | 💾 Memory optimization | Lower `B/op` and `allocs/op` on Save/Update paths | Memory-sensitive apps |
 | 🗄️ Data-intensive | Low-reflection ORM, smart capacity estimation | Data platforms |
 
