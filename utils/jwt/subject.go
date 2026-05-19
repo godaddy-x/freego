@@ -6,10 +6,12 @@ package jwt
  */
 
 import (
-	"crypto/hkdf"
+	"crypto/hmac"
 	"crypto/sha256"
+	"io"
 	"strings"
 
+	DIC "github.com/godaddy-x/freego/common"
 	"github.com/godaddy-x/freego/utils"
 )
 
@@ -218,11 +220,14 @@ func (self *Subject) GetTokenSecret(token, secret string) []byte {
 
 // GetTokenSecretExtract 最简单高效的派生密钥，因为token已经有足够的熵值
 func (self *Subject) GetTokenSecretExtract(token, secret, kdfType, msgType string) []byte {
-	localKey := utils.Str2Bytes(utils.GetLocalDynamicSecretKey())
-	serverKey := utils.Str2Bytes(secret)
+	h := hmac.New(sha256.New, utils.Str2Bytes(secret))
+	_, _ = io.WriteString(h, msgType)
+	_, _ = io.WriteString(h, DIC.SEP)
+	localKey := utils.GetLocalDynamicSecretKey()
 	if len(localKey) > 0 {
-		serverKey, _ = hkdf.Key(sha256.New, serverKey, localKey, kdfType, 32)
+		_, _ = io.WriteString(h, localKey)
+		_, _ = io.WriteString(h, DIC.SEP)
 	}
-	message := utils.Str2Bytes(utils.AddStr(msgType, token))
-	return utils.HMAC_SHA256_BASE(message, serverKey)
+	_, _ = io.WriteString(h, token)
+	return h.Sum(nil)
 }

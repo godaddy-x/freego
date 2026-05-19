@@ -1071,7 +1071,7 @@ func (mh *MessageHandler) validWebSocketBody(connCtx *ConnectionContext, rawFram
 	if err := mh.validWebSocketBodyCommon(connCtx, body, effectiveConfig); err != nil {
 		return nil, nil, err
 	}
-	// 新逻辑：UseRSA=true 的路由走 plan2
+	// 新逻辑：UsePlan2=true 的路由走 plan2
 	if mh.isPlan2Route(effectiveConfig) {
 		if isPlan2KeyRoute(effectiveConfig) {
 			if body.Plan != 0 {
@@ -1108,7 +1108,7 @@ func (mh *MessageHandler) resolveRouterConfig(connCtx *ConnectionContext, body *
 }
 
 func (mh *MessageHandler) isPlan2Route(cfg *RouterConfig) bool {
-	if cfg == nil || !cfg.UseRSA {
+	if cfg == nil || !cfg.UsePlan2 {
 		return false
 	}
 	return true
@@ -1148,13 +1148,13 @@ func (mh *MessageHandler) validWebSocketBodyCommon(connCtx *ConnectionContext, b
 		}
 	}
 
-	// plan2 仅允许在 UseRSA=true 的路由
+	// plan2 仅允许在 UsePlan2=true 的路由
 	if body.Plan == 2 && !mh.isPlan2Route(effectiveConfig) {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "websocket plan2 requires UseRSA route"}
+		return ex.Throw{Code: http.StatusBadRequest, Msg: "websocket plan2 requires UsePlan2 route"}
 	}
 
 	// 非 plan2（旧逻辑）必须是已登录连接
-	// 例外：标记为 keyRoute 的 UseRSA 路由允许匿名 plan0 作为 plan2 引导入口。
+	// 例外：标记为 keyRoute 的 UsePlan2 路由允许匿名 plan0 作为 plan2 引导入口。
 	if body.Plan != 2 {
 		if mh.isPlan2Route(effectiveConfig) && isPlan2KeyRoute(effectiveConfig) {
 			return nil
@@ -1589,8 +1589,8 @@ func (s *WsServer) AddRouter(path string, handle Handle, routerConfig *RouterCon
 	if routerConfig.KeyRoute && routerConfig.LoginRoute {
 		return utils.Error("router config invalid: keyRoute and loginRoute cannot both be true")
 	}
-	if (routerConfig.KeyRoute || routerConfig.LoginRoute) && !routerConfig.UseRSA {
-		return utils.Error("router config invalid: key/login route must set UseRSA=true")
+	if (routerConfig.KeyRoute || routerConfig.LoginRoute) && !routerConfig.UsePlan2 {
+		return utils.Error("router config invalid: key/login route must set UsePlan2=true")
 	}
 
 	s.routes[path] = &RouteInfo{

@@ -169,7 +169,7 @@ func (self *Context) getPlan01DerivedKey(body *JsonBody) ([]byte, error) {
 }
 
 func (self *Context) negotiatePlan2SharedKey(body *JsonBody) ([]byte, error) {
-	if !self.RouterConfig.UseRSA {
+	if !self.RouterConfig.UsePlan2 {
 		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request parameters must use plan2 (ML-KEM) route"}
 	}
 	authBs := self.RequestCtx.Request.Header.Peek(Authorization)

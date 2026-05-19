@@ -190,10 +190,10 @@ func StartHttpNode() {
 	my.POST("/getUser", my.getUser, &node.RouterConfig{AesRequest: false, AesResponse: false})
 	my.POST("/testGuestPost", my.testGuestPost, &node.RouterConfig{Guest: true})
 	my.POST("/key", my.publicKey, &node.RouterConfig{Guest: true})
-	my.POST("/login", my.login, &node.RouterConfig{UseRSA: true})
+	my.POST("/login", my.login, &node.RouterConfig{UsePlan2: true})
 
-	my.POST("/geetest/register", my.FirstRegister, &node.RouterConfig{UseRSA: true})
-	my.POST("/geetest/validate", my.SecondValidate, &node.RouterConfig{UseRSA: true})
+	my.POST("/geetest/register", my.FirstRegister, &node.RouterConfig{UsePlan2: true})
+	my.POST("/geetest/validate", my.SecondValidate, &node.RouterConfig{UsePlan2: true})
 
 	// 配置Rate Limiter示例
 	configureRateLimiters(my)

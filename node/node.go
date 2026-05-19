@@ -93,7 +93,7 @@ type Configs struct {
 // 排列优化：bool字段自然排列，无填充问题
 type RouterConfig struct {
 	Guest       bool // 游客模式,原始请求 false.否 true.是 - 1字节
-	UseRSA      bool // 非登录状态使用RSA模式请求 false.否 true.是 - 1字节
+	UsePlan2    bool // Plan2 匿名路由（ML-KEM+ML-DSA） false.否 true.是 - 1字节
 	KeyRoute    bool // WebSocket plan2 key 路由（仅允许匿名 plan0）
 	LoginRoute  bool // WebSocket plan2 login 路由（仅允许 plan2）
 	AesRequest  bool // 请求是否必须AES加密 false.否 true.是 - 1字节

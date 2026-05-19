@@ -552,7 +552,7 @@ func defaultRenderPre(ctx *Context) error {
 		resp.Nonce = utils.RandNonce()
 		var sign []byte
 		var digest []byte
-		if routerConfig.UseRSA { // 非登录状态响应
+		if routerConfig.UsePlan2 { // 非登录状态响应
 			if ctx.JsonBody.Plan == 2 {
 				v := ctx.GetStorage(SharedKey)
 				if v == nil {

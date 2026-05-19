@@ -69,7 +69,7 @@ func testBoundaryValues(t *testing.T) {
 
 	// 测试空令牌
 	httpSDK := NewSecuritySDK()
-	err := httpSDK.PostByAuth("/getUser", &sdk.AuthToken{}, &sdk.AuthToken{}, false)
+	err := httpSDK.PostByPlan01("/getUser", &sdk.AuthToken{}, &sdk.AuthToken{}, false)
 	if err == nil {
 		t.Error("空令牌应该被拒绝")
 	}
@@ -80,14 +80,14 @@ func testBoundaryValues(t *testing.T) {
 	responseData := sdk.AuthToken{}
 
 	httpSDK.AuthToken(sdk.AuthToken{Token: testAccessToken, Secret: testTokenSecret, Expired: testTokenExpire})
-	err = httpSDK.PostByAuth("/getUser", &requestData, &responseData, false)
+	err = httpSDK.PostByPlan01("/getUser", &requestData, &responseData, false)
 	if err != nil && !strings.Contains(err.Error(), "timeout") {
 		t.Logf("超大请求体处理正常: %v", err)
 	}
 
 	// 测试最小请求体
 	smallRequest := sdk.AuthToken{Token: ""}
-	err = httpSDK.PostByAuth("/getUser", &smallRequest, &responseData, false)
+	err = httpSDK.PostByPlan01("/getUser", &smallRequest, &responseData, false)
 	t.Logf("最小请求体测试结果: %v", err)
 
 	t.Log("边界值测试完成")
@@ -111,14 +111,14 @@ func testMalformedInputs(t *testing.T) {
 	for i, malformedInput := range testCases {
 		t.Logf("测试异常输入 %d: %T", i+1, malformedInput)
 
-		// 对于PostByAuth，我们需要包装成正确的类型
+		// 对于PostByPlan01，我们需要包装成正确的类型
 		var requestData sdk.AuthToken
 		if str, ok := malformedInput.(string); ok {
 			requestData.Token = str
 		}
 
 		responseData := sdk.AuthToken{}
-		err := httpSDK.PostByAuth("/getUser", &requestData, &responseData, false)
+		err := httpSDK.PostByPlan01("/getUser", &requestData, &responseData, false)
 		// 注意：这里的"成功"并不意味着安全问题
 		// API可能接受这些输入但在业务逻辑层处理
 		// 真正的安全测试需要根据具体API的行为来判断
@@ -145,7 +145,7 @@ func testTimeoutSecurity(t *testing.T) {
 	responseData := sdk.AuthToken{}
 
 	start := time.Now()
-	err := httpSDK.PostByAuth("/getUser", &requestData, &responseData, false)
+	err := httpSDK.PostByPlan01("/getUser", &requestData, &responseData, false)
 	duration := time.Since(start)
 
 	if duration > 100*time.Millisecond {
@@ -171,7 +171,7 @@ func testSignatureValidation(t *testing.T) {
 	responseData := sdk.AuthToken{}
 
 	// 正常请求
-	err := httpSDK.PostByAuth("/getUser", &requestData, &responseData, false)
+	err := httpSDK.PostByPlan01("/getUser", &requestData, &responseData, false)
 	if err != nil {
 		t.Logf("签名验证测试正常: %v", err)
 	}
@@ -189,7 +189,7 @@ func testEncryptionIntegrity(t *testing.T) {
 	requestData := sdk.AuthToken{Token: "encryption_test"}
 	responseData := sdk.AuthToken{}
 
-	err := httpSDK.PostByECC("/getUser", &requestData, &responseData)
+	err := httpSDK.PostByPlan2("/getUser", &requestData, &responseData)
 	if err != nil {
 		t.Logf("ECC加密测试结果: %v", err)
 	}
@@ -218,7 +218,7 @@ func testConcurrentSafety(t *testing.T) {
 				requestData := sdk.AuthToken{Token: fmt.Sprintf("concurrent_test_%d_%d", id, j)}
 				responseData := sdk.AuthToken{}
 
-				err := httpSDK.PostByAuth("/getUser", &requestData, &responseData, false)
+				err := httpSDK.PostByPlan01("/getUser", &requestData, &responseData, false)
 				if err != nil {
 					t.Logf("并发请求错误 (goroutine %d, request %d): %v", id, j, err)
 					// 原子操作增加错误计数
@@ -247,7 +247,7 @@ func testNetworkAnomalies(t *testing.T) {
 	responseData := sdk.AuthToken{}
 
 	start := time.Now()
-	err := invalidSDK.PostByAuth("/getUser", &requestData, &responseData, false)
+	err := invalidSDK.PostByPlan01("/getUser", &requestData, &responseData, false)
 	duration := time.Since(start)
 
 	if duration > 5*time.Second {
@@ -282,7 +282,7 @@ func testResourceExhaustion(t *testing.T) {
 			requestData := sdk.AuthToken{Token: fmt.Sprintf("resource_test_%d", id)}
 			responseData := sdk.AuthToken{}
 
-			err := httpSDK.PostByAuth("/getUser", &requestData, &responseData, false)
+			err := httpSDK.PostByPlan01("/getUser", &requestData, &responseData, false)
 			if err != nil {
 				// 在实际代码中应该使用sync/atomic.AddInt32
 				// 这里简化为演示
@@ -325,7 +325,7 @@ func testInjectionAttacks(t *testing.T) {
 		requestData := sdk.AuthToken{Token: payload}
 		responseData := sdk.AuthToken{}
 
-		err := httpSDK.PostByAuth("/getUser", &requestData, &responseData, false)
+		err := httpSDK.PostByPlan01("/getUser", &requestData, &responseData, false)
 		// 注意：这里的测试主要用于观察系统行为
 		// 真正的注入攻击防护需要结合具体业务逻辑和输入验证
 		if err != nil {
@@ -348,7 +348,7 @@ func testAuthenticationBypass(t *testing.T) {
 	requestData := sdk.AuthToken{Token: "bypass_test"}
 	responseData := sdk.AuthToken{}
 
-	err := httpSDK.PostByAuth("/getUser", &requestData, &responseData, false)
+	err := httpSDK.PostByPlan01("/getUser", &requestData, &responseData, false)
 	if err == nil {
 		t.Error("无认证请求应该被拒绝")
 	} else {
@@ -357,7 +357,7 @@ func testAuthenticationBypass(t *testing.T) {
 
 	// 测试无效令牌
 	httpSDK.AuthToken(sdk.AuthToken{Token: "invalid_token", Secret: "invalid_secret", Expired: 0})
-	err = httpSDK.PostByAuth("/getUser", &requestData, &responseData, false)
+	err = httpSDK.PostByPlan01("/getUser", &requestData, &responseData, false)
 	if err == nil {
 		t.Error("无效令牌应该被拒绝")
 	} else {
@@ -377,7 +377,7 @@ func BenchmarkHttpSecurityECC(b *testing.B) {
 			requestData := sdk.AuthToken{Token: "benchmark_test"}
 			responseData := sdk.AuthToken{}
 
-			err := httpSDK.PostByECC("/getUser", &requestData, &responseData)
+			err := httpSDK.PostByPlan2("/getUser", &requestData, &responseData)
 			if err != nil {
 				b.Logf("ECC基准测试失败: %v", err)
 			}
@@ -396,7 +396,7 @@ func BenchmarkHttpSecurityAuth(b *testing.B) {
 			requestData := sdk.AuthToken{Token: "benchmark_test"}
 			responseData := sdk.AuthToken{}
 
-			err := httpSDK.PostByAuth("/getUser", &requestData, &responseData, false)
+			err := httpSDK.PostByPlan01("/getUser", &requestData, &responseData, false)
 			if err != nil {
 				b.Logf("认证基准测试失败: %v", err)
 			}
@@ -423,7 +423,7 @@ func TestHttpSecurityFuzzing(t *testing.T) {
 		responseData := sdk.AuthToken{}
 
 		// 不关心结果，只测试系统是否会崩溃或泄露信息
-		httpSDK.PostByAuth("/getUser", &requestData, &responseData, false)
+		httpSDK.PostByPlan01("/getUser", &requestData, &responseData, false)
 	}
 
 	t.Log("模糊测试完成")
@@ -480,12 +480,12 @@ func testReplayAttacks(t *testing.T) {
 	requestData := sdk.AuthToken{Token: "replay_test"}
 	responseData := sdk.AuthToken{}
 
-	err1 := httpSDK.PostByAuth("/getUser", &requestData, &responseData, false)
+	err1 := httpSDK.PostByPlan01("/getUser", &requestData, &responseData, false)
 	t.Logf("第一次请求结果: %v", err1)
 
 	// 立即重放相同请求（理论上应该被拒绝，因为时间戳太接近或nonce重复）
 	time.Sleep(10 * time.Millisecond) // 短暂延迟
-	err2 := httpSDK.PostByAuth("/getUser", &requestData, &responseData, false)
+	err2 := httpSDK.PostByPlan01("/getUser", &requestData, &responseData, false)
 	t.Logf("重放请求结果: %v", err2)
 
 	// 检查是否有重放保护
@@ -519,7 +519,7 @@ func testHeaderInjection(t *testing.T) {
 		requestData := sdk.AuthToken{Token: payload}
 		responseData := sdk.AuthToken{}
 
-		err := httpSDK.PostByAuth("/getUser", &requestData, &responseData, false)
+		err := httpSDK.PostByPlan01("/getUser", &requestData, &responseData, false)
 		if err != nil {
 			t.Logf("头部注入载荷 %d 响应: %v", i+1, err)
 		} else {
@@ -553,7 +553,7 @@ func testSerializationAttacks(t *testing.T) {
 		requestData := sdk.AuthToken{Token: payload}
 		responseData := sdk.AuthToken{}
 
-		err := httpSDK.PostByAuth("/getUser", &requestData, &responseData, false)
+		err := httpSDK.PostByPlan01("/getUser", &requestData, &responseData, false)
 		if err != nil {
 			t.Logf("序列化攻击载荷 %d 响应: %v", i+1, err)
 		} else {
@@ -591,7 +591,7 @@ func testTimestampManipulation(t *testing.T) {
 
 		// 注意：在这个SDK实现中，时间戳是由客户端生成的
 		// 所以我们无法直接篡改，但可以测试不同的时间戳范围
-		err := httpSDK.PostByAuth("/getUser", &requestData, &responseData, false)
+		err := httpSDK.PostByPlan01("/getUser", &requestData, &responseData, false)
 		if err != nil {
 			t.Logf("%s 时间戳测试响应: %v", test.name, err)
 		} else {
@@ -620,7 +620,7 @@ func testInformationDisclosure(t *testing.T) {
 			func(httpSDK *sdk.HttpSDK) error {
 				req := sdk.AuthToken{}
 				resp := sdk.AuthToken{}
-				return httpSDK.PostByAuth("/test", &req, &resp, false)
+				return httpSDK.PostByPlan01("/test", &req, &resp, false)
 			},
 		},
 		{
@@ -633,7 +633,7 @@ func testInformationDisclosure(t *testing.T) {
 			func(httpSDK *sdk.HttpSDK) error {
 				req := sdk.AuthToken{Token: "test"}
 				resp := sdk.AuthToken{}
-				return httpSDK.PostByAuth("/getUser", &req, &resp, false)
+				return httpSDK.PostByPlan01("/getUser", &req, &resp, false)
 			},
 		},
 		{
@@ -646,7 +646,7 @@ func testInformationDisclosure(t *testing.T) {
 			func(httpSDK *sdk.HttpSDK) error {
 				req := sdk.AuthToken{Token: "test"}
 				resp := sdk.AuthToken{}
-				return httpSDK.PostByAuth("/nonexistent-endpoint-12345", &req, &resp, false)
+				return httpSDK.PostByPlan01("/nonexistent-endpoint-12345", &req, &resp, false)
 			},
 		},
 	}
@@ -702,7 +702,7 @@ func testDenialOfService(t *testing.T) {
 		requestData := sdk.AuthToken{Token: fmt.Sprintf("dos_test_%d", requestCount)}
 		responseData := sdk.AuthToken{}
 
-		httpSDK.PostByAuth("/getUser", &requestData, &responseData, false)
+		httpSDK.PostByPlan01("/getUser", &requestData, &responseData, false)
 		requestCount++
 
 		// 短暂延迟避免完全占用CPU
@@ -728,7 +728,7 @@ func testDenialOfService(t *testing.T) {
 				requestData := sdk.AuthToken{Token: fmt.Sprintf("dos_concurrent_%d_%d", id, j)}
 				responseData := sdk.AuthToken{}
 
-				err := httpSDK.PostByAuth("/getUser", &requestData, &responseData, false)
+				err := httpSDK.PostByPlan01("/getUser", &requestData, &responseData, false)
 				if err != nil {
 					errorCount++
 				}
@@ -747,7 +747,7 @@ func testDenialOfService(t *testing.T) {
 		requestData := sdk.AuthToken{Token: largeData}
 		responseData := sdk.AuthToken{}
 
-		err := httpSDK.PostByAuth("/getUser", &requestData, &responseData, false)
+		err := httpSDK.PostByPlan01("/getUser", &requestData, &responseData, false)
 		if err != nil {
 			t.Logf("内存压力测试请求 %d 失败: %v", i+1, err)
 		}

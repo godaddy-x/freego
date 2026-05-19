@@ -840,7 +840,7 @@ func TestCreateWsServer(t *testing.T) {
 			return nil, err
 		}
 		return server.BuildPlan2KeyResponse(req)
-	}, &node.RouterConfig{UseRSA: true, KeyRoute: true})
+	}, &node.RouterConfig{UsePlan2: true, KeyRoute: true})
 	if err != nil {
 		t.Fatalf("Failed to add key router: %v", err)
 	}
@@ -864,7 +864,7 @@ func TestCreateWsServer(t *testing.T) {
 			Secret:  utils.Base64Encode(secret),
 			Expired: utils.UnixSecond() + jwtConfig.TokenExp,
 		}, nil
-	}, &node.RouterConfig{UseRSA: true, LoginRoute: true})
+	}, &node.RouterConfig{UsePlan2: true, LoginRoute: true})
 	if err != nil {
 		t.Fatalf("Failed to add login router: %v", err)
 	}

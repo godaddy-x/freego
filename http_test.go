@@ -14,9 +14,9 @@ import (
 
 const (
 	domain       = "http://localhost:8090"
-	access_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyMDQwNjA5NTU4NTE0MTA2MzY5IiwiYXVkIjoiIiwiaXNzIjoiIiwiZGV2IjoiQVBQIiwianRpIjoiNmJhMmZmYzMxMTIxNGRkYmI0NjExNzU2MzUzN2RlNzIiLCJleHQiOiIiLCJpYXQiOjAsImV4cCI6MTc4NzQ1MDIwNn0=.3rxJGqUeWBHnoWxE3GnT9RdsK5lvjNHji0lkXd+mUFU="
-	token_secret = "bWwzk2TFwml/fxka61tKDs9MuarLQHikIlN0bl3Gk/s="
-	token_expire = 1787450206
+	access_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyMDU2NTMyMDAwMTM4ODU0NDAxIiwiYXVkIjoiIiwiaXNzIjoiIiwiZGV2IjoiQVBQIiwianRpIjoiOTU3NzdmZjc3ZjM4NDk3NWI0ZGI2N2M0ODdjZjE2ZTUiLCJleHQiOiIiLCJpYXQiOjAsImV4cCI6MTc5MTI0NjQxMn0=.uf8PPESiid09MguWrDCeqVAjE/nT/Is2hrP4Nl7CvWs="
+	token_secret = "Ncvt4HENsQv++HWUgsvEDxLAUjfZgyChdy6RUOZHcSc="
+	token_expire = 1791246412
 )
 
 var httpSDK = NewSDK()
@@ -51,7 +51,7 @@ func TestECCLogin(t *testing.T) {
 	plan2SDK := NewPlan2SDK()
 	requestData := sdk.AuthToken{Token: "AI工具人，鲨鱼宝宝！！！"}
 	responseData := sdk.AuthToken{}
-	if err := plan2SDK.PostByECC("/login", &requestData, &responseData); err != nil {
+	if err := plan2SDK.PostByPlan2("/login", &requestData, &responseData); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println(responseData)
@@ -64,7 +64,7 @@ func TestGetUser(t *testing.T) {
 	httpSDK.AuthToken(sdk.AuthToken{Token: access_token, Secret: token_secret, Expired: token_expire})
 	requestObj := sdk.AuthToken{Token: "AI工具人，鲨鱼宝宝！QWER123456@##！！", Secret: "安排测试下吧123456789@@@"}
 	responseData := sdk.AuthToken{}
-	if err := httpSDK.PostByAuth("/getUser", &requestObj, &responseData, true); err != nil {
+	if err := httpSDK.PostByPlan01("/getUser", &requestObj, &responseData, true); err != nil {
 		fmt.Println(err)
 	}
 	fmt.Println(responseData)
@@ -89,9 +89,9 @@ func TestOnlyServerECCLogin(t *testing.T) {
 	fmt.Println(string(response.Body()))
 }
 
-// BenchmarkHttpSDK_PostByAuth 认证请求性能基准测试
-// 测量PostByAuth方法在并发场景下的性能表现和吞吐量
-func BenchmarkHttpSDK_PostByAuth(b *testing.B) {
+// BenchmarkHttpSDK_PostByPlan01 认证请求性能基准测试
+// 测量PostByPlan01方法在并发场景下的性能表现和吞吐量
+func BenchmarkHttpSDK_PostByPlan01(b *testing.B) {
 	httpSDK := NewSDK()
 
 	// 设置认证
@@ -103,7 +103,7 @@ func BenchmarkHttpSDK_PostByAuth(b *testing.B) {
 			requestObj := sdk.AuthToken{Token: "基准测试请求"}
 			responseData := sdk.AuthToken{}
 
-			err := httpSDK.PostByAuth("/getUser", &requestObj, &responseData, false)
+			err := httpSDK.PostByPlan01("/getUser", &requestObj, &responseData, false)
 			if err != nil {
 				b.Logf("认证请求失败: %v", err)
 			}
@@ -114,9 +114,9 @@ func BenchmarkHttpSDK_PostByAuth(b *testing.B) {
 	})
 }
 
-// BenchmarkHttpSDK_PostByECC Plan2 压测（ML-KEM + ML-DSA）
+// BenchmarkHttpSDK_PostByPlan2 Plan2 压测（ML-KEM + ML-DSA）
 // HttpSDK 的 plan2SharedB64/plan2KemCtB64 非并发安全，须每 goroutine 独立实例。
-func BenchmarkHttpSDK_PostByECC(b *testing.B) {
+func BenchmarkHttpSDK_PostByPlan2(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		goroutineSDK := NewPlan2SDK()
 		localCounter := 0
@@ -124,7 +124,7 @@ func BenchmarkHttpSDK_PostByECC(b *testing.B) {
 			localCounter++
 
 			// 使用goroutine ID + 计数器生成唯一token，避免重放攻击检测
-			token := fmt.Sprintf("ECC并发测试_g%d_%d_%d", b.N, localCounter, time.Now().UnixNano())
+			token := fmt.Sprintf("Plan2并发测试_g%d_%d_%d", b.N, localCounter, time.Now().UnixNano())
 			requestData := sdk.AuthToken{Token: token}
 			responseData := sdk.AuthToken{}
 
@@ -133,7 +133,7 @@ func BenchmarkHttpSDK_PostByECC(b *testing.B) {
 			var err error
 
 			for retry := 0; retry <= maxRetries; retry++ {
-				err = goroutineSDK.PostByECC("/login", &requestData, &responseData)
+				err = goroutineSDK.PostByPlan2("/login", &requestData, &responseData)
 				if responseData.Token == "" {
 					panic("invalid token")
 				}
@@ -153,7 +153,7 @@ func BenchmarkHttpSDK_PostByECC(b *testing.B) {
 			}
 
 			if err != nil {
-				b.Logf("ECC并发请求失败 (goroutine counter: %d, retries: %d): %v", localCounter, maxRetries, err)
+				b.Logf("Plan2并发请求失败 (goroutine counter: %d, retries: %d): %v", localCounter, maxRetries, err)
 				// 记录错误但不终止测试，继续观察稳定性
 			} else {
 				// 可选：验证响应数据有效性

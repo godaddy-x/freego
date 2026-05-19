@@ -18,8 +18,8 @@ import (
 // Plan0/1：JWT + HMAC（可选 AES-GCM）；Plan2：ML-KEM + ML-DSA + AES-GCM
 //
 // 使用模式:
-// - PostByECC: Plan2 匿名访问（ML-KEM + ML-DSA，须 SetMLDSA87Object）
-// - PostByAuth: Plan0/1 登录后访问（JWT + HMAC，无外层 Valid）
+// - PostByPlan2: Plan2 匿名访问（ML-KEM + ML-DSA，须 SetMLDSA87Object）
+// - PostByPlan01: Plan0/1 登录后访问（JWT + HMAC，无外层 Valid）
 type HttpSDK struct {
 	Domain         string                      // API域名 (如: https://api.example.com)
 	AuthDomain     string                      // 认证域名 (可选，用于/key和/login接口)
@@ -260,7 +260,7 @@ func (s *HttpSDK) GetPublicKey() (*crypto.MLKEM1024Object, *node.PublicKey, cryp
 	return &crypto.MLKEM1024Object{}, responseObject, cipher, nil
 }
 
-// PostByECC 通过 ML-KEM + HKDF + AES-GCM + ML-DSA 发送 POST（Plan2，匿名场景）
+// PostByPlan2 通过 ML-KEM + HKDF + AES-GCM + ML-DSA 发送 POST（Plan2，匿名场景）
 //
 // 安全协议栈 (从下到上):
 // 1. TLS 1.2+（传输层，由部署保证）
@@ -301,7 +301,7 @@ func (s *HttpSDK) GetPublicKey() (*crypto.MLKEM1024Object, *node.PublicKey, cryp
 // 注意:
 // - 每次调用都会执行完整的密钥协商流程
 // - 适合低频但高安全要求的API调用
-func (s *HttpSDK) PostByECC(path string, requestObj, responseObj interface{}) error {
+func (s *HttpSDK) PostByPlan2(path string, requestObj, responseObj interface{}) error {
 	if len(path) == 0 || requestObj == nil || responseObj == nil {
 		return ex.Throw{Msg: "params invalid"}
 	}
@@ -497,7 +497,7 @@ func (s *HttpSDK) valid() bool {
 //
 // 自动登录流程:
 // 1. 检查当前令牌是否有效
-// 2. 如果无效，使用authObject调用PostByECC登录
+// 2. 如果无效，使用authObject调用PostByPlan2登录
 // 3. 保存新的认证令牌到authToken字段
 //
 // 返回值:
@@ -532,7 +532,7 @@ func (s *HttpSDK) checkAuth() error {
 		return ex.Throw{Msg: "auth object error: " + err.Error()}
 	}
 	responseObj := AuthToken{}
-	if err := s.PostByECC(s.LoginPath, requestObject, &responseObj); err != nil {
+	if err := s.PostByPlan2(s.LoginPath, requestObject, &responseObj); err != nil {
 		return err
 	}
 	s.AuthToken(responseObj)
@@ -557,7 +557,7 @@ func (s *HttpSDK) ResetAuth() error {
 		return ex.Throw{Msg: "auth object error: " + err.Error()}
 	}
 	responseObj := AuthToken{}
-	if err := s.PostByECC(s.LoginPath, requestObject, &responseObj); err != nil {
+	if err := s.PostByPlan2(s.LoginPath, requestObject, &responseObj); err != nil {
 		return err
 	}
 	s.AuthToken(responseObj)
@@ -568,7 +568,7 @@ func (s *HttpSDK) GetAuth() AuthToken {
 	return AuthToken{Token: s.authToken.Token, Secret: s.authToken.Secret, Expired: s.authToken.Expired}
 }
 
-// PostByAuth 通过 JWT 认证发送 POST 请求（Plan0/1，无外层 Valid 签名）
+// PostByPlan01 通过 JWT 认证发送 POST 请求（Plan0/1，无外层 Valid 签名）
 // 适用于登录后的业务 API 调用，使用令牌进行身份认证
 //
 // 安全协议栈:
@@ -599,7 +599,7 @@ func (s *HttpSDK) GetAuth() AuthToken {
 // - JWT令牌认证: 身份验证和授权
 // - 动态Secret: 每次登录生成新的AES密钥
 // - 可选加密: 支持明文(Base64)和加密传输
-// - 外层 Valid 签名仅 Plan2（PostByECC）使用 ML-DSA
+// - 外层 Valid 签名仅 Plan2（PostByPlan2）使用 ML-DSA
 //
 // 使用场景:
 // - 用户登录后的业务API调用
@@ -607,14 +607,14 @@ func (s *HttpSDK) GetAuth() AuthToken {
 // - 中等安全要求的场景
 //
 // 性能特点:
-// - 比 PostByECC（Plan2 / ML-KEM 协商）更快：复用令牌，无每请求协商
+// - 比 PostByPlan2（Plan2 / ML-KEM 协商）更快：复用令牌，无每请求协商
 // - 支持高并发 (令牌复用)
 // - 适合高频API调用
 //
 // 注意:
 // - 需要预先登录或设置有效的authToken
 // - 会自动处理令牌过期和续期
-func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, encrypted bool) error {
+func (s *HttpSDK) PostByPlan01(path string, requestObj, responseObj interface{}, encrypted bool) error {
 	if len(path) == 0 || requestObj == nil || responseObj == nil {
 		return ex.Throw{Msg: "params invalid"}
 	}
@@ -812,7 +812,7 @@ func (s *HttpSDK) PostByAuth(path string, requestObj, responseObj interface{}, e
 //
 // 兼容性:
 // - 这是早期版本的构建函数
-// - 新代码推荐使用PostByAuth或PostByECC方法
+// - 新代码推荐使用PostByPlan01或PostByPlan2方法
 // - 主要用于向后兼容和简单场景
 //
 // 注意:
