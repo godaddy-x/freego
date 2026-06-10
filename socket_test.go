@@ -2054,35 +2054,43 @@ func TestRemoteIPSecurity(t *testing.T) {
 	// 创建一个模拟的Context
 	ctx := &node.Context{}
 	ctx.RequestCtx = &fasthttp.RequestCtx{}
+	ctx.RequestCtx.Request.Header.Set("CF-Connecting-IP", "198.51.100.10")
 	ctx.RequestCtx.Request.Header.Set("X-Forwarded-For", "192.168.1.100, 10.0.0.1, 203.0.113.1")
 	ctx.RequestCtx.Request.Header.Set("X-Real-Ip", "10.0.0.2")
 
-	// 测试X-Forwarded-For优先级（取第一个有效IP）
+	// Cloudflare 回源头优先于 XFF / X-Real-Ip
 	ip := ctx.RemoteIP()
-	if ip != "192.168.1.100" {
-		t.Errorf("Expected first IP from X-Forwarded-For, got %s", ip)
+	if ip != "198.51.100.10" {
+		t.Errorf("Expected CF-Connecting-IP, got %s", ip)
 	}
 
-	// 测试无效IP的情况
-	ctx.RequestCtx.Request.Header.Set("X-Forwarded-For", "invalid-ip, 192.168.1.101")
+	ctx.RequestCtx.Request.Header.Del("CF-Connecting-IP")
+	// X-Forwarded-For：倒序取最后一个非内网 IP
 	ip = ctx.RemoteIP()
-	if ip != "192.168.1.101" {
-		t.Errorf("Expected valid IP after invalid one, got %s", ip)
+	if ip != "203.0.113.1" {
+		t.Errorf("Expected last public IP from X-Forwarded-For, got %s", ip)
 	}
 
-	// 测试X-Real-Ip回退
+	// 跳过无效 IP，取 XFF 中合法公网 IP
+	ctx.RequestCtx.Request.Header.Set("X-Forwarded-For", "invalid-ip, 203.0.113.50")
+	ip = ctx.RemoteIP()
+	if ip != "203.0.113.50" {
+		t.Errorf("Expected valid public IP after invalid one, got %s", ip)
+	}
+
+	// 内网 X-Real-Ip 应被过滤
 	ctx.RequestCtx.Request.Header.Del("X-Forwarded-For")
+	ctx.RequestCtx.Request.Header.Set("X-Real-Ip", "10.0.0.2")
 	ip = ctx.RemoteIP()
-	if ip != "10.0.0.2" {
-		t.Errorf("Expected X-Real-Ip fallback, got %s", ip)
+	if ip != "" {
+		t.Errorf("Expected empty for private X-Real-Ip, got %s", ip)
 	}
 
-	// 测试完全无效的情况（应该回退到RemoteIP()）
-	ctx.RequestCtx.Request.Header.Del("X-Real-Ip")
-	// 这里我们无法直接设置RemoteIP()的返回值，所以只验证方法不panic
+	// 公网 X-Real-Ip 回退
+	ctx.RequestCtx.Request.Header.Set("X-Real-Ip", "203.0.113.60")
 	ip = ctx.RemoteIP()
-	if ip == "" {
-		t.Error("RemoteIP should not return empty string")
+	if ip != "203.0.113.60" {
+		t.Errorf("Expected X-Real-Ip fallback, got %s", ip)
 	}
 
 	t.Logf("✓ RemoteIP security test completed - IP spoofing protection working")

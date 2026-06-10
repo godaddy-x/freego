@@ -86,6 +86,7 @@ type ConnectionContext struct {
 	Server       *WsServer
 	RouterConfig *RouterConfig // 路由配置
 	Path         string        // WebSocket连接的路径
+	ClientIP     string        // 建连时从 HTTP 升级请求解析的真实客户端 IP
 	RawToken     []byte        // 原始JWT token字节，用于签名验证
 	ctx          context.Context
 	cancel       context.CancelFunc
@@ -99,11 +100,16 @@ type requestMeta struct {
 	User   int64
 }
 
+// RemoteIP 返回建连时快照的真实客户端 IP（serveHTTP 升级前由 RemoteIPFromRequest 写入 ClientIP）。
+func (cc *ConnectionContext) RemoteIP() string {
+	return cc.ClientIP
+}
+
 func (cc *ConnectionContext) wsTraceConnID() string {
 	if cc == nil || cc.WsConn == nil {
 		return "nil-conn"
 	}
-	return fmt.Sprintf("%s|%p", cc.WsConn.RemoteAddr().String(), cc.WsConn)
+	return fmt.Sprintf("%s|%p", cc.RemoteIP(), cc.WsConn)
 }
 
 // GetRawTokenBytes 获取原始JWT token字节
@@ -449,10 +455,7 @@ func wsErrorDetail(err error) string {
 func (eh *ErrorHandler) handleConnectionError(connCtx *ConnectionContext, err error, operation string, fallbackNonce string) {
 	// 准备上下文信息
 	userID := connCtx.GetUserIDString()
-	remoteAddr := ""
-	if connCtx.WsConn != nil {
-		remoteAddr = connCtx.WsConn.RemoteAddr().String()
-	}
+	remoteAddr := connCtx.RemoteIP()
 	deviceID := ""
 	if connCtx.DevConn != nil {
 		deviceID = connCtx.DevConn.Dev
@@ -1389,7 +1392,7 @@ func (h *WsEventHandler) OnOpen(socket *gws.Conn) {
 			if connCtx.Subject != nil && connCtx.Subject.Payload != nil {
 				deviceID = connCtx.Subject.Payload.Dev
 			}
-			zlog.Info("CLIENT_CONNECTED", 0, zlog.String("client_address", socket.RemoteAddr().String()), zlog.String("user_id", connCtx.GetUserIDString()), zlog.String("device_id", deviceID))
+			zlog.Info("CLIENT_CONNECTED", 0, zlog.String("client_address", connCtx.RemoteIP()), zlog.String("user_id", connCtx.GetUserIDString()), zlog.String("device_id", deviceID))
 		}
 	}
 }
@@ -1875,7 +1878,7 @@ func (s *WsServer) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 
 	if zlog.IsDebug() {
-		zlog.Debug("HTTP_REQUEST_RECEIVED", 0, zlog.String("method", r.Method), zlog.String("path", path), zlog.String("client_ip", r.RemoteAddr))
+		zlog.Debug("HTTP_REQUEST_RECEIVED", 0, zlog.String("method", r.Method), zlog.String("path", path), zlog.String("client_ip", RemoteIPFromRequest(r)))
 	}
 
 	// 检查路由是否存在
@@ -1909,8 +1912,8 @@ func (s *WsServer) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 创建连接上下文
-	connCtx := s.createConnectionContext(subject, socket, path, &RouterConfig{}, rawToken)
+	// 创建连接上下文（建连时保存真实客户端 IP，升级后无法再从 gws.Conn 读取代理头）
+	connCtx := s.createConnectionContext(subject, socket, path, &RouterConfig{}, rawToken, RemoteIPFromRequest(r))
 
 	// 存储到 map
 	s.connContextMap.Store(socket, connCtx)
@@ -1972,7 +1975,7 @@ func (s *WsServer) validateTokenFromRequest(r *http.Request, path string) (*jwt.
 	return s.validateConnectAuthFromRequest(r, path)
 }
 
-func (s *WsServer) createConnectionContext(subject *jwt.Subject, socket *gws.Conn, path string, routerConfig *RouterConfig, rawToken []byte) *ConnectionContext {
+func (s *WsServer) createConnectionContext(subject *jwt.Subject, socket *gws.Conn, path string, routerConfig *RouterConfig, rawToken []byte, clientIP string) *ConnectionContext {
 	connCtx, cancel := context.WithCancel(s.globalCtx)
 
 	devID := ""
@@ -2013,6 +2016,7 @@ func (s *WsServer) createConnectionContext(subject *jwt.Subject, socket *gws.Con
 		Server:       s,
 		RouterConfig: routerConfig, // 使用传入的路由配置
 		Path:         path,         // 设置WebSocket连接路径
+		ClientIP:     clientIP,     // 建连时从升级请求解析的真实客户端 IP
 		RawToken:     rawToken,     // 设置原始token字节
 		ctx:          connCtx,
 		cancel:       cancel,

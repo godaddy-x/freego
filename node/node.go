@@ -513,17 +513,20 @@ func isPrivateIP(ip net.IP) bool {
 	return false
 }
 
-// RemoteIP 安全获取真实客户端IP（防伪造、过滤内网IP）
-func (self *Context) RemoteIP() string {
-	// 1. 优先处理X-Forwarded-For头（反向代理场景）
-	xffHeader := strings.TrimSpace(utils.Bytes2Str(self.RequestCtx.Request.Header.Peek("X-Forwarded-For")))
+// resolveRemoteIP 从代理头与直连地址解析真实客户端 IP（过滤内网 IP）。
+// 优先级：CF-Connecting-IP（Cloudflare 回源）> X-Forwarded-For > X-Real-Ip > fallback。
+func resolveRemoteIP(cfConnectingIP, xffHeader, realIPHeader, fallback string) string {
+	cfConnectingIP = strings.TrimSpace(cfConnectingIP)
+	if cfConnectingIP != "" {
+		ip := net.ParseIP(cfConnectingIP)
+		if ip != nil && !isPrivateIP(ip) {
+			return ip.String()
+		}
+	}
+
+	xffHeader = strings.TrimSpace(xffHeader)
 	if xffHeader != "" {
-		// 拆分XFF头，按反向代理规则：最后一个非内网IP是真实客户端IP（或第一个，需根据代理配置调整）
-		// 【关键】根据你的反向代理配置选择：
-		// - 若代理配置为“追加XFF”（如Nginx的proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;）：取第一个非内网IP
-		// - 若代理配置为“覆盖XFF”：取最后一个非内网IP
 		ips := strings.Split(xffHeader, ",")
-		// 倒序遍历：优先取最后一个非内网IP（适配大部分反向代理配置）
 		for i := len(ips) - 1; i >= 0; i-- {
 			ipStr := strings.TrimSpace(ips[i])
 			if ipStr == "" {
@@ -536,24 +539,52 @@ func (self *Context) RemoteIP() string {
 		}
 	}
 
-	// 2. 处理X-Real-Ip头（单代理场景）
-	realIP := strings.TrimSpace(utils.Bytes2Str(self.RequestCtx.Request.Header.Peek("X-Real-Ip")))
-	if realIP != "" {
-		ip := net.ParseIP(realIP)
+	realIPHeader = strings.TrimSpace(realIPHeader)
+	if realIPHeader != "" {
+		ip := net.ParseIP(realIPHeader)
 		if ip != nil && !isPrivateIP(ip) {
 			return ip.String()
 		}
 	}
 
-	// 3. 回退到fasthttp原生RemoteIP（无代理场景）
-	remoteIP := self.RequestCtx.RemoteIP().String()
-	ip := net.ParseIP(remoteIP)
-	if ip != nil && !isPrivateIP(ip) {
-		return remoteIP
+	fallback = strings.TrimSpace(fallback)
+	if fallback != "" {
+		ip := net.ParseIP(fallback)
+		if ip != nil && !isPrivateIP(ip) {
+			return fallback
+		}
 	}
-
-	// 4. 兜底：返回空字符串（避免返回内网IP）
 	return ""
+}
+
+// RemoteIPFromRequest 从标准 http.Request 安全获取真实客户端 IP（与 Context.RemoteIP 规则一致）。
+func RemoteIPFromRequest(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	fallback := r.RemoteAddr
+	if host, _, err := net.SplitHostPort(fallback); err == nil {
+		fallback = host
+	}
+	return resolveRemoteIP(
+		r.Header.Get("CF-Connecting-IP"),
+		r.Header.Get("X-Forwarded-For"),
+		r.Header.Get("X-Real-Ip"),
+		fallback,
+	)
+}
+
+// RemoteIP 安全获取真实客户端IP（防伪造、过滤内网IP）
+func (self *Context) RemoteIP() string {
+	if self == nil || self.RequestCtx == nil {
+		return ""
+	}
+	return resolveRemoteIP(
+		utils.Bytes2Str(self.RequestCtx.Request.Header.Peek("CF-Connecting-IP")),
+		utils.Bytes2Str(self.RequestCtx.Request.Header.Peek("X-Forwarded-For")),
+		utils.Bytes2Str(self.RequestCtx.Request.Header.Peek("X-Real-Ip")),
+		self.RequestCtx.RemoteIP().String(),
+	)
 }
 
 func (self *Context) reset(ctx *Context, handle PostHandle, request *fasthttp.RequestCtx, fs []*FilterObject) {
