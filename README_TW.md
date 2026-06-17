@@ -195,19 +195,21 @@ func main() {
 
 > 完整方法、原始輸出與失敗統計口徑見 [`http_benchmark_report.md`](./http_benchmark_report.md)。
 
-### ORM 效能對比（MySQL，獨立進程 60s）
+### MySQL ORM：FreeGo 全面領先 GORM（獨立進程 60s）
 
-| 場景 | FreeGo（sqld） | GORM | GORM / FreeGo |
-| -------------- | -------------- | ------------ | ------------- |
-| FindOne `ns/op` | **11,169** | **16,471** | **≈ 1.47×** |
-| FindList 100 `ns/op` | **165,937** | **253,354** | **≈ 1.53×** |
-| FindList 500 `ns/op` | **596,669** | **825,536** | **≈ 1.38×** |
-| FindList 1000 `ns/op` | **422,738** | **1,472,001** | **≈ 3.48×** |
-| FindList 2000 `ns/op` | **751,271** | **3,189,665** | **≈ 4.25×** |
-| Save `ns/op` | **301,592** | **368,179** | **≈ 1.22×** |
-| Update `ns/op` | **180,680** | **358,455** | **≈ 1.98×** |
+獨立進程、每項 **60s** 壓測下，FreeGo（sqld）在讀/寫 **7 個場景 `ns/op` 均低於 GORM**；FindList 1000/2000 條優勢最大（分別快 **≈3.5× / 4.3×**），各分項失敗率均為 **0%**。
 
-> 上表來自 [`orm_performance_report.md`](./orm_performance_report.md) 的獨立進程 60s 批次。Mongo 見 [`mongodb_performance_report.md`](./mongodb_performance_report.md)。
+| 場景 | FreeGo 領先 | FreeGo（sqld）`ns/op` | GORM `ns/op` |
+| -------------- | ----------- | --------------------- | ------------ |
+| FindOne | **快 1.47×** | **11,169** | 16,471 |
+| FindList 100 | **快 1.53×** | **165,937** | 253,354 |
+| FindList 500 | **快 1.38×** | **596,669** | 825,536 |
+| FindList 1000 | **快 3.48×** | **422,738** | 1,472,001 |
+| FindList 2000 | **快 4.25×** | **751,271** | 3,189,665 |
+| Save | **快 1.22×** | **301,592** | 368,179 |
+| Update | **快 1.98×** | **180,680** | 358,455 |
+
+> 完整環境、對齊條件與原始輸出見 [`orm_performance_report.md`](./orm_performance_report.md)。MongoDB 見 [`mongodb_performance_report.md`](./mongodb_performance_report.md)。
 
 ## 🗄️ ORM 特性
 

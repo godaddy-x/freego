@@ -206,19 +206,21 @@ func main() {
 
 > 完整方法、原始输出与失败统计口径见 [`http_benchmark_report.md`](./http_benchmark_report.md)。
 
-### ORM 性能对比（MySQL，独立进程 60s）
+### MySQL ORM：FreeGo 全面领先 GORM（独立进程 60s）
 
-| 场景                  | FreeGo（sqld） | GORM          | GORM / FreeGo |
-| --------------------- | -------------- | ------------- | ------------- |
-| FindOne `ns/op`       | **11,169**     | **16,471**    | **≈ 1.47×**   |
-| FindList 100 `ns/op`  | **165,937**    | **253,354**   | **≈ 1.53×**   |
-| FindList 500 `ns/op`  | **596,669**    | **825,536**   | **≈ 1.38×**   |
-| FindList 1000 `ns/op` | **422,738**    | **1,472,001** | **≈ 3.48×**   |
-| FindList 2000 `ns/op` | **751,271**    | **3,189,665** | **≈ 4.25×**   |
-| Save `ns/op`          | **301,592**    | **368,179**   | **≈ 1.22×**   |
-| Update `ns/op`        | **180,680**    | **358,455**   | **≈ 1.98×**   |
+独立进程、每项 **60s** 压测下，FreeGo（sqld）在读/写 **7 个场景 `ns/op` 均低于 GORM**；FindList 1000/2000 条优势最大（分别快 **≈3.5× / 4.3×**），各分项失败率均为 **0%**。
 
-> 上表来自 [`orm_performance_report.md`](./orm_performance_report.md) 的独立进程 60s 批次；各分项失败率均为 0.00%。Mongo 见 [`mongodb_performance_report.md`](./mongodb_performance_report.md)。
+| 场景                  | FreeGo 领先   | FreeGo（sqld）`ns/op` | GORM `ns/op` |
+| --------------------- | ------------- | --------------------- | ------------ |
+| FindOne               | **快 1.47×**  | **11,169**            | 16,471       |
+| FindList 100          | **快 1.53×**  | **165,937**           | 253,354      |
+| FindList 500          | **快 1.38×**  | **596,669**           | 825,536      |
+| FindList 1000         | **快 3.48×**  | **422,738**           | 1,472,001    |
+| FindList 2000         | **快 4.25×**  | **751,271**           | 3,189,665    |
+| Save                  | **快 1.22×**  | **301,592**           | 368,179      |
+| Update                | **快 1.98×**  | **180,680**           | 358,455      |
+
+> 完整环境、对齐条件与原始输出见 [`orm_performance_report.md`](./orm_performance_report.md)。MongoDB 见 [`mongodb_performance_report.md`](./mongodb_performance_report.md)。
 
 ## 🗄️ ORM 特性
 

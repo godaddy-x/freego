@@ -191,19 +191,21 @@ Architecture and Plan flows: [`README_SECURITY_EN.md`](./README_SECURITY_EN.md).
 
 > Full methodology: [`http_benchmark_report.md`](./http_benchmark_report.md).
 
-### ORM (MySQL, 60s isolated process)
+### MySQL ORM: FreeGo leads GORM (60s isolated process)
 
-| Scenario | FreeGo (sqld) | GORM | GORM / FreeGo |
-| -------- | ------------- | ---- | ------------- |
-| FindOne `ns/op` | **11,169** | **16,471** | **≈ 1.47×** |
-| FindList 100 `ns/op` | **165,937** | **253,354** | **≈ 1.53×** |
-| FindList 500 `ns/op` | **596,669** | **825,536** | **≈ 1.38×** |
-| FindList 1000 `ns/op` | **422,738** | **1,472,001** | **≈ 3.48×** |
-| FindList 2000 `ns/op` | **751,271** | **3,189,665** | **≈ 4.25×** |
-| Save `ns/op` | **301,592** | **368,179** | **≈ 1.22×** |
-| Update `ns/op` | **180,680** | **358,455** | **≈ 1.98×** |
+With **one isolated process per benchmark** and **60s** per run, FreeGo (sqld) has **lower `ns/op` than GORM in all 7 read/write scenarios**; the largest gaps are FindList 1000/2000 (**≈3.5× / 4.3× faster**). Failure rate: **0%** across all cases.
 
-> From [`orm_performance_report.md`](./orm_performance_report.md). MongoDB: [`mongodb_performance_report.md`](./mongodb_performance_report.md).
+| Scenario | FreeGo lead | FreeGo (sqld) `ns/op` | GORM `ns/op` |
+| -------- | ----------- | --------------------- | ------------ |
+| FindOne | **1.47× faster** | **11,169** | 16,471 |
+| FindList 100 | **1.53× faster** | **165,937** | 253,354 |
+| FindList 500 | **1.38× faster** | **596,669** | 825,536 |
+| FindList 1000 | **3.48× faster** | **422,738** | 1,472,001 |
+| FindList 2000 | **4.25× faster** | **751,271** | 3,189,665 |
+| Save | **1.22× faster** | **301,592** | 368,179 |
+| Update | **1.98× faster** | **180,680** | 358,455 |
+
+> Full methodology and raw output: [`orm_performance_report.md`](./orm_performance_report.md). MongoDB: [`mongodb_performance_report.md`](./mongodb_performance_report.md).
 
 ## 🗄️ ORM
 
