@@ -14,7 +14,6 @@ import (
 	"github.com/godaddy-x/freego/rpcx/impl"
 	"github.com/godaddy-x/freego/rpcx/pb"
 	"github.com/godaddy-x/freego/utils"
-	"github.com/godaddy-x/freego/utils/crypto"
 	"github.com/godaddy-x/freego/zlog"
 	"google.golang.org/grpc"
 )
@@ -24,7 +23,7 @@ type RPCManager struct {
 	server     *grpc.Server
 	listener   net.Listener
 	cancel     context.CancelFunc
-	cipher     map[int64]crypto.Cipher
+	cipherHook CipherHook
 	redisCache cache.Cache
 	localCache cache.Cache
 }
@@ -34,16 +33,13 @@ func NewRPCManager() *RPCManager {
 	return &RPCManager{}
 }
 
-// AddCipher 注册某一客户端用户 Cipher：*crypto.MLDSA87Object（CreateMLDSA87WithBase64：服务端私钥 + 该客户端公钥）。
+// AddCipherHook 注册 Cipher 动态加载回调：按 usr 解析本端私钥与对端公钥并构造 ML-DSA Cipher。
 // RPCX 当前仅明文 P=0：s=SHA256(规范字段)，e=ML-DSA.Sign(SHA256(规范字段))。
-func (g *RPCManager) AddCipher(usr int64, cipher crypto.Cipher) error {
-	if cipher == nil {
-		return utils.Error("cipher is nil")
+func (g *RPCManager) AddCipherHook(hook CipherHook) error {
+	if hook == nil {
+		return utils.Error("cipher hook is nil")
 	}
-	if g.cipher == nil {
-		g.cipher = map[int64]crypto.Cipher{}
-	}
-	g.cipher[usr] = cipher
+	g.cipherHook = hook
 	return nil
 }
 
@@ -90,11 +86,11 @@ func (g *RPCManager) StartServer(addr string) error {
 	}
 
 	// 验证必要配置
-	if len(g.cipher) == 0 {
-		return fmt.Errorf("cipher must be set before starting server")
+	if g.cipherHook == nil {
+		return fmt.Errorf("cipher hook must be set before starting server")
 	}
 
-	zlog.Printf("cipher service has been started successful")
+	zlog.Printf("cipher hook service has been started successful")
 
 	// 验证至少有一个业务处理器已注册
 	if len(impl.GetAllHandlers()) == 0 {
@@ -232,16 +228,11 @@ func (g *RPCManager) StopServerByTimeout(timeout time.Duration) error {
 	return nil
 }
 
-// GetCipher 获取cipher密钥列表 (实现ConfigProvider接口)
-func (g *RPCManager) GetCipher() map[int64]crypto.Cipher {
+// GetCipherHook 获取 Cipher 动态加载回调（实现 ConfigProvider 接口）。
+func (g *RPCManager) GetCipherHook() CipherHook {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	// 返回副本以避免外部修改
-	cipherCopy := make(map[int64]crypto.Cipher, len(g.cipher))
-	for k, v := range g.cipher {
-		cipherCopy[k] = v
-	}
-	return cipherCopy
+	return g.cipherHook
 }
 
 // GetLocalCache 获取本地缓存

@@ -119,13 +119,11 @@ type Permission struct {
 	NeedRole  []int64 // 所需角色ID列表 - 24字节 (8+8+8)
 }
 
-// System 结构体 - 40字节 (4个字段，8字节对齐，0字节填充)
-// 排列优化：string字段在前，bool字段居中，int64字段在后，利用8字节对齐
+// System 结构体
 type System struct {
-	Name          string // 系统名 - 16字节 (8+8)
-	Version       string // 系统版本 - 16字节 (8+8)
-	enableECC     bool   // 1字节
-	AcceptTimeout int64  // 超时主动断开客户端连接,秒 - 8字节
+	Name          string // 系统名
+	Version       string // 系统版本
+	AcceptTimeout int64  // 超时主动断开客户端连接,秒
 }
 
 // Context 结构体 - 184字节 (19个字段，8字节对齐，0字节填充)
@@ -146,16 +144,16 @@ type Context struct {
 	filterChain  *filterChain           // 8字节 - 指针
 	RouterConfig *RouterConfig          // 8字节 - 指针
 
-	// 8字节函数指针字段组 (5个字段，40字节)
+	// 8字节函数指针字段组 (6个字段，48字节)
 	RedisCacheAware func(ds ...string) (cache.Cache, error) // 8字节 - 函数指针
 	LocalCacheAware func(ds ...string) (cache.Cache, error) // 8字节 - 函数指针
 	roleRealm       func(ctx *Context) (*Permission, error) // 8字节 - 函数指针
+	cipherHook      CipherHook                              // Plan2：按 usr 动态加载 ML-DSA Cipher
 	postHandle      PostHandle                              // 8字节 - 函数指针
 	errorHandle     ErrorHandle                             // 8字节 - 函数指针
 
-	// 8字节其他字段组 (3个字段)
-	PQCipher map[int64]crypto.Cipher // Plan2：ML-DSA-87 外层签
-	Storage  map[string]interface{}
+	// 8字节其他字段组 (2个字段)
+	Storage map[string]interface{}
 
 	// bool字段 (1字节，会产生填充)
 	postCompleted bool // 1字节 - bool
@@ -358,7 +356,6 @@ func (self *Context) Parser(dst interface{}) error {
 		System:          &common.System{Name: self.System.Name, Version: self.System.Version},
 		RedisCacheAware: self.RedisCacheAware,
 		LocalCacheAware: self.LocalCacheAware,
-		Cipher:          self.PQCipher,
 	}
 	src := utils.GetPtr(dst, 0)
 	req := common.GetBasePtrReq(src)
@@ -595,13 +592,9 @@ func (self *Context) reset(ctx *Context, handle PostHandle, request *fasthttp.Re
 	if self.LocalCacheAware == nil {
 		self.LocalCacheAware = ctx.LocalCacheAware
 	}
-	if len(self.PQCipher) == 0 && len(ctx.PQCipher) > 0 {
-		self.PQCipher = make(map[int64]crypto.Cipher, len(ctx.PQCipher))
-		for k, v := range ctx.PQCipher {
-			self.PQCipher[k] = v
-		}
+	if self.cipherHook == nil {
+		self.cipherHook = ctx.cipherHook
 	}
-	// 如果RSA已有值（全局配置），保持不变
 	if self.roleRealm == nil {
 		self.roleRealm = ctx.roleRealm
 	}
@@ -796,10 +789,10 @@ func (self *Context) CreatePublicKey() (*PublicKey, error) {
 		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request usr invalid"}
 	}
 
-	cipher, exists := self.PQCipher[checkObject.Usr]
-	if !exists {
+	cipher, err := self.getPQCipher(checkObject.Usr)
+	if err != nil {
 		zlog.Error("CreatePublicKey usr error", 0, zlog.String("ip", self.RemoteIP()), zlog.Int64("usr", checkObject.Usr))
-		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "plan2 cipher not found for user"}
+		return nil, err
 	}
 
 	// 增加限流器控制USR访问量

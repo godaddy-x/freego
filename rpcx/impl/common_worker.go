@@ -22,7 +22,7 @@ import (
 
 // ConfigProvider 配置提供者接口
 type ConfigProvider interface {
-	GetCipher() map[int64]fgocrypto.Cipher
+	GetCipherHook() CipherHook
 	GetLocalCache() cache.Cache
 	GetRedisCache() cache.Cache
 }
@@ -32,11 +32,22 @@ type CommonWorker struct {
 	ConfigProvider ConfigProvider // 配置提供者接口
 }
 
-func (self *CommonWorker) GetCipher() map[int64]fgocrypto.Cipher {
-	if self.ConfigProvider != nil {
-		return self.ConfigProvider.GetCipher()
+func (self *CommonWorker) resolveCipher(usr int64) (fgocrypto.Cipher, error) {
+	if self.ConfigProvider == nil {
+		return nil, errors.New("config provider is nil")
 	}
-	return nil
+	hook := self.ConfigProvider.GetCipherHook()
+	if hook == nil {
+		return nil, errors.New("cipher hook not configured")
+	}
+	cipher, err := hook(usr)
+	if err != nil {
+		return nil, err
+	}
+	if cipher == nil {
+		return nil, errors.New("cipher hook returned nil")
+	}
+	return cipher, nil
 }
 
 func (self *CommonWorker) GetLocalCache() cache.Cache {
@@ -135,9 +146,9 @@ func (self *CommonWorker) validRequest(req *pb.CommonRequest) (fgocrypto.Cipher,
 		return nil, errors.New("request e must be ML-DSA-87 signature")
 	}
 
-	cipher, exists := self.GetCipher()[req.U]
-	if !exists || cipher == nil {
-		return nil, errors.New("request cipher not found")
+	cipher, err := self.resolveCipher(req.U)
+	if err != nil {
+		return nil, errors.New("request cipher not found: " + err.Error())
 	}
 
 	ml, err := rpcxMLDSACipher(cipher)

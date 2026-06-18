@@ -21,20 +21,23 @@ import (
 )
 
 // RPC FreeGo gRPC 客户端 SDK
-// AddCipher：*crypto.MLDSA87Object（CreateMLDSA87WithBase64：本端私钥 + 对端公钥）。
+// AddCipherHook：按 usr 动态加载 *crypto.MLDSA87Object（CreateMLDSA87WithBase64：本端私钥 + 对端公钥）。
 // 当前仅支持明文 P=0：s = SHA256(规范字段)，e = ML-DSA.Sign(本端私钥, SHA256(规范字段))；暂不支持 P=1。
 type RPC struct {
-	Address       string
-	SSL           bool
-	timeout       int64
-	language      string
-	clientNo      int64
-	mldsaObject   map[int64]crypto.Cipher
+	Address    string
+	SSL        bool
+	timeout    int64
+	language   string
+	clientNo   int64
+	cipherHook CipherHook
 
 	conn      *grpc.ClientConn
 	client    pb.CommonWorkerClient
 	closeOnce sync.Once
 }
+
+// CipherHook 按客户端用户 ID 动态解析 ML-DSA Cipher（本端私钥 + 对端公钥）。
+type CipherHook = impl.CipherHook
 
 func NewRPC(address string) *RPC {
 	return &RPC{
@@ -65,15 +68,11 @@ func (r *RPC) SetLanguage(language string) *RPC {
 	return r
 }
 
-// AddCipher 注册 *crypto.MLDSA87Object。
-func (r *RPC) AddCipher(usr int64, cipher crypto.Cipher) *RPC {
-	if cipher == nil {
-		return r
+// AddCipherHook 注册 Cipher 动态加载回调。
+func (r *RPC) AddCipherHook(hook CipherHook) *RPC {
+	if hook != nil {
+		r.cipherHook = hook
 	}
-	if r.mldsaObject == nil {
-		r.mldsaObject = make(map[int64]crypto.Cipher)
-	}
-	r.mldsaObject[usr] = cipher
 	return r
 }
 
@@ -87,8 +86,8 @@ func (r *RPC) Connect() error {
 		return nil
 	}
 
-	if len(r.mldsaObject) == 0 {
-		return fmt.Errorf("RPCX cipher not configured (use crypto.CreateMLDSA87WithBase64)")
+	if r.cipherHook == nil {
+		return fmt.Errorf("RPCX cipher hook not configured")
 	}
 
 	if r.timeout <= 0 {
@@ -140,9 +139,12 @@ func (r *RPC) CallWithTimeout(router string, requestObj, responseObj proto.Messa
 }
 
 func (r *RPC) post(router string, requestObj, responseObj proto.Message, timeout int64) error {
-	cipher, exists := r.mldsaObject[r.clientNo]
-	if !exists || cipher == nil {
-		return fmt.Errorf("cipher not found for client")
+	cipher, err := r.cipherHook(r.clientNo)
+	if err != nil {
+		return fmt.Errorf("resolve cipher: %v", err)
+	}
+	if cipher == nil {
+		return fmt.Errorf("cipher hook returned nil")
 	}
 
 	d, err := impl.PackAny(requestObj)
@@ -209,9 +211,12 @@ func (r *RPC) verifyResponse(resp *pb.CommonResponse) error {
 		return fmt.Errorf("response time invalid")
 	}
 
-	cipher, exists := r.mldsaObject[r.clientNo]
-	if !exists || cipher == nil {
-		return fmt.Errorf("cipher not found for client")
+	cipher, err := r.cipherHook(r.clientNo)
+	if err != nil {
+		return fmt.Errorf("resolve cipher: %v", err)
+	}
+	if cipher == nil {
+		return fmt.Errorf("cipher hook returned nil")
 	}
 
 	if len(resp.S) != 32 || !crypto.CheckRPCXSignatureValid(resp.E) {

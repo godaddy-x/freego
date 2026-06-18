@@ -2,8 +2,6 @@ package node
 
 import (
 	"sync"
-
-	"github.com/godaddy-x/freego/utils/crypto"
 )
 
 // JsonBody对象池，用于降低GC压力
@@ -80,9 +78,9 @@ var messageHandlerPool = sync.Pool{
 }
 
 // GetMessageHandler 从池中获取一个MessageHandler对象
-func GetMessageHandler(pqCipher map[int64]crypto.Cipher, handle Handle) *MessageHandler {
+func GetMessageHandler(hook CipherHook, handle Handle) *MessageHandler {
 	mh := messageHandlerPool.Get().(*MessageHandler)
-	mh.pqCipher = pqCipher
+	mh.cipherHook = hook
 	mh.handle = handle
 	return mh
 }
@@ -96,6 +94,6 @@ func PutMessageHandler(mh *MessageHandler) {
 	// 注意：rsa字段不需要重置，因为它是共享的只读数据
 	// handle字段会在下次获取时重新设置
 	mh.handle = nil
-	mh.pqCipher = nil
+	mh.cipherHook = nil
 	messageHandlerPool.Put(mh)
 }

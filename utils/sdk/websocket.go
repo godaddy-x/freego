@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"io"
 	"math/big"
 	"net/http"
 	"net/url"
@@ -37,6 +38,29 @@ func abortDanglingGwsClient(c *gws.Conn, code uint16, reason string) {
 	if nc := c.NetConn(); nc != nil {
 		_ = nc.Close()
 	}
+}
+
+// wsConnectHTTPError 解析 WebSocket 升级失败时的 HTTP 响应（serveHTTP 鉴权失败走 http.Error，尚未建立 WS 帧）。
+func wsConnectHTTPError(resp *http.Response, dialErr error) ex.Throw {
+	msg := "WebSocket connection failed"
+	if dialErr != nil {
+		msg = msg + ": " + dialErr.Error()
+	}
+	code := http.StatusBadGateway
+	if resp != nil {
+		if resp.StatusCode > 0 {
+			code = resp.StatusCode
+		}
+		if resp.Body != nil {
+			defer resp.Body.Close()
+			if body, readErr := io.ReadAll(io.LimitReader(resp.Body, 512)); readErr == nil {
+				if detail := strings.TrimSpace(string(body)); len(detail) > 0 {
+					return ex.Throw{Code: code, Msg: detail}
+				}
+			}
+		}
+	}
+	return ex.Throw{Code: code, Msg: msg}
 }
 
 func (s *SocketSDK) gwsHandshakeTimeout() time.Duration {
@@ -616,7 +640,7 @@ func (s *SocketSDK) connectWebSocketInternal(path string, isInitial bool) error 
 
 	// 建立WebSocket连接（gws）
 	handler := &ClientEventHandler{sdk: s}
-	socket, _, err := gws.NewClient(handler, &gws.ClientOption{
+	socket, resp, err := gws.NewClient(handler, &gws.ClientOption{
 		Addr:                wsURL,
 		RequestHeader:       header,
 		ReadMaxPayloadSize:  1024 * 1024 * 10,
@@ -631,7 +655,7 @@ func (s *SocketSDK) connectWebSocketInternal(path string, isInitial bool) error 
 		if zlog.IsDebug() {
 			zlog.Debug(fmt.Sprintf("WebSocket connection failed: %v", err), 0)
 		}
-		return ex.Throw{Msg: "WebSocket connection failed: " + err.Error()}
+		return wsConnectHTTPError(resp, err)
 	}
 
 	// 启动 ReadLoop（gws 客户端需要手动启动）

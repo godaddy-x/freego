@@ -82,10 +82,10 @@ func (self *HttpNode) StartServer(addr string) {
 	// 初始化限流器（Redis准备就绪后）
 	initRateLimiters()
 
-	if len(self.Context.PQCipher) == 0 {
-		panic("ML-DSA (plan2 outer sign) cipher not configured, AddCipher is required")
+	if self.Context.cipherHook == nil {
+		panic("ML-DSA (plan2 outer sign) cipher not configured, AddCipherHook is required")
 	}
-	zlog.Info("plan2 ML-DSA outer sign configured for users", 0, zlog.Int("users", len(self.Context.PQCipher)))
+	zlog.Info("plan2 ML-DSA outer sign configured via cipher hook", 0)
 
 	if self.Context.RedisCacheAware != nil {
 		zlog.Info("redis cache service has been started successful", 0)
@@ -188,7 +188,6 @@ func (self *HttpNode) checkContextReady(path string, routerConfig *RouterConfig)
 	self.readyContext()
 	self.AddRedisCache(nil)
 	self.AddLocalCache(nil)
-	//if err := self.AddCipher(nil); err != nil {
 	//	panic("add cipher failed: " + err.Error())
 	//}
 	self.addRouterConfig(path, routerConfig)
@@ -262,13 +261,11 @@ func (self *HttpNode) readyContext() {
 	if self.Context == nil {
 		self.Context = &Context{}
 		self.Context.configs = &Configs{}
-		self.Context.PQCipher = make(map[int64]crypto.Cipher)
 		self.Context.configs.routerConfigs = make(map[string]*RouterConfig)
 		self.Context.configs.langConfigs = make(map[string]map[string]string)
 		self.Context.configs.jwtConfig = jwt.JwtConfig{}
 		self.Context.System = &System{}
 		self.ctxPool = self.createCtxPool()
-		self.Context.System.enableECC = true
 	}
 }
 
@@ -293,14 +290,15 @@ func (self *HttpNode) AddLocalCache(cacheAware CacheAware) {
 	}
 }
 
-// AddCipher 注册 Plan2（ML-DSA-87）外层验签：须 crypto.CreateMLDSA87WithBase64（服务端 ML-DSA 私钥，该客户端 ML-DSA 公钥）。
+// AddCipherHook 注册 Plan2 Cipher 动态加载回调：按 usr 解析服务端私钥与客户端公钥并构造 ML-DSA Cipher。
 // 与客户端 HttpSDK.SetMLDSA87Object 互为镜像；Plan0/Plan1 不使用外层 Valid 签名。
-func (self *HttpNode) AddCipher(key int64, cipher crypto.Cipher) error {
-	if cipher == nil {
-		return utils.Error("cipher is nil")
+func (self *HttpNode) AddCipherHook(hook CipherHook) error {
+	if hook == nil {
+		return utils.Error("cipher hook is nil")
 	}
 	self.readyContext()
-	self.Context.PQCipher[key] = cipher
+	self.Context.cipherHook = hook
+	zlog.Info("add cipher hook successful", 0)
 	return nil
 }
 
@@ -380,12 +378,6 @@ func (self *HttpNode) AddJwtConfig(config jwt.JwtConfig) error {
 	self.Context.configs.jwtConfig.TokenKey = config.TokenKey
 	self.Context.configs.jwtConfig.TokenExp = config.TokenExp
 	return nil
-}
-
-// EnableECC default: true
-func (self *HttpNode) EnableECC(enable bool) {
-	self.readyContext()
-	self.Context.System.enableECC = enable
 }
 
 func (self *HttpNode) SetSystem(name, version string) {

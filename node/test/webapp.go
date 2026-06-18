@@ -153,7 +153,6 @@ func roleRealm(ctx *node.Context) (*node.Permission, error) {
 
 func NewHTTP() *MyWebNode {
 	var my = &MyWebNode{}
-	my.EnableECC(true)
 	my.AddJwtConfig(jwt.JwtConfig{
 		TokenTyp: jwt.JWT,
 		TokenAlg: jwt.HS256,
@@ -161,8 +160,9 @@ func NewHTTP() *MyWebNode {
 		TokenExp: jwt.TWO_WEEK * 10,
 	})
 
-	pqCipher, _ := crypto.CreateMLDSA87WithBase64(serverPrk, clientPub)
-	my.AddCipher(1, pqCipher)
+	_ = my.AddCipherHook(func(usr int64) (crypto.Cipher, error) {
+		return crypto.CreateMLDSA87WithBase64(serverPrk, clientPub)
+	})
 
 	//my.AddRedisCache(func(ds ...string) (cache.Cache, error) {
 	//	rds, err := cache.NewRedis(ds...)

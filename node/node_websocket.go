@@ -88,6 +88,7 @@ type ConnectionContext struct {
 	Path         string        // WebSocket连接的路径
 	ClientIP     string        // 建连时从 HTTP 升级请求解析的真实客户端 IP
 	RawToken     []byte        // 原始JWT token字节，用于签名验证
+	sessionID    atomic.Int64  // Login 成功后分配的 WS 会话雪花 ID（ParallelEnabled 下同连接多 goroutine 读写）
 	ctx          context.Context
 	cancel       context.CancelFunc
 }
@@ -105,9 +106,30 @@ func (cc *ConnectionContext) RemoteIP() string {
 	return cc.ClientIP
 }
 
+// GetSessionID 返回 Login 成功后分配的 WS 会话雪花 ID；尚未 Login 时为 0。
+func (cc *ConnectionContext) GetSessionID() int64 {
+	if cc == nil {
+		return 0
+	}
+	return cc.sessionID.Load()
+}
+
+// AssignSessionID 分配新的 WS 会话雪花 ID（Login 成功时调用；同连接重复 Login 会覆盖旧值）。
+func (cc *ConnectionContext) AssignSessionID() int64 {
+	if cc == nil {
+		return 0
+	}
+	id := utils.NextIID()
+	cc.sessionID.Store(id)
+	return id
+}
+
 func (cc *ConnectionContext) wsTraceConnID() string {
 	if cc == nil || cc.WsConn == nil {
 		return "nil-conn"
+	}
+	if sid := cc.GetSessionID(); sid > 0 {
+		return fmt.Sprintf("%s|%d", cc.RemoteIP(), sid)
 	}
 	return fmt.Sprintf("%s|%p", cc.RemoteIP(), cc.WsConn)
 }
@@ -194,7 +216,6 @@ func (cc *ConnectionContext) Parser(body []byte, dst interface{}) error {
 		Path:            cc.Path,
 		RedisCacheAware: cc.Server.RedisCacheAware,
 		LocalCacheAware: cc.Server.LocalCacheAware,
-		Cipher:          cc.Server.PQCipher,
 	}
 
 	src := utils.GetPtr(dst, 0)
@@ -268,8 +289,8 @@ func releaseDevConnTargets(s []*DevConn) {
 
 // MessageHandler 消息处理器：统一处理消息校验、解码、路由
 type MessageHandler struct {
-	pqCipher map[int64]crypto.Cipher
-	handle   Handle
+	cipherHook CipherHook
+	handle     Handle
 }
 
 // HeartbeatService 心跳服务：gws 已内置 ping/pong，此服务仅用于定期清理过期连接
@@ -356,6 +377,14 @@ type WsMessagePreFilter func(ctx context.Context, connCtx *ConnectionContext, jb
 // handleErr 非 nil 时，本函数返回值被忽略。使用约定：仅在监听前 AddWsPostFilter。
 type WsMessagePostFilter func(ctx context.Context, connCtx *ConnectionContext, jb *JsonBody, bizData []byte, reply interface{}, handleErr error) error
 
+// WsHeartbeatHook 在 /ws/ping 校验通过并更新连接 Last 之后执行；不进入业务 Pre/Post 链。
+// 用于在线态刷新等副作用；hook 内应快速返回并自行异步落库，避免阻塞消息循环。
+type WsHeartbeatHook func(ctx context.Context, connCtx *ConnectionContext, jb *JsonBody)
+
+// WsConnCloseHook 在连接已从 ConnectionManager 移除之后、取消连接 context 之前执行。
+// closeErr 为 gws 关闭原因；若同 subject 仍有其它活跃连接，业务侧应自行判断是否标记离线。
+type WsConnCloseHook func(ctx context.Context, connCtx *ConnectionContext, closeErr error)
+
 // WsServer WebSocket服务器核心结构体
 type WsServer struct {
 	server       *http.Server          // 标准 HTTP 服务器
@@ -390,8 +419,7 @@ type WsServer struct {
 	validateTokenPerMessage bool
 
 	// ECC和缓存配置（用于Plan 2）
-	// 8字节函数指针字段组 (5个字段，40字节)
-	PQCipher        map[int64]crypto.Cipher                 // Plan2：ML-DSA-87
+	cipherHook      CipherHook                              // Plan2：按 usr 动态加载 ML-DSA Cipher
 	RedisCacheAware func(ds ...string) (cache.Cache, error) // 8字节 - 函数指针
 	LocalCacheAware func(ds ...string) (cache.Cache, error) // 8字节 - 函数指针
 	PushKeyProvider func(subject string) string             // 推送签名密钥获取函数：subject=="" 表示全量广播
@@ -414,8 +442,10 @@ type WsServer struct {
 	plan2SharedKeyTTLSeconds int64
 
 	// 业务消息前置/后置过滤：与 HttpNode.filters 相同约定——仅在初始化/监听前注册，监听运行期只读遍历，无每消息 copy。
-	wsPreFilters  []WsMessagePreFilter
-	wsPostFilters []WsMessagePostFilter
+	wsPreFilters      []WsMessagePreFilter
+	wsPostFilters     []WsMessagePostFilter
+	wsHeartbeatHooks  []WsHeartbeatHook
+	wsConnCloseHooks  []WsConnCloseHook
 }
 
 // ErrorHandler WebSocket错误处理器（统一错误处理）
@@ -984,6 +1014,14 @@ func (mh *MessageHandler) Process(connCtx *ConnectionContext, body []byte, jb *J
 			zlog.Debug("heartbeat_received_and_updated", 0, zlog.String("subject", connCtx.GetUserIDString()), zlog.String("device", connCtx.getDeviceID()), zlog.String("connection_path", connCtx.Path), zlog.String("nonce", jb.Nonce))
 		}
 
+		c := connCtx.ctx
+		if c == nil {
+			c = context.Background()
+		}
+		if sv := connCtx.Server; sv != nil {
+			sv.invokeWsHeartbeatHooks(c, connCtx, jb)
+		}
+
 		return cipher, nil, nil
 	}
 
@@ -1036,6 +1074,12 @@ func (mh *MessageHandler) Process(connCtx *ConnectionContext, body []byte, jb *J
 
 	result, err := handle(connCtx.ctx, connCtx, bizData)
 
+	if err == nil {
+		if effectiveConfig := mh.resolveRouterConfig(connCtx, jb); isPlan2LoginRoute(effectiveConfig) {
+			connCtx.AssignSessionID()
+		}
+	}
+
 	if sv := connCtx.Server; sv != nil {
 		for _, f := range sv.wsPostFilters {
 			if f == nil {
@@ -1058,9 +1102,9 @@ func (mh *MessageHandler) Process(connCtx *ConnectionContext, body []byte, jb *J
 
 // CheckOuterSign 按用户 ID 取 ML-DSA Cipher 并校验外层签名。
 func (self *MessageHandler) CheckOuterSign(usr int64, msg, sign []byte) (crypto.Cipher, error) {
-	cipher, exists := self.pqCipher[usr]
-	if !exists || cipher == nil {
-		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "plan2 cipher not found for user"}
+	cipher, err := self.getPQCipher(usr)
+	if err != nil {
+		return nil, err
 	}
 	if err := cipher.Verify(msg, sign); err != nil {
 		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request signature invalid"}
@@ -1207,12 +1251,12 @@ func (mh *MessageHandler) validWebSocketBodyPlan01Flow(connCtx *ConnectionContex
 }
 
 func (mh *MessageHandler) validWebSocketBodyPlan2Flow(connCtx *ConnectionContext, body *JsonBody) (crypto.Cipher, []byte, error) {
-	cipher, exists := mh.pqCipher[body.User]
-	if !exists {
-		return nil, nil, ex.Throw{Code: http.StatusBadRequest, Msg: "plan2 cipher not found for user"}
+	cipher, err := mh.getPQCipher(body.User)
+	if err != nil {
+		return nil, nil, err
 	}
 	outerDigest := DigestBodyMessage(body.Router, body.Data, body.Nonce, body.Time, body.Plan, body.User)
-	cipher, err := connCtx.Server.CheckOuterSign(cipher, outerDigest, utils.Base64Decode(body.Valid))
+	cipher, err = connCtx.Server.CheckOuterSign(cipher, outerDigest, utils.Base64Decode(body.Valid))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1237,16 +1281,16 @@ func (mh *MessageHandler) validWebSocketBodyPlan2Flow(connCtx *ConnectionContext
 }
 
 func (mh *MessageHandler) validWebSocketBodyPlan2KeyFlow(connCtx *ConnectionContext, body *JsonBody) (crypto.Cipher, []byte, error) {
-	cipher, exists := mh.pqCipher[body.User]
-	if !exists {
-		return nil, nil, ex.Throw{Code: http.StatusBadRequest, Msg: "plan2 cipher not found for user"}
+	cipher, err := mh.getPQCipher(body.User)
+	if err != nil {
+		return nil, nil, err
 	}
 	// /key 首次协商阶段还没有共享密钥，HMAC 使用空 key，身份认证由外层 ML-DSA + PublicKey 校验共同完成。
 	sign, digest := SignAndDigestBodyMessage(body.Router, body.Data, body.Nonce, body.Time, body.Plan, body.User, []byte{})
 	if !utils.CompareBase64Sign(sign, body.Sign) {
 		return nil, nil, ex.Throw{Code: http.StatusUnauthorized, Msg: "websocket signature verify invalid"}
 	}
-	cipher, err := connCtx.Server.CheckOuterSign(cipher, digest, utils.Base64Decode(body.Valid))
+	cipher, err = connCtx.Server.CheckOuterSign(cipher, digest, utils.Base64Decode(body.Valid))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1415,6 +1459,14 @@ func (h *WsEventHandler) OnClose(socket *gws.Conn, err error) {
 				h.server.connManager.RemoveByConn(connCtx.DevConn)
 			}
 
+			c := connCtx.ctx
+			if c == nil {
+				c = context.Background()
+			}
+			if h.server != nil {
+				h.server.invokeWsConnCloseHooks(c, connCtx, err)
+			}
+
 			// 从 map 中删除
 			h.server.connContextMap.Delete(socket)
 
@@ -1550,6 +1602,48 @@ func (s *WsServer) AddWsPostFilter(f WsMessagePostFilter) {
 	}
 	s.wsPostFilters = append(s.wsPostFilters, f)
 	zlog.Info("add_websocket_post_filter", 0, zlog.Int("total", len(s.wsPostFilters)))
+}
+
+// AddWsHeartbeatHook 注册 /ws/ping 心跳钩子（校验通过后、回包前执行）。
+// 使用约定：仅在 StartWebsocket 监听前调用。
+func (s *WsServer) AddWsHeartbeatHook(f WsHeartbeatHook) {
+	if s == nil || f == nil {
+		return
+	}
+	s.wsHeartbeatHooks = append(s.wsHeartbeatHooks, f)
+	zlog.Info("add_websocket_heartbeat_hook", 0, zlog.Int("total", len(s.wsHeartbeatHooks)))
+}
+
+// AddWsConnCloseHook 注册连接关闭钩子（ConnectionManager 移除之后执行）。
+// 使用约定：仅在 StartWebsocket 监听前调用。
+func (s *WsServer) AddWsConnCloseHook(f WsConnCloseHook) {
+	if s == nil || f == nil {
+		return
+	}
+	s.wsConnCloseHooks = append(s.wsConnCloseHooks, f)
+	zlog.Info("add_websocket_conn_close_hook", 0, zlog.Int("total", len(s.wsConnCloseHooks)))
+}
+
+func (s *WsServer) invokeWsHeartbeatHooks(ctx context.Context, connCtx *ConnectionContext, jb *JsonBody) {
+	if s == nil {
+		return
+	}
+	for _, f := range s.wsHeartbeatHooks {
+		if f != nil {
+			f(ctx, connCtx, jb)
+		}
+	}
+}
+
+func (s *WsServer) invokeWsConnCloseHooks(ctx context.Context, connCtx *ConnectionContext, closeErr error) {
+	if s == nil {
+		return
+	}
+	for _, f := range s.wsConnCloseHooks {
+		if f != nil {
+			f(ctx, connCtx, closeErr)
+		}
+	}
 }
 
 func (s *WsServer) isWithinAuthTimeWindow(ts int64) bool {
@@ -1953,9 +2047,9 @@ func (s *WsServer) validateConnectAuthFromRequest(r *http.Request, path string) 
 	if err != nil {
 		return nil, nil, ex.Throw{Code: http.StatusUnauthorized, Msg: "invalid authorization format", Err: err}
 	}
-	cipher, exists := s.PQCipher[pub.Usr]
-	if !exists || cipher == nil {
-		return nil, nil, ex.Throw{Code: http.StatusBadRequest, Msg: "cipher not found for user"}
+	cipher, err := s.getPQCipher(pub.Usr)
+	if err != nil {
+		return nil, nil, err
 	}
 	c, err := s.GetCacheObject()
 	if err != nil {
@@ -2047,7 +2141,7 @@ func (s *WsServer) processMessage(connCtx *ConnectionContext, message []byte) {
 		zlog.Error("NO_DEFAULT_ROUTE_CONFIGURED", 0, zlog.String("expected_route", DefaultWsRoute))
 		return
 	}
-	messageHandler := GetMessageHandler(s.PQCipher, routeInfo.Handle)
+	messageHandler := GetMessageHandler(s.cipherHook, routeInfo.Handle)
 	defer PutMessageHandler(messageHandler)
 
 	cipher, reply, err := messageHandler.Process(connCtx, message, jsonBody)
@@ -2218,9 +2312,9 @@ func (s *WsServer) BuildPlan2KeyResponse(req *PublicKey) (*PublicKey, error) {
 	if s == nil || req == nil {
 		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "request public key is nil"}
 	}
-	cipherObj, exists := s.PQCipher[req.Usr]
-	if !exists || cipherObj == nil {
-		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "plan2 cipher not found for user"}
+	cipherObj, err := s.getPQCipher(req.Usr)
+	if err != nil {
+		return nil, err
 	}
 	c, err := s.GetCacheObject()
 	if err != nil {
@@ -2396,15 +2490,12 @@ func (self *WsServer) AddLocalCache(cacheAware CacheAware) {
 	}
 }
 
-// AddCipher 注册 Plan2 ML-DSA-87 验签（与 HttpNode.AddCipher 一致）。
-func (self *WsServer) AddCipher(usr int64, cipher crypto.Cipher) error {
-	if self.PQCipher == nil {
-		self.PQCipher = make(map[int64]crypto.Cipher)
+// AddCipherHook 注册 Plan2 Cipher 动态加载回调（与 HttpNode.AddCipherHook 一致）。
+func (self *WsServer) AddCipherHook(hook CipherHook) error {
+	if hook == nil {
+		return utils.Error("cipher hook is nil")
 	}
-	if cipher == nil {
-		return utils.Error("cipher is nil")
-	}
-	self.PQCipher[usr] = cipher
+	self.cipherHook = hook
 	return nil
 }
 

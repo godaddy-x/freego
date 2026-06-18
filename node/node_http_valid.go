@@ -72,11 +72,11 @@ func (self *Context) validJsonBodyPlan2Flow(body *JsonBody) error {
 	// 3) HMAC 验证（会话完整性）
 	// 4) 时间窗 + 重放检查（有状态校验）
 	// 5) AES-GCM 解密，并缓存 sharedKey 供响应复用
-	cipher, exists := self.PQCipher[body.User]
-	if !exists {
-		return ex.Throw{Code: http.StatusBadRequest, Msg: "plan2 cipher not found for user"}
+	cipher, err := self.getPQCipher(body.User)
+	if err != nil {
+		return err
 	}
-	cipher, err := self.CheckOuterSign(cipher, DigestBodyMessage(self.Path, body.Data, body.Nonce, body.Time, body.Plan, body.User), utils.Base64Decode(body.Valid))
+	cipher, err = self.CheckOuterSign(cipher, DigestBodyMessage(self.Path, body.Data, body.Nonce, body.Time, body.Plan, body.User), utils.Base64Decode(body.Valid))
 	if err != nil {
 		return err
 	}
@@ -186,9 +186,9 @@ func (self *Context) negotiatePlan2SharedKey(body *JsonBody) ([]byte, error) {
 		return nil, err
 	}
 
-	cipher, exists := self.PQCipher[body.User]
-	if !exists {
-		return nil, ex.Throw{Code: http.StatusBadRequest, Msg: "plan2 cipher not found for user"}
+	cipher, err := self.getPQCipher(body.User)
+	if err != nil {
+		return nil, err
 	}
 	if err := CheckPublicKey(c, public, cipher); err != nil {
 		return nil, err

@@ -36,6 +36,10 @@ const (
 	wsTestServerPingSeconds = 30     // 心跳间隔（秒）
 )
 
+func wsTestCipherHook(usr int64) (crypto.Cipher, error) {
+	return crypto.CreateMLDSA87WithBase64(pqServerPrk, pqClientPub)
+}
+
 // testMessageHandler 测试用的消息处理器
 type testMessageHandler struct {
 	receivedMessages []*node.JsonResp
@@ -824,8 +828,7 @@ func TestCreateWsServer(t *testing.T) {
 	})
 
 	// 增加双向验签的Ed25519
-	cipher, _ := crypto.CreateMLDSA87WithBase64(pqServerPrk, pqClientPub)
-	server.AddCipher(1, cipher)
+	_ = server.AddCipherHook(wsTestCipherHook)
 
 	// 配置连接池（限流见文件顶部 wsTestServer* 常量）
 	err := server.NewPool(wsTestServerMaxConn, wsTestServerConnPerSec, wsTestServerConnBurst, wsTestServerPingSeconds)
@@ -976,8 +979,7 @@ func TestWebSocketSDKUsage(t *testing.T) {
 	})
 
 	// 增加双向验签的Ed25519
-	cipher, _ := crypto.CreateMLDSA87WithBase64(pqServerPrk, pqClientPub)
-	server.AddCipher(1, cipher)
+	_ = server.AddCipherHook(wsTestCipherHook)
 
 	// 配置连接池（限流见文件顶部 wsTestServer* 常量）
 	err := server.NewPool(wsTestServerMaxConn, wsTestServerConnPerSec, wsTestServerConnBurst, wsTestServerPingSeconds)
@@ -1220,8 +1222,7 @@ func TestWebSocketTokenExpiredCallback(t *testing.T) {
 		TokenExp: jwt.TWO_WEEK,
 	})
 
-	cipher, _ := crypto.CreateMLDSA87WithBase64(pqServerPrk, pqClientPub)
-	server.AddCipher(1, cipher)
+	_ = server.AddCipherHook(wsTestCipherHook)
 
 	err := server.NewPool(100, 10, 5, 30)
 	if err != nil {
@@ -1373,8 +1374,7 @@ func TestWebSocketMessageSubscription(t *testing.T) {
 	})
 
 	// 增加双向验签的Ed25519
-	cipher, _ := crypto.CreateMLDSA87WithBase64(pqServerPrk, pqClientPub)
-	server.AddCipher(1, cipher)
+	_ = server.AddCipherHook(wsTestCipherHook)
 
 	// 配置连接池
 	err := server.NewPool(100, 10, 5, 30)
@@ -1992,8 +1992,7 @@ func TestWebSocketClientUnexpectedDisconnect(t *testing.T) {
 		TokenKey: "123456",
 		TokenExp: jwt.TWO_WEEK,
 	})
-	cipher, _ := crypto.CreateMLDSA87WithBase64(pqServerPrk, pqClientPub)
-	server.AddCipher(1, cipher)
+	_ = server.AddCipherHook(wsTestCipherHook)
 	if err := server.NewPool(10, 20, 100, 15); err != nil {
 		t.Fatalf("NewPool failed: %v", err)
 	}
@@ -2158,8 +2157,7 @@ func TestWebSocketErrorHandling(t *testing.T) {
 	})
 
 	// 增加双向验签的Ed25519
-	cipher, _ := crypto.CreateMLDSA87WithBase64(pqServerPrk, pqClientPub)
-	server.AddCipher(1, cipher)
+	_ = server.AddCipherHook(wsTestCipherHook)
 
 	// 初始化连接池和心跳服务
 	if err := server.NewPool(100, 10, 5, 30); err != nil {
@@ -2235,8 +2233,7 @@ func TestWebSocketServer(t *testing.T) {
 	})
 
 	// 增加双向验签的Ed25519
-	cipher, _ := crypto.CreateMLDSA87WithBase64(pqServerPrk, pqClientPub)
-	server.AddCipher(1, cipher)
+	_ = server.AddCipherHook(wsTestCipherHook)
 
 	// 配置连接池
 	err := server.NewPool(100, 10, 5, 30)
