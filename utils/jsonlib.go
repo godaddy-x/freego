@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,6 +23,47 @@ func JsonMarshal(v interface{}) ([]byte, error) {
 		return easyjson.Marshal(em) // 用 easyjson 高性能序列化
 	}
 	return json.Marshal(v) // 用标准库序列化
+}
+
+func jsonDecode(data []byte, v interface{}, useNumber bool) error {
+	if useNumber {
+		dec := json.NewDecoder(bytes.NewReader(data))
+		dec.UseNumber()
+		return dec.Decode(v)
+	}
+	return json.Unmarshal(data, v)
+}
+
+// JsonUnmarshalUseNumber 反序列化 JSON；数字保留为 json.Number，避免雪花 ID 经 float64 丢精度。
+// 适用于 audit 脱敏等解析到 interface{} / map[string]interface{} 后再 Marshal 的场景。
+func JsonUnmarshalUseNumber(data []byte, v interface{}) error {
+	if len(data) == 0 {
+		return nil
+	}
+	if v == nil {
+		return errors.New("JSON target object is nil")
+	}
+	if eu, ok := v.(easyjson.Unmarshaler); ok {
+		return easyjson.Unmarshal(data, eu)
+	}
+	if !JsonValid(data) {
+		return errors.New("JSON format invalid")
+	}
+	return jsonDecode(data, v, true)
+}
+
+// JsonUnmarshalUseNumberFast 单遍反序列化（跳过 JsonValid），UseNumber 保留大整数精度。
+func JsonUnmarshalUseNumberFast(data []byte, v interface{}) error {
+	if len(data) == 0 {
+		return nil
+	}
+	if v == nil {
+		return errors.New("JSON target object is nil")
+	}
+	if eu, ok := v.(easyjson.Unmarshaler); ok {
+		return easyjson.Unmarshal(data, eu)
+	}
+	return jsonDecode(data, v, true)
 }
 
 // 校验JSON格式是否合法
