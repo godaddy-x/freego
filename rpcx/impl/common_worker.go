@@ -137,7 +137,7 @@ func (self *CommonWorker) validRequest(req *pb.CommonRequest) (fgocrypto.Cipher,
 		return nil, errors.New("request nonce invalid")
 	}
 	if req.P != 0 {
-		return nil, errors.New("RPCX 暂仅支持明文 P=0")
+		return nil, errors.New("RPCX only supports plaintext P=0")
 	}
 	if len(req.S) != 32 {
 		return nil, errors.New("request s must be 32-byte SHA256 digest")
