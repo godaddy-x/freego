@@ -2,35 +2,27 @@ package sdk
 
 import "fmt"
 
-/**
- * sdk lib包的返回结果信息。
- *
- * @author liuquan@geetest.com
- */
+// GeetestLibResult SDK 二次校验返回。
 type GeetestLibResult struct {
 	Status int
-	Data   string
 	Msg    string
 }
 
-type GeetestLibResultData struct {
-	Challenge  string `json:"challenge"`
-	Gt         string `json:"gt"`
-	NewCaptcha bool   `json:"new_captcha"`
-	Success    int    `json:"success"`
-	Status     int    `json:"status"` // 0.需要认证 1.跳过认证
-}
-
 func NewGeetestLibResult() *GeetestLibResult {
-	return &GeetestLibResult{0, "", ""}
+	return &GeetestLibResult{}
 }
 
-func (g *GeetestLibResult) setAll(status int, data string, msg string) {
+func (g *GeetestLibResult) setAll(status int, msg string) {
 	g.Status = status
-	g.Data = data
 	g.Msg = msg
 }
 
 func (g *GeetestLibResult) String() string {
-	return fmt.Sprintf("GeetestLibResult{Status=%d, Data=%s, Msg=%s}", g.Status, g.Data, g.Msg)
+	return fmt.Sprintf("GeetestLibResult{Status=%d, Msg=%s}", g.Status, g.Msg)
+}
+
+// GeetestLibResultData 初始化接口返回（GT4：下发 captcha_id，前端 initGeetest4 使用）。
+type GeetestLibResultData struct {
+	CaptchaID string `json:"captcha_id"`
+	Status    int    `json:"status"` // 0=需要人机验证 1=跳过验证
 }
