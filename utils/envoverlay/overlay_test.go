@@ -37,6 +37,31 @@ func TestApplyKeepsFileWhenEnvMissing(t *testing.T) {
 	}
 }
 
+func TestApplySkipsStringSlice(t *testing.T) {
+	type extractLike struct {
+		BroadcastKey string   `env:"MPC_CLI_BROADCAST_KEY"`
+		TradeKey     []string // 如 Extract.tradeKey，不应触发 panic
+		Tags         []string
+	}
+	cfg := extractLike{
+		BroadcastKey: "file-bk",
+		TradeKey:     []string{"a", "b"},
+		Tags:         []string{"x"},
+	}
+	os.Setenv("MPC_CLI_BROADCAST_KEY", "env-bk")
+	t.Cleanup(func() { os.Unsetenv("MPC_CLI_BROADCAST_KEY") })
+
+	if err := Apply(&cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.BroadcastKey != "env-bk" {
+		t.Fatalf("broadcastKey: got %q", cfg.BroadcastKey)
+	}
+	if len(cfg.TradeKey) != 2 || cfg.TradeKey[0] != "a" {
+		t.Fatalf("tradeKey should be unchanged: %v", cfg.TradeKey)
+	}
+}
+
 func TestApplyNestedSlice(t *testing.T) {
 	os.Setenv("NESTED_SECRET", "from-env")
 	t.Cleanup(func() { os.Unsetenv("NESTED_SECRET") })

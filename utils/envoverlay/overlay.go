@@ -46,23 +46,45 @@ func applyValue(v reflect.Value) error {
 				if err := applyValue(fieldVal); err != nil {
 					return err
 				}
-			case reflect.Slice:
-				for j := 0; j < fieldVal.Len(); j++ {
-					if err := applyValue(fieldVal.Index(j)); err != nil {
+			case reflect.Pointer:
+				if fieldVal.Type().Elem().Kind() == reflect.Struct {
+					if err := applyValue(fieldVal); err != nil {
 						return err
 					}
+				}
+			case reflect.Slice:
+				if err := applySliceField(fieldVal); err != nil {
+					return err
 				}
 			}
 		}
 	case reflect.Slice:
+		return applySliceField(v)
+	default:
+		return fmt.Errorf("envoverlay: expected struct or slice, got %s", v.Kind())
+	}
+	return nil
+}
+
+func applySliceField(v reflect.Value) error {
+	elem := v.Type().Elem()
+	switch elem.Kind() {
+	case reflect.Struct:
 		for i := 0; i < v.Len(); i++ {
 			if err := applyValue(v.Index(i)); err != nil {
 				return err
 			}
 		}
-	default:
-		return fmt.Errorf("envoverlay: expected struct or slice, got %s", v.Kind())
+	case reflect.Pointer:
+		if elem.Elem().Kind() == reflect.Struct {
+			for i := 0; i < v.Len(); i++ {
+				if err := applyValue(v.Index(i)); err != nil {
+					return err
+				}
+			}
+		}
 	}
+	// []string、[]int 等无 env tag 的 slice 元素，跳过
 	return nil
 }
 
