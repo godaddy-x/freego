@@ -8,7 +8,7 @@ require (
 	github.com/bsm/redislock v0.9.4
 	github.com/buaazp/fasthttprouter v0.1.1
 	github.com/go-sql-driver/mysql v1.7.0
-	github.com/godaddy-x/eccrypto v1.1.16
+	github.com/godaddy-x/eccrypto v1.1.17
 	github.com/google/uuid v1.6.0
 	github.com/lxzan/gws v1.9.1
 	github.com/mailru/easyjson v0.9.1
