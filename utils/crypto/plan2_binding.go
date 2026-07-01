@@ -2,11 +2,15 @@ package crypto
 
 import (
 	"bytes"
+	"crypto/rand"
 	"errors"
 	"fmt"
+	"math/big"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	ecc "github.com/godaddy-x/eccrypto"
 	"github.com/godaddy-x/freego/utils"
@@ -17,11 +21,12 @@ const Plan2WrapKeyEnv = "MPC_PLAN2_WRAP_KEY"
 
 const (
 	Plan2DefaultProvisionDir = "plan2-provision"
-	Plan2PublicFile          = "public.pem"
-	Plan2PrivateFile         = "private.key"
+	Plan2KeyFileExt          = ".key"
+	Plan2PublicFileExt       = ".pem"
 
-	plan2ProvisionEncPrefix = "plan2-provision-v1:"
-	plan2ProvisionAAD       = "plan2-provision-v1"
+	plan2ClientNoSuffixMod  int64 = 10_000 // 与 open_scanner model.GenerateAppCipherNo 一致
+	plan2ProvisionEncPrefix       = "plan2-provision-v1:"
+	plan2ProvisionAAD             = "plan2-provision-v1"
 )
 
 // Plan2KeyPair ML-DSA-87 单端身份密钥对（Base64）。
@@ -39,12 +44,24 @@ type Plan2Binding struct {
 // Plan2ProvisionResult WritePlan2KeyProvision 落盘结果。
 type Plan2ProvisionResult struct {
 	Dir       string
+	ClientNo  int64
 	Encrypted bool
 }
 
-// PrivateFile 私钥文件名（固定 private.key）。
+// PublicFile 公钥文件名（{clientNo}.pem）。
+func (r *Plan2ProvisionResult) PublicFile() string {
+	if r == nil {
+		return ""
+	}
+	return Plan2PublicFileName(r.ClientNo)
+}
+
+// PrivateFile 私钥文件名（{clientNo}.key）。
 func (r *Plan2ProvisionResult) PrivateFile() string {
-	return Plan2PrivateFile
+	if r == nil {
+		return ""
+	}
+	return Plan2PrivateFileName(r.ClientNo)
 }
 
 // PublicPath 公钥文件完整路径。
@@ -52,7 +69,7 @@ func (r *Plan2ProvisionResult) PublicPath() string {
 	if r == nil {
 		return ""
 	}
-	return filepath.Join(r.Dir, Plan2PublicFile)
+	return filepath.Join(r.Dir, r.PublicFile())
 }
 
 // PrivatePath 私钥文件完整路径。
@@ -60,7 +77,31 @@ func (r *Plan2ProvisionResult) PrivatePath() string {
 	if r == nil {
 		return ""
 	}
-	return filepath.Join(r.Dir, Plan2PrivateFile)
+	return filepath.Join(r.Dir, r.PrivateFile())
+}
+
+// Plan2PublicFileName 公钥文件名：{clientNo}.pem。
+func Plan2PublicFileName(clientNo int64) string {
+	return strconv.FormatInt(clientNo, 10) + Plan2PublicFileExt
+}
+
+// Plan2PrivateFileName 私钥文件名：{clientNo}.key。
+func Plan2PrivateFileName(clientNo int64) string {
+	return strconv.FormatInt(clientNo, 10) + Plan2KeyFileExt
+}
+
+// GeneratePlan2ClientNo 生成 PQC 证书编号（clientNo）：yyyyMMddHHmmss + 4 位随机数（共 18 位）。
+// 算法与 open_scanner/model.GenerateAppCipherNo 一致，供 Plan2 Cipher 路由使用。
+func GeneratePlan2ClientNo(at time.Time) (int64, error) {
+	prefix, err := strconv.ParseInt(at.In(time.Local).Format("20060102150405"), 10, 64)
+	if err != nil {
+		return 0, err
+	}
+	n, err := rand.Int(rand.Reader, big.NewInt(plan2ClientNoSuffixMod))
+	if err != nil {
+		return 0, err
+	}
+	return prefix*plan2ClientNoSuffixMod + n.Int64(), nil
 }
 
 // GeneratePlan2KeyPair 随机生成一对 ML-DSA-87 密钥。
@@ -100,11 +141,23 @@ func ValidateMLDSA87PublicKeyB64(pubB64 string) error {
 	return nil
 }
 
-// WritePlan2KeyProvision 写入 public.pem、private.key（各一行纯 Base64，无 JSON/PEM 头尾）。
-// wrapKey 非空时 private.key 为 AES-GCM 密文（plan2-provision-v1: 前缀），否则明文一行 Base64。
+// WritePlan2KeyProvision 写入 {clientNo}.pem、{clientNo}.key（各一行纯 Base64，无 JSON/PEM 头尾）。
+// clientNo 为 0 时自动生成 18 位编号；wrapKey 非空时私钥文件为 AES-GCM 密文（plan2-provision-v1: 前缀）。
 func WritePlan2KeyProvision(dir, wrapKey string, key *Plan2KeyPair) (*Plan2ProvisionResult, error) {
+	return WritePlan2KeyProvisionWithClientNo(dir, wrapKey, 0, key)
+}
+
+// WritePlan2KeyProvisionWithClientNo 同 WritePlan2KeyProvision，可指定 clientNo（0 表示自动生成）。
+func WritePlan2KeyProvisionWithClientNo(dir, wrapKey string, clientNo int64, key *Plan2KeyPair) (*Plan2ProvisionResult, error) {
 	if key == nil {
 		return nil, errors.New("plan2 key pair is nil")
+	}
+	if clientNo <= 0 {
+		var err error
+		clientNo, err = GeneratePlan2ClientNo(time.Now())
+		if err != nil {
+			return nil, fmt.Errorf("generate clientNo: %w", err)
+		}
 	}
 	dir = strings.TrimSpace(dir)
 	if dir == "" {
@@ -119,18 +172,21 @@ func WritePlan2KeyProvision(dir, wrapKey string, key *Plan2KeyPair) (*Plan2Provi
 		return nil, fmt.Errorf("mkdir %s: %w", dir, err)
 	}
 
+	pubFile := Plan2PublicFileName(clientNo)
+	privFile := Plan2PrivateFileName(clientNo)
+
 	pubBody := []byte(strings.TrimSpace(key.PublicKeyB64) + "\n")
-	if err := os.WriteFile(filepath.Join(dir, Plan2PublicFile), pubBody, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, pubFile), pubBody, 0o644); err != nil {
 		return nil, err
 	}
 
 	privBody := []byte(strings.TrimSpace(key.PrivateKeyB64) + "\n")
 	wrapKey = strings.TrimSpace(wrapKey)
 	if wrapKey == "" {
-		if err := os.WriteFile(filepath.Join(dir, Plan2PrivateFile), privBody, 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, privFile), privBody, 0o600); err != nil {
 			return nil, err
 		}
-		return &Plan2ProvisionResult{Dir: dir, Encrypted: false}, nil
+		return &Plan2ProvisionResult{Dir: dir, ClientNo: clientNo, Encrypted: false}, nil
 	}
 
 	aesKey := utils.SHA256_BASE(utils.Str2Bytes(wrapKey))
@@ -138,31 +194,38 @@ func WritePlan2KeyProvision(dir, wrapKey string, key *Plan2KeyPair) (*Plan2Provi
 	if err != nil {
 		return nil, err
 	}
-	if err := os.WriteFile(filepath.Join(dir, Plan2PrivateFile), []byte(plan2ProvisionEncPrefix+encB64), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, privFile), []byte(plan2ProvisionEncPrefix+encB64), 0o600); err != nil {
 		return nil, err
 	}
-	return &Plan2ProvisionResult{Dir: dir, Encrypted: true}, nil
+	return &Plan2ProvisionResult{Dir: dir, ClientNo: clientNo, Encrypted: true}, nil
 }
 
-// ReadPlan2PrivateKey 读取 private.key（明文或 AES 加密），返回一行 Base64 私钥。
-func ReadPlan2PrivateKey(dir, wrapKey string) (string, error) {
-	raw, err := os.ReadFile(filepath.Join(dir, Plan2PrivateFile))
+// ReadPlan2PrivateKey 读取 {clientNo}.key（明文或 AES 加密），返回一行 Base64 私钥。
+func ReadPlan2PrivateKey(dir string, clientNo int64, wrapKey string) (string, error) {
+	if clientNo <= 0 {
+		return "", errors.New("clientNo is required")
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, Plan2PrivateFileName(clientNo)))
 	if err != nil {
 		return "", err
 	}
+	name := Plan2PrivateFileName(clientNo)
 	if bytes.HasPrefix(raw, []byte(plan2ProvisionEncPrefix)) {
-		return decryptPlan2PrivateKey(raw, wrapKey)
+		return decryptPlan2PrivateKey(raw, wrapKey, name)
 	}
-	return parseOneBase64Line(raw, "private.key")
+	return parseOneBase64Line(raw, name)
 }
 
-// ReadPlan2PublicKey 读取 public.pem，返回一行 Base64 公钥。
-func ReadPlan2PublicKey(dir string) (string, error) {
-	raw, err := os.ReadFile(filepath.Join(dir, Plan2PublicFile))
+// ReadPlan2PublicKey 读取 {clientNo}.pem，返回一行 Base64 公钥。
+func ReadPlan2PublicKey(dir string, clientNo int64) (string, error) {
+	if clientNo <= 0 {
+		return "", errors.New("clientNo is required")
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, Plan2PublicFileName(clientNo)))
 	if err != nil {
 		return "", err
 	}
-	return parseOneBase64Line(raw, "public.pem")
+	return parseOneBase64Line(raw, Plan2PublicFileName(clientNo))
 }
 
 func parseOneBase64Line(raw []byte, name string) (string, error) {
@@ -176,19 +239,19 @@ func parseOneBase64Line(raw []byte, name string) (string, error) {
 	return line, nil
 }
 
-func decryptPlan2PrivateKey(raw []byte, wrapKey string) (string, error) {
+func decryptPlan2PrivateKey(raw []byte, wrapKey, name string) (string, error) {
 	wrapKey = strings.TrimSpace(wrapKey)
 	if wrapKey == "" {
-		return "", errors.New("plan2 wrap key is required for encrypted private.key")
+		return "", fmt.Errorf("%s: plan2 wrap key is required for encrypted private key", name)
 	}
 	if !bytes.HasPrefix(raw, []byte(plan2ProvisionEncPrefix)) {
-		return "", errors.New("private.key: invalid encrypted format")
+		return "", fmt.Errorf("%s: invalid encrypted format", name)
 	}
 	encB64 := string(bytes.TrimPrefix(raw, []byte(plan2ProvisionEncPrefix)))
 	aesKey := utils.SHA256_BASE(utils.Str2Bytes(wrapKey))
 	plain, err := utils.AesGCMDecryptBase(encB64, aesKey, utils.Str2Bytes(plan2ProvisionAAD))
 	if err != nil {
-		return "", fmt.Errorf("private.key decrypt: %w", err)
+		return "", fmt.Errorf("%s decrypt: %w", name, err)
 	}
-	return parseOneBase64Line(plain, "private.key")
+	return parseOneBase64Line(plain, name)
 }
