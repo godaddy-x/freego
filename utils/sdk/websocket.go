@@ -21,6 +21,7 @@ import (
 	"github.com/godaddy-x/freego/utils"
 	"github.com/godaddy-x/freego/zlog"
 	"github.com/lxzan/gws"
+	"go.uber.org/zap"
 )
 
 // WebSocket客户端常量
@@ -543,9 +544,17 @@ func (s *SocketSDK) ConnectWebSocket() error {
 	// 启用自动重连时，首次连接失败转为后台重连，不阻塞业务启动流程。
 	if s.isReconnectEnabled() {
 		go s.startReconnectProcess()
-		zlog.Info("initial websocket connect failed, starting async reconnect", 0, zlog.String("errorMsg", ex.Catch(err).Msg))
+		throw := ex.Catch(err)
+		if throw.Code > 0 && throw.Code != ex.BIZ {
+			zlog.Info("websocket connect failed, async reconnect started", 0,
+				zlog.String("reason", throw.Msg),
+				zlog.Int("code", throw.Code))
+		} else {
+			zlog.Info("websocket connect failed, async reconnect started", 0,
+				zlog.String("reason", throw.Msg))
+		}
 		if zlog.IsDebug() {
-			zlog.Debug(fmt.Sprintf("initial websocket connect failed, fallback to async reconnect: %v", err), 0)
+			zlog.Debug(fmt.Sprintf("websocket connect failed, fallback to async reconnect: %v", err), 0)
 		}
 		return nil
 	}
@@ -1753,7 +1762,8 @@ func (s *SocketSDK) startReconnectProcess() {
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
-				zlog.Error(fmt.Sprintf("Reconnect attempt %d panic", currentAttempt), 0, zlog.Any("panic", r))
+				zlog.Error("websocket reconnect panic", 0,
+					append(s.reconnectLogFields(currentAttempt, path, interval), zlog.Any("panic", r))...)
 				connectErr = ex.Throw{Msg: fmt.Sprintf("websocket reconnect panic: %v", r)}
 			}
 		}()
@@ -1761,14 +1771,35 @@ func (s *SocketSDK) startReconnectProcess() {
 	}()
 
 	if connectErr != nil {
-		zlog.Error(fmt.Sprintf("Reconnect attempt %d failed", currentAttempt), 0, zlog.String("errorMsg", ex.Catch(connectErr).Msg))
+		throw := ex.Catch(connectErr)
+		fields := s.reconnectLogFields(currentAttempt, path, interval)
+		fields = append(fields, zlog.String("reason", throw.Msg))
+		if throw.Code > 0 && throw.Code != ex.BIZ {
+			fields = append(fields, zlog.Int("code", throw.Code))
+		}
+		zlog.Warn("websocket reconnect failed", 0, fields...)
 		go s.startReconnectProcess()
 	} else {
-		zlog.Info(fmt.Sprintf("Reconnect attempt %d successful", currentAttempt), 0)
+		zlog.Info("websocket reconnect successful", 0, s.reconnectLogFields(currentAttempt, path, interval)...)
 		s.reconnectMutex.Lock()
 		s.reconnectAttempts = 0
 		s.reconnectMutex.Unlock()
 	}
+}
+
+func (s *SocketSDK) reconnectLogFields(attempt int, path string, backoff time.Duration) []zap.Field {
+	fields := []zap.Field{
+		zlog.Int("attempt", attempt),
+		zlog.String("domain", s.domain),
+		zlog.String("path", path),
+	}
+	if s.clientNo > 0 {
+		fields = append(fields, zlog.Int64("clientNo", s.clientNo))
+	}
+	if backoff > 0 {
+		fields = append(fields, zlog.Duration("backoff", backoff))
+	}
+	return fields
 }
 
 // getConnectedPathLocked 获取已连接的路径（调用者必须已持有 s.reconnectMutex）
