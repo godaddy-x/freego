@@ -2064,19 +2064,14 @@ func (s *SocketSDK) GetSubscriptions() map[string]*Subscription {
 	return result
 }
 
-// Close 主动关闭整个 SDK（停止所有重连和连接），并等待所有 goroutine 退出
+// Close 主动关闭整个 SDK（停止所有重连和连接），并等待所有 goroutine 退出。
+// 必须先 rootCancel，再 wg.Wait：tokenMonitor 只监听 rootCtx.Done()，
+// 若先 Wait 再 Cancel 会死锁，调用方（例如 admin 重连 job）会永久卡住。
 func (s *SocketSDK) Close() {
-	// 禁用重连，防止断开后再自动重连
 	s.DisableReconnect()
-
-	// 断开当前连接（这会触发 connCancel，通知 goroutine 退出）
 	s.DisconnectWebSocket()
-
-	// 等待心跳和监听 goroutine 退出
-	s.wg.Wait()
-
-	// 取消整个 SDK 的上下文
 	s.rootCancel()
+	s.wg.Wait()
 }
 
 // 示例：如何使用消息订阅功能
