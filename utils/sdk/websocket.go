@@ -1659,8 +1659,10 @@ func (s *SocketSDK) calculateReconnectIntervalLocked() time.Duration {
 	}
 
 	// 添加随机抖动 (0-1秒)，避免同时重连
-	randomJitter, _ := rand.Int(rand.Reader, big.NewInt(1000))
-	jitter := time.Duration(randomJitter.Int64()) * time.Millisecond
+	jitter := 500 * time.Millisecond
+	if randomJitter, err := rand.Int(rand.Reader, big.NewInt(1000)); err == nil {
+		jitter = time.Duration(randomJitter.Int64()) * time.Millisecond
+	}
 	interval += jitter
 
 	return interval

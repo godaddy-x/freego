@@ -18,14 +18,12 @@ func gorand(n int, characters string) string {
 	charLen := big.NewInt(int64(len(characters)))
 
 	for i := range randomString {
-		// 使用加密安全的随机数生成器
 		randomIndex, err := rand.Int(rand.Reader, charLen)
 		if err != nil {
-			// 如果crypto/rand失败，回退到fastrand
-			randomString[i] = characters[ModRand(len(characters))]
-		} else {
-			randomString[i] = characters[randomIndex.Int64()]
+			// 与 GetRandomSecure 一致：crypto/rand 失败视为系统级故障，禁止回退弱随机源。
+			panic("crypto/rand failed: " + err.Error())
 		}
+		randomString[i] = characters[randomIndex.Int64()]
 	}
 	return Bytes2Str(randomString)
 }
