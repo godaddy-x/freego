@@ -1776,6 +1776,11 @@ func (s *WsServer) SetPushKeyProvider(provider func(subject string) string) {
 	s.PushKeyProvider = provider
 }
 
+// HTTPServer 返回内部标准 HTTP 服务器（启动 ListenAndServe 前可用于包装 Handler）。
+func (s *WsServer) HTTPServer() *http.Server {
+	return s.server
+}
+
 func (s *WsServer) StartWebsocket(addr string) error {
 	if err := s.configValidator.validateServerConfig(addr, nil, s.heartbeatSvc); err != nil {
 		return err

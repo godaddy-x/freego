@@ -1963,7 +1963,7 @@ func getUint32Value(v bson.RawValue) (uint32, error) {
 	}
 
 	if uint64Val > math.MaxUint32 {
-		return 0, fmt.Errorf("uint32 value %d out of range [0, %d]", uint64Val, math.MaxUint32)
+		return 0, fmt.Errorf("uint32 value %d out of range [0, %d]", uint64Val, uint64(math.MaxUint32))
 	}
 	return uint32(uint64Val), nil
 }
