@@ -7,11 +7,11 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/godaddy-x/freego/zlog"
+	"github.com/godaddy-x/freego/infra/zlog"
 
-	"github.com/godaddy-x/freego/ormx/sqlc"
-	"github.com/godaddy-x/freego/ormx/sqld"
-	"github.com/godaddy-x/freego/utils"
+	"github.com/godaddy-x/freego/core/query"
+	"github.com/godaddy-x/freego/store/orm/mysql"
+	"github.com/godaddy-x/freego/core/str"
 )
 
 func init() {
@@ -22,7 +22,7 @@ func init() {
 // 验证基本的INSERT操作，包括数据序列化和字段映射
 func TestMysqlSave(t *testing.T) {
 	initMysqlDB()
-	db, err := sqld.NewMysqlTx(false)
+	db, err := mysql.NewMysqlTx(false)
 	if err != nil {
 		panic(err)
 	}
@@ -60,7 +60,7 @@ func TestMysqlSave(t *testing.T) {
 // 验证基本的UPDATE操作，包括事务管理和数据一致性
 func TestMysqlUpdate(t *testing.T) {
 	initMysqlDB()
-	db, err := sqld.NewMysqlTx(true)
+	db, err := mysql.NewMysqlTx(true)
 	if err != nil {
 		panic(err)
 	}
@@ -99,7 +99,7 @@ func TestMysqlUpdate(t *testing.T) {
 // 验证基于条件的UPDATE操作，包括Upset语法和性能统计
 func TestMysqlUpdateByCnd(t *testing.T) {
 	initMysqlDB()
-	db, err := sqld.NewMysqlTx(true)
+	db, err := mysql.NewMysqlTx(true)
 	if err != nil {
 		panic(err)
 	}
@@ -115,7 +115,7 @@ func TestMysqlUpdateByCnd(t *testing.T) {
 // 验证基本的DELETE操作，包括对象删除和性能统计
 func TestMysqlDelete(t *testing.T) {
 	initMysqlDB()
-	db, err := sqld.NewMysqlTx(false)
+	db, err := mysql.NewMysqlTx(false)
 	if err != nil {
 		panic(err)
 	}
@@ -138,7 +138,7 @@ func TestMysqlDelete(t *testing.T) {
 // 验证通过ID列表删除多条记录的操作
 func TestMysqlDeleteById(t *testing.T) {
 	initMysqlDB()
-	db, err := sqld.NewMysqlTx(false)
+	db, err := mysql.NewMysqlTx(false)
 	if err != nil {
 		panic(err)
 	}
@@ -154,7 +154,7 @@ func TestMysqlDeleteById(t *testing.T) {
 // 验证各种复杂的查询条件组合在删除操作中的使用
 func TestMysqlDeleteByCnd(t *testing.T) {
 	initMysqlDB()
-	db, err := sqld.NewMysqlTx(false)
+	db, err := mysql.NewMysqlTx(false)
 	if err != nil {
 		panic(err)
 	}
@@ -186,7 +186,7 @@ func TestMysqlDeleteByCnd(t *testing.T) {
 // 验证SELECT单条记录操作，包括条件查询和排序
 func TestMysqlFindOne(t *testing.T) {
 	initMysqlDB()
-	db, err := sqld.NewMysqlTx(false)
+	db, err := mysql.NewMysqlTx(false)
 	if err != nil {
 		panic(err)
 	}
@@ -202,7 +202,7 @@ func TestMysqlFindOne(t *testing.T) {
 // 验证SELECT多条记录操作，包括范围查询、分页和排序
 func TestMysqlFindList(t *testing.T) {
 	initMysqlDB()
-	db, err := sqld.NewMysqlTx(false)
+	db, err := mysql.NewMysqlTx(false)
 	if err != nil {
 		panic(err)
 	}
@@ -317,7 +317,7 @@ func TestMysqlFindList(t *testing.T) {
 // 验证对象池释放后，之前查询的结果数据是否仍然安全不受影响
 func TestMysqlFindListBoundarySafety(t *testing.T) {
 	initMysqlDB()
-	db, err := sqld.NewMysqlTx(false)
+	db, err := mysql.NewMysqlTx(false)
 	if err != nil {
 		panic(err)
 	}
@@ -444,7 +444,7 @@ func TestMysqlFindListBoundarySafety(t *testing.T) {
 // 验证 stmt.QueryContext 调用后修改参数值是否影响数据库操作
 func TestMysqlParameterSafety(t *testing.T) {
 	initMysqlDB()
-	db, err := sqld.NewMysqlTx(false)
+	db, err := mysql.NewMysqlTx(false)
 	if err != nil {
 		panic(err)
 	}
@@ -627,7 +627,7 @@ func TestMysqlParameterSafety(t *testing.T) {
 // 验证 stmt.ExecContext 调用后修改参数值是否影响数据库保存操作
 func TestMysqlSaveParameterSafety(t *testing.T) {
 	initMysqlDB()
-	db, err := sqld.NewMysqlTx(false)
+	db, err := mysql.NewMysqlTx(false)
 	if err != nil {
 		panic(err)
 	}
@@ -805,7 +805,7 @@ func TestMysqlSaveParameterSafety(t *testing.T) {
 // 验证哪些字段类型会受到对象池释放的影响
 func TestMysqlFindListFieldTypesSafety(t *testing.T) {
 	initMysqlDB()
-	db, err := sqld.NewMysqlTx(false)
+	db, err := mysql.NewMysqlTx(false)
 	if err != nil {
 		panic(err)
 	}
@@ -897,7 +897,7 @@ func TestMysqlFindListFieldTypesSafety(t *testing.T) {
 // 验证COUNT查询操作，包括分组和各种查询条件的组合
 func TestMysqlCount(t *testing.T) {
 	initMysqlDB()
-	db, err := sqld.NewMysqlTx(false)
+	db, err := mysql.NewMysqlTx(false)
 	if err != nil {
 		panic(err)
 	}
@@ -915,7 +915,7 @@ func TestMysqlCount(t *testing.T) {
 // 验证EXISTS查询操作，检查记录是否存在的布尔返回值
 func TestMysqlExists(t *testing.T) {
 	initMysqlDB()
-	db, err := sqld.NewMysqlTx(false)
+	db, err := mysql.NewMysqlTx(false)
 	if err != nil {
 		panic(err)
 	}
@@ -933,7 +933,7 @@ func TestMysqlExists(t *testing.T) {
 // 验证JOIN连接查询、字段选择和复杂条件组合的单条记录查询
 func TestMysqlFindOneComplex(t *testing.T) {
 	initMysqlDB()
-	db, err := sqld.NewMysqlTx(false)
+	db, err := mysql.NewMysqlTx(false)
 	if err != nil {
 		panic(err)
 	}
@@ -951,7 +951,7 @@ func TestMysqlFindOneComplex(t *testing.T) {
 // 验证JOIN连接查询、字段选择和复杂条件组合的列表查询
 func TestMysqlFindListComplex(t *testing.T) {
 	initMysqlDB()
-	db, err := sqld.NewMysqlTx(false)
+	db, err := mysql.NewMysqlTx(false)
 	if err != nil {
 		panic(err)
 	}
@@ -968,7 +968,7 @@ func TestMysqlFindListComplex(t *testing.T) {
 // TestMysqlBatchOperations 测试批量操作
 func TestMysqlBatchOperations(t *testing.T) {
 	initMysqlDB()
-	db, err := sqld.NewMysqlTx(false)
+	db, err := mysql.NewMysqlTx(false)
 	if err != nil {
 		t.Fatalf("Failed to get MySQL client: %v", err)
 	}
@@ -1059,7 +1059,7 @@ func TestMysqlTransactionOperations(t *testing.T) {
 	initMysqlDB()
 
 	t.Run("TransactionCommit", func(t *testing.T) { // 测试事务成功提交的完整流程
-		db, err := sqld.NewMysqlTx(true) // 开启事务
+		db, err := mysql.NewMysqlTx(true) // 开启事务
 		if err != nil {
 			t.Fatalf("Failed to start transaction: %v", err)
 		}
@@ -1127,7 +1127,7 @@ func TestMysqlTransactionOperations(t *testing.T) {
 		t.Logf("Transaction committed successfully")
 
 		// 验证数据是否正确提交（在新的事务实例中）
-		verifyDB, err := sqld.NewMysqlTx(false)
+		verifyDB, err := mysql.NewMysqlTx(false)
 		if err != nil {
 			t.Fatalf("Failed to create verification DB connection: %v", err)
 		}
@@ -1145,7 +1145,7 @@ func TestMysqlTransactionOperations(t *testing.T) {
 	})
 
 	t.Run("TransactionRollback", func(t *testing.T) {
-		db, err := sqld.NewMysqlTx(true) // 开启事务
+		db, err := mysql.NewMysqlTx(true) // 开启事务
 		if err != nil {
 			t.Fatalf("Failed to start transaction: %v", err)
 		}
@@ -1188,7 +1188,7 @@ func TestMysqlTransactionOperations(t *testing.T) {
 		t.Logf("Transaction rolled back successfully")
 
 		// 验证数据是否被回滚（在新的事务实例中）
-		verifyDB, err := sqld.NewMysqlTx(false)
+		verifyDB, err := mysql.NewMysqlTx(false)
 		if err != nil {
 			t.Fatalf("Failed to create verification DB connection: %v", err)
 		}
@@ -1206,7 +1206,7 @@ func TestMysqlTransactionOperations(t *testing.T) {
 	})
 
 	t.Run("TransactionWithError", func(t *testing.T) {
-		db, err := sqld.NewMysqlTx(true)
+		db, err := mysql.NewMysqlTx(true)
 		if err != nil {
 			t.Fatalf("Failed to start transaction: %v", err)
 		}
@@ -1253,7 +1253,7 @@ func TestMysqlTransactionOperations(t *testing.T) {
 		t.Logf("Transaction rolled back after error successfully")
 
 		// 验证数据是否被回滚（在新的事务实例中）
-		verifyDB, err := sqld.NewMysqlTx(false)
+		verifyDB, err := mysql.NewMysqlTx(false)
 		if err != nil {
 			t.Fatalf("Failed to create verification DB connection: %v", err)
 		}
@@ -1288,7 +1288,7 @@ func TestMysqlConcurrentOperations(t *testing.T) {
 				defer wg.Done()
 
 				for j := 0; j < operationsPerGoroutine; j++ {
-					db, err := sqld.NewMysqlTx(false)
+					db, err := mysql.NewMysqlTx(false)
 					if err != nil {
 						errorChan <- fmt.Errorf("goroutine %d: failed to get DB connection: %v", goroutineID, err)
 						continue
@@ -1374,7 +1374,7 @@ func TestMysqlConcurrentOperations(t *testing.T) {
 
 	t.Run("ConcurrentReads", func(t *testing.T) {
 		// 首先准备一些测试数据
-		db, err := sqld.NewMysqlTx(false)
+		db, err := mysql.NewMysqlTx(false)
 		if err != nil {
 			t.Fatalf("Failed to prepare test data: %v", err)
 		}
@@ -1417,7 +1417,7 @@ func TestMysqlConcurrentOperations(t *testing.T) {
 			go func(goroutineID int) {
 				defer wg.Done()
 
-				db, err := sqld.NewMysqlTx(false)
+				db, err := mysql.NewMysqlTx(false)
 				if err != nil {
 					errorChan <- fmt.Errorf("goroutine %d: failed to get DB connection: %v", goroutineID, err)
 					return
@@ -1460,7 +1460,7 @@ func TestMysqlConcurrentOperations(t *testing.T) {
 		}
 
 		// 清理测试数据
-		cleanupDB, _ := sqld.NewMysqlTx(false)
+		cleanupDB, _ := mysql.NewMysqlTx(false)
 		cleanupDB.DeleteByCnd(sqlc.M(&OwWallet{}).Like("appID", "read_test_app_%"))
 		cleanupDB.Close()
 	})
@@ -1471,7 +1471,7 @@ func TestMysqlEdgeCases(t *testing.T) {
 	initMysqlDB()
 
 	t.Run("EmptyAndNullValues", func(t *testing.T) { // 测试空字符串、零值等边界情况的处理
-		db, err := sqld.NewMysqlTx(false)
+		db, err := mysql.NewMysqlTx(false)
 		if err != nil {
 			t.Fatalf("Failed to get DB connection: %v", err)
 		}
@@ -1506,7 +1506,7 @@ func TestMysqlEdgeCases(t *testing.T) {
 	})
 
 	t.Run("LargeDataStrings", func(t *testing.T) {
-		db, err := sqld.NewMysqlTx(false)
+		db, err := mysql.NewMysqlTx(false)
 		if err != nil {
 			t.Fatalf("Failed to get DB connection: %v", err)
 		}
@@ -1543,7 +1543,7 @@ func TestMysqlEdgeCases(t *testing.T) {
 	})
 
 	t.Run("SpecialCharacters", func(t *testing.T) {
-		db, err := sqld.NewMysqlTx(false)
+		db, err := mysql.NewMysqlTx(false)
 		if err != nil {
 			t.Fatalf("Failed to get DB connection: %v", err)
 		}
@@ -1580,7 +1580,7 @@ func TestMysqlEdgeCases(t *testing.T) {
 	})
 
 	t.Run("UnicodeStrings", func(t *testing.T) {
-		db, err := sqld.NewMysqlTx(false)
+		db, err := mysql.NewMysqlTx(false)
 		if err != nil {
 			t.Fatalf("Failed to get DB connection: %v", err)
 		}
@@ -1622,7 +1622,7 @@ func TestMysqlErrorHandling(t *testing.T) {
 	initMysqlDB()
 
 	t.Run("InvalidConditions", func(t *testing.T) { // 测试不存在的字段名等无效查询条件
-		db, err := sqld.NewMysqlTx(false)
+		db, err := mysql.NewMysqlTx(false)
 		if err != nil {
 			t.Fatalf("Failed to get DB connection: %v", err)
 		}
@@ -1639,7 +1639,7 @@ func TestMysqlErrorHandling(t *testing.T) {
 	})
 
 	t.Run("DuplicateKeyHandling", func(t *testing.T) {
-		db, err := sqld.NewMysqlTx(false)
+		db, err := mysql.NewMysqlTx(false)
 		if err != nil {
 			t.Fatalf("Failed to get DB connection: %v", err)
 		}
@@ -1700,7 +1700,7 @@ func TestMysqlErrorHandling(t *testing.T) {
 
 	t.Run("ConnectionTimeout", func(t *testing.T) {
 		// 测试连接超时情况（通过长时间运行的查询模拟）
-		db, err := sqld.NewMysqlTx(false)
+		db, err := mysql.NewMysqlTx(false)
 		if err != nil {
 			t.Fatalf("Failed to get DB connection: %v", err)
 		}
@@ -1726,7 +1726,7 @@ func TestMysqlDataIntegrity(t *testing.T) {
 	initMysqlDB()
 
 	t.Run("DataConsistencyAfterOperations", func(t *testing.T) { // 测试CRUD操作后的数据一致性和完整性
-		db, err := sqld.NewMysqlTx(false)
+		db, err := mysql.NewMysqlTx(false)
 		if err != nil {
 			t.Fatalf("Failed to get DB connection: %v", err)
 		}
@@ -1804,7 +1804,7 @@ func TestMysqlDataIntegrity(t *testing.T) {
 	})
 
 	t.Run("BatchOperationIntegrity", func(t *testing.T) {
-		db, err := sqld.NewMysqlTx(false)
+		db, err := mysql.NewMysqlTx(false)
 		if err != nil {
 			t.Fatalf("Failed to get DB connection: %v", err)
 		}
@@ -1902,7 +1902,7 @@ func BenchmarkMysqlOperations(b *testing.B) {
 
 	b.Run("Save", func(b *testing.B) { // 基准测试INSERT操作性能
 		for i := 0; i < b.N; i++ {
-			db, _ := sqld.NewMysqlTx(false)
+			db, _ := mysql.NewMysqlTx(false)
 			wallet := &OwWallet{
 				AppID:        fmt.Sprintf("bench_app_%d", i),
 				WalletID:     fmt.Sprintf("bench_wallet_%d", i),
@@ -1928,7 +1928,7 @@ func BenchmarkMysqlOperations(b *testing.B) {
 
 	b.Run("FindOne", func(b *testing.B) { // 基准测试单条记录查询性能
 		// 预先准备数据
-		db, _ := sqld.NewMysqlTx(false)
+		db, _ := mysql.NewMysqlTx(false)
 		for i := 0; i < 100; i++ {
 			wallet := &OwWallet{
 				AppID:        fmt.Sprintf("bench_find_app_%d", i),
@@ -1954,7 +1954,7 @@ func BenchmarkMysqlOperations(b *testing.B) {
 
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			db, _ := sqld.NewMysqlTx(false)
+			db, _ := mysql.NewMysqlTx(false)
 			var result OwWallet
 			appID := fmt.Sprintf("bench_find_app_%d", i%100)
 			db.FindOne(sqlc.M().Eq("appID", appID), &result)
@@ -1965,7 +1965,7 @@ func BenchmarkMysqlOperations(b *testing.B) {
 	b.Run("FindList", func(b *testing.B) { // 基准测试列表查询性能（分页查询50条记录）
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			db, _ := sqld.NewMysqlTx(false)
+			db, _ := mysql.NewMysqlTx(false)
 			var results []*OwWallet
 			db.FindList(sqlc.M(&OwWallet{}).Limit(1, 50), &results)
 			db.Close()
@@ -1974,7 +1974,7 @@ func BenchmarkMysqlOperations(b *testing.B) {
 
 	b.Run("Update", func(b *testing.B) { // 基准测试UPDATE操作性能
 		// 预先准备数据
-		db, _ := sqld.NewMysqlTx(false)
+		db, _ := mysql.NewMysqlTx(false)
 		var testWallets []*OwWallet
 		for i := 0; i < 100; i++ {
 			wallet := &OwWallet{
@@ -2002,7 +2002,7 @@ func BenchmarkMysqlOperations(b *testing.B) {
 
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			db, _ := sqld.NewMysqlTx(false)
+			db, _ := mysql.NewMysqlTx(false)
 			wallet := testWallets[i%len(testWallets)]
 			wallet.Alias = fmt.Sprintf("bench_updated_alias_%d", i)
 			wallet.Utime = utils.UnixMilli()

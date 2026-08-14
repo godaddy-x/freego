@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/godaddy-x/freego/utils/crypto"
+	"github.com/godaddy-x/freego/core/crypto"
 
-	"github.com/godaddy-x/freego/utils"
+	"github.com/godaddy-x/freego/core/str"
 )
 
 func TestPrintSecretKey(t *testing.T) {

@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/godaddy-x/freego/ormx/sqlc"
-	"github.com/godaddy-x/freego/ormx/sqld"
-	"github.com/godaddy-x/freego/utils"
+	"github.com/godaddy-x/freego/core/query"
+	"github.com/godaddy-x/freego/store/orm/mongo"
+	"github.com/godaddy-x/freego/core/str"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
@@ -38,17 +38,17 @@ func formatBytes(bytes uint64) string {
 func initMongoForTest() error {
 	mongoInitOnce.Do(func() {
 		// 注册测试模型
-		if err := sqld.ModelDriver(&TestWallet{}); err != nil && !strings.Contains(err.Error(), "exists") {
+		if err := mongo.ModelDriver(&TestWallet{}); err != nil && !strings.Contains(err.Error(), "exists") {
 			mongoInitError = fmt.Errorf("注册TestWallet模型失败: %v", err)
 			return
 		}
-		if err := sqld.ModelDriver(&TestAllTypes{}); err != nil && !strings.Contains(err.Error(), "exists") {
+		if err := mongo.ModelDriver(&TestAllTypes{}); err != nil && !strings.Contains(err.Error(), "exists") {
 			mongoInitError = fmt.Errorf("注册TestAllTypes模型失败: %v", err)
 			return
 		}
 
 		// 加载并初始化MongoDB配置
-		var config sqld.MGOConfig
+		var config mongo.MGOConfig
 		err := utils.ReadLocalJsonConfig("resource/mongo.json", &config)
 		if err != nil {
 			mongoInitError = fmt.Errorf("无法读取配置文件: %v", err)
@@ -56,7 +56,7 @@ func initMongoForTest() error {
 		}
 
 		// 初始化MongoDB连接
-		mgoManager := &sqld.MGOManager{}
+		mgoManager := &mongo.MGOManager{}
 		err = mgoManager.InitConfig(config)
 		if err != nil {
 			mongoInitError = fmt.Errorf("MongoDB初始化失败: %v", err)
@@ -77,7 +77,7 @@ func initMongoForTest() error {
 func TestMongoInitConfig(t *testing.T) {
 	// 测试有效的配置
 	t.Run("ValidConfig", func(t *testing.T) {
-		config := sqld.MGOConfig{
+		config := mongo.MGOConfig{
 			Addrs:          []string{"127.0.0.1:27017"},
 			Direct:         true,
 			ConnectTimeout: 5,
@@ -86,7 +86,7 @@ func TestMongoInitConfig(t *testing.T) {
 			PoolLimit:      10,
 		}
 
-		manager := &sqld.MGOManager{}
+		manager := &mongo.MGOManager{}
 		err := manager.InitConfig(config)
 
 		// 注意：这里可能会因为MongoDB服务未运行而失败
@@ -109,10 +109,10 @@ func TestMongoInitConfig(t *testing.T) {
 
 // TestMongoConfigValidation 测试配置参数校验
 func TestMongoConfigValidation(t *testing.T) {
-	manager := &sqld.MGOManager{}
+	manager := &mongo.MGOManager{}
 
 	t.Run("EmptyDatabase", func(t *testing.T) {
-		config := sqld.MGOConfig{
+		config := mongo.MGOConfig{
 			Addrs: []string{"127.0.0.1:27017"},
 			// Database 为空
 		}
@@ -129,7 +129,7 @@ func TestMongoConfigValidation(t *testing.T) {
 	})
 
 	t.Run("EmptyAddrs", func(t *testing.T) {
-		config := sqld.MGOConfig{
+		config := mongo.MGOConfig{
 			Database: "test_db",
 			// Addrs 为空
 		}
@@ -144,7 +144,7 @@ func TestMongoConfigValidation(t *testing.T) {
 // TestMongoDefaultValues 测试默认值设置
 func TestMongoDefaultValues(t *testing.T) {
 	t.Run("DefaultPoolLimit", func(t *testing.T) {
-		config := sqld.MGOConfig{
+		config := mongo.MGOConfig{
 			Database: "test_db",
 			Addrs:    []string{"127.0.0.1:27017"},
 			// PoolLimit为0，应该设置为默认值
@@ -164,7 +164,7 @@ func TestMongoDefaultValues(t *testing.T) {
 	})
 
 	t.Run("DefaultTimeouts", func(t *testing.T) {
-		config := sqld.MGOConfig{
+		config := mongo.MGOConfig{
 			Database: "test_db",
 			Addrs:    []string{"127.0.0.1:27017"},
 		}
@@ -195,7 +195,7 @@ func TestMongoDefaultValues(t *testing.T) {
 // TestMongoConfigFromFile 测试从文件读取配置
 func TestMongoConfigFromFile(t *testing.T) {
 	t.Run("ReadConfigFile", func(t *testing.T) {
-		var config sqld.MGOConfig
+		var config mongo.MGOConfig
 		err := utils.ReadLocalJsonConfig("resource/mongo.json", &config)
 
 		if err != nil {
@@ -222,7 +222,7 @@ func TestMongoConcurrentInit(t *testing.T) {
 	// 注意：实际的并发测试需要MongoDB服务运行
 
 	t.Run("ConcurrentInit", func(t *testing.T) {
-		config := sqld.MGOConfig{
+		config := mongo.MGOConfig{
 			Database:  "test_concurrent",
 			Addrs:     []string{"127.0.0.1:27017"},
 			PoolLimit: 5,
@@ -231,7 +231,7 @@ func TestMongoConcurrentInit(t *testing.T) {
 		// 这里只是演示测试结构
 		// 实际并发测试需要启动多个goroutine同时调用InitConfig
 
-		manager := &sqld.MGOManager{}
+		manager := &mongo.MGOManager{}
 		err := manager.InitConfig(config)
 
 		if err != nil {
@@ -251,7 +251,7 @@ func TestMongoConcurrentInit(t *testing.T) {
 // TestMongoNewConfigParams 测试新添加的连接参数配置
 func TestMongoNewConfigParams(t *testing.T) {
 	t.Run("NewConnectionParams", func(t *testing.T) {
-		config := sqld.MGOConfig{
+		config := mongo.MGOConfig{
 			Database:               "test_new_params",
 			Addrs:                  []string{"127.0.0.1:27017"},
 			MinPoolSize:            5,
@@ -264,7 +264,7 @@ func TestMongoNewConfigParams(t *testing.T) {
 			MaxConnIdleTime:        90,
 		}
 
-		manager := &sqld.MGOManager{}
+		manager := &mongo.MGOManager{}
 		err := manager.InitConfig(config)
 
 		// 即使MongoDB服务不可用，配置验证也应该通过
@@ -285,7 +285,7 @@ func TestMongoNewConfigParams(t *testing.T) {
 // TestMongoConfigDefaults 测试新配置参数的默认值
 func TestMongoConfigDefaults(t *testing.T) {
 	t.Run("VerifyNewDefaults", func(t *testing.T) {
-		config := sqld.MGOConfig{
+		config := mongo.MGOConfig{
 			Database: "test_defaults",
 			Addrs:    []string{"127.0.0.1:27017"},
 		}
@@ -340,12 +340,12 @@ func TestMongoSavePerformance(t *testing.T) {
 	// 需要实际的MongoDB服务和模型定义
 
 	t.Run("SaveOptimization", func(t *testing.T) {
-		config := sqld.MGOConfig{
+		config := mongo.MGOConfig{
 			Database: "test_performance",
 			Addrs:    []string{"127.0.0.1:27017"},
 		}
 
-		manager := &sqld.MGOManager{}
+		manager := &mongo.MGOManager{}
 		err := manager.InitConfig(config)
 		if err != nil {
 			t.Logf("性能测试跳过(需要MongoDB服务): %v", err)
@@ -476,12 +476,12 @@ func TestMongoNoBsonTag(t *testing.T) {
 	}
 
 	// 注册测试模型
-	if err := sqld.ModelDriver(&TestAllTypesNoBsonTag{}); err != nil && !strings.Contains(err.Error(), "exists") {
+	if err := mongo.ModelDriver(&TestAllTypesNoBsonTag{}); err != nil && !strings.Contains(err.Error(), "exists") {
 		t.Fatalf("注册TestAllTypesNoBsonTag模型失败: %v", err)
 	}
 	t.Logf("模型注册成功，开始测试bson标签fallback")
 
-	mgoManager := &sqld.MGOManager{}
+	mgoManager := &mongo.MGOManager{}
 	err := mgoManager.GetDB()
 	if err != nil {
 		t.Fatalf("获取MongoDB管理器失败: %v", err)
@@ -681,11 +681,11 @@ func TestMongoNestedMap(t *testing.T) {
 	}
 
 	// 注册测试模型
-	if err := sqld.ModelDriver(&NestedMapTest{}); err != nil && !strings.Contains(err.Error(), "exists") {
+	if err := mongo.ModelDriver(&NestedMapTest{}); err != nil && !strings.Contains(err.Error(), "exists") {
 		t.Fatalf("注册NestedMapTest模型失败: %v", err)
 	}
 
-	mgoManager := &sqld.MGOManager{}
+	mgoManager := &mongo.MGOManager{}
 	err := mgoManager.GetDB()
 	if err != nil {
 		t.Fatalf("获取MongoDB管理器失败: %v", err)
@@ -834,7 +834,7 @@ func TestDecodeErrorHandling(t *testing.T) {
 	t.Log("   - 错误信息应包含字段名和具体错误原因")
 
 	// 注册测试对象
-	if err := sqld.ModelDriver(&TestAllTypes{}); err != nil && !strings.Contains(err.Error(), "exists") {
+	if err := mongo.ModelDriver(&TestAllTypes{}); err != nil && !strings.Contains(err.Error(), "exists") {
 		t.Fatalf("Failed to register model: %v", err)
 	}
 
@@ -852,7 +852,7 @@ func TestDecodeErrorHandling(t *testing.T) {
 	}
 
 	// 尝试解码，应该失败并返回详细错误信息
-	err = sqld.DecodeBsonToObject(obj, raw)
+	err = mongo.DecodeBsonToObject(obj, raw)
 	if err == nil {
 		t.Error("Expected decode to fail with type mismatch, but it succeeded")
 	} else {
@@ -892,11 +892,11 @@ func TestMongoFindOneAllTypes(t *testing.T) {
 	}
 
 	// 注册测试模型
-	if err := sqld.ModelDriver(&TestAllTypes{}); err != nil && !strings.Contains(err.Error(), "exists") {
+	if err := mongo.ModelDriver(&TestAllTypes{}); err != nil && !strings.Contains(err.Error(), "exists") {
 		t.Fatalf("注册TestAllTypes模型失败: %v", err)
 	}
 
-	mgoManager := &sqld.MGOManager{}
+	mgoManager := &mongo.MGOManager{}
 	err := mgoManager.GetDB()
 	if err != nil {
 		t.Fatalf("获取MongoDB管理器失败: %v", err)
@@ -1217,7 +1217,7 @@ func TestMongoFindOneAllTypes(t *testing.T) {
 	t.Logf("🔍 测试全量字段填入对查询的影响...")
 
 	// 验证零值字段确实存在于BSON文档中
-	doc, err := sqld.EncodeObjectToBson(testData)
+	doc, err := mongo.EncodeObjectToBson(testData)
 	if err != nil {
 		t.Fatalf("编码失败: %v", err)
 	}
@@ -1254,7 +1254,7 @@ func TestMongoFindOneAllTypes(t *testing.T) {
 	}
 	// 其他字段保持零值
 
-	emptyDoc, err := sqld.EncodeObjectToBson(emptyData)
+	emptyDoc, err := mongo.EncodeObjectToBson(emptyData)
 	if err != nil {
 		t.Fatalf("编码空对象失败: %v", err)
 	}
@@ -1329,11 +1329,11 @@ func TestMongoFindListAllTypes(t *testing.T) {
 	}
 
 	// 注册测试模型
-	if err := sqld.ModelDriver(&TestAllTypes{}); err != nil && !strings.Contains(err.Error(), "exists") {
+	if err := mongo.ModelDriver(&TestAllTypes{}); err != nil && !strings.Contains(err.Error(), "exists") {
 		t.Fatalf("注册TestAllTypes模型失败: %v", err)
 	}
 
-	mgoManager := &sqld.MGOManager{}
+	mgoManager := &mongo.MGOManager{}
 	err := mgoManager.GetDB()
 	if err != nil {
 		t.Fatalf("获取MongoDB管理器失败: %v", err)
@@ -1486,11 +1486,11 @@ func TestMongoDataCorruptionCheck(t *testing.T) {
 	}
 
 	// 注册测试模型 - 使用TestAllTypesNoBsonTag避免[][]uint8类型问题
-	if err := sqld.ModelDriver(&TestAllTypesNoBsonTag{}); err != nil && !strings.Contains(err.Error(), "exists") {
+	if err := mongo.ModelDriver(&TestAllTypesNoBsonTag{}); err != nil && !strings.Contains(err.Error(), "exists") {
 		t.Fatalf("注册TestAllTypesNoBsonTag模型失败: %v", err)
 	}
 
-	mgoManager := &sqld.MGOManager{}
+	mgoManager := &mongo.MGOManager{}
 	err := mgoManager.GetDB()
 	if err != nil {
 		t.Fatalf("获取MongoDB管理器失败: %v", err)
@@ -1771,7 +1771,7 @@ func verifyInterfaceSlice(t *testing.T, fieldName string, actual, expected []int
 }
 
 // checkBsonTypes 检查MongoDB中字段的BSON类型
-func checkBsonTypes(t *testing.T, mgoManager *sqld.MGOManager, testData *TestAllTypes) {
+func checkBsonTypes(t *testing.T, mgoManager *mongo.MGOManager, testData *TestAllTypes) {
 	// 直接使用低级API检查BSON数据
 	db, err := mgoManager.GetDatabase("test_all_types")
 	if err != nil {
@@ -1818,7 +1818,7 @@ func TestMongoUpdateOperations(t *testing.T) {
 	}
 
 	// 使用NewMongo获取已初始化的管理器
-	manager, err := sqld.NewMongo(sqld.Option{
+	manager, err := mongo.NewMongo(mongo.Option{
 		DsName:   "master",
 		Database: "ops_dev",
 		Timeout:  10000,
@@ -1953,7 +1953,7 @@ func TestMongoUpdateByCndOperations(t *testing.T) {
 	}
 
 	// 使用NewMongo获取已初始化的管理器
-	manager, err := sqld.NewMongo(sqld.Option{
+	manager, err := mongo.NewMongo(mongo.Option{
 		DsName:   "master",
 		Database: "ops_dev",
 		Timeout:  10000,
@@ -2072,7 +2072,7 @@ func TestMongoDeleteOperations(t *testing.T) {
 	}
 
 	// 使用NewMongo获取已初始化的管理器
-	manager, err := sqld.NewMongo(sqld.Option{
+	manager, err := mongo.NewMongo(mongo.Option{
 		DsName:   "master",
 		Database: "ops_dev",
 		Timeout:  10000,
@@ -2175,7 +2175,7 @@ func TestMongoDeleteByIdOperations(t *testing.T) {
 	}
 
 	// 使用NewMongo获取已初始化的管理器
-	manager, err := sqld.NewMongo(sqld.Option{
+	manager, err := mongo.NewMongo(mongo.Option{
 		DsName:   "master",
 		Database: "ops_dev",
 		Timeout:  10000,
@@ -2296,7 +2296,7 @@ func TestMongoDeleteByCndOperations(t *testing.T) {
 	}
 
 	// 使用NewMongo获取已初始化的管理器
-	manager, err := sqld.NewMongo(sqld.Option{
+	manager, err := mongo.NewMongo(mongo.Option{
 		DsName:   "master",
 		Database: "ops_dev",
 		Timeout:  10000,
@@ -2439,7 +2439,7 @@ func TestMongoCountOperations(t *testing.T) {
 	}
 
 	// 使用NewMongo获取已初始化的管理器
-	manager, err := sqld.NewMongo(sqld.Option{
+	manager, err := mongo.NewMongo(mongo.Option{
 		DsName:   "master",
 		Database: "ops_dev",
 		Timeout:  10000,
@@ -2609,7 +2609,7 @@ func TestMongoExistsOperations(t *testing.T) {
 	}
 
 	// 使用NewMongo获取已初始化的管理器
-	manager, err := sqld.NewMongo(sqld.Option{
+	manager, err := mongo.NewMongo(mongo.Option{
 		DsName:   "master",
 		Database: "ops_dev",
 		Timeout:  10000,
@@ -2754,7 +2754,7 @@ func TestMongoFindOneOperations(t *testing.T) {
 	}
 
 	// 使用NewMongo获取已初始化的管理器
-	manager, err := sqld.NewMongo(sqld.Option{
+	manager, err := mongo.NewMongo(mongo.Option{
 		DsName:   "master",
 		Database: "ops_dev",
 		Timeout:  10000,
@@ -2923,7 +2923,7 @@ func TestMongoFindOneOperations(t *testing.T) {
 // TestBuildQueryOneOptionsOperations 测试buildQueryOneOptions方法各种场景
 func TestBuildQueryOneOptionsOperations(t *testing.T) {
 	// 注册测试模型
-	if err := sqld.ModelDriver(&TestWallet{}); err != nil && !strings.Contains(err.Error(), "exists") {
+	if err := mongo.ModelDriver(&TestWallet{}); err != nil && !strings.Contains(err.Error(), "exists") {
 		t.Fatalf("注册TestWallet模型失败: %v", err)
 	}
 
@@ -2940,7 +2940,7 @@ func TestBuildQueryOneOptionsOperations(t *testing.T) {
 			return
 		}
 
-		manager, err := sqld.NewMongo(sqld.Option{
+		manager, err := mongo.NewMongo(mongo.Option{
 			DsName:   "master",
 			Database: "ops_dev",
 			Timeout:  10000,
@@ -2992,7 +2992,7 @@ func TestBuildQueryOneOptionsOperations(t *testing.T) {
 			return
 		}
 
-		manager, err := sqld.NewMongo(sqld.Option{
+		manager, err := mongo.NewMongo(mongo.Option{
 			DsName:   "master",
 			Database: "ops_dev",
 			Timeout:  10000,
@@ -3054,7 +3054,7 @@ func TestBuildQueryOneOptionsOperations(t *testing.T) {
 			return
 		}
 
-		manager, err := sqld.NewMongo(sqld.Option{
+		manager, err := mongo.NewMongo(mongo.Option{
 			DsName:   "master",
 			Database: "ops_dev",
 			Timeout:  10000,
@@ -3088,7 +3088,7 @@ func TestMongoFindListOperations(t *testing.T) {
 	}
 
 	// 使用NewMongo获取已初始化的管理器
-	manager, err := sqld.NewMongo(sqld.Option{
+	manager, err := mongo.NewMongo(mongo.Option{
 		DsName:   "master",
 		Database: "ops_dev",
 		Timeout:  10000,
@@ -3292,7 +3292,7 @@ func TestMongoUseTransactionOperations(t *testing.T) {
 	t.Run("TransactionFunctionCall", func(t *testing.T) {
 		// 测试事务函数是否被正确调用
 		called := false
-		err := sqld.UseTransaction(func(mgo *sqld.MGOManager) error {
+		err := mongo.UseTransaction(func(mgo *mongo.MGOManager) error {
 			called = true
 			return nil
 		})
@@ -3308,7 +3308,7 @@ func TestMongoUseTransactionOperations(t *testing.T) {
 
 	t.Run("TransactionErrorHandling", func(t *testing.T) {
 		// 测试事务错误处理
-		err := sqld.UseTransaction(func(mgo *sqld.MGOManager) error {
+		err := mongo.UseTransaction(func(mgo *mongo.MGOManager) error {
 			return fmt.Errorf("模拟事务错误")
 		})
 
@@ -3330,7 +3330,7 @@ func TestMongoUseTransactionWithContextOperations(t *testing.T) {
 		// 测试带上下文的事务函数是否被正确调用
 		ctx := context.Background()
 		called := false
-		err := sqld.UseTransactionWithContext(ctx, func(mgo *sqld.MGOManager) error {
+		err := mongo.UseTransactionWithContext(ctx, func(mgo *mongo.MGOManager) error {
 			called = true
 			return nil
 		})
@@ -3347,7 +3347,7 @@ func TestMongoUseTransactionWithContextOperations(t *testing.T) {
 	t.Run("TransactionWithContextErrorHandling", func(t *testing.T) {
 		// 测试带上下文的事务错误处理
 		ctx := context.Background()
-		err := sqld.UseTransactionWithContext(ctx, func(mgo *sqld.MGOManager) error {
+		err := mongo.UseTransactionWithContext(ctx, func(mgo *mongo.MGOManager) error {
 			return fmt.Errorf("模拟事务错误")
 		})
 
@@ -3365,7 +3365,7 @@ func TestMongoUseTransactionWithContextOperations(t *testing.T) {
 		defer cancel()
 
 		start := time.Now()
-		err := sqld.UseTransactionWithContext(ctx, func(mgo *sqld.MGOManager) error {
+		err := mongo.UseTransactionWithContext(ctx, func(mgo *mongo.MGOManager) error {
 			// 模拟一个稍微长一点的操作
 			time.Sleep(200 * time.Millisecond)
 			return nil
@@ -3384,7 +3384,7 @@ func TestMongoUseTransactionWithContextOperations(t *testing.T) {
 	t.Run("TransactionWithContextNilContext", func(t *testing.T) {
 		// 测试传入nil上下文的情况
 		called := false
-		err := sqld.UseTransactionWithContext(nil, func(mgo *sqld.MGOManager) error {
+		err := mongo.UseTransactionWithContext(nil, func(mgo *mongo.MGOManager) error {
 			called = true
 			return nil
 		})
@@ -3409,7 +3409,7 @@ func TestMongoUseTransactionWithContextOperations(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 
 		called := false
-		err := sqld.UseTransactionWithContext(ctx, func(mgo *sqld.MGOManager) error {
+		err := mongo.UseTransactionWithContext(ctx, func(mgo *mongo.MGOManager) error {
 			called = true
 			return fmt.Errorf("测试错误")
 		})
@@ -3443,7 +3443,7 @@ func TestMongoUseTransactionWithContextOperations(t *testing.T) {
 		cancel()
 
 		called := false
-		err := sqld.UseTransactionWithContext(ctx, func(mgo *sqld.MGOManager) error {
+		err := mongo.UseTransactionWithContext(ctx, func(mgo *mongo.MGOManager) error {
 			called = true
 			return fmt.Errorf("测试错误")
 		})
@@ -3475,7 +3475,7 @@ func TestMongoUseTransactionWithContextOperations(t *testing.T) {
 		called := false
 		testValue := ""
 
-		err := sqld.UseTransactionWithContext(childCtx, func(mgo *sqld.MGOManager) error {
+		err := mongo.UseTransactionWithContext(childCtx, func(mgo *mongo.MGOManager) error {
 			called = true
 			// 尝试从context中获取值
 			if val := childCtx.Value("test_key"); val != nil {
@@ -3510,7 +3510,7 @@ func TestMongoContextTimeoutOperations(t *testing.T) {
 	}
 
 	// 使用NewMongo获取已初始化的管理器
-	manager, err := sqld.NewMongo(sqld.Option{
+	manager, err := mongo.NewMongo(mongo.Option{
 		DsName:   "master",
 		Database: "ops_dev",
 		Timeout:  10000,
@@ -3744,7 +3744,7 @@ func TestMongoContextTimeoutOperations(t *testing.T) {
 
 		// 使用FindById查询（需要设置要查询的ID）
 		result := &TestWallet{Id: walletForFindById.Id}
-		err = manager.FindById(result)
+		err = manager.FindOne(sqlc.M().Eq("id", walletForFindById.Id), result)
 		if err != nil {
 			t.Errorf("FindById查询失败: %v", err)
 			return
@@ -3766,7 +3766,7 @@ func TestMongoContextTimeoutOperations(t *testing.T) {
 
 	t.Run("FindByIdNilData", func(t *testing.T) {
 		// 测试FindById传入nil数据
-		err := manager.FindById(nil)
+		err := manager.FindOne(sqlc.M(), nil)
 		if err == nil {
 			t.Error("FindById传入nil数据应该报错")
 		}
@@ -3777,7 +3777,7 @@ func TestMongoContextTimeoutOperations(t *testing.T) {
 	t.Run("FindByIdInvalidId", func(t *testing.T) {
 		// 测试FindById传入无效ID的数据
 		var result TestWallet
-		err := manager.FindById(&result)
+		err := manager.FindOne(sqlc.M().Eq("id", result.Id), &result)
 		if err == nil {
 			t.Error("FindById传入无效ID应该报错")
 		}
@@ -3910,12 +3910,12 @@ func TestMongoContextTimeoutOperations(t *testing.T) {
 // TestMongoSaveOperations 测试Save方法各种场景
 func TestMongoSaveOperations(t *testing.T) {
 	// 注册测试模型
-	if err := sqld.ModelDriver(&TestWallet{}); err != nil {
+	if err := mongo.ModelDriver(&TestWallet{}); err != nil {
 		t.Fatalf("注册TestWallet模型失败: %v", err)
 	}
 
 	// 加载并初始化MongoDB配置
-	var config sqld.MGOConfig
+	var config mongo.MGOConfig
 	err := utils.ReadLocalJsonConfig("resource/mongo.json", &config)
 	if err != nil {
 		t.Logf("无法读取配置文件，跳过测试: %v", err)
@@ -3923,7 +3923,7 @@ func TestMongoSaveOperations(t *testing.T) {
 	}
 
 	// 初始化MongoDB连接
-	mgoManager := &sqld.MGOManager{}
+	mgoManager := &mongo.MGOManager{}
 	err = mgoManager.InitConfig(config)
 	if err != nil {
 		t.Logf("MongoDB初始化失败，跳过Save测试: %v", err)
@@ -3932,7 +3932,7 @@ func TestMongoSaveOperations(t *testing.T) {
 	defer mgoManager.Close()
 
 	// 使用NewMongo获取已初始化的管理器
-	manager, err := sqld.NewMongo(sqld.Option{
+	manager, err := mongo.NewMongo(mongo.Option{
 		DsName:   "master", // 使用默认数据源名称
 		Database: "ops_dev",
 		Timeout:  10000,
@@ -4220,7 +4220,7 @@ func TestMongoSaveOperations(t *testing.T) {
 }
 
 // testFindOnePerformance 测试FindOne性能的辅助函数
-func testFindOnePerformance(manager *sqld.MGOManager, condition *sqlc.Cnd, methodName string) time.Duration {
+func testFindOnePerformance(manager *mongo.MGOManager, condition *sqlc.Cnd, methodName string) time.Duration {
 	iterations := 1000
 	start := time.Now()
 
@@ -4244,7 +4244,7 @@ func BenchmarkDecodeMethod(b *testing.B) {
 		b.Skip("MongoDB初始化失败，跳过benchmark")
 	}
 
-	manager, err := sqld.NewMongo(sqld.Option{
+	manager, err := mongo.NewMongo(mongo.Option{
 		DsName:   "master",
 		Database: "ops_dev",
 		Timeout:  10000,
@@ -4274,7 +4274,7 @@ func BenchmarkSetMongoValueMethod(b *testing.B) {
 		b.Skip("MongoDB初始化失败，跳过benchmark")
 	}
 
-	manager, err := sqld.NewMongo(sqld.Option{
+	manager, err := mongo.NewMongo(mongo.Option{
 		DsName:   "master",
 		Database: "ops_dev",
 		Timeout:  10000,
@@ -4305,7 +4305,7 @@ func TestMongoDataTypeIntegrity(t *testing.T) {
 		t.Fatalf("MongoDB初始化失败: %v", err)
 	}
 
-	manager, err := sqld.NewMongo(sqld.Option{
+	manager, err := mongo.NewMongo(mongo.Option{
 		DsName:   "master",
 		Database: "ops_dev",
 		Timeout:  10000,
@@ -4431,7 +4431,7 @@ func TestMongoErrorHandling(t *testing.T) {
 		t.Fatalf("MongoDB初始化失败: %v", err)
 	}
 
-	manager, err := sqld.NewMongo(sqld.Option{
+	manager, err := mongo.NewMongo(mongo.Option{
 		DsName:   "master",
 		Database: "ops_dev",
 		Timeout:  10000,
@@ -4443,8 +4443,8 @@ func TestMongoErrorHandling(t *testing.T) {
 
 	t.Run("InvalidConnection", func(t *testing.T) {
 		// 测试无效连接
-		invalidManager := &sqld.MGOManager{}
-		err := invalidManager.InitConfig(sqld.MGOConfig{
+		invalidManager := &mongo.MGOManager{}
+		err := invalidManager.InitConfig(mongo.MGOConfig{
 			Addrs: []string{"invalid.host:27017"},
 		})
 		if err == nil {
@@ -4488,7 +4488,7 @@ func TestMongoConcurrentOperations(t *testing.T) {
 		t.Fatalf("MongoDB初始化失败: %v", err)
 	}
 
-	manager, err := sqld.NewMongo(sqld.Option{
+	manager, err := mongo.NewMongo(mongo.Option{
 		DsName:   "master",
 		Database: "ops_dev",
 		Timeout:  10000,
@@ -4653,7 +4653,7 @@ func TestMongoBoundaryConditions(t *testing.T) {
 		t.Fatalf("MongoDB初始化失败: %v", err)
 	}
 
-	manager, err := sqld.NewMongo(sqld.Option{
+	manager, err := mongo.NewMongo(mongo.Option{
 		DsName:   "master",
 		Database: "ops_dev",
 		Timeout:  10000,
@@ -4759,7 +4759,7 @@ func TestMongoIndexOperations(t *testing.T) {
 		t.Fatalf("MongoDB初始化失败: %v", err)
 	}
 
-	manager, err := sqld.NewMongo(sqld.Option{
+	manager, err := mongo.NewMongo(mongo.Option{
 		DsName:   "master",
 		Database: "ops_dev",
 		Timeout:  10000,
@@ -4823,7 +4823,7 @@ func TestMongoPerformanceBenchmarks(t *testing.T) {
 		t.Skip("MongoDB初始化失败，跳过性能测试")
 	}
 
-	manager, err := sqld.NewMongo(sqld.Option{
+	manager, err := mongo.NewMongo(mongo.Option{
 		DsName:   "master",
 		Database: "ops_dev",
 		Timeout:  10000,
@@ -4934,7 +4934,7 @@ func TestMongoConnectionManagement(t *testing.T) {
 
 	t.Run("ConnectionPool", func(t *testing.T) {
 		// 测试连接池管理
-		config := sqld.MGOConfig{
+		config := mongo.MGOConfig{
 			Addrs:         []string{"127.0.0.1:27017"},
 			Database:      "test_conn_pool",
 			PoolLimit:     10,
@@ -4942,7 +4942,7 @@ func TestMongoConnectionManagement(t *testing.T) {
 			MaxConnecting: 5,
 		}
 
-		manager := &sqld.MGOManager{}
+		manager := &mongo.MGOManager{}
 		err := manager.InitConfig(config)
 		if err != nil {
 			t.Logf("连接池测试跳过（可能因为MongoDB未运行）: %v", err)
@@ -5002,7 +5002,7 @@ func TestMongoConnectionManagement(t *testing.T) {
 
 	t.Run("ConnectionRecovery", func(t *testing.T) {
 		// 测试连接恢复
-		manager, err := sqld.NewMongo(sqld.Option{
+		manager, err := mongo.NewMongo(mongo.Option{
 			DsName:   "master",
 			Database: "ops_dev",
 			Timeout:  10000,
@@ -5036,7 +5036,7 @@ func TestMongoComplexQueries(t *testing.T) {
 		t.Fatalf("MongoDB初始化失败: %v", err)
 	}
 
-	manager, err := sqld.NewMongo(sqld.Option{
+	manager, err := mongo.NewMongo(mongo.Option{
 		DsName:   "master",
 		Database: "ops_dev",
 		Timeout:  10000,
@@ -5186,7 +5186,7 @@ func TestMongoMemoryManagement(t *testing.T) {
 		t.Fatalf("MongoDB初始化失败: %v", err)
 	}
 
-	manager, err := sqld.NewMongo(sqld.Option{
+	manager, err := mongo.NewMongo(mongo.Option{
 		DsName:   "master",
 		Database: "ops_dev",
 		Timeout:  10000,
@@ -5270,7 +5270,7 @@ func TestMongoSQLBuildLogicWrapper(t *testing.T) {
 		t.Fatalf("MongoDB初始化失败: %v", err)
 	}
 
-	manager, err := sqld.NewMongo(sqld.Option{
+	manager, err := mongo.NewMongo(mongo.Option{
 		DsName:   "master",
 		Database: "ops_dev",
 		Timeout:  10000,
@@ -5551,7 +5551,7 @@ func TestMongoSQLBuildEdgeCases(t *testing.T) {
 		t.Fatalf("MongoDB初始化失败: %v", err)
 	}
 
-	manager, err := sqld.NewMongo(sqld.Option{
+	manager, err := mongo.NewMongo(mongo.Option{
 		DsName:   "master",
 		Database: "ops_dev",
 		Timeout:  10000,
@@ -5661,12 +5661,12 @@ func TestMongoORMFindOnePerformance(t *testing.T) {
 	}
 
 	// 注册测试模型
-	if err := sqld.ModelDriver(&TestAllTypes{}); err != nil && !strings.Contains(err.Error(), "exists") {
+	if err := mongo.ModelDriver(&TestAllTypes{}); err != nil && !strings.Contains(err.Error(), "exists") {
 		t.Fatalf("注册TestAllTypes模型失败: %v", err)
 	}
 
 	// 初始化ORM管理器
-	ormManager := &sqld.MGOManager{}
+	ormManager := &mongo.MGOManager{}
 	err := ormManager.GetDB()
 	if err != nil {
 		t.Skip("获取ORM管理器失败，跳过性能测试")
@@ -5767,12 +5767,12 @@ func TestMongoOfficialDriverFindOnePerformance(t *testing.T) {
 	}
 
 	// 注册测试模型
-	if err := sqld.ModelDriver(&TestAllTypes{}); err != nil && !strings.Contains(err.Error(), "exists") {
+	if err := mongo.ModelDriver(&TestAllTypes{}); err != nil && !strings.Contains(err.Error(), "exists") {
 		t.Fatalf("注册TestAllTypes模型失败: %v", err)
 	}
 
 	// 初始化ORM管理器（用于数据准备和清理）
-	ormManager := &sqld.MGOManager{}
+	ormManager := &mongo.MGOManager{}
 	err := ormManager.GetDB()
 	if err != nil {
 		t.Skip("获取ORM管理器失败，跳过性能测试")
@@ -5880,12 +5880,12 @@ func TestMongoFindListPerformanceComparison(t *testing.T) {
 	}
 
 	// 注册测试模型
-	if err := sqld.ModelDriver(&TestAllTypes{}); err != nil && !strings.Contains(err.Error(), "exists") {
+	if err := mongo.ModelDriver(&TestAllTypes{}); err != nil && !strings.Contains(err.Error(), "exists") {
 		t.Fatalf("注册TestAllTypes模型失败: %v", err)
 	}
 
 	// 初始化ORM管理器
-	ormManager := &sqld.MGOManager{}
+	ormManager := &mongo.MGOManager{}
 	err := ormManager.GetDB()
 	if err != nil {
 		t.Skip("获取ORM管理器失败，跳过性能测试")
@@ -6074,7 +6074,7 @@ func TestMongoSaveList(t *testing.T) {
 	// 注册测试模型
 	initMongoDB()
 
-	db, err := sqld.NewMongo()
+	db, err := mongo.NewMongo()
 	if err != nil {
 		panic(err)
 	}
@@ -6114,7 +6114,7 @@ func TestMongoFindList(t *testing.T) {
 	// 注册测试模型
 	initMongoDB()
 
-	db, err := sqld.NewMongo()
+	db, err := mongo.NewMongo()
 	if err != nil {
 		panic(err)
 	}

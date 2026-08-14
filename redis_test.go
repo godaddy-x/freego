@@ -8,8 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/godaddy-x/freego/cache"
-	"github.com/godaddy-x/freego/utils"
+	"github.com/godaddy-x/freego/store/cacheredis"
+	cache "github.com/godaddy-x/freego/infra/cache/contract"
+	"github.com/godaddy-x/freego/core/str"
 )
 
 // TestData 测试用结构体
@@ -23,7 +24,7 @@ type TestData struct {
 // TestRedisBasicOperations 测试基础的Get/Put操作
 func TestRedisBasicOperations(t *testing.T) {
 	initRedis()
-	rds, err := cache.NewRedis()
+	rds, err := cacheredis.NewRedis()
 	if err != nil {
 		t.Fatalf("Failed to get Redis client: %v", err)
 	}
@@ -144,7 +145,7 @@ func TestRedisBasicOperations(t *testing.T) {
 // TestRedisBatchOperations 测试批量操作
 func TestRedisBatchOperations(t *testing.T) {
 	initRedis()
-	rds, err := cache.NewRedis()
+	rds, err := cacheredis.NewRedis()
 	if err != nil {
 		t.Fatalf("Failed to get Redis client: %v", err)
 	}
@@ -259,7 +260,7 @@ func TestRedisBatchOperations(t *testing.T) {
 // TestRedisQueueOperations 测试队列操作
 func TestRedisQueueOperations(t *testing.T) {
 	initRedis()
-	rds, err := cache.NewRedis()
+	rds, err := cacheredis.NewRedis()
 	if err != nil {
 		t.Fatalf("Failed to get Redis client: %v", err)
 	}
@@ -362,7 +363,7 @@ func TestRedisQueueOperations(t *testing.T) {
 // TestRedisKeyManagement 测试键管理操作
 func TestRedisKeyManagement(t *testing.T) {
 	initRedis()
-	rds, err := cache.NewRedis()
+	rds, err := cacheredis.NewRedis()
 	if err != nil {
 		t.Fatalf("Failed to get Redis client: %v", err)
 	}
@@ -466,7 +467,7 @@ func TestRedisKeyManagement(t *testing.T) {
 // TestRedisLuaScript 测试Lua脚本执行
 func TestRedisLuaScript(t *testing.T) {
 	initRedis()
-	rds, err := cache.NewRedis()
+	rds, err := cacheredis.NewRedis()
 	if err != nil {
 		t.Fatalf("Failed to get Redis client: %v", err)
 	}
@@ -591,7 +592,7 @@ func TestRedisLuaScript(t *testing.T) {
 // TestRedisAsyncOperations 测试异步操作
 func TestRedisAsyncOperations(t *testing.T) {
 	initRedis()
-	rds, err := cache.NewRedis()
+	rds, err := cacheredis.NewRedis()
 	if err != nil {
 		t.Fatalf("Failed to get Redis client: %v", err)
 	}
@@ -659,7 +660,7 @@ func TestRedisAsyncOperations(t *testing.T) {
 // TestRedisErrorHandling 测试错误处理
 func TestRedisErrorHandling(t *testing.T) {
 	initRedis()
-	rds, err := cache.NewRedis()
+	rds, err := cacheredis.NewRedis()
 	if err != nil {
 		t.Fatalf("Failed to get Redis client: %v", err)
 	}
@@ -704,7 +705,7 @@ func TestRedisErrorHandling(t *testing.T) {
 // TestRedisPerformance 测试性能基准
 func TestRedisPerformance(t *testing.T) {
 	initRedis()
-	rds, err := cache.NewRedis()
+	rds, err := cacheredis.NewRedis()
 	if err != nil {
 		t.Fatalf("Failed to get Redis client: %v", err)
 	}
@@ -765,7 +766,7 @@ func TestRedisLockOperations(t *testing.T) {
 
 	// 测试1: 基本的锁获取和释放
 	t.Run("BasicLockAcquireRelease", func(t *testing.T) {
-		err := cache.TryLocker(lockKey+"_basic", 10, func(lock *cache.Lock) error {
+		err := cacheredis.TryLocker(lockKey+"_basic", 10, func(lock *cacheredis.Lock) error {
 			// 验证锁状态
 			if !lock.IsValid() {
 				t.Error("Lock should be valid after acquisition")
@@ -799,7 +800,7 @@ func TestRedisLockOperations(t *testing.T) {
 	t.Run("LockRefresh", func(t *testing.T) {
 		var refreshCount int32
 
-		err := cache.TryLocker(lockKey+"_refresh", 3, func(lock *cache.Lock) error {
+		err := cacheredis.TryLocker(lockKey+"_refresh", 3, func(lock *cacheredis.Lock) error {
 			// 记录初始续期次数
 			initialCount := lock.RefreshCount()
 
@@ -840,7 +841,7 @@ func TestRedisLockOperations(t *testing.T) {
 				defer wg.Done()
 
 				startTime := time.Now()
-				err := cache.TryLocker(lockKey+"_concurrent", lockDuration, func(lock *cache.Lock) error {
+				err := cacheredis.TryLocker(lockKey+"_concurrent", lockDuration, func(lock *cacheredis.Lock) error {
 					atomic.AddInt32(&successCount, 1)
 
 					// 模拟业务逻辑
@@ -884,7 +885,7 @@ func TestRedisLockOperations(t *testing.T) {
 
 	// 测试4: 锁状态监控
 	t.Run("LockStatusMonitoring", func(t *testing.T) {
-		err := cache.TryLocker(lockKey+"_monitor", 5, func(lock *cache.Lock) error {
+		err := cacheredis.TryLocker(lockKey+"_monitor", 5, func(lock *cacheredis.Lock) error {
 			// 监控锁的持有时长
 			heldDuration := lock.HeldDuration()
 			if heldDuration < 0 {
@@ -919,7 +920,7 @@ func TestRedisLockOperations(t *testing.T) {
 	// 测试5: 锁配置验证
 	t.Run("LockConfigValidation", func(t *testing.T) {
 		// 测试有效的配置
-		validConfig := &cache.LockConfig{
+		validConfig := &cacheredis.LockConfig{
 			MinExpireSeconds:     5,
 			RefreshIntervalRatio: 0.5,
 			AcquireTimeoutRatio:  0.8,
@@ -930,12 +931,12 @@ func TestRedisLockOperations(t *testing.T) {
 			RefreshRetryBackoff:  150 * time.Millisecond,
 		}
 
-		if err := cache.ValidateLockConfig(validConfig); err != nil {
+		if err := cacheredis.ValidateLockConfig(validConfig); err != nil {
 			t.Errorf("Valid config should pass validation: %v", err)
 		}
 
 		// 测试无效的配置
-		invalidConfigs := []*cache.LockConfig{
+		invalidConfigs := []*cacheredis.LockConfig{
 			{MinExpireSeconds: 0},       // MinExpireSeconds不能为0
 			{RefreshIntervalRatio: 1.5}, // RefreshIntervalRatio不能>=1
 			{AcquireTimeoutRatio: -0.1}, // AcquireTimeoutRatio不能<0
@@ -947,7 +948,7 @@ func TestRedisLockOperations(t *testing.T) {
 		}
 
 		for i, invalidConfig := range invalidConfigs {
-			if err := cache.ValidateLockConfig(invalidConfig); err == nil {
+			if err := cacheredis.ValidateLockConfig(invalidConfig); err == nil {
 				t.Errorf("Invalid config %d should fail validation", i)
 			}
 		}
@@ -957,7 +958,7 @@ func TestRedisLockOperations(t *testing.T) {
 
 	// 测试6: 自定义锁配置
 	t.Run("CustomLockConfig", func(t *testing.T) {
-		customConfig := &cache.LockConfig{
+		customConfig := &cacheredis.LockConfig{
 			MinExpireSeconds:     8,
 			RefreshIntervalRatio: 0.25, // 更频繁的续期
 			AcquireTimeoutRatio:  0.5,
@@ -968,7 +969,7 @@ func TestRedisLockOperations(t *testing.T) {
 			RefreshRetryBackoff:  300 * time.Millisecond,
 		}
 
-		err := cache.TryLocker(lockKey+"_custom", 8, func(lock *cache.Lock) error {
+		err := cacheredis.TryLocker(lockKey+"_custom", 8, func(lock *cacheredis.Lock) error {
 			// 验证配置生效
 			if lock.ExpireSeconds() != 8 {
 				t.Errorf("Expected expire seconds 8, got %d", lock.ExpireSeconds())
@@ -988,7 +989,7 @@ func TestRedisLockOperations(t *testing.T) {
 	// 测试7: 锁超时处理
 	t.Run("LockTimeoutHandling", func(t *testing.T) {
 		// 使用很短的超时时间
-		shortConfig := &cache.LockConfig{
+		shortConfig := &cacheredis.LockConfig{
 			MinExpireSeconds:  1, // 1秒过期
 			MaxAcquireRetries: 1, // 只重试1次
 			MinRetryBackoff:   50 * time.Millisecond,
@@ -996,7 +997,7 @@ func TestRedisLockOperations(t *testing.T) {
 		}
 
 		startTime := time.Now()
-		err := cache.TryLocker(lockKey+"_timeout", 1, func(lock *cache.Lock) error {
+		err := cacheredis.TryLocker(lockKey+"_timeout", 1, func(lock *cacheredis.Lock) error {
 			// 故意持有锁超过过期时间
 			time.Sleep(1500 * time.Millisecond) // 1.5秒 > 1秒过期时间
 
@@ -1024,7 +1025,7 @@ func TestRedisLockOperations(t *testing.T) {
 // BenchmarkRedisOperations Redis操作基准测试
 func BenchmarkRedisOperations(b *testing.B) {
 	initRedis()
-	rds, err := cache.NewRedis()
+	rds, err := cacheredis.NewRedis()
 	if err != nil {
 		b.Fatalf("Failed to get Redis client: %v", err)
 	}

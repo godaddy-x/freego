@@ -20,15 +20,15 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo/options"
 
-	"github.com/godaddy-x/freego/ormx/sqlc"
-	"github.com/godaddy-x/freego/ormx/sqld"
+	"github.com/godaddy-x/freego/core/query"
+	"github.com/godaddy-x/freego/store/orm/mongo"
 )
 
 // BenchmarkMongoFindOne 单条记录查询性能基准测试
 // 测试根据ID查询单条记录的性能表现，评估索引查询效率
 func BenchmarkMongoFindOne(b *testing.B) {
 	initMongoDB()
-	db, err := sqld.NewMongo()
+	db, err := mongo.NewMongo()
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func BenchmarkMongoFindList(b *testing.B) {
 
 	for _, ts := range testSizes {
 		b.Run(ts.name+"_records", func(b *testing.B) {
-			db, err := sqld.NewMongo()
+			db, err := mongo.NewMongo()
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -88,7 +88,7 @@ func BenchmarkMongoOfficialFindOne(b *testing.B) {
 	initMongoDB()
 
 	// 获取FreeGo ORM管理器中的MongoDB客户端
-	ormManager := &sqld.MGOManager{}
+	ormManager := &mongo.MGOManager{}
 	err := ormManager.GetDB()
 	if err != nil {
 		b.Skip("获取ORM管理器失败，跳过官方驱动测试")
@@ -117,7 +117,7 @@ func BenchmarkMongoOfficialFindList(b *testing.B) {
 	initMongoDB()
 
 	// 获取FreeGo ORM管理器中的MongoDB客户端
-	ormManager := &sqld.MGOManager{}
+	ormManager := &mongo.MGOManager{}
 	err := ormManager.GetDB()
 	if err != nil {
 		b.Skip("获取ORM管理器失败，跳过官方驱动测试")

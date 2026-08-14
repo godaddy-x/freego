@@ -15,15 +15,17 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/godaddy-x/freego/utils/crypto"
-	"github.com/godaddy-x/freego/utils/jwt"
-	"github.com/godaddy-x/freego/zlog"
+	"github.com/godaddy-x/freego/core/crypto"
+	"github.com/godaddy-x/freego/core/jwt"
+	"github.com/godaddy-x/freego/infra/zlog"
 
 	"testing"
 
-	"github.com/godaddy-x/freego/node"
-	"github.com/godaddy-x/freego/utils"
-	"github.com/godaddy-x/freego/utils/sdk"
+	"github.com/godaddy-x/freego/protocol/wire"
+	httpsvr "github.com/godaddy-x/freego/server/http"
+	wssvr "github.com/godaddy-x/freego/server/ws"
+	"github.com/godaddy-x/freego/core/str"
+	wsclient "github.com/godaddy-x/freego/client/ws"
 	"github.com/valyala/fasthttp"
 )
 
@@ -42,13 +44,13 @@ func wsTestCipherHook(usr int64) (crypto.Cipher, error) {
 
 // testMessageHandler 测试用的消息处理器
 type testMessageHandler struct {
-	receivedMessages []*node.JsonResp
+	receivedMessages []*wire.JsonResp
 	messageCount     int
 	mu               sync.Mutex
 }
 
 // HandleMessage 实现MessageHandler接口
-func (h *testMessageHandler) HandleMessage(message *node.JsonResp) error {
+func (h *testMessageHandler) HandleMessage(message *wire.JsonResp) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -107,12 +109,12 @@ func TestWebSocketManyClient(t *testing.T) {
 	}
 
 	// 预生成 300 个用户的 token
-	tokens := make([]sdk.AuthToken, numClients)
+	tokens := make([]wire.AuthToken, numClients)
 	for i := 0; i < numClients; i++ {
 		subject := &jwt.Subject{}
 		token := subject.Create(utils.NextSID()).Dev("APP").Generate(config)
 		secretBytes := subject.GetTokenSecret(token, config.TokenKey)
-		tokens[i] = sdk.AuthToken{
+		tokens[i] = wire.AuthToken{
 			Token:   token,
 			Secret:  utils.Base64Encode(utils.Bytes2Str(secretBytes)),
 			Expired: subject.Payload.Exp,
@@ -151,7 +153,7 @@ func TestWebSocketManyClient(t *testing.T) {
 			go func() {
 				defer wg.Done()
 				time.Sleep(time.Duration(idx) * 50 * time.Millisecond)
-				wsSdk := sdk.NewSocketSDK(serverAddr)
+				wsSdk := wsclient.New(serverAddr)
 				wsSdk.AuthToken(u)
 				wsSdk.SetClientNo(1)
 				_ = wsSdk.SetMLDSA87Object(wsSdk.GetClientNo(), pqClientPrk, pqServerPub)
@@ -167,7 +169,7 @@ func TestWebSocketManyClient(t *testing.T) {
 				}
 				defer wsSdk.DisconnectWebSocket()
 				req := map[string]interface{}{"test": "并发用户"}
-				resp1 := &sdk.AuthToken{}
+				resp1 := &wire.AuthToken{}
 				if err := wsSdk.SendWebSocketMessage("/ws/user", req, resp1, true, false, 10); err != nil {
 					failMu.Lock()
 					sendFails++
@@ -177,7 +179,7 @@ func TestWebSocketManyClient(t *testing.T) {
 					}
 					return
 				}
-				resp2 := &sdk.AuthToken{}
+				resp2 := &wire.AuthToken{}
 				if err := wsSdk.SendWebSocketMessage("/ws/user2", req, resp2, true, true, 10); err != nil {
 					failMu.Lock()
 					sendFails++
@@ -259,13 +261,13 @@ func TestWebSocketStressConnectionRate1Minute(t *testing.T) {
 				subject := &jwt.Subject{}
 				token := subject.Create(utils.NextSID()).Dev("APP").Generate(jwtConfig)
 				secretBytes := subject.GetTokenSecret(token, jwtConfig.TokenKey)
-				auth := sdk.AuthToken{
+				auth := wire.AuthToken{
 					Token:   token,
 					Secret:  utils.Base64Encode(utils.Bytes2Str(secretBytes)),
 					Expired: subject.Payload.Exp,
 				}
 
-				wsSdk := sdk.NewSocketSDK(serverAddr)
+				wsSdk := wsclient.New(serverAddr)
 				wsSdk.AuthToken(auth)
 				wsSdk.SetClientNo(1)
 				_ = wsSdk.SetMLDSA87Object(wsSdk.GetClientNo(), pqClientPrk, pqServerPub)
@@ -377,13 +379,13 @@ func stressHeldWave(ctx context.Context, serverAddr string, workers, jitterMS in
 			subject := &jwt.Subject{}
 			token := subject.Create(utils.NextSID()).Dev("APP").Generate(jwtConfig)
 			secretBytes := subject.GetTokenSecret(token, jwtConfig.TokenKey)
-			auth := sdk.AuthToken{
+			auth := wire.AuthToken{
 				Token:   token,
 				Secret:  utils.Base64Encode(utils.Bytes2Str(secretBytes)),
 				Expired: subject.Payload.Exp,
 			}
 
-			wsSdk := sdk.NewSocketSDK(serverAddr)
+			wsSdk := wsclient.New(serverAddr)
 			wsSdk.AuthToken(auth)
 			wsSdk.SetClientNo(1)
 			_ = wsSdk.SetMLDSA87Object(wsSdk.GetClientNo(), pqClientPrk, pqServerPub)
@@ -632,7 +634,7 @@ func TestWebSocketSendRoundTripPerf(t *testing.T) {
 	beforeGoroutines := runtime.NumGoroutine()
 
 	type wsClient struct {
-		sdk *sdk.SocketSDK
+		sdk *wsclient.SDK
 	}
 	liveClients := make([]*wsClient, 0, clientsN)
 	var liveMu sync.Mutex
@@ -651,12 +653,12 @@ func TestWebSocketSendRoundTripPerf(t *testing.T) {
 			subject := &jwt.Subject{}
 			token := subject.Create(utils.NextSID()).Dev("APP").Generate(jwtConfig)
 			secretBytes := subject.GetTokenSecret(token, jwtConfig.TokenKey)
-			auth := sdk.AuthToken{
+			auth := wire.AuthToken{
 				Token:   token,
 				Secret:  utils.Base64Encode(utils.Bytes2Str(secretBytes)),
 				Expired: subject.Payload.Exp,
 			}
-			wsSdk := sdk.NewSocketSDK(serverAddr)
+			wsSdk := wsclient.New(serverAddr)
 			wsSdk.AuthToken(auth)
 			wsSdk.SetClientNo(1)
 			_ = wsSdk.SetMLDSA87Object(wsSdk.GetClientNo(), pqClientPrk, pqServerPub)
@@ -705,11 +707,11 @@ func TestWebSocketSendRoundTripPerf(t *testing.T) {
 				}
 
 				reqID := atomic.AddUint64(&totalReq, 1)
-				reqBody := &sdk.AuthToken{
+				reqBody := &wire.AuthToken{
 					Token:   "send_perf",
 					Expired: int64(reqID),
 				}
-				respBody := &sdk.AuthToken{}
+				respBody := &wire.AuthToken{}
 				begin := time.Now()
 				err := client.sdk.SendWebSocketMessage(route, reqBody, respBody, true, false, int64(timeoutSec))
 				latNs := time.Since(begin).Nanoseconds()
@@ -818,7 +820,7 @@ func TestCreateWsServer(t *testing.T) {
 	fmt.Println("0. 启动测试服务器...")
 
 	// 创建WebSocket服务器实例
-	server := node.NewWsServer(node.SubjectDeviceUnique)
+	server := wssvr.NewWsServer(wssvr.SubjectDeviceUnique)
 
 	server.AddJwtConfig(jwt.JwtConfig{
 		TokenTyp: jwt.JWT,
@@ -837,19 +839,19 @@ func TestCreateWsServer(t *testing.T) {
 	}
 
 	// 添加业务路由处理器
-	err = server.AddRouter("/ws/key", func(ctx context.Context, connCtx *node.ConnectionContext, body []byte) (interface{}, error) {
-		req := &node.PublicKey{}
+	err = server.AddRouter("/ws/key", func(ctx context.Context, connCtx *wssvr.ConnectionContext, body []byte) (interface{}, error) {
+		req := &wire.PublicKey{}
 		if err := utils.JsonUnmarshal(body, req); err != nil {
 			return nil, err
 		}
 		return server.BuildPlan2KeyResponse(req)
-	}, &node.RouterConfig{UsePlan2: true, KeyRoute: true})
+	}, &wssvr.RouterConfig{UsePlan2: true, KeyRoute: true})
 	if err != nil {
 		t.Fatalf("Failed to add key router: %v", err)
 	}
 
-	err = server.AddRouter("/ws/login", func(ctx context.Context, connCtx *node.ConnectionContext, body []byte) (interface{}, error) {
-		req := &sdk.AuthToken{}
+	err = server.AddRouter("/ws/login", func(ctx context.Context, connCtx *wssvr.ConnectionContext, body []byte) (interface{}, error) {
+		req := &wire.AuthToken{}
 		if err := utils.JsonUnmarshal(body, req); err != nil {
 			return nil, err
 		}
@@ -862,35 +864,35 @@ func TestCreateWsServer(t *testing.T) {
 		subject := &jwt.Subject{}
 		token := subject.Create(req.Token).Dev("APP").Generate(jwtConfig)
 		secret := subject.GetTokenSecret(token, jwtConfig.TokenKey)
-		return &sdk.AuthToken{
+		return &wire.AuthToken{
 			Token:   token,
 			Secret:  utils.Base64Encode(secret),
 			Expired: utils.UnixSecond() + jwtConfig.TokenExp,
 		}, nil
-	}, &node.RouterConfig{UsePlan2: true, LoginRoute: true})
+	}, &wssvr.RouterConfig{UsePlan2: true, LoginRoute: true})
 	if err != nil {
 		t.Fatalf("Failed to add login router: %v", err)
 	}
 
-	err = server.AddRouter("/ws/user", func(ctx context.Context, connCtx *node.ConnectionContext, body []byte) (interface{}, error) {
+	err = server.AddRouter("/ws/user", func(ctx context.Context, connCtx *wssvr.ConnectionContext, body []byte) (interface{}, error) {
 		//fmt.Println("test", connCtx.GetUserID())
-		ret := &sdk.AuthToken{
+		ret := &wire.AuthToken{
 			Token:  "鲨鱼宝宝获取websocket",
 			Secret: connCtx.GetUserIDString(),
 		}
 		return ret, nil
-	}, &node.RouterConfig{AesRequest: true, AesResponse: true})
+	}, &wssvr.RouterConfig{AesRequest: true, AesResponse: true})
 	if err != nil {
 		t.Fatalf("Failed to add router: %v", err)
 	}
 
-	err = server.AddRouter("/ws/user2", func(ctx context.Context, connCtx *node.ConnectionContext, body []byte) (interface{}, error) {
-		ret := &sdk.AuthToken{
+	err = server.AddRouter("/ws/user2", func(ctx context.Context, connCtx *wssvr.ConnectionContext, body []byte) (interface{}, error) {
+		ret := &wire.AuthToken{
 			Token:  "鲨鱼爸爸获取websocket",
 			Secret: connCtx.GetUserIDString(),
 		}
 		return ret, nil
-	}, &node.RouterConfig{})
+	}, &wssvr.RouterConfig{})
 	if err != nil {
 		t.Fatalf("Failed to add router: %v", err)
 	}
@@ -903,22 +905,22 @@ func TestCreateWsServer(t *testing.T) {
 }
 
 func testClient(subject string) {
-	wsUserSdk := sdk.NewSocketSDK("localhost:8088")
+	wsUserSdk := wsclient.New("localhost:8088")
 	wsUserSdk.SetClientNo(1)
 	wsUserSdk.EnableReconnect()
 	if err := wsUserSdk.SetMLDSA87Object(1, pqClientPrk, pqServerPub); err != nil {
 		fmt.Printf("set user sdk ed25519 failed: %v", err)
 	}
 	wsUserSdk.SetTokenExpiredCallback(func() {
-		loginSdk := sdk.NewSocketSDK("localhost:8088")
+		loginSdk := wsclient.New("localhost:8088")
 		loginSdk.SetClientNo(1)
 		if err := loginSdk.SetMLDSA87Object(1, pqClientPrk, pqServerPub); err != nil {
 			fmt.Printf("token callback set ed25519 failed: %v", err)
 			return
 		}
 		defer loginSdk.DisconnectWebSocket()
-		req := sdk.AuthToken{Token: subject}
-		resp := sdk.AuthToken{}
+		req := wire.AuthToken{Token: subject}
+		resp := wire.AuthToken{}
 		if err := loginSdk.LoginByWebSocketPlan2Auto("/ws/key", "/ws/login", &req, &resp, 5); err != nil {
 			fmt.Printf("token callback plan2 auto login failed: %v", err)
 			return
@@ -933,7 +935,7 @@ func testClient(subject string) {
 
 	if wsUserSdk.IsWebSocketConnected() {
 		userReq := map[string]interface{}{"test": "plan2_to_user"}
-		userResp := &sdk.AuthToken{}
+		userResp := &wire.AuthToken{}
 		if err := wsUserSdk.SendWebSocketMessage("/ws/user", userReq, userResp, true, true, 5); err != nil {
 			fmt.Printf("ws user route call failed: %v", err)
 		}
@@ -969,7 +971,7 @@ func TestWebSocketSDKUsage(t *testing.T) {
 	fmt.Println("0. 启动测试服务器...")
 
 	// 创建WebSocket服务器实例
-	server := node.NewWsServer(node.SubjectDeviceUnique)
+	server := wssvr.NewWsServer(wssvr.SubjectDeviceUnique)
 
 	server.AddJwtConfig(jwt.JwtConfig{
 		TokenTyp: jwt.JWT,
@@ -988,24 +990,24 @@ func TestWebSocketSDKUsage(t *testing.T) {
 	}
 
 	// 添加业务路由处理器
-	err = server.AddRouter("/ws/user", func(ctx context.Context, connCtx *node.ConnectionContext, body []byte) (interface{}, error) {
-		ret := &sdk.AuthToken{
+	err = server.AddRouter("/ws/user", func(ctx context.Context, connCtx *wssvr.ConnectionContext, body []byte) (interface{}, error) {
+		ret := &wire.AuthToken{
 			Token:  "鲨鱼宝宝获取websocket",
 			Secret: connCtx.GetUserIDString(),
 		}
 		return ret, nil
-	}, &node.RouterConfig{})
+	}, &wssvr.RouterConfig{})
 	if err != nil {
 		t.Fatalf("Failed to add router: %v", err)
 	}
 
-	err = server.AddRouter("/ws/user2", func(ctx context.Context, connCtx *node.ConnectionContext, body []byte) (interface{}, error) {
-		ret := &sdk.AuthToken{
+	err = server.AddRouter("/ws/user2", func(ctx context.Context, connCtx *wssvr.ConnectionContext, body []byte) (interface{}, error) {
+		ret := &wire.AuthToken{
 			Token:  "鲨鱼爸爸获取websocket",
 			Secret: connCtx.GetUserIDString(),
 		}
 		return ret, nil
-	}, &node.RouterConfig{})
+	}, &wssvr.RouterConfig{})
 	if err != nil {
 		t.Fatalf("Failed to add router: %v", err)
 	}
@@ -1046,11 +1048,11 @@ func TestWebSocketSDKUsage(t *testing.T) {
 	// {eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyMDMyOTk2NTg1Mjg5Mjg1NjMzIiwiYXVkIjoiIiwiaXNzIjoiIiwiZGV2IjoiQVBQIiwianRpIjoiZmQwMjAyZmI0NGI2NDNkODgzZGE3NGE4ODY3NGEyMDMiLCJleHQiOiIiLCJpYXQiOjAsImV4cCI6MTc4NTYzNTEzMX0=.OZpZC5/pFqm9H+PiolACHj0sP0SrTZrakhPz0FSWEFU= DjPI2P8Pud2dVUKfKCuAqu20/JC+7xIE3jECeID9vfU= 1785635131}
 	// 1. 初始化SDK
 	fmt.Println("1. 初始化SDK...")
-	wsSdk := sdk.NewSocketSDK(serverAddr)
+	wsSdk := wsclient.New(serverAddr)
 
 	// 2. 设置认证Token
 	fmt.Println("2. 设置认证Token...")
-	authToken := sdk.AuthToken{
+	authToken := wire.AuthToken{
 		Token:   access_token,
 		Secret:  token_secret,
 		Expired: token_expire,
@@ -1072,7 +1074,7 @@ func TestWebSocketSDKUsage(t *testing.T) {
 	// 6. 发送WebSocket消息
 	fmt.Println("6. 发送WebSocket消息...")
 	requestObject := map[string]interface{}{"test": "张三"}
-	responseObject := &sdk.AuthToken{}
+	responseObject := &wire.AuthToken{}
 	err = wsSdk.SendWebSocketMessage("/ws/user", requestObject, responseObject, true, false, 5)
 	if err != nil {
 		t.Errorf("发送消息失败：%v", err)
@@ -1083,7 +1085,7 @@ func TestWebSocketSDKUsage(t *testing.T) {
 	fmt.Println("明文响应结果1:", responseObject)
 
 	requestObject = map[string]interface{}{"test": "张三"}
-	responseObject = &sdk.AuthToken{}
+	responseObject = &wire.AuthToken{}
 	err = wsSdk.SendWebSocketMessage("/ws/user2", requestObject, responseObject, true, true, 5)
 	if err != nil {
 		t.Errorf("发送消息失败：%v", err)
@@ -1103,7 +1105,7 @@ func TestWebSocketSDKUsage(t *testing.T) {
 
 	// 6. 测试Token过期回调（设置过期的token）
 	fmt.Println("6. 测试Token过期场景...")
-	expiredToken := sdk.AuthToken{
+	expiredToken := wire.AuthToken{
 		Token:   "expired-token",
 		Secret:  "expired-secret",
 		Expired: utils.UnixSecond() - 100, // 已经过期
@@ -1213,7 +1215,7 @@ func TestWebSocketTokenExpiredCallback(t *testing.T) {
 	// 启动测试服务器
 	zlog.InitDefaultLog(&zlog.ZapConfig{Layout: 0, Location: time.Local, Level: zlog.DEBUG, Console: true})
 
-	server := node.NewWsServer(node.SubjectDeviceUnique)
+	server := wssvr.NewWsServer(wssvr.SubjectDeviceUnique)
 
 	server.AddJwtConfig(jwt.JwtConfig{
 		TokenTyp: jwt.JWT,
@@ -1261,7 +1263,7 @@ func TestWebSocketTokenExpiredCallback(t *testing.T) {
 	}
 
 	// 创建SDK实例
-	wsSdk := sdk.NewSocketSDK(serverAddr)
+	wsSdk := wsclient.New(serverAddr)
 
 	// 确保Ed25519密钥设置正确
 	if err := wsSdk.SetMLDSA87Object(1, pqClientPrk, pqServerPub); err != nil {
@@ -1269,7 +1271,7 @@ func TestWebSocketTokenExpiredCallback(t *testing.T) {
 	}
 
 	// 1. 设置初始认证信息（即将过期）
-	initialAuth := sdk.AuthToken{
+	initialAuth := wire.AuthToken{
 		Token:   "expired_token", // 使用无效token
 		Secret:  "expired_secret",
 		Expired: utils.UnixSecond() - 100, // 已经过期
@@ -1292,7 +1294,7 @@ func TestWebSocketTokenExpiredCallback(t *testing.T) {
 		}
 
 		// 更新SDK的认证信息
-		newAuth := sdk.AuthToken{
+		newAuth := wire.AuthToken{
 			Token:   authResp.Token,
 			Secret:  authResp.Secret,
 			Expired: authResp.Expired,
@@ -1342,7 +1344,7 @@ func TestWebSocketTokenExpiredCallback(t *testing.T) {
 	}
 
 	// 8. 测试发送消息
-	response := &node.JsonResp{}
+	response := &wire.JsonResp{}
 	err = wsSdk.SendWebSocketMessage("/ws/test", map[string]interface{}{"test": "data"}, response, true, true, 5)
 	if err != nil {
 		t.Fatalf("Failed to send message after token refresh: %v", err)
@@ -1364,7 +1366,7 @@ func TestWebSocketMessageSubscription(t *testing.T) {
 	// 1. 启动测试服务器
 	zlog.InitDefaultLog(&zlog.ZapConfig{Layout: 0, Location: time.Local, Level: zlog.DEBUG, Console: true})
 
-	server := node.NewWsServer(node.SubjectDeviceUnique)
+	server := wssvr.NewWsServer(wssvr.SubjectDeviceUnique)
 
 	server.AddJwtConfig(jwt.JwtConfig{
 		TokenTyp: jwt.JWT,
@@ -1383,7 +1385,7 @@ func TestWebSocketMessageSubscription(t *testing.T) {
 	}
 
 	// 添加推送触发路由处理器（一次性推送10条消息）
-	err = server.AddRouter("/ws/trigger-push", func(ctx context.Context, connCtx *node.ConnectionContext, body []byte) (interface{}, error) {
+	err = server.AddRouter("/ws/trigger-push", func(ctx context.Context, connCtx *wssvr.ConnectionContext, body []byte) (interface{}, error) {
 		// 解析触发请求
 		var triggerData map[string]interface{}
 		if err := utils.JsonUnmarshal(body, &triggerData); err != nil {
@@ -1408,7 +1410,7 @@ func TestWebSocketMessageSubscription(t *testing.T) {
 
 			for i := 1; i <= 10; i++ {
 				// 构造第i条推送消息
-				pushMessage := &node.JsonResp{
+				pushMessage := &wire.JsonResp{
 					Code:    200,
 					Message: fmt.Sprintf("push notification #%d", i),
 					Data:    fmt.Sprintf("%s #%d", baseMessage, i),
@@ -1450,10 +1452,10 @@ func TestWebSocketMessageSubscription(t *testing.T) {
 			"total_messages": 10,
 			"interval_ms":    500,
 		}, nil
-	}, &node.RouterConfig{})
+	}, &wssvr.RouterConfig{})
 
 	// 添加持续推送路由处理器（持续推送消息直到客户端断开）
-	err = server.AddRouter("/ws/start-continuous-push", func(ctx context.Context, connCtx *node.ConnectionContext, body []byte) (interface{}, error) {
+	err = server.AddRouter("/ws/start-continuous-push", func(ctx context.Context, connCtx *wssvr.ConnectionContext, body []byte) (interface{}, error) {
 		// 解析请求
 		var pushData map[string]interface{}
 		if err := utils.JsonUnmarshal(body, &pushData); err != nil {
@@ -1520,7 +1522,7 @@ func TestWebSocketMessageSubscription(t *testing.T) {
 					currentTime := utils.UnixSecond()
 
 					// 构造推送消息
-					pushMessage := &node.JsonResp{
+					pushMessage := &wire.JsonResp{
 						Code:    200,
 						Message: fmt.Sprintf("continuous push #%d", messageCount),
 						Data:    fmt.Sprintf("%s #%d at %d", baseMessage, messageCount, currentTime),
@@ -1557,7 +1559,7 @@ func TestWebSocketMessageSubscription(t *testing.T) {
 			"duration_seconds":   durationSeconds,
 			"estimated_messages": int(durationSeconds / intervalSeconds),
 		}, nil
-	}, &node.RouterConfig{})
+	}, &wssvr.RouterConfig{})
 	if err != nil {
 		t.Fatalf("Failed to add trigger-push router: %v", err)
 	}
@@ -1599,10 +1601,10 @@ func TestWebSocketMessageSubscription(t *testing.T) {
 	}
 
 	// 2. 创建SDK实例并连接到测试服务器
-	wsSdk := sdk.NewSocketSDK(serverAddr)
+	wsSdk := wsclient.New(serverAddr)
 
 	handler := &testMessageHandler{
-		receivedMessages: make([]*node.JsonResp, 0),
+		receivedMessages: make([]*wire.JsonResp, 0),
 	}
 
 	// 测试订阅消息
@@ -1638,7 +1640,7 @@ func TestWebSocketMessageSubscription(t *testing.T) {
 	t.Run("MessageDispatch", func(t *testing.T) {
 		// 创建消息处理器用于接收推送消息
 		dispatchHandler := &testMessageHandler{
-			receivedMessages: make([]*node.JsonResp, 0),
+			receivedMessages: make([]*wire.JsonResp, 0),
 		}
 
 		// 订阅推送消息
@@ -1649,7 +1651,7 @@ func TestWebSocketMessageSubscription(t *testing.T) {
 		defer wsSdk.UnsubscribeMessage("/ws/push")
 
 		// 使用预定义的认证参数
-		authToken := sdk.AuthToken{
+		authToken := wire.AuthToken{
 			Token:   access_token,
 			Secret:  token_secret,
 			Expired: token_expire,
@@ -1673,7 +1675,7 @@ func TestWebSocketMessageSubscription(t *testing.T) {
 			"message":       "Hello from push test!",
 		}
 
-		response := &node.JsonResp{}
+		response := &wire.JsonResp{}
 		err = wsSdk.SendWebSocketMessage("/ws/trigger-push", testData, response, true, true, 5)
 		if err != nil {
 			t.Fatalf("Push trigger failed: %v", err)
@@ -1725,7 +1727,7 @@ func TestWebSocketMessageSubscription(t *testing.T) {
 	t.Run("ContinuousMessagePush", func(t *testing.T) {
 		// 创建消息处理器用于接收持续推送消息
 		continuousHandler := &testMessageHandler{
-			receivedMessages: make([]*node.JsonResp, 0),
+			receivedMessages: make([]*wire.JsonResp, 0),
 		}
 
 		// 订阅持续推送消息
@@ -1736,7 +1738,7 @@ func TestWebSocketMessageSubscription(t *testing.T) {
 		defer wsSdk.UnsubscribeMessage("/ws/continuous")
 
 		// 使用预定义的认证参数
-		authToken := sdk.AuthToken{
+		authToken := wire.AuthToken{
 			Token:   access_token,
 			Secret:  token_secret,
 			Expired: token_expire,
@@ -1762,7 +1764,7 @@ func TestWebSocketMessageSubscription(t *testing.T) {
 			"duration_seconds": 5.0, // 持续5秒
 		}
 
-		response := &node.JsonResp{}
+		response := &wire.JsonResp{}
 		err = wsSdk.SendWebSocketMessage("/ws/start-continuous-push", continuousData, response, true, true, 5)
 		if err != nil {
 			t.Fatalf("Failed to start continuous push: %v", err)
@@ -1821,7 +1823,7 @@ func TestWebSocketMessageSubscription(t *testing.T) {
 	t.Run("ReconnectAutoResubscribe", func(t *testing.T) {
 		// 创建消息处理器用于测试重连重新订阅
 		reconnectHandler := &testMessageHandler{
-			receivedMessages: make([]*node.JsonResp, 0),
+			receivedMessages: make([]*wire.JsonResp, 0),
 		}
 
 		// 订阅测试路由
@@ -1854,7 +1856,7 @@ func TestWebSocketMessageSubscription(t *testing.T) {
 		}
 
 		// 重新设置认证信息（模拟重连时的token更新）
-		authToken := sdk.AuthToken{
+		authToken := wire.AuthToken{
 			Token:   access_token,
 			Secret:  token_secret,
 			Expired: token_expire,
@@ -1892,16 +1894,16 @@ func TestWebSocketMessageSubscription(t *testing.T) {
 
 // TestWebSocketMessageSizeLimit 测试消息大小限制
 func TestWebSocketMessageSizeLimit(t *testing.T) {
-	server := node.NewWsServer(node.SubjectDeviceUnique)
+	server := wssvr.NewWsServer(wssvr.SubjectDeviceUnique)
 	serverAddr := "localhost:8089"
 
 	access_token := "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxOTkyODAwOTk4Mzg4NjYyMjczIiwiYXVkIjoiIiwiaXNzIjoiIiwiZGV2IjoiQVBQIiwianRpIjoiMjgyZjAwMmQtNTY3MS00YTlhLTgwMDMtMzA5ZmI0ZGNkNTZjIiwiZXh0IjoiIiwiaWF0IjowLCJleHAiOjE3NjUxNjUzNTd9.tbuDc+g0Scge9WNRDESF/acdMG7Fqwgu6F4vWgv69WQ="
 	token_secret := "nt/YcHhS6Y8npXInAhBr9PMdSNLZlGbNCfnqaQWo09HNd67Swoy0qHZeVqN2A42g/SHVoTWkLs3XQna8bEUxeA=="
 	token_expire := int64(1765165357)
 
-	server.AddRouter("/ws/user", func(ctx context.Context, connCtx *node.ConnectionContext, body []byte) (interface{}, error) {
+	server.AddRouter("/ws/user", func(ctx context.Context, connCtx *wssvr.ConnectionContext, body []byte) (interface{}, error) {
 		return map[string]interface{}{"message": "success"}, nil
-	}, &node.RouterConfig{})
+	}, &wssvr.RouterConfig{})
 
 	// 启动服务器
 	go func() {
@@ -1913,10 +1915,10 @@ func TestWebSocketMessageSizeLimit(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// 初始化SDK
-	wsSdk := sdk.NewSocketSDK(serverAddr)
+	wsSdk := wsclient.New(serverAddr)
 
 	// 设置认证Token
-	authToken := sdk.AuthToken{
+	authToken := wire.AuthToken{
 		Token:   access_token,
 		Secret:  token_secret,
 		Expired: token_expire,
@@ -1939,7 +1941,7 @@ func TestWebSocketMessageSizeLimit(t *testing.T) {
 	requestObject := map[string]interface{}{
 		"data": string(largeMessage), // 将大字节数组转换为字符串
 	}
-	responseObject := &sdk.AuthToken{}
+	responseObject := &wire.AuthToken{}
 
 	// 发送大消息，预期会失败
 	err = wsSdk.SendWebSocketMessage("/ws/user", requestObject, responseObject, true, true, 5)
@@ -1952,7 +1954,7 @@ func TestWebSocketMessageSizeLimit(t *testing.T) {
 
 // TestWebSocketGracefulShutdownWithTimeout 测试带超时的优雅关闭
 func TestWebSocketGracefulShutdownWithTimeout(t *testing.T) {
-	server := node.NewWsServer(node.SubjectDeviceUnique)
+	server := wssvr.NewWsServer(wssvr.SubjectDeviceUnique)
 	serverAddr := "localhost:8090"
 
 	// 初始化连接池和心跳服务
@@ -1960,9 +1962,9 @@ func TestWebSocketGracefulShutdownWithTimeout(t *testing.T) {
 		t.Fatalf("Failed to initialize pool: %v", err)
 	}
 
-	server.AddRouter("/ws/test", func(ctx context.Context, connCtx *node.ConnectionContext, body []byte) (interface{}, error) {
+	server.AddRouter("/ws/test", func(ctx context.Context, connCtx *wssvr.ConnectionContext, body []byte) (interface{}, error) {
 		return map[string]interface{}{"message": "success"}, nil
-	}, &node.RouterConfig{})
+	}, &wssvr.RouterConfig{})
 
 	// 启动服务器
 	go func() {
@@ -1985,7 +1987,7 @@ func TestWebSocketGracefulShutdownWithTimeout(t *testing.T) {
 
 // TestWebSocketClientUnexpectedDisconnect 测试客户端意外断开（如网络断开、进程被杀）时服务端能正确清理连接
 func TestWebSocketClientUnexpectedDisconnect(t *testing.T) {
-	server := node.NewWsServer(node.SubjectDeviceUnique)
+	server := wssvr.NewWsServer(wssvr.SubjectDeviceUnique)
 	server.AddJwtConfig(jwt.JwtConfig{
 		TokenTyp: jwt.JWT,
 		TokenAlg: jwt.HS256,
@@ -2032,9 +2034,9 @@ func TestWebSocketClientUnexpectedDisconnect(t *testing.T) {
 	}
 
 	// 再次用 SDK 连接，确认服务端仍可用（需与 TestWebSocketSDKUsage 一致配置 Ed25519）
-	wsSdk := sdk.NewSocketSDK(serverAddr)
+	wsSdk := wsclient.New(serverAddr)
 	secretBytes := subject.GetTokenSecret(token, config.TokenKey)
-	wsSdk.AuthToken(sdk.AuthToken{
+	wsSdk.AuthToken(wire.AuthToken{
 		Token:   token,
 		Secret:  utils.Base64Encode(utils.Bytes2Str(secretBytes)),
 		Expired: subject.Payload.Exp,
@@ -2051,7 +2053,7 @@ func TestWebSocketClientUnexpectedDisconnect(t *testing.T) {
 // TestRemoteIPSecurity 测试RemoteIP的安全性，防止IP伪造
 func TestRemoteIPSecurity(t *testing.T) {
 	// 创建一个模拟的Context
-	ctx := &node.Context{}
+	ctx := &httpsvr.Context{}
 	ctx.RequestCtx = &fasthttp.RequestCtx{}
 	ctx.RequestCtx.Request.Header.Set("CF-Connecting-IP", "198.51.100.10")
 	ctx.RequestCtx.Request.Header.Set("X-Forwarded-For", "192.168.1.100, 10.0.0.1, 203.0.113.1")
@@ -2097,7 +2099,7 @@ func TestRemoteIPSecurity(t *testing.T) {
 
 // TestDevConnConcurrentSafety 测试 DevConn 的并发安全性（Send / UpdateLast / LastSeen）
 func TestDevConnConcurrentSafety(t *testing.T) {
-	devConn := &node.DevConn{
+	devConn := &wssvr.DevConn{
 		Sub:  "test_subject",
 		Dev:  "test_device",
 		Last: utils.UnixSecond(),
@@ -2145,7 +2147,7 @@ func TestDevConnConcurrentSafety(t *testing.T) {
 
 // TestWebSocketErrorHandling 测试错误处理的上下文信息记录
 func TestWebSocketErrorHandling(t *testing.T) {
-	server := node.NewWsServer(node.SubjectDeviceUnique)
+	server := wssvr.NewWsServer(wssvr.SubjectDeviceUnique)
 	serverAddr := "localhost:8092"
 
 	// 添加JWT配置
@@ -2164,14 +2166,14 @@ func TestWebSocketErrorHandling(t *testing.T) {
 		t.Fatalf("Failed to initialize pool: %v", err)
 	}
 
-	server.AddRouter("/ws/test", func(ctx context.Context, connCtx *node.ConnectionContext, body []byte) (interface{}, error) {
+	server.AddRouter("/ws/test", func(ctx context.Context, connCtx *wssvr.ConnectionContext, body []byte) (interface{}, error) {
 		return map[string]interface{}{"message": "success"}, nil
-	}, &node.RouterConfig{})
+	}, &wssvr.RouterConfig{})
 
 	// 添加一个会失败的路由来触发错误处理
-	server.AddRouter("/ws/error", func(ctx context.Context, connCtx *node.ConnectionContext, body []byte) (interface{}, error) {
+	server.AddRouter("/ws/error", func(ctx context.Context, connCtx *wssvr.ConnectionContext, body []byte) (interface{}, error) {
 		return nil, fmt.Errorf("test error for error handling")
-	}, &node.RouterConfig{})
+	}, &wssvr.RouterConfig{})
 
 	// 启动服务器
 	go func() {
@@ -2183,8 +2185,8 @@ func TestWebSocketErrorHandling(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	// 初始化SDK并建立连接
-	wsSdk := sdk.NewSocketSDK(serverAddr)
-	authToken := sdk.AuthToken{
+	wsSdk := wsclient.New(serverAddr)
+	authToken := wire.AuthToken{
 		Token:   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxOTkyODAwOTk4Mzg4NjYyMjczIiwiYXVkIjoiIiwiaXNzIjoiIiwiZGV2IjoiQVBQIiwianRpIjoiMjgyZjAwMmQtNTY3MS00YTlhLTgwMDMtMzA5ZmI0ZGNkNTZjIiwiZXh0IjoiIiwiaWF0IjowLCJleHAiOjE3NjUxNjUzNTd9.tbuDc+g0Scge9WNRDESF/acdMG7Fqwgu6F4vWgv69WQ=",
 		Secret:  "nt/YcHhS6Y8npXInAhBr9PMdSNLZlGbNCfnqaQWo09HNd67Swoy0qHZeVqN2A42g/SHVoTWkLs3XQna8bEUxeA==",
 		Expired: int64(1765165357),
@@ -2199,7 +2201,7 @@ func TestWebSocketErrorHandling(t *testing.T) {
 
 	// 发送请求到会失败的路由，触发错误处理
 	requestObject := map[string]interface{}{"test": "error"}
-	responseObject := &sdk.AuthToken{}
+	responseObject := &wire.AuthToken{}
 
 	// 发送到错误路由，应该会记录详细的错误日志
 	err = wsSdk.SendWebSocketMessage("/ws/error", requestObject, responseObject, true, true, 5)
@@ -2223,7 +2225,7 @@ func TestWebSocketServer(t *testing.T) {
 	fmt.Println("0. 启动测试服务器...")
 
 	// 创建WebSocket服务器实例
-	server := node.NewWsServer(node.SubjectDeviceUnique)
+	server := wssvr.NewWsServer(wssvr.SubjectDeviceUnique)
 
 	server.AddJwtConfig(jwt.JwtConfig{
 		TokenTyp: jwt.JWT,
@@ -2242,24 +2244,24 @@ func TestWebSocketServer(t *testing.T) {
 	}
 
 	// 添加业务路由处理器
-	err = server.AddRouter("/ws/user", func(ctx context.Context, connCtx *node.ConnectionContext, body []byte) (interface{}, error) {
-		ret := &sdk.AuthToken{
+	err = server.AddRouter("/ws/user", func(ctx context.Context, connCtx *wssvr.ConnectionContext, body []byte) (interface{}, error) {
+		ret := &wire.AuthToken{
 			Token:  "鲨鱼宝宝获取websocket",
 			Secret: connCtx.GetUserIDString(),
 		}
 		return ret, nil
-	}, &node.RouterConfig{})
+	}, &wssvr.RouterConfig{})
 	if err != nil {
 		t.Fatalf("Failed to add router: %v", err)
 	}
 
-	err = server.AddRouter("/ws/user2", func(ctx context.Context, connCtx *node.ConnectionContext, body []byte) (interface{}, error) {
-		ret := &sdk.AuthToken{
+	err = server.AddRouter("/ws/user2", func(ctx context.Context, connCtx *wssvr.ConnectionContext, body []byte) (interface{}, error) {
+		ret := &wire.AuthToken{
 			Token:  "鲨鱼爸爸获取websocket",
 			Secret: connCtx.GetUserIDString(),
 		}
 		return ret, nil
-	}, &node.RouterConfig{})
+	}, &wssvr.RouterConfig{})
 	if err != nil {
 		t.Fatalf("Failed to add router: %v", err)
 	}
@@ -2296,11 +2298,11 @@ func TestWebSocketClient(t *testing.T) {
 
 	// 1. 初始化SDK
 	fmt.Println("1. 初始化SDK...")
-	wsSdk := sdk.NewSocketSDK("localhost:8088")
+	wsSdk := wsclient.New("localhost:8088")
 
 	// 2. 设置认证Token
 	fmt.Println("2. 设置认证Token...")
-	authToken := sdk.AuthToken{
+	authToken := wire.AuthToken{
 		Token:   access_token,
 		Secret:  token_secret,
 		Expired: token_expire,
@@ -2354,7 +2356,7 @@ func TestWebSocketClient(t *testing.T) {
 	// 6. 发送WebSocket消息
 	fmt.Println("6. 发送WebSocket消息...")
 	requestObject := map[string]interface{}{"test": "张三"}
-	responseObject := &sdk.AuthToken{}
+	responseObject := &wire.AuthToken{}
 	err := wsSdk.SendWebSocketMessage("/ws/user", requestObject, responseObject, true, false, 5)
 	if err != nil {
 		t.Errorf("发送消息失败：%v", err)
@@ -2365,7 +2367,7 @@ func TestWebSocketClient(t *testing.T) {
 	fmt.Println("明文响应结果1:", responseObject)
 
 	requestObject = map[string]interface{}{"test": "张三"}
-	responseObject = &sdk.AuthToken{}
+	responseObject = &wire.AuthToken{}
 	err = wsSdk.SendWebSocketMessage("/ws/user2", requestObject, responseObject, true, true, 5)
 	if err != nil {
 		t.Errorf("发送消息失败：%v", err)

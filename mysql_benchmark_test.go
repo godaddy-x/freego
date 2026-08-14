@@ -19,9 +19,9 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/godaddy-x/freego/ormx/sqlc"
-	"github.com/godaddy-x/freego/ormx/sqld"
-	"github.com/godaddy-x/freego/utils"
+	"github.com/godaddy-x/freego/core/query"
+	"github.com/godaddy-x/freego/store/orm/mysql"
+	"github.com/godaddy-x/freego/core/str"
 )
 
 func isDuplicateKeyErr(err error) bool {
@@ -49,7 +49,7 @@ const (
 // 测试单条记录插入的性能表现，包含数据序列化和网络传输开销
 func BenchmarkMysqlSave(b *testing.B) {
 	ensureMysqlBenchmarkOnce()
-	db, err := sqld.NewMysqlTx(false)
+	db, err := mysql.NewMysqlTx(false)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -126,7 +126,7 @@ func BenchmarkMysqlSave(b *testing.B) {
 // 测试记录更新的性能表现，包含事务处理和数据一致性保证
 func BenchmarkMysqlUpdate(b *testing.B) {
 	ensureMysqlBenchmarkOnce()
-	db, err := sqld.NewMysqlTx(true)
+	db, err := mysql.NewMysqlTx(true)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -239,7 +239,7 @@ func BenchmarkMysqlUpdate(b *testing.B) {
 // 测试根据ID查询单条记录的性能表现，评估索引查询效率
 func BenchmarkMysqlFindOne(b *testing.B) {
 	ensureMysqlBenchmarkOnce()
-	db, err := sqld.NewMysqlTx(false)
+	db, err := mysql.NewMysqlTx(false)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -269,7 +269,7 @@ func BenchmarkMysqlFindOne(b *testing.B) {
 // 测试包含JOIN连接查询的单条记录查询性能，评估复杂查询的开销
 func BenchmarkMysqlFindOneComplex(b *testing.B) {
 	ensureMysqlBenchmarkOnce()
-	db, err := sqld.NewMysqlTx(false)
+	db, err := mysql.NewMysqlTx(false)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -304,7 +304,7 @@ func BenchmarkMysqlFindList(b *testing.B) {
 
 	for _, ts := range testSizes {
 		b.Run(ts.name+"_records", func(b *testing.B) {
-			db, err := sqld.NewMysqlTx(false)
+			db, err := mysql.NewMysqlTx(false)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -328,7 +328,7 @@ func BenchmarkMysqlFindList(b *testing.B) {
 // 测试包含JOIN连接查询的列表查询性能，评估复杂查询的数据处理开销
 func BenchmarkMysqlFindListComplex(b *testing.B) {
 	ensureMysqlBenchmarkOnce()
-	db, err := sqld.NewMysqlTx(false)
+	db, err := mysql.NewMysqlTx(false)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -349,7 +349,7 @@ func BenchmarkMysqlFindListComplex(b *testing.B) {
 // 测试COUNT聚合查询的性能表现，评估统计查询的开销
 func BenchmarkMysqlCount(b *testing.B) {
 	ensureMysqlBenchmarkOnce()
-	db, err := sqld.NewMysqlTx(false)
+	db, err := mysql.NewMysqlTx(false)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -400,7 +400,7 @@ func BenchmarkMysqlCount(b *testing.B) {
 // 测试EXISTS查询的性能表现，评估布尔值查询的开销
 func BenchmarkMysqlExists(b *testing.B) {
 	ensureMysqlBenchmarkOnce()
-	db, err := sqld.NewMysqlTx(false)
+	db, err := mysql.NewMysqlTx(false)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -458,7 +458,7 @@ func BenchmarkMysqlDelete(b *testing.B) {
 
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
-		db, err := sqld.NewMysqlTx(false)
+		db, err := mysql.NewMysqlTx(false)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -531,7 +531,7 @@ func BenchmarkMysqlBatchSave(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			db, err := sqld.NewMysqlTx(false)
+			db, err := mysql.NewMysqlTx(false)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -582,7 +582,7 @@ func BenchmarkMysqlBatchUpdate(b *testing.B) {
 	now := utils.UnixMilli()
 
 	// 创建预设的测试数据
-	db, err := sqld.NewMysqlTx(false)
+	db, err := mysql.NewMysqlTx(false)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -621,7 +621,7 @@ func BenchmarkMysqlBatchUpdate(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		localIndex := 0
 		for pb.Next() {
-			db, err := sqld.NewMysqlTx(false)
+			db, err := mysql.NewMysqlTx(false)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -657,7 +657,7 @@ func BenchmarkMysqlTransactionCommit(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			db, err := sqld.NewMysqlTx(true) // 开启事务
+			db, err := mysql.NewMysqlTx(true) // 开启事务
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -734,7 +734,7 @@ func BenchmarkMysqlComplexQuery(b *testing.B) {
 	ensureMysqlBenchmarkOnce()
 
 	// 预先准备200条测试数据，包含各种条件组合用于复杂查询
-	db, err := sqld.NewMysqlTx(false)
+	db, err := mysql.NewMysqlTx(false)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -773,7 +773,7 @@ func BenchmarkMysqlComplexQuery(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			db, err := sqld.NewMysqlTx(false)
+			db, err := mysql.NewMysqlTx(false)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -805,7 +805,7 @@ func BenchmarkMysqlIndexPerformance(b *testing.B) {
 	ensureMysqlBenchmarkOnce()
 
 	// 预先准备500条测试数据，确保索引字段和非索引字段都有足够的测试数据
-	db, err := sqld.NewMysqlTx(false)
+	db, err := mysql.NewMysqlTx(false)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -845,7 +845,7 @@ func BenchmarkMysqlIndexPerformance(b *testing.B) {
 		b.ResetTimer()
 		b.RunParallel(func(pb *testing.PB) {
 			for pb.Next() {
-				db, err := sqld.NewMysqlTx(false)
+				db, err := mysql.NewMysqlTx(false)
 				if err != nil {
 					b.Fatal(err)
 				}
@@ -864,7 +864,7 @@ func BenchmarkMysqlIndexPerformance(b *testing.B) {
 		b.ResetTimer()
 		b.RunParallel(func(pb *testing.PB) {
 			for pb.Next() {
-				db, err := sqld.NewMysqlTx(false)
+				db, err := mysql.NewMysqlTx(false)
 				if err != nil {
 					b.Fatal(err)
 				}
@@ -892,7 +892,7 @@ func BenchmarkMysqlConnectionPool(b *testing.B) {
 		b.ResetTimer()
 		b.RunParallel(func(pb *testing.PB) {
 			for pb.Next() {
-				db, err := sqld.NewMysqlTx(false)
+				db, err := mysql.NewMysqlTx(false)
 				if err != nil {
 					b.Fatal(err)
 				}
@@ -911,7 +911,7 @@ func BenchmarkMysqlConnectionPool(b *testing.B) {
 		b.ResetTimer()
 		b.RunParallel(func(pb *testing.PB) {
 			for pb.Next() {
-				db, err := sqld.NewMysqlTx(true) // 事务模式
+				db, err := mysql.NewMysqlTx(true) // 事务模式
 				if err != nil {
 					b.Fatal(err)
 				}
@@ -968,7 +968,7 @@ func BenchmarkMysqlLargeDataset(b *testing.B) {
 	const datasetSize = 1000 // 测试1000条记录的大数据集
 
 	// 预先准备大数据集
-	db, err := sqld.NewMysqlTx(false)
+	db, err := mysql.NewMysqlTx(false)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -1008,7 +1008,7 @@ func BenchmarkMysqlLargeDataset(b *testing.B) {
 		b.ResetTimer()
 		b.RunParallel(func(pb *testing.PB) {
 			for pb.Next() {
-				db, err := sqld.NewMysqlTx(false)
+				db, err := mysql.NewMysqlTx(false)
 				if err != nil {
 					b.Fatal(err)
 				}
@@ -1030,7 +1030,7 @@ func BenchmarkMysqlLargeDataset(b *testing.B) {
 		b.ResetTimer()
 		b.RunParallel(func(pb *testing.PB) {
 			for pb.Next() {
-				db, err := sqld.NewMysqlTx(false)
+				db, err := mysql.NewMysqlTx(false)
 				if err != nil {
 					b.Fatal(err)
 				}
@@ -1060,7 +1060,7 @@ func BenchmarkMysqlMemoryUsage(b *testing.B) {
 		b.ResetTimer()
 		b.RunParallel(func(pb *testing.PB) {
 			for pb.Next() {
-				db, err := sqld.NewMysqlTx(false)
+				db, err := mysql.NewMysqlTx(false)
 				if err != nil {
 					b.Fatal(err)
 				}
@@ -1082,7 +1082,7 @@ func BenchmarkMysqlMemoryUsage(b *testing.B) {
 		b.ResetTimer()
 		b.RunParallel(func(pb *testing.PB) {
 			for pb.Next() {
-				db, err := sqld.NewMysqlTx(false)
+				db, err := mysql.NewMysqlTx(false)
 				if err != nil {
 					b.Fatal(err)
 				}

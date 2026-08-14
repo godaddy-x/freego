@@ -6,7 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/godaddy-x/freego/utils/sdk"
+	httpx "github.com/godaddy-x/freego/client/http"
+	"github.com/godaddy-x/freego/protocol/wire"
 	"github.com/valyala/fasthttp"
 )
 
@@ -21,8 +22,8 @@ const (
 
 var httpSDK = NewSDK()
 
-func NewSDK() *sdk.HttpSDK {
-	newObject := &sdk.HttpSDK{
+func NewSDK() *httpx.SDK {
+	newObject := &httpx.SDK{
 		Domain:    domain,
 		KeyPath:   "/key",
 		LoginPath: "/login",
@@ -33,7 +34,7 @@ func NewSDK() *sdk.HttpSDK {
 }
 
 // NewPlan2SDK Plan2（/login 等）使用 ML-DSA + ML-KEM，与 node/test/webapp AddCipherHook 配对。
-func NewPlan2SDK() *sdk.HttpSDK {
+func NewPlan2SDK() *httpx.SDK {
 	s := NewSDK()
 	_ = s.SetMLDSA87Object(s.ClientNo, pqClientPrk, pqServerPub)
 	return s
@@ -49,8 +50,8 @@ func TestGetPublicKey(t *testing.T) {
 
 func TestECCLogin(t *testing.T) {
 	plan2SDK := NewPlan2SDK()
-	requestData := sdk.AuthToken{Token: "AI工具人，鲨鱼宝宝！！！"}
-	responseData := sdk.AuthToken{}
+	requestData := wire.AuthToken{Token: "AI工具人，鲨鱼宝宝！！！"}
+	responseData := wire.AuthToken{}
 	if err := plan2SDK.PostByPlan2("/login", &requestData, &responseData); err != nil {
 		fmt.Println(err)
 	}
@@ -61,9 +62,9 @@ func TestGetUser(t *testing.T) {
 	httpSDK.AuthObject(func() (interface{}, error) {
 		return &map[string]string{"username": "1234567890123456", "password": "1234567890123456"}, nil
 	})
-	httpSDK.AuthToken(sdk.AuthToken{Token: access_token, Secret: token_secret, Expired: token_expire})
-	requestObj := sdk.AuthToken{Token: "AI工具人，鲨鱼宝宝！QWER123456@##！！", Secret: "安排测试下吧123456789@@@"}
-	responseData := sdk.AuthToken{}
+	httpSDK.AuthToken(wire.AuthToken{Token: access_token, Secret: token_secret, Expired: token_expire})
+	requestObj := wire.AuthToken{Token: "AI工具人，鲨鱼宝宝！QWER123456@##！！", Secret: "安排测试下吧123456789@@@"}
+	responseData := wire.AuthToken{}
 	if err := httpSDK.PostByPlan01("/getUser", &requestObj, &responseData, true); err != nil {
 		fmt.Println(err)
 	}
@@ -95,13 +96,13 @@ func BenchmarkHttpSDK_PostByPlan01(b *testing.B) {
 	httpSDK := NewSDK()
 
 	// 设置认证
-	httpSDK.AuthToken(sdk.AuthToken{Token: access_token, Secret: token_secret, Expired: token_expire})
+	httpSDK.AuthToken(wire.AuthToken{Token: access_token, Secret: token_secret, Expired: token_expire})
 
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			requestObj := sdk.AuthToken{Token: "基准测试请求"}
-			responseData := sdk.AuthToken{}
+			requestObj := wire.AuthToken{Token: "基准测试请求"}
+			responseData := wire.AuthToken{}
 
 			err := httpSDK.PostByPlan01("/getUser", &requestObj, &responseData, false)
 			if err != nil {
@@ -125,8 +126,8 @@ func BenchmarkHttpSDK_PostByPlan2(b *testing.B) {
 
 			// 使用goroutine ID + 计数器生成唯一token，避免重放攻击检测
 			token := fmt.Sprintf("Plan2并发测试_g%d_%d_%d", b.N, localCounter, time.Now().UnixNano())
-			requestData := sdk.AuthToken{Token: token}
-			responseData := sdk.AuthToken{}
+			requestData := wire.AuthToken{Token: token}
+			responseData := wire.AuthToken{}
 
 			// 处理时间戳过期重试逻辑
 			maxRetries := 2

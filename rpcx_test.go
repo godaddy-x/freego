@@ -6,13 +6,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/godaddy-x/freego/rpcx"
-	"github.com/godaddy-x/freego/rpcx/pb"
-	"github.com/godaddy-x/freego/utils"
-	"github.com/godaddy-x/freego/utils/sdk"
+	rpcx "github.com/godaddy-x/freego/server/rpc"
+	rpcpb "github.com/godaddy-x/freego/protocol/rpcpb"
+	"github.com/godaddy-x/freego/core/str"
+	grpcx "github.com/godaddy-x/freego/client/grpcx"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/godaddy-x/freego/utils/crypto"
+	"github.com/godaddy-x/freego/core/crypto"
 )
 
 // ML-DSA 与 test_pq_keys.go 一致：服务端 (pqServerPrk, pqClientPub)，客户端 (pqClientPrk, pqServerPub)
@@ -26,9 +26,9 @@ func rpcxTestClientCipherHook(usr int64) (crypto.Cipher, error) {
 }
 
 // TestHandler 测试业务处理器
-func testHandle(ctx context.Context, req *pb.TestRequest) (*pb.TestResponse, error) {
+func testHandle(ctx context.Context, req *rpcpb.TestRequest) (*rpcpb.TestResponse, error) {
 	// 处理业务逻辑
-	reply := &pb.TestResponse{
+	reply := &rpcpb.TestResponse{
 		Reply:      "Hello, " + req.Message,
 		ServerTime: utils.UnixSecond(),
 	}
@@ -46,7 +46,7 @@ func TestGRPCManager_StartServer(t *testing.T) {
 	}
 
 	// 注册业务处理器
-	manager.AddHandler("test.hello", rpcx.Wrap(testHandle), func() proto.Message { return &pb.TestRequest{} })
+	manager.AddHandler("test.hello", rpcx.Wrap(testHandle), func() proto.Message { return &rpcpb.TestRequest{} })
 
 	if err := manager.StartServer(":9090"); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
@@ -60,7 +60,7 @@ func TestGRPCManager_StartServer(t *testing.T) {
 // TestRpcSDK_Basic 基础功能测试
 func TestRpcSDK_Basic(t *testing.T) {
 
-	rpcClient := sdk.NewRPC("localhost:9090").
+	rpcClient := grpcx.New("localhost:9090").
 		SetSSL(false).
 		SetClientNo(1).
 		AddCipherHook(rpcxTestClientCipherHook)
@@ -70,10 +70,10 @@ func TestRpcSDK_Basic(t *testing.T) {
 
 	defer rpcClient.Close()
 
-	testReq := &pb.TestRequest{
+	testReq := &rpcpb.TestRequest{
 		Message: "鲨鱼宝宝嘟嘟嘟嘟！！！",
 	}
-	testRes := &pb.TestResponse{}
+	testRes := &rpcpb.TestResponse{}
 
 	for i := 0; i < 10; i++ {
 		if err := rpcClient.Call("test.hello", testReq, testRes, false); err != nil {

@@ -4,21 +4,22 @@ import (
 	"fmt"
 	_ "net/http/pprof"
 
-	rabbitmq "github.com/godaddy-x/freego/amqp"
-	"github.com/godaddy-x/freego/cache"
-	"github.com/godaddy-x/freego/ormx/sqlc"
-	"github.com/godaddy-x/freego/ormx/sqld"
+	rabbitmq "github.com/godaddy-x/freego/store/amqp"
+	"github.com/godaddy-x/freego/store/cacheredis"
+	sqlc "github.com/godaddy-x/freego/core/query"
+	"github.com/godaddy-x/freego/store/orm/mysql"
+	mgom "github.com/godaddy-x/freego/store/orm/mongo"
 
-	ballast "github.com/godaddy-x/freego/gc"
-	http_web "github.com/godaddy-x/freego/node/test"
-	"github.com/godaddy-x/freego/utils"
+	ballast "github.com/godaddy-x/freego/infra/gc"
+	http_web "github.com/godaddy-x/freego/server/http/example"
+	"github.com/godaddy-x/freego/core/str"
 	_ "go.uber.org/automaxprocs"
 )
 
 func http_test() {
 	//go http_web.StartHttpNode1()
 	//go http_web.StartHttpNode2()
-	// sqld.RebuildMongoDBIndex()
+	// mysql.RebuildMongoDBIndex()
 	http_web.StartHttpNode()
 }
 
@@ -61,38 +62,38 @@ func (o *OwWallet) NewIndex() []sqlc.Index {
 }
 
 func initRedis() {
-	conf := cache.RedisConfig{}
+	conf := cacheredis.RedisConfig{}
 	if err := utils.ReadLocalJsonConfig("resource/redis.json", &conf); err != nil {
 		panic(utils.AddStr("读取redis配置失败: ", err.Error()))
 	}
-	new(cache.RedisManager).InitConfig(conf)
+	new(cacheredis.RedisManager).InitConfig(conf)
 }
 
 func initMysqlDB() {
-	conf := sqld.MysqlConfig{}
+	conf := mysql.MysqlConfig{}
 	if err := utils.ReadLocalJsonConfig("resource/mysql.json", &conf); err != nil {
 		panic(utils.AddStr("读取mysql配置失败: ", err.Error()))
 	}
-	new(sqld.MysqlManager).InitConfigAndCache(nil, conf)
+	new(mysql.MysqlManager).InitConfigAndCache(nil, conf)
 	fmt.Println("init mysql success")
 
 	initDriver()
 }
 
 func initMongoDB() {
-	conf := sqld.MGOConfig{}
+	conf := mgom.MGOConfig{}
 	if err := utils.ReadLocalJsonConfig("resource/mongo.json", &conf); err != nil {
 		panic(utils.AddStr("读取mongo配置失败: ", err.Error()))
 	}
-	new(sqld.MGOManager).InitConfigAndCache(nil, conf)
+	new(mgom.MGOManager).InitConfigAndCache(nil, conf)
 	fmt.Println("init mongo success")
 
 	initDriver()
 }
 
 func initDriver() {
-	//sqld.ModelTime(time.UTC, utils.TimeFmt2, utils.DateFmt)
-	sqld.ModelDriver(
+	//mysql.ModelTime(time.UTC, utils.TimeFmt2, utils.DateFmt)
+	mysql.ModelDriver(
 		&OwWallet{},
 	)
 }
@@ -118,7 +119,7 @@ func main() {
 	//go func() {
 	//	_ = http.ListenAndServe(":8849", nil)
 	//}()
-	//node.SetLocalSecret(utils.RandStr(24))
+	//ws.SetLocalSecret(utils.RandStr(24))
 	//rpcx.RunClient(appConfig.AppId)
 	http_test()
 	//router := fasthttprouter.New()

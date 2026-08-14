@@ -1,0 +1,173 @@
+package codec
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+
+	utils "github.com/godaddy-x/freego/core/str"
+
+	"github.com/mailru/easyjson"
+	"github.com/valyala/fastjson"
+)
+
+//var json = jsonIterator.ConfigCompatibleWithStandardLibrary
+
+// 对象转JSON字符串
+func JsonMarshal(v interface{}) ([]byte, error) {
+	if v == nil {
+		return nil, errors.New("data is nil")
+	}
+	// 判断是否实现 easyjson.Marshaler 接口（即是否生成过 easyjson 代码）
+	if em, ok := v.(easyjson.Marshaler); ok {
+		// 使用类型断言确保类型安全，然后调用easyjson.Marshal
+		return easyjson.Marshal(em) // 用 easyjson 高性能序列化
+	}
+	return json.Marshal(v) // 用标准库序列化
+}
+
+func jsonDecode(data []byte, v interface{}, useNumber bool) error {
+	if useNumber {
+		dec := json.NewDecoder(bytes.NewReader(data))
+		dec.UseNumber()
+		return dec.Decode(v)
+	}
+	return json.Unmarshal(data, v)
+}
+
+// JsonUnmarshalUseNumber 反序列化 JSON；数字保留为 json.Number，避免雪花 ID 经 float64 丢精度。
+// 适用于 audit 脱敏等解析到 interface{} / map[string]interface{} 后再 Marshal 的场景。
+func JsonUnmarshalUseNumber(data []byte, v interface{}) error {
+	if len(data) == 0 {
+		return nil
+	}
+	if v == nil {
+		return errors.New("JSON target object is nil")
+	}
+	if eu, ok := v.(easyjson.Unmarshaler); ok {
+		return easyjson.Unmarshal(data, eu)
+	}
+	if !JsonValid(data) {
+		return errors.New("JSON format invalid")
+	}
+	return jsonDecode(data, v, true)
+}
+
+// JsonUnmarshalUseNumberFast 单遍反序列化（跳过 JsonValid），UseNumber 保留大整数精度。
+func JsonUnmarshalUseNumberFast(data []byte, v interface{}) error {
+	if len(data) == 0 {
+		return nil
+	}
+	if v == nil {
+		return errors.New("JSON target object is nil")
+	}
+	if eu, ok := v.(easyjson.Unmarshaler); ok {
+		return easyjson.Unmarshal(data, eu)
+	}
+	return jsonDecode(data, v, true)
+}
+
+// 校验JSON格式是否合法
+func JsonValid(b []byte) bool {
+	//return json.Valid(b) // fastjson > default json 2倍
+	if err := fastjson.ValidateBytes(b); err != nil {
+		return false
+	}
+	return true
+}
+
+// 校验JSON格式是否合法
+func JsonValidString(s string) bool {
+	if err := fastjson.Validate(s); err != nil {
+		return false
+	}
+	return true
+}
+
+// JSON字符串转对象
+func JsonUnmarshal(data []byte, v interface{}) error {
+	if len(data) == 0 {
+		return nil
+	}
+	if v == nil {
+		return errors.New("JSON target object is nil")
+	}
+	if !JsonValid(data) {
+		return errors.New("JSON format invalid")
+	}
+
+	// 判断目标对象是否实现 easyjson.Unmarshaler 接口
+	if eu, ok := v.(easyjson.Unmarshaler); ok {
+		return easyjson.Unmarshal(data, eu) // 用 easyjson 高性能反序列化
+	}
+
+	// 使用标准库反序列化
+	return json.Unmarshal(data, v)
+}
+
+// JsonUnmarshalFast 单遍 JSON 反序列化（跳过 JsonValid 预校验）。
+// 适用于高频热路径：直接反序列化，失败时由反序列化错误返回。
+func JsonUnmarshalFast(data []byte, v interface{}) error {
+	if len(data) == 0 {
+		return nil
+	}
+	if v == nil {
+		return errors.New("JSON target object is nil")
+	}
+	if eu, ok := v.(easyjson.Unmarshaler); ok {
+		return easyjson.Unmarshal(data, eu)
+	}
+	return json.Unmarshal(data, v)
+}
+
+func GetJsonString(b []byte, k string) string {
+	return fastjson.GetString(b, k)
+}
+
+func GetJsonInt(b []byte, k string) int {
+	return fastjson.GetInt(b, k)
+}
+
+func GetJsonInt64(b []byte, k string) int64 {
+	return int64(GetJsonInt(b, k))
+}
+
+func GetJsonBool(b []byte, k string) bool {
+	return fastjson.GetBool(b, k)
+}
+
+func GetJsonFloat64(b []byte, k string) float64 {
+	return fastjson.GetFloat64(b, k)
+}
+
+func GetJsonBytes(b []byte, k string) []byte {
+	return fastjson.GetBytes(b, k)
+}
+
+func GetJsonObjectBytes(b []byte, k string) []byte {
+	value := GetJsonObjectValue(b)
+	if value == nil {
+		return nil
+	}
+	v := value.Get(k)
+	if v == nil {
+		return nil
+	}
+	return v.MarshalTo(nil)
+}
+
+func GetJsonObjectString(b []byte, k string) string {
+	return utils.Bytes2Str(GetJsonObjectBytes(b, k))
+}
+
+// GetJsonObjectValue 例如: v.Get("a").Get("b").MarshalTo(nil)
+func GetJsonObjectValue(b []byte) *fastjson.Value {
+	var p fastjson.Parser
+	v, err := p.ParseBytes(b)
+	if err != nil {
+		fmt.Println("parsing json error:", err)
+		return nil
+	}
+	return v
+}

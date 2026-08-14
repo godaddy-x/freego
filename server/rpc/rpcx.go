@@ -1,0 +1,252 @@
+package rpcx
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net"
+	"sync"
+	"time"
+
+	"github.com/godaddy-x/freego/infra/cachelocal"
+
+	"google.golang.org/protobuf/proto"
+
+	utils "github.com/godaddy-x/freego/core/str"
+	cache "github.com/godaddy-x/freego/infra/cache/contract"
+	"github.com/godaddy-x/freego/infra/zlog"
+	pb "github.com/godaddy-x/freego/protocol/rpcpb"
+	"github.com/godaddy-x/freego/server/rpc/impl"
+	"google.golang.org/grpc"
+)
+
+type RPCManager struct {
+	mu         sync.Mutex
+	server     *grpc.Server
+	listener   net.Listener
+	cancel     context.CancelFunc
+	cipherHook CipherHook
+	redisCache cache.Cache
+	localCache cache.Cache
+}
+
+// NewRPCManager 创建GRPC管理器
+func NewRPCManager() *RPCManager {
+	return &RPCManager{}
+}
+
+// AddCipherHook 注册 Cipher 动态加载回调：按 usr 解析本端私钥与对端公钥并构造 ML-DSA Cipher。
+// RPCX 当前仅明文 P=0：s=SHA256(规范字段)，e=ML-DSA.Sign(SHA256(规范字段))。
+func (g *RPCManager) AddCipherHook(hook CipherHook) error {
+	if hook == nil {
+		return utils.Error("cipher hook is nil")
+	}
+	g.cipherHook = hook
+	return nil
+}
+
+// AddRedisCache 增加Redis缓存实例
+func (g *RPCManager) AddRedisCache(cacheAware cache.Cache) *RPCManager {
+	g.redisCache = cacheAware
+	return g
+}
+
+// AddLocalCache 增加本地缓存实例
+func (g *RPCManager) AddLocalCache(cacheAware cache.Cache) *RPCManager {
+	g.localCache = cacheAware
+	return g
+}
+
+// Wrap 创建类型安全的handler包装器，避免运行时反射开销
+// Req 和 Resp 是具体的 proto.Message 指针类型（如 *pb.TestRequest/*pb.TestResponse）
+// 核心：极简、高效，错误完全透传，仅做必要的nil/类型校验
+func Wrap[Req, Resp proto.Message](handler func(context.Context, Req) (Resp, error)) func(context.Context, proto.Message) (proto.Message, error) {
+	return func(ctx context.Context, req proto.Message) (proto.Message, error) {
+		if req == nil {
+			return nil, errors.New("rpc wrap: request is nil") // 加wrap前缀，便于定位错误来源
+		}
+		if typedReq, ok := req.(Req); ok {
+			return handler(ctx, typedReq) // 错误完全透传，不捕获、不包装
+		}
+		return nil, errors.New("rpc wrap: invalid request type") // 加wrap前缀
+	}
+}
+
+// AddHandler 注册业务处理器 新增构造函数参数，转发到 impl.SetHandler
+func (g *RPCManager) AddHandler(router string, handler impl.RequestHandler, constructor impl.RequestConstructor) {
+	impl.SetHandler(router, handler, constructor)
+}
+
+// StartServer 启动GRPC服务
+func (g *RPCManager) StartServer(addr string) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	// 防止重复启动
+	if g.server != nil {
+		return fmt.Errorf("grpc server has already been started")
+	}
+
+	// 验证必要配置
+	if g.cipherHook == nil {
+		return fmt.Errorf("cipher hook must be set before starting server")
+	}
+
+	zlog.Printf("cipher hook service has been started successful")
+
+	// 验证至少有一个业务处理器已注册
+	if len(impl.GetAllHandlers()) == 0 {
+		return fmt.Errorf("at least one business handler must be registered before starting server")
+	}
+
+	// 记录服务状态
+	if g.redisCache != nil {
+		zlog.Printf("redis cache service has been started successful")
+	}
+	if g.localCache == nil {
+		g.localCache = cachelocal.NewDefaultLocalCache()
+		zlog.Printf("local cache service has been started successful")
+	}
+
+	// 创建上下文用于优雅关闭
+	_, g.cancel = context.WithCancel(context.Background())
+
+	// 创建GRPC服务器
+	g.server = grpc.NewServer()
+
+	// 注册通用服务
+	commonWorker := &impl.CommonWorker{
+		ConfigProvider: g, // 传递配置提供者
+	}
+	pb.RegisterCommonWorkerServer(g.server, commonWorker)
+
+	// 启动监听
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("failed to listen on %s: %v", addr, err)
+	}
+	g.listener = listener
+
+	// 异步启动服务
+	go func() {
+		zlog.Printf("grpc【%s】service has been started successful", addr)
+		if err := g.server.Serve(g.listener); err != nil {
+			// 忽略已关闭的错误
+			if err.Error() != "use of closed network connection" {
+				zlog.Error("grpc server serve failed", 0, zlog.AddError(err))
+			}
+		}
+	}()
+
+	return nil
+}
+
+// StartServerByTimeout 带超时的启动GRPC服务
+func (g *RPCManager) StartServerByTimeout(addr string, timeout int) error {
+	// 设置超时（这里可以添加超时逻辑）
+	_ = timeout
+	return g.StartServer(addr)
+}
+
+// StopServer 停止GRPC服务
+func (g *RPCManager) StopServer() error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	if g.server == nil {
+		return nil
+	}
+
+	// 优雅关闭
+	done := make(chan struct{})
+	go func() {
+		g.server.GracefulStop()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		zlog.Printf("grpc server stopped gracefully")
+	case <-time.After(10 * time.Second):
+		zlog.Warn("grpc server graceful shutdown timeout, forcing stop", 0)
+		g.server.Stop()
+	}
+
+	// 关闭监听器
+	if g.listener != nil {
+		g.listener.Close()
+	}
+
+	// 取消上下文
+	if g.cancel != nil {
+		g.cancel()
+	}
+
+	g.server = nil
+	g.listener = nil
+	g.cancel = nil
+
+	return nil
+}
+
+// StopServerByTimeout 带超时的停止GRPC服务
+func (g *RPCManager) StopServerByTimeout(timeout time.Duration) error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	if g.server == nil {
+		return nil
+	}
+
+	// 优雅关闭
+	done := make(chan struct{})
+	go func() {
+		g.server.GracefulStop()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		zlog.Printf("grpc server stopped gracefully")
+	case <-time.After(timeout):
+		zlog.Warn("grpc server graceful shutdown timeout, forcing stop", 0)
+		g.server.Stop()
+	}
+
+	// 关闭监听器
+	if g.listener != nil {
+		g.listener.Close()
+	}
+
+	// 取消上下文
+	if g.cancel != nil {
+		g.cancel()
+	}
+
+	g.server = nil
+	g.listener = nil
+	g.cancel = nil
+
+	return nil
+}
+
+// GetCipherHook 获取 Cipher 动态加载回调（实现 ConfigProvider 接口）。
+func (g *RPCManager) GetCipherHook() CipherHook {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.cipherHook
+}
+
+// GetLocalCache 获取本地缓存
+func (g *RPCManager) GetLocalCache() cache.Cache {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.localCache
+}
+
+// GetRedisCache 获取Redis缓存
+func (g *RPCManager) GetRedisCache() cache.Cache {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.redisCache
+}

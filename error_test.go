@@ -2,7 +2,7 @@ package main
 
 import (
 	"errors"
-	"github.com/godaddy-x/freego/ex"
+	"github.com/godaddy-x/freego/core/ex"
 	"strings"
 	"testing"
 )
