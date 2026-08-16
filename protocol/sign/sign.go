@@ -89,7 +89,7 @@ func CreatePublicKey(key, tag string, usr int64, cipher crypto.Cipher) (*wire.Pu
 	requestObject.Usr = usr
 	sig, err := cipher.Sign(utils.Str2Bytes(utils.AddStr(requestObject.Key, DIC.SEP, requestObject.Tag, DIC.SEP, requestObject.Noc, DIC.SEP, requestObject.Exp, DIC.SEP, requestObject.Usr)))
 	if err != nil {
-		return nil, ex.Throw{Msg: "outer sign message error: " + err.Error()}
+		return nil, ex.Throw{Code: ex.BIZ, Msg: "outer sign message error: " + err.Error()}
 	}
 	requestObject.Sig = utils.Base64Encode(sig)
 	return requestObject, nil

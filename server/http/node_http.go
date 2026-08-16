@@ -444,7 +444,7 @@ func defaultRenderError(ctx *Context, err error) error {
 	if err == nil {
 		return nil
 	}
-	out := ex.Catch(err)
+	out := ex.Normalize(ex.Catch(err))
 	if ctx.errorHandle != nil {
 		if err = ctx.errorHandle(ctx, out); err != nil {
 			zlog.Error("response error handle failed", 0, zlog.String("path", ctx.Path), zlog.String("errMsg", err.Error()))

@@ -1,6 +1,8 @@
 package ex
 
 import (
+	"net/http"
+
 	utils "github.com/godaddy-x/freego/core/str"
 	"github.com/godaddy-x/freego/infra/zlog"
 )
@@ -50,6 +52,30 @@ const (
 	MQ_REVD_ERR = "failed to receive mq data"
 )
 
+// NormalizeCode 业务码缺省（0）时回落 BIZ，与 Throw.Error 一致。
+func NormalizeCode(code int) int {
+	if code == 0 {
+		return BIZ
+	}
+	return code
+}
+
+// Normalize 复制 Throw 并规范化 Code。
+func Normalize(t Throw) Throw {
+	if t.Code == 0 {
+		t.Code = BIZ
+	}
+	return t
+}
+
+// HTTPStatusCode 将 Throw.Code 映射为合法 HTTP status（100–999）；业务码等非 HTTP 码回落 401。
+func HTTPStatusCode(code int) int {
+	if code >= 100 && code <= 999 {
+		return code
+	}
+	return http.StatusUnauthorized
+}
+
 func (self Throw) Error() string {
 	if self.Code == 0 {
 		self.Code = BIZ
@@ -69,7 +95,7 @@ func Catch(err error) Throw {
 		return Throw{Code: UNKNOWN, Msg: "catch error is nil", Err: nil}
 	}
 	if throw, ok := err.(Throw); ok {
-		return throw
+		return Normalize(throw)
 	}
 	errMsg := err.Error()
 	if !utils.JsonValidString(errMsg) {
@@ -79,7 +105,7 @@ func Catch(err error) Throw {
 	if err := utils.JsonUnmarshal(utils.Str2Bytes(errMsg), &result); err != nil {
 		return Throw{Code: UNKNOWN, Msg: "failed to catch exception", Err: err}
 	}
-	return result
+	return Normalize(result)
 }
 
 func OutError(title string, err error) {

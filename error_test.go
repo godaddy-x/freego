@@ -250,3 +250,31 @@ func TestErrorMethodCodeSetting(t *testing.T) {
 		t.Errorf("Catch后Code错误：期望%d，实际%d", ex.BIZ, caught.Code)
 	}
 }
+
+func TestNormalizeCode(t *testing.T) {
+	if got := ex.NormalizeCode(0); got != ex.BIZ {
+		t.Fatalf("NormalizeCode(0)=%d, want %d", got, ex.BIZ)
+	}
+	if got := ex.NormalizeCode(400); got != 400 {
+		t.Fatalf("NormalizeCode(400)=%d, want 400", got)
+	}
+}
+
+func TestHTTPStatusCode(t *testing.T) {
+	if got := ex.HTTPStatusCode(400); got != 400 {
+		t.Fatalf("HTTPStatusCode(400)=%d, want 400", got)
+	}
+	if got := ex.HTTPStatusCode(0); got != 401 {
+		t.Fatalf("HTTPStatusCode(0)=%d, want 401", got)
+	}
+	if got := ex.HTTPStatusCode(ex.BIZ); got != 401 {
+		t.Fatalf("HTTPStatusCode(BIZ)=%d, want 401", got)
+	}
+}
+
+func TestNormalizeThrow(t *testing.T) {
+	got := ex.Normalize(ex.Throw{Msg: "biz"})
+	if got.Code != ex.BIZ {
+		t.Fatalf("Normalize Code=%d, want %d", got.Code, ex.BIZ)
+	}
+}

@@ -208,7 +208,7 @@ func (cc *ConnectionContext) Parser(body []byte, dst interface{}) error {
 	if err := utils.JsonUnmarshal(body, dst); err != nil {
 		msg := "websocket JSON parameter parsing failed"
 		zlog.Error(msg, 0, zlog.String("path", cc.Path), zlog.String("device", cc.getDeviceID()), zlog.AddError(err))
-		return ex.Throw{Msg: msg, Err: err}
+		return ex.Throw{Code: ex.BIZ, Msg: msg, Err: err}
 	}
 
 	identify := &dto.Identify{}
@@ -1998,7 +1998,8 @@ func (s *WsServer) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	subject, rawToken, err := s.validateConnectAuthFromRequest(r, path)
 	if err != nil {
 		if exErr, ok := err.(ex.Throw); ok {
-			http.Error(w, exErr.Msg, exErr.Code)
+			throw := ex.Normalize(exErr)
+			http.Error(w, throw.Msg, ex.HTTPStatusCode(throw.Code))
 		} else {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 		}
