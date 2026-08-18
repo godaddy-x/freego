@@ -208,6 +208,7 @@ type SDK struct {
 
 	// Token过期回调
 	onTokenExpired      func() // Token过期时回调，用户可以重新认证
+	onDisconnect        func() // WebSocket 断开时回调（业务 JWT 连接）
 	tokenCallbackActive int32  // 回调执行中标记（0=空闲,1=执行中）
 	tokenCallbackLastAt int64  // 回调最近触发时间戳（unix秒），用于节流
 	tokenMonitorOnce    sync.Once
@@ -1617,6 +1618,28 @@ func (s *SDK) disconnectWebSocketInternal(triggerReconnect bool, eventConn *gws.
 	wasConnected := s.isConnected
 	conn := s.conn
 	cancelFn := s.connCancel
+	onDisconnect := s.onDisconnect
+	// last-gasp：须在清 conn / isConnected 之前同步回调，否则业务侧 IsWebSocketConnected=false 且 Send 无连接可用。
+	// 回调必须快速返回（node 侧 last-gasp 仅 1 次短尝试）。
+	if wasConnected && onDisconnect != nil {
+		s.connMutex.Unlock()
+		onDisconnect()
+		s.connMutex.Lock()
+		// 回调期间可能已有新连接写入；仅当仍是同一条将关闭的连接时继续清理。
+		if eventConn != nil && s.conn != nil && s.conn != eventConn {
+			s.connMutex.Unlock()
+			return
+		}
+		if s.conn != nil && conn != nil && s.conn != conn {
+			s.connMutex.Unlock()
+			if triggerReconnect && s.reconnectEnabled {
+				go s.startReconnectProcess()
+			}
+			return
+		}
+		conn = s.conn
+		cancelFn = s.connCancel
+	}
 	s.conn = nil
 	s.isConnected = false
 	s.connectedTokenSecret.Store(nil)
@@ -1842,6 +1865,11 @@ func (s *SDK) IsWebSocketConnected() bool {
 
 func (s *SDK) SetTokenExpiredCallback(callback func()) {
 	s.onTokenExpired = callback
+}
+
+// SetDisconnectCallback 注册 WebSocket 断开回调（网络断开、读失败等；不含 Plan2 key/login）。
+func (s *SDK) SetDisconnectCallback(callback func()) {
+	s.onDisconnect = callback
 }
 
 func (s *SDK) triggerTokenExpiredCallback() {
