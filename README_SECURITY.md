@@ -1,390 +1,391 @@
-# FreeGo 框架安全架构分析
+# FreeGo Security Architecture
 
-**语言 / Languages:** [简体中文](README_SECURITY.md) · [English](README_SECURITY_EN.md) · [繁體中文](README_SECURITY_TW.md)
+**Languages:** [简体中文](README_SECURITY_ZH.md) · [English](README_SECURITY.md) · [繁體中文](README_SECURITY_TW.md)
 
-> HTTP / WebSocket / RPCX **应用层**：认证、完整性、机密性、防重放（TLS 一般由网关终止）。
+> HTTP / WebSocket / RPCX **application layer**: authentication, integrity, confidentiality, anti-replay (TLS is typically terminated at the gateway).
 
-## 安全全景图
+## Security Overview
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                           FreeGo 安全架构全景图                                │
+│                    FreeGo Security Architecture Overview                     │
 └─────────────────────────────────────────────────────────────────────────────┘
 
-                                客户端层
+                                Client Layer
                     ┌──────────────────────────┐
                     │   Web/App/SDK Client      │
                     │  ┌──────────────────────┐ │
-                    │  │  业务数据准备         │ │
-                    │  │  JSON 序列化          │ │
+                    │  │  Business data prep   │ │
+                    │  │  JSON serialization   │ │
                     │  └──────────────────────┘ │
                     └────────────┬──────────────┘
                                  │
                     ┌────────────▼──────────────┐
-                    │  加密层 (AES-256-GCM)     │
+                    │  Encryption (AES-256-GCM) │
                     │  ┌──────────────────────┐ │
-                    │  │ Key: 会话密钥 32B     │ │
-                    │  │ AAD: t+n+p+path      │ │
-                    │  │ GCM IV: 密文内 12B   │ │
-                    │  │ 协议 n: 32B Base64   │ │
+                    │  │ Key: session key 32B  │ │
+                    │  │ AAD: t+n+p+path       │ │
+                    │  │ GCM IV: 12B in cipher │ │
+                    │  │ Protocol n: 32B Base64│ │
                     │  │ Output: Ciphertext    │ │
                     │  └──────────────────────┘ │
                     └────────────┬──────────────┘
                                  │
                     ┌────────────▼──────────────┐
-                    │  签名层 (HMAC-SHA256) │
+                    │  Signature (HMAC-SHA256)│
                     │  ┌──────────────────────┐ │
-                    │  │ 签名内容:             │ │
-                    │  │ path+d+n+t+p+secret  │ │
-                    │  │ 防篡改 + 完整性验证   │ │
+                    │  │ Sign payload:         │ │
+                    │  │ path+d+n+t+p+secret   │ │
+                    │  │ Tamper-proof + integrity│
                     │  └──────────────────────┘ │
                     └────────────┬──────────────┘
                                  │
                     ┌────────────▼──────────────┐
-                    │   传输层 (HTTPS/TLS)      │
+                    │   Transport (HTTPS/TLS)   │
                     │  ┌──────────────────────┐ │
                     │  │ TLS 1.2/1.3          │ │
-                    │  │ 双向加密通道          │ │
+                    │  │ Mutual encrypted channel│
                     │  └──────────────────────┘ │
                     └────────────┬──────────────┘
                                  │
 ╔════════════════════════════════▼═══════════════════════════════╗
-║                         服务端网关层                             ║
+║                      Server Gateway Layer                         ║
 ╠════════════════════════════════════════════════════════════════╣
 ║  ┌──────────────────────────────────────────────────────────┐ ║
-║  │  HTTP Server (高性能 HTTP 服务器)                          │ ║
+║  │  HTTP Server (high-performance HTTP server)               │ ║
 ║  └────────────────────┬─────────────────────────────────────┘ ║
 ║                       │                                        ║
 ║  ┌────────────────────▼─────────────────────────────────────┐ ║
-║  │             Filter Chain (过滤器链)                        │ ║
+║  │             Filter Chain                                  │ ║
 ║  │  ┌──────────────────────────────────────────────────────┐│ ║
-║  │  │ 1️⃣ 网关限流 (GatewayRateLimitFilter)                  ││ ║
-║  │  │    - 全局流量控制                                     ││ ║
-║  │  │    - 防止 DDoS 攻击                                   ││ ║
+║  │  │ 1️⃣ Gateway rate limit (GatewayRateLimitFilter)      ││ ║
+║  │  │    - Global traffic control                          ││ ║
+║  │  │    - DDoS mitigation                                 ││ ║
 ║  │  └──────────────────────────────────────────────────────┘│ ║
 ║  │  ┌──────────────────────────────────────────────────────┐│ ║
-║  │  │ 2️⃣ 方法限流 (MethodRateLimitFilter)                   ││ ║
-║  │  │    - 单接口流量控制                                   ││ ║
-║  │  │    - 防止接口滥用                                     ││ ║
+║  │  │ 2️⃣ Method rate limit (MethodRateLimitFilter)         ││ ║
+║  │  │    - Per-endpoint traffic control                    ││ ║
+║  │  │    - API abuse prevention                            ││ ║
 ║  │  └──────────────────────────────────────────────────────┘│ ║
 ║  │  ┌──────────────────────────────────────────────────────┐│ ║
-║  │  │ 3️⃣ 会话过滤 (SessionFilter)                           ││ ║
-║  │  │    - JWT Token 验证                                   ││ ║
-║  │  │    - Token 解析 & 过期检查                            ││ ║
-║  │  │    - Subject 上下文注入                               ││ ║
+║  │  │ 3️⃣ Session filter (SessionFilter)                    ││ ║
+║  │  │    - JWT Token validation                            ││ ║
+║  │  │    - Token parse & expiry check                      ││ ║
+║  │  │    - Subject context injection                       ││ ║
 ║  │  └──────────────────────────────────────────────────────┘│ ║
 ║  │  ┌──────────────────────────────────────────────────────┐│ ║
-║  │  │ 4️⃣ 角色过滤 (RoleFilter)                              ││ ║
-║  │  │    - RBAC 权限验证                                    ││ ║
-║  │  │    - 角色匹配检查                                     ││ ║
-║  │  │    - 资源访问控制                                     ││ ║
+║  │  │ 4️⃣ Role filter (RoleFilter)                          ││ ║
+║  │  │    - RBAC permission check                           ││ ║
+║  │  │    - Role matching                                   ││ ║
+║  │  │    - Resource access control                         ││ ║
 ║  │  └──────────────────────────────────────────────────────┘│ ║
 ║  │  ┌──────────────────────────────────────────────────────┐│ ║
-║  │  │ 5️⃣ 用户限流 (UserRateLimitFilter)                     ││ ║
-║  │  │    - 单用户流量控制                                   ││ ║
-║  │  │    - 防止账号滥用                                     ││ ║
+║  │  │ 5️⃣ User rate limit (UserRateLimitFilter)             ││ ║
+║  │  │    - Per-user traffic control                        ││ ║
+║  │  │    - Account abuse prevention                        ││ ║
 ║  │  └──────────────────────────────────────────────────────┘│ ║
 ║  └────────────────────┬─────────────────────────────────────┘ ║
 ╚═══════════════════════▼════════════════════════════════════════╝
                         │
         ┌───────────────▼────────────────┐
-        │    请求参数解析 & 验证层         │
+        │  Request param parse & validate   │
         │  ┌───────────────────────────┐ │
-        │  │ 1. HMAC-SHA256 验签    │ │
-        │  │ 2. 时间戳验证 (±5分钟)     │ │
-        │  │ 3. 协议 Nonce 去重 (Redis) │ │
-        │  │    n = Base64(32 字节)     │ │
-        │  │ 4. Plan 模式验证           │ │
-        │  │ 5. 参数长度 & 格式验证     │ │
+        │  │ 1. HMAC-SHA256 verify  │ │
+        │  │ 2. Timestamp (±5 min)      │ │
+        │  │ 3. Protocol Nonce dedup    │ │
+        │  │    (Redis)                 │ │
+        │  │    n = Base64(32 bytes)    │ │
+        │  │ 4. Plan mode validation    │ │
+        │  │ 5. Param length & format   │ │
         │  └───────────────────────────┘ │
         └───────────────┬────────────────┘
                         │
         ┌───────────────▼────────────────┐
-        │   AES-GCM 解密层 (多模式)       │
+        │   AES-GCM decrypt (multi-mode)  │
         │  ┌───────────────────────────┐ │
-        │  │ Plan 0: Base64 解码        │ │
+        │  │ Plan 0: Base64 decode      │ │
         │  │ Plan 1: AES-GCM + Token   │ │
         │  │ Plan 2: AES-GCM + ML-KEM  │ │
         │  │                            │ │
-        │  │ AAD 验证:                  │ │
+        │  │ AAD verification:          │ │
         │  │  Time + Nonce + Plan +    │ │
         │  │  Path                      │ │
         │  │                            │ │
-        │  │ AuthTag 验证 (16字节)      │ │
+        │  │ AuthTag verify (16 bytes)  │ │
         │  └───────────────────────────┘ │
         └───────────────┬────────────────┘
                         │
         ┌───────────────▼────────────────┐
-        │      业务逻辑处理层              │
+        │      Business logic layer       │
         │  ┌───────────────────────────┐ │
-        │  │ ORM 层 (高性能数据访问)    │ │
+        │  │ ORM (high-perf data access)│ │
         │  │  - MySQL/MongoDB          │ │
-        │  │  - 零反射优化              │ │
-        │  │  - 预分配内存              │ │
+        │  │  - Zero-reflection opt.    │ │
+        │  │  - Pre-allocated memory    │ │
         │  └───────────────────────────┘ │
         │  ┌───────────────────────────┐ │
-        │  │ 缓存层 (Redis)             │ │
-        │  │  - 分布式锁                │ │
-        │  │  - 限流计数器              │ │
-        │  │  - Nonce 去重              │ │
+        │  │ Cache (Redis)              │ │
+        │  │  - Distributed locks       │ │
+        │  │  - Rate-limit counters     │ │
+        │  │  - Nonce deduplication     │ │
         │  └───────────────────────────┘ │
         │  ┌───────────────────────────┐ │
-        │  │ 业务服务层                 │ │
-        │  │  - 业务逻辑处理            │ │
-        │  │  - 数据验证 & 转换         │ │
+        │  │ Business service layer     │ │
+        │  │  - Business logic          │ │
+        │  │  - Validation & transform  │ │
         │  └───────────────────────────┘ │
         └───────────────┬────────────────┘
                         │
         ┌───────────────▼────────────────┐
-        │    响应数据加密层                │
+        │    Response encryption layer    │
         │  ┌───────────────────────────┐ │
-        │  │ 1. JSON 序列化响应数据     │ │
-        │  │ 2. AES-GCM 加密            │ │
-        │  │    AAD: resp.t+n+p+path   │ │
-        │  │ 3. HMAC-SHA256 签名     │ │
-        │  │ 4. 构建响应 JSON           │ │
+        │  │ 1. JSON serialize response │ │
+        │  │ 2. AES-GCM encrypt           │ │
+        │  │    AAD: resp.t+n+p+path     │ │
+        │  │ 3. HMAC-SHA256 sign      │ │
+        │  │ 4. Build response JSON       │ │
         │  └───────────────────────────┘ │
         └───────────────┬────────────────┘
                         │
                         ▼
-                  返回客户端
+                  Return to client
 ```
 
 ---
 
-## 🛡️ 多层防护体系
+## 🛡️ Multi-Layer Defense
 
-### 第一层：网络层防护
+### Layer 1: Network Protection
 
 ```
 ┌─────────────────────────────────────────┐
-│         网络层安全 (L4/L5)              │
+│         Network Security (L4/L5)        │
 ├─────────────────────────────────────────┤
 │  ✅ HTTPS/TLS 1.2+                      │
-│  ✅ 证书验证                             │
-│  ✅ 双向加密通道                         │
-│  ✅ 防止嗅探 & 劫持                     │
+│  ✅ Certificate validation              │
+│  ✅ Mutual encrypted channel            │
+│  ✅ Sniffing & hijack mitigation        │
 └─────────────────────────────────────────┘
 ```
 
-### 第二层：网关层防护
+### Layer 2: Gateway Protection
 
 ```
 ┌─────────────────────────────────────────┐
-│        网关层安全 (Gateway)              │
+│        Gateway Security (Gateway)        │
 ├─────────────────────────────────────────┤
-│  ✅ 三级限流机制                         │
-│     • 网关限流 (全局)                    │
-│     • 方法限流 (接口级)                  │
-│     • 用户限流 (账号级)                  │
+│  ✅ Three-tier rate limiting            │
+│     • Gateway limit (global)            │
+│     • Method limit (per API)            │
+│     • User limit (per account)          │
 │                                          │
-│  ✅ 请求过滤                             │
-│     • 非法字符过滤                       │
-│     • SQL 注入防护                       │
-│     • XSS 攻击防护                       │
+│  ✅ Request filtering                    │
+│     • Illegal character filter          │
+│     • SQL injection protection          │
+│     • XSS protection                    │
 │                                          │
-│  ✅ 资源保护                             │
-│     • 连接数限制                         │
-│     • 请求大小限制                       │
-│     • 超时控制                           │
+│  ✅ Resource protection                  │
+│     • Connection limit                  │
+│     • Request size limit                │
+│     • Timeout control                   │
 └─────────────────────────────────────────┘
 ```
 
-### 第三层：认证层防护
+### Layer 3: Authentication Protection
 
 ```
 ┌─────────────────────────────────────────┐
-│       认证层安全 (Authentication)        │
+│       Authentication Security            │
 ├─────────────────────────────────────────┤
-│  ✅ JWT Token 验证                       │
-│     • 第三段：HMAC-SHA256（HS256，`GetTokenSecretExtract`）│
-│     • Header.alg：`HS256`（与实现一致）    │
-│     • Token 过期检查（exp）              │
+│  ✅ JWT Token validation                 │
+│     • Part 3: HMAC-SHA256 (HS256, `GetTokenSecretExtract`)│
+│     • Header.alg: `HS256` (matches implementation)│
+│     • Token expiry check (exp)          │
 │                                          │
-│  ✅ ML-DSA-87（Plan2 / 可选 RPCX）          │
-│     • HTTP/WS：仅 p=2 或 WS /key 引导校验 e │
-│     • 对 SHA256(path+d+n+t+p+u) 摘要做 ML-DSA │
-│     • 可选链路 gRPC/rpcx：每请求 ML-DSA 摘要签 │
-│     • Plan0/1 登录态：仅 JWT + HMAC，无 e 字段 │
+│  ✅ ML-DSA-87 (Plan2 / optional RPCX)      │
+│     • HTTP/WS: only p=2 or WS /key bootstrap verifies e │
+│     • ML-DSA over SHA256(path+d+n+t+p+u) digest │
+│     • Optional gRPC/rpcx: ML-DSA digest sign per request │
+│     • Plan0/1 logged-in: JWT + HMAC only, no e field │
 │                                          │
-│  ✅ 动态密钥派生（Token Secret）          │
-│     • HMAC-SHA256（`GetTokenSecretExtract`）│
-│     • key=TokenKey，info=KDF/Token 类型 + 完整 JWT│
-│     • 业务 `s`：HMAC-SHA256，密钥=GetTokenSecret │
-│     • 动态计算、不落库                   │
+│  ✅ Dynamic key derivation (Token Secret)│
+│     • HMAC-SHA256 (`GetTokenSecretExtract`)│
+│     • key=TokenKey, info=KDF/Token type + full JWT│
+│     • Business `s`: HMAC-SHA256, key=GetTokenSecret │
+│     • Computed on demand, not persisted  │
 │                                          │
-│  ✅ RBAC 权限控制                        │
-│     • 角色匹配验证                       │
-│     • 资源访问控制                       │
-│     • 多角色支持                         │
+│  ✅ RBAC access control                  │
+│     • Role matching                     │
+│     • Resource access control           │
+│     • Multi-role support                │
 └─────────────────────────────────────────┘
 ```
 
-### 第四层：加密层防护
+### Layer 4: Encryption Protection
 
 ```
 ┌─────────────────────────────────────────┐
-│        加密层安全 (Encryption)           │
+│        Encryption Security               │
 ├─────────────────────────────────────────┤
-│  ✅ AES-256-GCM 认证加密                 │
-│     • 256-bit 密钥长度                   │
-│     • GCM IV：密文内 12 字节（随机）      │
-│     • 16-byte AuthTag                    │
-│     • AEAD 模式 (一体化)                 │
+│  ✅ AES-256-GCM authenticated encryption │
+│     • 256-bit key length                │
+│     • GCM IV: 12 bytes in ciphertext (random)│
+│     • 16-byte AuthTag                   │
+│     • AEAD mode (integrated)            │
 │                                          │
-│  ✅ AAD / 协议字段绑定                   │
-│     • 时间戳 t (防重放)                  │
-│     • 协议 Nonce n：32 字节 (唯一性)     │
-│     • Plan p (模式绑定)                  │
-│     • Path (接口绑定)                    │
+│  ✅ AAD / protocol field binding         │
+│     • Timestamp t (anti-replay)         │
+│     • Protocol Nonce n: 32 bytes (unique)│
+│     • Plan p (mode binding)             │
+│     • Path (endpoint binding)           │
 │                                          │
-│  ✅ ML-DSA-87 / ML-KEM-1024 路径能力        │
-│     • ML-DSA-87: 双向身份签名与验签       │
-│     • ML-KEM-1024: Plan2 封装与共享秘密   │
-│     • 前向保密性 (PFS, 每轮新封装)         │
+│  ✅ ML-DSA-87 / ML-KEM-1024 capabilities   │
+│     • ML-DSA-87: mutual identity sign/verify│
+│     • ML-KEM-1024: Plan2 encapsulation & shared secret│
+│     • Perfect forward secrecy (PFS, new encaps per round)│
 └─────────────────────────────────────────┘
 ```
 
-### 第五层：签名层防护
+### Layer 5: Signature Protection
 
 ```
 ┌─────────────────────────────────────────┐
-│         签名层安全 (Integrity)           │
+│         Integrity Security               │
 ├─────────────────────────────────────────┤
-│  ✅ 完整性 + 身份绑定                      │
-│     • 业务/推送 `s`：统一 HMAC-SHA256（规范串相同）                 │
-│     • 登录态 Plan0/1：+（可选）GCM；Plan2 / WS /key：+ ML-DSA `e`      │
-│     • WS 推送 (c=300)：广播密钥，非 JWT Secret                         │
-│     • 可选链路 gRPC/rpcx：SHA256 规范串 + ML-DSA，无对称 MAC           │
+│  ✅ Integrity + identity binding           │
+│     • Business/push `s`: unified HMAC-SHA256 (same canonical string)│
+│     • Logged-in Plan0/1: + (optional) GCM; Plan2 / WS /key: + ML-DSA `e`│
+│     • WS push (c=300): broadcast key, not JWT Secret│
+│     • Optional gRPC/rpcx: SHA256 canonical + ML-DSA, no symmetric MAC│
 │                                          │
-│  ✅ 防篡改机制                           │
-│     • 多路径：HMAC/GCM/ML-DSA 或 hash-then-sign（gRPC/rpcx）       │
-│     • 双向（请求+响应）                   │
-│     • 无法伪造有效签名（无私钥）          │
+│  ✅ Tamper protection                    │
+│     • Multi-path: HMAC/GCM/ML-DSA or hash-then-sign (gRPC/rpcx)│
+│     • Bidirectional (request + response) │
+│     • Cannot forge valid signature (no private key)│
 └─────────────────────────────────────────┘
 ```
 
-### 第六层：防重放层防护
+### Layer 6: Anti-Replay Protection
 
 ```
 ┌─────────────────────────────────────────┐
-│      防重放层安全 (Anti-Replay)          │
+│      Anti-Replay Security                │
 ├─────────────────────────────────────────┤
-│  ✅ 时间窗口验证                         │
-│     • ±5 分钟时间戳检查                  │
-│     • 服务器时间同步                     │
-│     • 拒绝过期请求                       │
+│  ✅ Time window validation               │
+│     • ±5 minute timestamp check         │
+│     • Server time sync                  │
+│     • Reject expired requests           │
 │                                          │
-│  ✅ 协议 Nonce 去重机制                  │
-│     • Redis 缓存存储                     │
-│     • 10 分钟过期时间                    │
-│     • n 须为 Base64(32 字节)             │
-│     • 拒绝重复 / 非法长度 Nonce          │
+│  ✅ Protocol Nonce deduplication         │
+│     • Redis cache storage               │
+│     • 10 minute TTL                     │
+│     • n must be Base64(32 bytes)        │
+│     • Reject duplicate / invalid Nonce  │
 │                                          │
-│  ✅ 签名 / 摘要去重                      │
-│     • HTTP 等：HMAC 或 Nonce 键          │
-│     • 可选链路 gRPC/rpcx：对 s（SHA256 摘要）缓存键 │
-│     • 同请求拒绝、防重放                 │
+│  ✅ Signature / digest deduplication     │
+│     • HTTP etc.: HMAC or Nonce key      │
+│     • Optional gRPC/rpcx: cache key on s (SHA256 digest)│
+│     • Reject same request, anti-replay  │
 └─────────────────────────────────────────┘
 ```
 
-## 加密传输流程（抗量子攻击实现）
+## Encrypted Transport Flow (Post-Quantum Implementation)
 
-HTTP / WebSocket 主链路按 **Plan0 / Plan1 / Plan2** 分模式；Plan2 承担 **ML-KEM-1024 + ML-DSA-87** 非对称抗量子登录与密钥交换。**Plan0/1 登录态**对称层为 **HMAC-SHA256 +（可选）AES-256-GCM**；**Plan2** 在 ML-KEM 协商后使用 **HKDF-SHA256 + HMAC-SHA256 + AES-256-GCM**。
+The HTTP / WebSocket main path uses **Plan0 / Plan1 / Plan2** modes. Plan2 provides **ML-KEM-1024 + ML-DSA-87** post-quantum anonymous login and key exchange. **Plan0/1 logged-in** symmetric layer: **HMAC-SHA256 + (optional) AES-256-GCM**; **Plan2** after ML-KEM negotiation: **HKDF-SHA256 + HMAC-SHA256 + AES-256-GCM**.
 
-### Plan 0: Base64 模式（登录状态，明文传输）
+### Plan 0: Base64 Mode (Logged-in, Plaintext Payload)
 
-> **无 ML-DSA 外层签**：仅 JWT 登录态 + HMAC-SHA256；`e` 字段为空。HTTP/WS 共用 Plan01 校验逻辑（HTTP 以 `ctx.Path` 入规范串）。
+> **No ML-DSA outer signature**: JWT session + HMAC-SHA256 only; `e` field is empty. HTTP/WS share Plan01 validation (HTTP uses `ctx.Path` in the canonical string).
 
 ```
-客户端                                服务端
+Client                                Server
   │                                    │
-  │  1. 业务数据 JSON 序列化            │
+  │  1. Serialize business data JSON    │
   │     ↓                              │
-  │  2. Base64 编码 → d                │
+  │  2. Base64 encode → d              │
   │     ↓                              │
   │  3. n = RandProtocolNonce() (32B)   │
-  │     t = Unix 时间戳                 │
+  │     t = Unix timestamp              │
   │     ↓                              │
   │  4. HMAC-SHA256 → s            │
   │     HMAC-SHA256(path+d+n+t+p+u, TokenSecret)
   │     ↓                              │
-  ├─────────  发送请求  ────────────────▶│
-  │    {d, t, n, p:0, s}  (无 e)       │
-  │                                    │  5. 校验 n 长度 & 时间窗
-  │                                    │  6. 验证 HMAC (s)
-  │                                    │  7. 重放检测 (s / n)
-  │                                    │  8. Base64 解码 d
-  │                                    │  9. 业务处理 → 响应 HMAC
-  │◀────────  返回响应  ─────────────────┤
+  ├─────────  Send request  ──────────▶│
+  │    {d, t, n, p:0, s}  (no e)       │
+  │                                    │  5. Validate n length & time window
+  │                                    │  6. Verify HMAC (s)
+  │                                    │  7. Replay check (s / n)
+  │                                    │  8. Base64 decode d
+  │                                    │  9. Business logic → response HMAC
+  │◀────────  Return response  ────────┤
   │    {c, m, d, t, n, p:0, s}         │
   │                                    │
-10. 验证响应 HMAC & 解码                │
+10. Verify response HMAC & decode       │
 ```
 
-### Plan 1: AES-GCM 模式（登录状态，对称加密）
+### Plan 1: AES-GCM Mode (Logged-in, Symmetric Encryption)
 
 ```
-客户端                                服务端
+Client                                Server
   │                                    │
-  │  1. 业务数据 JSON 序列化            │
+  │  1. Serialize business data JSON    │
   │     ↓                              │
-  │  2. 获取 Token Secret              │
-  │     (动态生成，不存储)              │
+  │  2. Get Token Secret               │
+  │     (dynamic, not stored)          │
   │     ↓                              │
   │  3. n = RandProtocolNonce(); t      │
   │     ↓                              │
-  │  4. AES-256-GCM 加密 → d           │
+  │  4. AES-256-GCM encrypt → d        │
   │     Key: TokenSecret[:32]          │
-  │     AAD: t+n+p+path (协议 n 入 AAD) │
-  │     (GCM IV 在密文内，12 字节)      │
+  │     AAD: t+n+p+path (protocol n in AAD)│
+  │     (GCM IV inside ciphertext, 12 bytes)│
   │     ↓                              │
   │  5. HMAC-SHA256 → s            │
   │     ↓                              │
-  ├─────────  发送请求  ────────────────▶│
-  │    {d, t, n, p:1, s}  (无 e)       │
+  ├─────────  Send request  ──────────▶│
+  │    {d, t, n, p:1, s}  (no e)       │
   │                                    │  6. JWT → GetTokenSecret
-  │                                    │  7. 验证 HMAC & 时间窗 & n
-  │                                    │  8. AES-GCM 解密 (AAD 绑定)
-  │                                    │  9. 业务处理 → 响应 GCM+HMAC
-  │◀────────  返回响应  ─────────────────┤
+  │                                    │  7. Verify HMAC & time window & n
+  │                                    │  8. AES-GCM decrypt (AAD bound)
+  │                                    │  9. Business logic → response GCM+HMAC
+  │◀────────  Return response  ────────┤
   │                                    │
-10. 验证 HMAC & GCM 解密                │
+10. Verify HMAC & GCM decrypt           │
   │                                    │
-16. 业务数据处理                       │
+16. Process business data              │
 ```
 
-### Plan 2: ML-KEM + AES-GCM + ML-DSA-87 模式（匿名状态，混合加密 + 双向签名）
+### Plan 2: ML-KEM + AES-GCM + ML-DSA-87 (Anonymous, Hybrid Encryption + Mutual Signatures)
 
 ```
-客户端                                服务端
+Client                                Server
   │                                    │
-  │  1. 请求服务端封装公钥              │
+  │  1. Request server encapsulation PK │
   ├─────────  POST /key  ─────────────▶│
-  │◀────── 服务端 ML-KEM 封装公钥 ek ──┤
+  │◀────── Server ML-KEM encapsulation PK ek ──┤
   │    PublicKey { key: ek_b64, noc, exp, sig } │
   │                                    │
-  │  2. 验证服务端 ML-DSA 外层签名        │
+  │  2. Verify server ML-DSA outer signature│
   │     Verify(Valid, SHA256(key+noc+exp))│
-  │     使用客户端预设的服务端 ML-DSA 公钥 │
+  │     Using client preset server ML-DSA public key│
   │                                    │
-  │  3. ML-KEM 封装（单向）             │
+  │  3. ML-KEM encapsulation (one-way)  │
   │     Encapsulate(server_ek)         │
   │     → shared_raw, kem_ct           │
   │     ↓                              │
-  │  4. HKDF-SHA256 密钥派生（node.HKDFKey）│
+  │  4. HKDF-SHA256 key derivation (node.HKDFKey)│
   │     Key = HKDF-SHA256(shared_raw, noc)│
   │     ↓                              │
-  │  5. 业务数据 JSON 序列化            │
+  │  5. Serialize business data JSON  │
   │     ↓                              │
-  │  6. AES-256-GCM 加密               │
+  │  6. AES-256-GCM encrypt            │
   │     ↓                              │
-  │  7. HMAC-SHA256 → s 字段       │
+  │  7. HMAC-SHA256 → s field      │
   │     ↓                              │
-  │  8. ML-DSA-87 外层签名 → e 字段     │
+  │  8. ML-DSA-87 outer signature → e  │
   │     Sign(SHA256(path+d+n+t+p+u))   │
   │     ↓                              │
-  ├─────────  发送业务请求  ───────────▶│
+  ├─────────  Send business request  ──▶│
   │    Authorization: {                │
   │      key: server_ek,               │
   │      tag: kem_ct_b64,              │
@@ -392,23 +393,23 @@ HTTP / WebSocket 主链路按 **Plan0 / Plan1 / Plan2** 分模式；Plan2 承担
   │    }                               │
   │    JsonBody { d, t, n, p:2, s, e }   │
   │                                    │
-  │  9. 验证客户端 ML-DSA 外层签名        │
+  │  9. Verify client ML-DSA outer signature│
   │ 10. Decapsulate(dk, kem_ct)→shared │
   │ 11. HKDF-SHA256 → sharedKey        │
-  │ 12. 验证 HMAC、时间戳、Nonce         │
-  │ 13. AES-GCM 解密 & 业务处理          │
-  │ 14. 响应 GCM + HMAC + ML-DSA Valid   │
-  │◀────────  返回响应  ─────────────────┤
+  │ 12. Verify HMAC, timestamp, Nonce  │
+  │ 13. AES-GCM decrypt & business logic│
+  │ 14. Response GCM + HMAC + ML-DSA Valid│
+  │◀────────  Return response  ──────────┤
   │                                    │
-15. 验证 HMAC + ML-DSA Valid & 解密    │
+15. Verify HMAC + ML-DSA Valid & decrypt│
 ```
 
-### WebSocket 服务端推送（`code=300`）
+### WebSocket Server Push (`code=300`)
 
-与业务报文 **同一 MAC 算法**（`SignBodyMessage`）；仅 **密钥** 不同（广播密钥，非 JWT Secret）：
+Uses the **same MAC algorithm** as business messages (`SignBodyMessage`); only the **key** differs (broadcast key, not JWT Secret):
 
 ```
-服务端 SendToSubject                     客户端 SDK
+Server SendToSubject                     Client SDK
   │                                        │
   │  n = RandProtocolNonce()               │
   │  s = SignBodyMessage(                  │
@@ -416,27 +417,27 @@ HTTP / WebSocket 主链路按 **Plan0 / Plan1 / Plan2** 分模式；Plan2 承担
   │  JsonResp { c:300, r, d, n, t, p, s }  │
   ├───────────────────────────────────────▶│
   │                                        │ verifyPushMessageSignature
-  │                                        │ SetBroadcastKey 须与
-  │                                        │ PushKeyProvider 一致
-  │                                        │ → 解密 d → 订阅 Handler
+  │                                        │ SetBroadcastKey must match
+  │                                        │ PushKeyProvider
+  │                                        │ → decrypt d → subscription Handler
 ```
 
 ---
 
-## 🎯 认证授权机制
+## 🎯 Authentication & Authorization
 
-### JWT Token 生命周期
+### JWT Token Lifecycle
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                     JWT Token 生命周期                        │
+│                     JWT Token Lifecycle                        │
 └─────────────────────────────────────────────────────────────┘
 
-1. 用户登录
+1. User login
    │
-   ├─▶ 验证用户名/密码
+   ├─▶ Verify username/password
    │
-   ├─▶ 创建 JWT Token（Subject.Generate）
+   ├─▶ Create JWT Token (Subject.Generate)
    │   ┌─────────────────────────────────┐
    │   │ Header:                         │
    │   │   alg: "HS256"                  │
@@ -445,253 +446,254 @@ HTTP / WebSocket 主链路按 **Plan0 / Plan1 / Plan2** 分模式；Plan2 承担
    │   │ Payload:                        │
    │   │   sub, dev, exp, jti, ...       │
    │   │                                 │
-   │   │ Signature (第三段):             │
+   │   │ Signature (part 3):             │
    │   │   part = b64(header).b64(payload)│
    │   │   sig = B64( HMAC-SHA256(       │
    │   │     key=TokenKey,               │
    │   │     msg=VerifyType|SEP|token,   │
-   │   │     见 GetTokenSecretExtract )  │
+   │   │     see GetTokenSecretExtract ) │
    │   └─────────────────────────────────┘
    │
-   ├─▶ 动态生成会话密钥（GetTokenSecret）
-   │   └─▶ HMAC-SHA256(key=TokenKey, msg=SecretType|SEP|完整JWT)
-   │       • 供 HTTP/WS 业务 HMAC-SHA256 / AES-GCM
-   │       • 每次按需计算、不长期存储
+   ├─▶ Dynamically generate session key (GetTokenSecret)
+   │   └─▶ HMAC-SHA256(key=TokenKey, msg=SecretType|SEP|full JWT)
+   │       • For HTTP/WS business HMAC-SHA256 / AES-GCM
+   │       • Computed on demand, not long-term stored
    │
-   └─▶ 返回客户端
+   └─▶ Return to client
        {
          token: "eyJhbGc...",
          secret: "dynamic_secret",
          expired: 1698209856
        }
 
-2. 客户端存储
+2. Client storage
    │
-   ├─▶ 安全存储 Token + Secret
+   ├─▶ Securely store Token + Secret
    │   • Web: localStorage/sessionStorage
    │   • App: KeyChain/KeyStore
-   │   • 不在 Cookie 中存储 (防 CSRF)
+   │   • Do not store in Cookie (CSRF mitigation)
    │
-   └─▶ 后续请求携带
+   └─▶ Subsequent requests carry
        Header: Authorization: token
-       Body: AES-GCM 加密 (使用 secret)
+       Body: AES-GCM encrypted (using secret)
 
-3. 服务端验证
+3. Server validation
    │
-   ├─▶ SessionFilter 拦截
+   ├─▶ SessionFilter intercept
    │   │
-   │   ├─▶ 提取 Token
+   │   ├─▶ Extract Token
    │   │   Header: Authorization
    │   │
-   │   ├─▶ 验证 Token 第三段（Subject.Verify）
-   │   │   • 复算 HMAC-SHA256，与 part3 比较
+   │   ├─▶ Verify Token part 3 (Subject.Verify)
+   │   │   • Recompute HMAC-SHA256, compare with part3
    │   │
-   │   ├─▶ 验证 Token 过期
-   │   │   • exp < 当前时间 → 拒绝
+   │   ├─▶ Verify Token expiry
+   │   │   • exp < current time → reject
    │   │
-   │   ├─▶ 提取 Payload
-   │   │   • sub (用户 ID)
-   │   │   • dev (设备类型)
-   │   │   • 自定义字段
+   │   ├─▶ Extract Payload
+   │   │   • sub (user ID)
+   │   │   • dev (device type)
+   │   │   • custom fields
    │   │
-   │   ├─▶ 动态生成 Secret
+   │   ├─▶ Dynamically generate Secret
    │   │   GetTokenSecret(token, tokenKey)
-   │   │   (与登录时相同算法)
+   │   │   (same algorithm as login)
    │   │
-   │   └─▶ 注入 Context
+   │   └─▶ Inject Context
    │       ctx.Subject = Subject{
    │         Token: token,
    │         Payload: payload,
    │         Secret: secret
    │       }
    │
-   ├─▶ RoleFilter 权限验证
+   ├─▶ RoleFilter permission check
    │   │
-   │   ├─▶ 读取 RBAC 配置
+   │   ├─▶ Read RBAC config
    │   │   routerConfig.Permission
    │   │
-   │   ├─▶ 验证登录状态
-   │   │   NeedLogin → 检查 Token
+   │   ├─▶ Verify login state
+   │   │   NeedLogin → check Token
    │   │
-   │   ├─▶ 验证角色权限
-   │   │   • HasRole: 用户实际角色
-   │   │   • NeedRole: 接口所需角色
-   │   │   • MatchAll: 全匹配/部分匹配
+   │   ├─▶ Verify role permissions
+   │   │   • HasRole: user's actual roles
+   │   │   • NeedRole: roles required by endpoint
+   │   │   • MatchAll: full match / partial match
    │   │
-   │   └─▶ 权限决策
-   │       ✅ 通过 → 继续执行
-   │       ❌ 拒绝 → 返回 403
+   │   └─▶ Permission decision
+   │       ✅ Pass → continue
+   │       ❌ Deny → return 403
    │
-   └─▶ 业务逻辑
-       • 获取用户信息: ctx.Subject.GetUserID()
-       • 获取设备类型: ctx.Subject.GetDev()
-       • 解密请求数据: ctx.GetTokenSecret()
+   └─▶ Business logic
+       • Get user info: ctx.Subject.GetUserID()
+       • Get device type: ctx.Subject.GetDev()
+       • Decrypt request: ctx.GetTokenSecret()
 
-4. Token 注销
+4. Token logout
    │
-   ├─▶ 调用注销接口
+   ├─▶ Call logout endpoint
    │   POST /logout
    │
-   ├─▶ 可选: 黑名单机制
-   │   • Redis 存储 Token Hash
-   │   • TTL = Token 剩余有效期
-   │   • 验证时检查黑名单
+   ├─▶ Optional: blacklist
+   │   • Redis stores Token Hash
+   │   • TTL = remaining Token validity
+   │   • Check blacklist on validation
    │
-   └─▶ 客户端清除本地存储
+   └─▶ Client clears local storage
 ```
 
 ---
 
-## 🛡️ 防护矩阵
+## 🛡️ Protection Matrix
 
-### 常见攻击防护能力
+### Common Attack Mitigations
 
-| 攻击类型       | 风险等级 | 防护机制                                                               | 防护位置              | 效果        |
-| -------------- | -------- | ---------------------------------------------------------------------- | --------------------- | ----------- |
-| **重放攻击**   | 🔴 高    | 时间戳 (±5 分钟) + Nonce 去重 + 签名缓存                               | Filter Chain + AAD    | ✅ 有效防护 |
-| **中间人攻击** | 🔴 高    | TLS/HTTPS（部署）+ AES-GCM + HMAC-SHA256；Plan2 另加 ML-DSA/ML-KEM | 传输层 + 加密层       | ✅ 有效防护 |
-| **身份伪造**   | 🔴 高    | JWT（HMAC-SHA256 / HS256）+ 报文 HMAC-SHA256；Plan2：ML-DSA + ML-KEM | 认证层 + 加密层       | ✅ 有效防护 |
-| **篡改攻击**   | 🔴 高    | HMAC-SHA256 / GCM；Plan2 与 RPCX 叠加 ML-DSA                       | 签名层 + 加密层       | ✅ 有效防护 |
-| **跨接口重放** | 🟠 中    | Path 绑定到 AAD                                                        | AAD 验证              | ✅ 有效防护 |
-| **降级攻击**   | 🟠 中    | Plan 绑定到 AAD + 签名                                                 | AAD 验证              | ✅ 有效防护 |
-| **暴力破解**   | 🟠 中    | 三级限流 + Redis 计数器                                                | Filter Chain          | ✅ 有效防护 |
-| **DDoS 攻击**  | 🔴 高    | 网关限流 + 连接限制 + 超时控制                                         | Gateway Layer         | ✅ 有效防护 |
-| **SQL 注入**   | 🔴 高    | 参数化查询 + ORM 层封装                                                | ORM Layer             | ✅ 有效防护 |
-| **XSS 攻击**   | 🟠 中    | 输入过滤 + 输出转义                                                    | Filter Chain          | ✅ 有效防护 |
-| **CSRF 攻击**  | 🟡 低    | 自定义 Header + 不用 Cookie                                            | 架构设计              | ✅ 有效防护 |
-| **时序攻击**   | 🟡 低    | 常量时间比较 (HMAC)                                                    | crypto/hmac           | ✅ 有效防护 |
-| **会话劫持**   | 🟠 中    | 动态 Secret + Token 绑定                                               | JWT(HMAC-SHA256) + 业务 HMAC | ✅ 有效防护 |
-| **权限提升**   | 🟠 中    | RBAC + 角色验证                                                        | RoleFilter            | ✅ 有效防护 |
-| **密钥泄露**   | 🔴 高    | 动态生成 + 不存储 + 短生命周期                                         | GetTokenSecret        | ✅ 有效防护 |
-| **Nonce 碰撞** | 🟡 低    | 协议 `n`：32 字节 CSPRNG (2^256 空间)                                  | crypto/rand           | ✅ 有效防护 |
+| Attack Type | Risk | Mitigation | Location | Effect |
+| ------------- | -------- | ------------------------------------------------------------------------------ | ------------------ | ----------- |
+| **Replay attack** | 🔴 High | Timestamp (±5 min) + Nonce dedup + signature cache | Filter Chain + AAD | ✅ Effective |
+| **MITM attack** | 🔴 High | TLS/HTTPS (deployment) + AES-GCM + HMAC-SHA256; Plan2 adds ML-DSA/ML-KEM | Transport + encryption | ✅ Effective |
+| **Identity forgery** | 🔴 High | JWT (HMAC-SHA256 / HS256) + message HMAC-SHA256; Plan2: ML-DSA + ML-KEM | Auth + encryption | ✅ Effective |
+| **Tampering** | 🔴 High | HMAC-SHA256 / GCM; Plan2 and RPCX add ML-DSA | Signature + encryption | ✅ Effective |
+| **Cross-endpoint replay** | 🟠 Medium | Path bound to AAD | AAD verification | ✅ Effective |
+| **Downgrade attack** | 🟠 Medium | Plan bound to AAD + signature | AAD verification | ✅ Effective |
+| **Brute force** | 🟠 Medium | Three-tier rate limit + Redis counters | Filter Chain | ✅ Effective |
+| **DDoS** | 🔴 High | Gateway rate limit + connection limit + timeout | Gateway Layer | ✅ Effective |
+| **SQL injection** | 🔴 High | Parameterized queries + ORM encapsulation | ORM Layer | ✅ Effective |
+| **XSS** | 🟠 Medium | Input filter + output escaping | Filter Chain | ✅ Effective |
+| **CSRF** | 🟡 Low | Custom Header + no Cookie | Architecture | ✅ Effective |
+| **Timing attack** | 🟡 Low | Constant-time compare (HMAC) | crypto/hmac | ✅ Effective |
+| **Session hijacking** | 🟠 Medium | Dynamic Secret + Token binding | JWT(HMAC-SHA256) + business HMAC | ✅ Effective |
+| **Privilege escalation** | 🟠 Medium | RBAC + role verification | RoleFilter | ✅ Effective |
+| **Key leakage** | 🔴 High | Dynamic generation + no storage + short lifetime | GetTokenSecret | ✅ Effective |
+| **Nonce collision** | 🟡 Low | Protocol `n`: 32-byte CSPRNG (2^256 space) | crypto/rand | ✅ Effective |
 
-### 常见标准适配对照
+### Common Standards Alignment
 
-下表为**当前代码已实现能力**与常见标准条目的对应关系；末列 ✅ 表示该条款关切在**实现方向上**已在框架内覆盖（以仓库源码为准）。  
-**说明**：**TLS/HTTPS 终端**一般由**部署或前置网关**完成；仓库内可见的主要是 **AES-GCM、HMAC、JWT、签名与防重放** 等应用层能力，勿将「HTTPS」整行理解为进程内已内置完整 TLS 栈。
+The table below maps **currently implemented capabilities** in code to common standard clauses. ✅ in the last column means the concern is **covered in implementation direction** within the framework (per repository source).
 
-| 标准                | 要求         | 框架内相关能力                            | 代码向对齐 |
-| ------------------- | ------------ | ----------------------------------------- | ---------- |
-| **PCI DSS 3.2.1**   | 传输加密     | TLS/HTTPS（部署侧）+ 应用层 AES-256-GCM   | ✅         |
-| **PCI DSS 3.2.1**   | 密钥管理     | HMAC-SHA256（JWT/会话）；Plan2：HKDF-SHA256 + 业务 HMAC | ✅         |
-| **PCI DSS 3.2.1**   | 访问控制     | RBAC + JWT                                | ✅         |
-| **ISO 27001**       | 完整性保护   | HMAC-SHA256 + GCM Tag                 | ✅         |
-| **ISO 27001**       | 不可抵赖     | 签名 + 时间戳 + Path 等请求轨迹字段       | ✅         |
-| **NIST SP 800-38D** | GCM 模式     | GCM IV 12B（密文内）+ AAD 含协议 `n`(32B) | ✅         |
-| **NIST SP 800-38D** | 密钥长度     | AES-256 (32 bytes)                        | ✅         |
-| **FIPS 140-2**      | 密钥派生     | JWT/会话 HMAC-SHA256；Plan2：HKDF-SHA256（RFC 5869）   | ✅         |
-| **FIPS 140-2**      | 随机数生成   | crypto/rand                               | ✅         |
-| **SOX (萨班斯)**    | 审计追踪     | 时间戳 + Nonce + Path                     | ✅         |
-| **GDPR**            | 数据保护     | HTTPS（部署）+ 应用层 AES-GCM 等载荷保护  | ✅         |
-| **OWASP Top 10**    | 注入防护     | 参数化查询 + ORM                          | ✅         |
-| **OWASP Top 10**    | 认证失效防护 | JWT + 动态 Secret                         | ✅         |
-| **OWASP Top 10**    | 敏感数据暴露 | 应用层 AES-GCM + HTTPS（部署）            | ✅         |
+**Note:** **TLS/HTTPS termination** is usually done by **deployment or an upstream gateway**. What is visible in the repo is mainly **AES-GCM, HMAC, JWT, signatures, and anti-replay** at the application layer. Do not read the entire “HTTPS” row as a full in-process TLS stack.
+
+| Standard | Requirement | Framework capability | Code alignment |
+| ------------------- | ------------ | ---------------------------------------- | ---------- |
+| **PCI DSS 3.2.1** | Transport encryption | TLS/HTTPS (deployment) + app-layer AES-256-GCM | ✅ |
+| **PCI DSS 3.2.1** | Key management | HMAC-SHA256 (JWT/session); Plan2: HKDF-SHA256 + business HMAC | ✅ |
+| **PCI DSS 3.2.1** | Access control | RBAC + JWT | ✅ |
+| **ISO 27001** | Integrity | HMAC-SHA256 + GCM Tag | ✅ |
+| **ISO 27001** | Non-repudiation | Signature + timestamp + Path and request trace fields | ✅ |
+| **NIST SP 800-38D** | GCM mode | GCM IV 12B (in ciphertext) + AAD includes protocol `n`(32B) | ✅ |
+| **NIST SP 800-38D** | Key length | AES-256 (32 bytes) | ✅ |
+| **FIPS 140-2** | Key derivation | JWT/session HMAC-SHA256; Plan2: HKDF-SHA256 (RFC 5869) | ✅ |
+| **FIPS 140-2** | Random number generation | crypto/rand | ✅ |
+| **SOX (Sarbanes-Oxley)** | Audit trail | Timestamp + Nonce + Path | ✅ |
+| **GDPR** | Data protection | HTTPS (deployment) + app-layer AES-GCM payload protection | ✅ |
+| **OWASP Top 10** | Injection | Parameterized queries + ORM | ✅ |
+| **OWASP Top 10** | Broken authentication | JWT + dynamic Secret | ✅ |
+| **OWASP Top 10** | Sensitive data exposure | App-layer AES-GCM + HTTPS (deployment) | ✅ |
 
 ---
 
-## 📊 安全等级评估
+## 📊 Security Assessment
 
-### 整体安全评分
+### Overall Security Score
 
 ```
 ┌────────────────────────────────────────────────────────────┐
-│              FreeGo 安全评分卡 (总分: 99/100)               │
+│           FreeGo Security Scorecard (Total: 99/100)           │
 ├────────────────────────────────────────────────────────────┤
 │                                                            │
-│  🔐 加密强度          ████████████████████  100/100       │
-│     • AES-256-GCM (顶级)                                   │
+│  🔐 Cryptographic strength  ████████████████████  100/100 │
+│     • AES-256-GCM (top tier)                               │
 │     • ML-DSA-87 / ML-KEM-1024                              │
-│     • HMAC-SHA256（业务/推送统一）                      │
+│     • HMAC-SHA256 (unified business/push)              │
 │                                                            │
-│  🛡️ 防护能力          ████████████████████  100/100      │
-│     • 六层防护体系                                         │
-│     • 15 种攻击防护                                        │
-│     • Plan2 / RPCX：ML-DSA；Plan0/1：HMAC-SHA256 + JWT              │
+│  🛡️ Defense capability      ████████████████████  100/100│
+│     • Six-layer defense                                    │
+│     • 15 attack mitigations                                │
+│     • Plan2 / RPCX: ML-DSA; Plan0/1: HMAC-SHA256 + JWT│
 │                                                            │
-│  🔑 密钥管理          ████████████████████  100/100       │
-│     • JWT/会话：HMAC-SHA256；业务 `s`：HMAC-SHA256        │
-│     • 不存储敏感信息                                       │
-│     • Token 绑定                                          │
+│  🔑 Key management          ████████████████████  100/100│
+│     • JWT/session: HMAC-SHA256; business `s`: HMAC-SHA256│
+│     • No storage of sensitive material                     │
+│     • Token binding                                        │
 │                                                            │
-│  👤 认证授权          ████████████████████  100/100       │
-│     • JWT + RBAC                                          │
-│     • 动态 Secret                                          │
-│     • 细粒度权限控制                                       │
+│  👤 Auth & authorization    ████████████████████  100/100 │
+│     • JWT + RBAC                                           │
+│     • Dynamic Secret                                       │
+│     • Fine-grained permissions                             │
 │                                                            │
-│  🚦 流量控制          ████████████████████  100/100       │
-│     • 三级限流                                             │
-│     • Redis 分布式                                         │
-│     • 精确控制                                             │
+│  🚦 Traffic control         ████████████████████  100/100  │
+│     • Three-tier rate limiting                             │
+│     • Redis distributed                                    │
+│     • Precise control                                      │
 │                                                            │
-│  📝 审计追踪          ███████████████      90/100        │
-│     • 时间戳 + Nonce + Path                                │
-│     • 缺少: 完整审计日志系统                               │
+│  📝 Audit trail             ███████████████      90/100   │
+│     • Timestamp + Nonce + Path                             │
+│     • Missing: full audit logging system                   │
 │                                                            │
-│  ⚡ 性能影响          ████████████████████  100/100       │
-│     • 硬件加速 (AES-NI)                                    │
-│     • 零拷贝优化                                           │
-│     • 最小 CPU 开销                                        │
+│  ⚡ Performance impact      ████████████████████  100/100 │
+│     • Hardware acceleration (AES-NI)                       │
+│     • Zero-copy optimization                               │
+│     • Minimal CPU overhead                                 │
 │                                                            │
-│  📋 标准适配            代码向能力与常见条款方向一致          │
-│     • 应用层关切与常见条款方向对齐；TLS/HTTPS 依赖部署与网关   │
-│     • 具体组合随业务与运维策略裁剪                           │
+│  📋 Standards alignment     Code capabilities align with common clauses│
+│     • App-layer concerns aligned; TLS/HTTPS depends on deploy/gateway│
+│     • Exact combination trimmed per business & ops policy  │
 │                                                            │
 └────────────────────────────────────────────────────────────┘
 
-适用场景:
-  ✅ 银行核心交易系统
-  ✅ 证券交易平台
-  ✅ 支付网关
-  ✅ 数字货币交易所
-  ✅ 金融风控系统
-  ✅ 互联网金融平台
+Suitable scenarios:
+  ✅ Bank core trading systems
+  ✅ Securities trading platforms
+  ✅ Payment gateways
+  ✅ Digital asset exchanges
+  ✅ Financial risk control systems
+  ✅ Internet finance platforms
 ```
 
-### 安全等级对比
+### Security Tier Comparison
 
-| 等级       | 描述       | 典型场景      | FreeGo      |
+| Tier | Description | Typical scenario | FreeGo |
 | ---------- | ---------- | ------------- | ----------- |
-| **Tier 0** | 无加密     | 内网系统      | ❌          |
-| **Tier 1** | 基础加密   | 普通 Web 应用 | ❌          |
-| **Tier 2** | 标准加密   | 电商平台      | ❌          |
-| **Tier 3** | 金融级加密 | 支付平台      | ✅ 当前等级 |
-| **Tier 4** | 银行级加密 | 核心交易系统  | ✅ 当前等级 |
-| **Tier 5** | 军工级加密 | 国防系统      | ⚠️ 需增强   |
+| **Tier 0** | No encryption | Internal network | ❌ |
+| **Tier 1** | Basic encryption | General web apps | ❌ |
+| **Tier 2** | Standard encryption | E-commerce | ❌ |
+| **Tier 3** | Financial-grade encryption | Payment platforms | ✅ Current tier |
+| **Tier 4** | Bank-grade encryption | Core trading systems | ✅ Current tier |
+| **Tier 5** | Military-grade encryption | Defense systems | ⚠️ Needs enhancement |
 
 ---
 
-## 🎯 核心安全特性
+## 🎯 Core Security Features
 
-### 已实现功能 ✅
+### Implemented ✅
 
-- ✅ AES-256-GCM 认证加密
-- ✅ HMAC-SHA256 完整性验证（业务与推送统一，`SignBodyMessage`）
-- ✅ ML-DSA-87 外层签：仅 **Plan2**（`p=2`）及 WS Plan2 **`/key` 引导**（字段 `e`）
-- ✅ WebSocket 推送：`PushKeyProvider` / `SetBroadcastKey`（广播密钥）
-- ✅ 协议 Nonce：32 字节 Base64（`RandProtocolNonce` / `ValidProtocolNonce`）
-- ✅ `RouterConfig.UsePlan2` Plan2 匿名路由配置
-- ✅ JWT 认证 + RBAC 授权
-- ✅ JWT 第三段与会话密钥：`GetTokenSecretExtract` → **HMAC-SHA256**；业务 `s` 使用该会话密钥做 **HMAC-SHA256**
-- ✅ AAD 上下文绑定 (Time + Nonce + Plan + Path)
-- ✅ 三级限流机制
-- ✅ 防重放攻击 (时间戳 + Nonce 去重)
-- ✅ ML-KEM-1024 封装 + HKDF-SHA256（Plan2 匿名通道；`EncapsulateToPeer` / `DecapsulatePeerCiphertext`）
-- ✅ 零反射高性能 ORM
+- ✅ AES-256-GCM authenticated encryption
+- ✅ HMAC-SHA256 integrity verification (unified business & push, `SignBodyMessage`)
+- ✅ ML-DSA-87 outer signature: **Plan2** only (`p=2`) and WS Plan2 **`/key` bootstrap** (field `e`)
+- ✅ WebSocket push: `PushKeyProvider` / `SetBroadcastKey` (broadcast key)
+- ✅ Protocol Nonce: 32-byte Base64 (`RandProtocolNonce` / `ValidProtocolNonce`)
+- ✅ `RouterConfig.UsePlan2` Plan2 anonymous route configuration
+- ✅ JWT authentication + RBAC authorization
+- ✅ JWT part 3 and session key: `GetTokenSecretExtract` → **HMAC-SHA256**; business `s` uses that session key for **HMAC-SHA256**
+- ✅ AAD context binding (Time + Nonce + Plan + Path)
+- ✅ Three-tier rate limiting
+- ✅ Anti-replay (timestamp + Nonce deduplication)
+- ✅ ML-KEM-1024 encapsulation + HKDF-SHA256 (Plan2 anonymous channel; `EncapsulateToPeer` / `DecapsulatePeerCiphertext`)
+- ✅ Zero-reflection high-performance ORM
 
 ---
 
-## 📚 参考标准
+## 📚 Reference Standards
 
-- **PCI DSS 3.2.1**: Payment Card Industry Data Security Standard（常见支付场景可参考适配）
+- **PCI DSS 3.2.1**: Payment Card Industry Data Security Standard (reference for payment scenarios)
 - **ISO/IEC 27001:2013**: Information Security Management
 - **NIST SP 800-38D**: GCM Mode Specification
 - **FIPS 140-2**: Cryptographic Module Validation
-- **SOX**: Sarbanes-Oxley Act (萨班斯-奥克斯利法案)
+- **SOX**: Sarbanes-Oxley Act
 - **GDPR**: General Data Protection Regulation
 - **OWASP Top 10**: Web Application Security Risks
 
 ---
 
-**文档版本**: v1.15
-**最后更新**: 2026-05-19
-**安全等级**: 🏆 金融机构级 (Tier 4)
+**Document version**: v1.15
+**Last updated**: 2026-05-19
+**Security tier**: 🏆 Financial Institution Grade (Tier 4)

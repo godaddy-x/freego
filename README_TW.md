@@ -1,10 +1,10 @@
 # FreeGo 高效能框架（抗量子攻擊）
 
-[![Go Version](https://img.shields.io/badge/go-%3E%3D1.26-blue.svg)](https://golang.org)
+[![go.mod Go version](https://img.shields.io/github/go-mod/go-version/github.com/godaddy-x/freego)](https://pkg.go.dev/github.com/godaddy-x/freego)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Go Report Card](https://goreportcard.com/badge/github.com/godaddy-x/freego)](https://goreportcard.com/report/github.com/godaddy-x/freego)
+[![Go Reference](https://pkg.go.dev/badge/github.com/godaddy-x/freego.svg)](https://pkg.go.dev/github.com/godaddy-x/freego)
 
-**語言 / Languages:** [简体中文](README.md) · [English](README_EN.md) · [繁體中文](README_TW.md)
+**語言 / Languages:** [简体中文](README_ZH.md) · [English](README.md) · [繁體中文](README_TW.md)
 
 > 🚀 **專注於極致效能優化、抗量子攻擊與強安全取向的 Go 語言企業級框架**（安全架構與實作流程見 [`README_SECURITY_TW.md`](./README_SECURITY_TW.md)）
 

@@ -1,6 +1,6 @@
 # FreeGo 框架安全架構分析
 
-**語言 / Languages:** [簡體中文](README_SECURITY.md) · [English](README_SECURITY_EN.md) · [繁體中文](README_SECURITY_TW.md)
+**語言 / Languages:** [簡體中文](README_SECURITY_ZH.md) · [English](README_SECURITY.md) · [繁體中文](README_SECURITY_TW.md)
 
 > HTTP / WebSocket / RPCX **應用層**：認證、完整性、機密性、防重放（TLS 一般由網關終止）。
 
