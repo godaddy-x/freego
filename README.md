@@ -1,6 +1,6 @@
 # FreeGo High-Performance Framework (Quantum Attack Resistant)
 
-[![go.mod Go version](https://img.shields.io/github/go-mod/go-version/github.com/godaddy-x/freego)](https://pkg.go.dev/github.com/godaddy-x/freego)
+[![go.mod Go version](https://img.shields.io/github/go-mod/go-version/godaddy-x/freego?branch=master)](https://pkg.go.dev/github.com/godaddy-x/freego)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Go Reference](https://pkg.go.dev/badge/github.com/godaddy-x/freego.svg)](https://pkg.go.dev/github.com/godaddy-x/freego)
 
