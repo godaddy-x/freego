@@ -129,15 +129,19 @@ func (g *GeetestLib) requestValidate(params ValidateParams) (*validateResponse, 
 	}
 	defer res.Body.Close()
 
-	body, err := io.ReadAll(res.Body)
+	const maxValidateBody = 64 << 10 // 64KB，校验响应足够；防止异常大包撑爆内存
+	body, err := io.ReadAll(io.LimitReader(res.Body, maxValidateBody+1))
 	if err != nil {
 		return nil, err
+	}
+	if len(body) > maxValidateBody {
+		return nil, errors.New("geetest validate response too large")
 	}
 	if res.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("http status %d", res.StatusCode)
 	}
 
-	g.gtlog(fmt.Sprintf("requestValidate(): body=%s", string(body)))
+	g.gtlog(fmt.Sprintf("requestValidate(): body_len=%d", len(body)))
 	var out validateResponse
 	if err := json.Unmarshal(body, &out); err != nil {
 		return nil, err

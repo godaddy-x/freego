@@ -821,7 +821,7 @@ func (s *SDK) PostByPlan01(path string, requestObj, responseObj interface{}, enc
 //
 // 注意:
 // - 不支持 ML-DSA 外层签名（仅 Plan2 路径使用）
-// - 使用固定的AES-CBC加密 (非GCM模式)
+// - 加密路径使用 AES-GCM
 // - HMAC签名算法略有不同
 func BuildRequestObject(path string, requestObj interface{}, secret string, encrypted ...bool) ([]byte, error) {
 	if len(path) == 0 || requestObj == nil {
@@ -841,7 +841,7 @@ func BuildRequestObject(path string, requestObj interface{}, secret string, encr
 		Plan:  0,
 	}
 	if len(encrypted) > 0 && encrypted[0] {
-		d, err := utils.AesCBCEncrypt(utils.Str2Bytes(jsonBody.Data), secret)
+		d, err := utils.AesGCMEncrypt(utils.Str2Bytes(jsonBody.Data), secret)
 		if err != nil {
 			return nil, ex.Throw{Msg: "request data AES encrypt failed"}
 		}

@@ -465,23 +465,41 @@ func defaultRenderError(ctx *Context, err error) error {
 		}
 	}
 	if ctx.RouterConfig == nil {
-		ctx.Response.StatusCode = 400
-		ctx.Response.ContentType = TEXT_PLAIN
-		ctx.Response.ContentEntityByte.Write(utils.Str2Bytes(resp.Message))
+		ctx.Response.StatusCode = http.StatusBadRequest
+		ctx.Response.ContentType = APPLICATION_JSON
+		safe := pool.GetJsonResp()
+		defer pool.PutJsonResp(safe)
+		safe.Code = resp.Code
+		if safe.Code == 0 {
+			safe.Code = http.StatusBadRequest
+		}
+		safe.Message = "bad request"
+		safe.Time = resp.Time
+		safe.Nonce = resp.Nonce
+		if b, mErr := utils.JsonMarshal(safe); mErr == nil {
+			ctx.Response.ContentEntityByte.Write(b)
+		}
 		return nil
 	}
 	if ctx.RouterConfig.Guest {
 		if out.Code <= 600 {
 			ctx.Response.StatusCode = out.Code
 		}
-		ctx.Response.ContentType = TEXT_PLAIN
-		ctx.Response.ContentEntityByte.Write(utils.Str2Bytes(resp.Message))
+		// Guest 也走统一 JSON，避免 TEXT_PLAIN 直接回写内部错误细节
+		ctx.Response.ContentType = APPLICATION_JSON
+		result, mErr := utils.JsonMarshal(resp)
+		if mErr != nil {
+			ctx.Response.ContentType = APPLICATION_JSON
+			ctx.Response.ContentEntityByte.Write(utils.Str2Bytes(`{"c":500,"m":"internal error","d":null,"t":0,"n":"","p":0,"s":""}`))
+			return nil
+		}
+		ctx.Response.ContentEntityByte.Write(result)
 		return nil
 	}
 	result, err := utils.JsonMarshal(resp)
 	if err != nil {
-		ctx.Response.ContentType = TEXT_PLAIN
-		ctx.Response.ContentEntityByte.Write(utils.Str2Bytes(err.Error()))
+		ctx.Response.ContentType = APPLICATION_JSON
+		ctx.Response.ContentEntityByte.Write(utils.Str2Bytes(`{"c":500,"m":"internal error","d":null,"t":0,"n":"","p":0,"s":""}`))
 		return nil
 	}
 	ctx.Response.ContentType = APPLICATION_JSON

@@ -20,3 +20,5 @@ go.sum
 *.csr
 test/
 .vscode/launch.json
+SECURITY_AUDIT.md
+SECURITY_AUDIT_HTTP_WS.md

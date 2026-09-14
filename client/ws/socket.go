@@ -1496,7 +1496,15 @@ func (s *SDK) websocketMessageListenerHandle(body []byte) {
 	defer pool.PutJsonResp(res)
 
 	if err := utils.JsonUnmarshalFast(body, res); err != nil {
-		zlog.Error(fmt.Sprintf("WebSocket read data parse error: %v", err), 0, zlog.String("body", string(body)))
+		// 不记录原文 body，避免 token / 业务密文进入日志
+		previewLen := len(body)
+		if previewLen > 64 {
+			previewLen = 64
+		}
+		zlog.Error("WebSocket read data parse error", 0,
+			zlog.AddError(err),
+			zlog.Int("body_len", len(body)),
+			zlog.String("body_prefix", string(body[:previewLen])))
 		return
 	}
 

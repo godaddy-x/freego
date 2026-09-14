@@ -1618,7 +1618,11 @@ func buildMongoMatch(cnd *sqlc.Cnd) bson.M {
 			}
 		case sqlc.NOT_LIKE_:
 			if value != "" {
-				query[key] = bson.M{"$not": bson.M{"$regex": value, "$options": "i"}}
+				// 与 LIKE_ 一致：对用户输入做正则转义，避免 ReDoS / 正则注入
+				if strValue, ok := value.(string); ok && strValue != "" {
+					escaped := regexp.QuoteMeta(strValue)
+					query[key] = bson.M{"$not": bson.M{"$regex": escaped, "$options": "i"}}
+				}
 			}
 		case sqlc.OR_:
 			if len(values) == 0 {

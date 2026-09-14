@@ -40,7 +40,7 @@ func RandInt(n int) string {
 }
 
 func RandNonce() string {
-	return Base64Encode(GetAesIVSecure())
+	return Base64Encode(GetRandomSecure(16))
 }
 
 // ModRand 调用底层生成随机数,进行取模运算,性能提升10倍

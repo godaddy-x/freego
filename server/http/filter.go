@@ -175,8 +175,10 @@ func initRateLimiters() {
 	zlog.Info("rate limiters initialized successfully", 0)
 }
 
+// checkLimiterStatus 为 true 时跳过限流（仅测试/压测临时关闭用）。
+// 生产默认 false：网关级 / 方法级 / 用户级限流正常生效。
 func checkLimiterStatus() bool {
-	return true
+	return false
 }
 
 // SetGatewayRateLimiter 设置网关级限流器配置

@@ -90,6 +90,16 @@ func (self *Subject) Aud(aud string) *Subject {
 }
 
 func (self *Subject) Generate(config JwtConfig) string {
+	if config.TokenAlg == "" {
+		config.TokenAlg = HS256
+	}
+	if config.TokenTyp == "" {
+		config.TokenTyp = JWT
+	}
+	// 当前仅实现 HMAC-SHA256 签名；拒绝在 header 中声明其它算法
+	if config.TokenAlg != HS256 {
+		return ""
+	}
 	self.AddHeader(config)
 	headerBs, err := utils.JsonMarshal(self.Header)
 	if err != nil {
@@ -131,24 +141,41 @@ func (self *Subject) Verify(auth []byte, key string) error {
 	part1 := part[1]
 	part2 := part[2]
 
-	// 性能优化1: 先检查过期时间（计算量小），避免过期token的昂贵签名验证
+	// 1) 先验签（恒定时间），再解析 payload，避免未认证数据进入反序列化路径
+	headerPayload := utils.AddStr(part0, ".", part1)
+	expected := self.GetTokenSecretExtract(headerPayload, key, SubjectKDFVerify, SubjectTokenVerify)
+	if !utils.CompareBase64Sign(expected, part2) {
+		return utils.Error("token signature invalid")
+	}
+
+	// 2) 可选校验 header.alg（签名已覆盖 header，此处拒绝非预期算法声明）
+	headerRaw := utils.Base64DecodeWithPool(part0)
+	if len(headerRaw) == 0 {
+		return utils.Error("token header base64 data decode failed")
+	}
+	if self.Header == nil {
+		self.Header = &Header{}
+	}
+	if err := utils.JsonUnmarshal(headerRaw, self.Header); err != nil {
+		return utils.Error("token header parse failed")
+	}
+	if self.Header.Alg != HS256 {
+		return utils.Error("token alg invalid")
+	}
+
+	// 3) 解析 payload 并校验过期（提前 15 秒，兼容时钟漂移）
 	decodeB64 := utils.Base64DecodeWithPool(part1)
 	if len(decodeB64) == 0 {
 		return utils.Error("token part base64 data decode failed")
 	}
-
+	if self.Payload == nil {
+		self.Payload = &Payload{}
+	}
 	if err := utils.JsonUnmarshal(decodeB64, self.Payload); err != nil {
 		return utils.Error("token part parse failed")
 	}
-	// 分布式系统时间同步缓冲区：提前15秒判断过期，避免时间同步误差
 	if self.Payload.Exp <= utils.UnixSecond()-15 {
 		return utils.Error("token expired or invalid")
-	}
-
-	// 性能优化2: 预计算header.payload，避免在Signature内重复拼接
-	headerPayload := utils.AddStr(part0, ".", part1)
-	if self.Signature(headerPayload, key) != part2 {
-		return utils.Error("token signature invalid")
 	}
 
 	return nil
