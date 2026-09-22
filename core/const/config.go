@@ -93,6 +93,10 @@ type MysqlConfig struct {
 	Charset         string `yaml:"charset" json:"Charset"`
 	SlowQuery       int64  `yaml:"slow_query" json:"SlowQuery"`
 	SlowLogPath     string `yaml:"slow_log_path" json:"SlowLogPath"`
+	Timeout         int64  `yaml:"timeout" json:"Timeout"`
+	Location        string `yaml:"location" json:"Location"`
+	OpenTx          bool   `yaml:"open_tx" json:"OpenTx"`
+	AutoID          bool   `yaml:"auto_id" json:"AutoID"`
 	MaxIdleConns    int    `yaml:"max_idle_conns" json:"MaxIdleConns"`
 	MaxOpenConns    int    `yaml:"max_open_conns" json:"MaxOpenConns"`
 	ConnMaxLifetime int    `yaml:"conn_max_lifetime" json:"ConnMaxLifetime"`
@@ -101,15 +105,23 @@ type MysqlConfig struct {
 
 // MGOConfig MongoDB配置 - 与sqld.MGOConfig字段兼容
 type MGOConfig struct {
-	DsName         string   `yaml:"ds_name" json:"DsName"`
-	Addrs          []string `yaml:"addrs" json:"Addrs"`
-	Direct         bool     `yaml:"direct" json:"Direct"`
-	ConnectTimeout int64    `yaml:"connect_timeout" json:"ConnectTimeout"`
-	SocketTimeout  int64    `yaml:"socket_timeout" json:"SocketTimeout"`
-	Database       string   `yaml:"database" json:"Database"`
-	Username       string   `yaml:"username" json:"Username"`
-	Password       string   `yaml:"password" json:"Password"`
-	PoolLimit      int      `yaml:"pool_limit" json:"PoolLimit"`
+	DsName                 string   `yaml:"ds_name" json:"DsName"`
+	Addrs                  []string `yaml:"addrs" json:"Addrs"`
+	ConnectionURI          string   `yaml:"connection_uri" json:"ConnectionURI"`
+	Direct                 bool     `yaml:"direct" json:"Direct"`
+	ConnectTimeout         int64    `yaml:"connect_timeout" json:"ConnectTimeout"`
+	SocketTimeout          int64    `yaml:"socket_timeout" json:"SocketTimeout"`
+	ServerSelectionTimeout int64    `yaml:"server_selection_timeout" json:"ServerSelectionTimeout"`
+	HeartbeatInterval      int64    `yaml:"heartbeat_interval" json:"HeartbeatInterval"`
+	MaxConnIdleTime        int64    `yaml:"max_conn_idle_time" json:"MaxConnIdleTime"`
+	MaxConnLifetime        int64    `yaml:"max_conn_lifetime" json:"MaxConnLifetime"`
+	Database               string   `yaml:"database" json:"Database"`
+	Username               string   `yaml:"username" json:"Username"`
+	Password               string   `yaml:"password" json:"Password"`
+	AuthMechanism          string   `yaml:"auth_mechanism" json:"AuthMechanism"`
+	PoolLimit              int      `yaml:"pool_limit" json:"PoolLimit"`
+	MinPoolSize            int      `yaml:"min_pool_size" json:"MinPoolSize"`
+	MaxConnecting          int      `yaml:"max_connecting" json:"MaxConnecting"`
 }
 
 // RedisConfig Redis配置 - 与cache.RedisConfig字段兼容
