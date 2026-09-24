@@ -46,6 +46,9 @@ func JsonUnmarshalUseNumber(data []byte, v interface{}) error {
 		return errors.New("JSON target object is nil")
 	}
 	if eu, ok := v.(easyjson.Unmarshaler); ok {
+		if err := utils.JsonCheckDepth(data); err != nil {
+			return err
+		}
 		return easyjson.Unmarshal(data, eu)
 	}
 	if !JsonValid(data) {
@@ -63,26 +66,25 @@ func JsonUnmarshalUseNumberFast(data []byte, v interface{}) error {
 		return errors.New("JSON target object is nil")
 	}
 	if eu, ok := v.(easyjson.Unmarshaler); ok {
+		if err := utils.JsonCheckDepth(data); err != nil {
+			return err
+		}
 		return easyjson.Unmarshal(data, eu)
+	}
+	if err := utils.JsonCheckDepth(data); err != nil {
+		return err
 	}
 	return jsonDecode(data, v, true)
 }
 
 // 校验JSON格式是否合法
 func JsonValid(b []byte) bool {
-	//return json.Valid(b) // fastjson > default json 2倍
-	if err := fastjson.ValidateBytes(b); err != nil {
-		return false
-	}
-	return true
+	return utils.JsonValid(b)
 }
 
 // 校验JSON格式是否合法
 func JsonValidString(s string) bool {
-	if err := fastjson.Validate(s); err != nil {
-		return false
-	}
-	return true
+	return utils.JsonValidString(s)
 }
 
 // JSON字符串转对象
@@ -93,8 +95,8 @@ func JsonUnmarshal(data []byte, v interface{}) error {
 	if v == nil {
 		return errors.New("JSON target object is nil")
 	}
-	if !JsonValid(data) {
-		return errors.New("JSON format invalid")
+	if err := utils.JsonValidateBytes(data); err != nil {
+		return err
 	}
 
 	// 判断目标对象是否实现 easyjson.Unmarshaler 接口
@@ -114,6 +116,9 @@ func JsonUnmarshalFast(data []byte, v interface{}) error {
 	}
 	if v == nil {
 		return errors.New("JSON target object is nil")
+	}
+	if err := utils.JsonCheckDepth(data); err != nil {
+		return err
 	}
 	if eu, ok := v.(easyjson.Unmarshaler); ok {
 		return easyjson.Unmarshal(data, eu)
