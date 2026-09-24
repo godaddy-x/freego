@@ -22,3 +22,4 @@ test/
 .vscode/launch.json
 SECURITY_AUDIT.md
 SECURITY_AUDIT_HTTP_WS.md
+store/orm/mysql/MYSQL_PREPARE_CACHE.md

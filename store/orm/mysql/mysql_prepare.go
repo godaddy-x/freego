@@ -1,11 +1,13 @@
-// 非事务 Stmt 全局缓存、无连接绑定、不自动重建、错误上层重试、空闲回收、多数据源隔离
+// 非事务 Stmt 全局缓存、无连接绑定、失效由上层 invalidate、空闲回收、多数据源隔离
 
 package mysql
 
 import (
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -28,9 +30,26 @@ const (
 )
 
 var (
+	// ErrStmtClosed mirrors the stdlib message. database/sql emits a fresh
+	// errors.New("sql: statement is closed") per call, so prefer isStmtInvalid.
 	ErrStmtClosed   = errors.New("sql: statement is closed")
 	ErrShuttingDown = errors.New("prepareManager is shutting down")
 )
+
+// isStmtInvalid reports whether err indicates a cached *sql.Stmt should be dropped.
+func isStmtInvalid(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, sql.ErrConnDone) || errors.Is(err, ErrStmtClosed) || errors.Is(err, driver.ErrBadConn) {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "statement is closed") ||
+		strings.Contains(msg, "connection is already closed") ||
+		strings.Contains(msg, "invalid connection") ||
+		strings.Contains(msg, "broken pipe")
+}
 
 // stmtState 定义 stmt 的状态
 type stmtState int32
@@ -84,8 +103,10 @@ type stmtWrapper struct {
 	closeOnce    sync.Once // 确保 shutdownDone 只关闭一次
 }
 
-// invalidMarker 标记无效SQL，防御缓存穿透
-type invalidMarker struct{}
+// invalidMarker 标记近期 Prepare 失败，短时间内直接返回错误避免穿透重试
+type invalidMarker struct {
+	err error
+}
 
 // prepareManager 预编译语句管理器
 type prepareManager struct {
@@ -119,7 +140,9 @@ func (pm *prepareManager) getCacheStmt(manager *RDBManager, sqlstr string) (*sql
 	cacheKey := sqlHash
 
 	// 快速路径：尝试从缓存获取
-	if stmt, release, ok := pm.tryGetFromCache(cacheKey, sqlHash); ok {
+	if stmt, release, ok, err := pm.tryGetFromCache(cacheKey, sqlHash); err != nil {
+		return nil, nil, cacheKey, err
+	} else if ok {
 		return stmt, release, cacheKey, nil
 	}
 
@@ -136,39 +159,43 @@ func (pm *prepareManager) generateSQLHash(manager *RDBManager, sqlstr string) st
 	return utils.SHA256(data)
 }
 
-// tryGetFromCache 尝试从缓存获取 stmt
-func (pm *prepareManager) tryGetFromCache(cacheKey, sqlHash string) (*sql.Stmt, func(), bool) {
+// tryGetFromCache 尝试从缓存获取 stmt。
+// 返回 err != nil 表示命中 invalidMarker，调用方不得再次 Prepare。
+func (pm *prepareManager) tryGetFromCache(cacheKey, sqlHash string) (*sql.Stmt, func(), bool, error) {
 	value, exists, _ := pm.cacheStmt.Get(cacheKey, nil)
 	if !exists || value == nil {
-		return nil, nil, false
+		return nil, nil, false, nil
 	}
 
-	// 处理无效标记
-	if _, ok := value.(*invalidMarker); ok {
-		return nil, nil, false
+	// 处理无效标记：短路，避免短时间内反复 Prepare
+	if m, ok := value.(*invalidMarker); ok {
+		if m != nil && m.err != nil {
+			return nil, nil, false, fmt.Errorf("prepare stmt failed: %w", m.err)
+		}
+		return nil, nil, false, errors.New("prepare stmt previously failed")
 	}
 
 	wrapper, ok := value.(*stmtWrapper)
 	if !ok || wrapper.stmt == nil || wrapper.sqlHash == "" {
 		_ = pm.cacheStmt.Del(cacheKey)
-		return nil, nil, false
+		return nil, nil, false, nil
 	}
 
 	// 检查状态并增加引用计数
 	if !pm.tryAcquireStmt(wrapper, sqlHash) {
-		return nil, nil, false
+		return nil, nil, false, nil
 	}
 
 	// 双重检查：确认缓存中的值没有被替换
 	if val, exists, _ := pm.cacheStmt.Get(cacheKey, nil); !exists || val != value {
 		pm.releaseStmt(wrapper, cacheKey)
-		return nil, nil, false
+		return nil, nil, false, nil
 	}
 
 	// 延长过期时间（如果需要）
 	pm.extendExpireIfNeeded(wrapper, cacheKey)
 
-	return wrapper.stmt, pm.createReleaseFunc(wrapper, cacheKey), true
+	return wrapper.stmt, pm.createReleaseFunc(wrapper, cacheKey), true, nil
 }
 
 // tryAcquireStmt 尝试获取 stmt 的所有权
@@ -243,8 +270,8 @@ func (pm *prepareManager) createNewStmt(db *sql.DB, sqlstr, sqlHash, cacheKey st
 
 	stmt, err := db.Prepare(sqlstr)
 	if err != nil {
-		// 缓存失败标记，防止缓存穿透
-		_ = pm.cacheStmt.Put(cacheKey, &invalidMarker{}, invalidStmtExpire)
+		// 缓存失败标记，短时间内直接返回同一错误，避免穿透重试
+		_ = pm.cacheStmt.Put(cacheKey, &invalidMarker{err: err}, invalidStmtExpire)
 		return nil, nil, cacheKey, fmt.Errorf("prepare stmt failed: %w", err)
 	}
 
@@ -341,12 +368,16 @@ func (pm *prepareManager) cleanupClosingStmt(wrapper *stmtWrapper, cacheKey, log
 	}
 
 	// 关闭 stmt
-	if err := wrapper.stmt.Close(); err != nil {
-		zlog.Error(logMsg+" failed", 0,
-			zlog.String("key", cacheKey),
-			zlog.AddError(err))
+	if wrapper.stmt != nil {
+		if err := wrapper.stmt.Close(); err != nil {
+			zlog.Error(logMsg+" failed", 0,
+				zlog.String("key", cacheKey),
+				zlog.AddError(err))
+		} else {
+			zlog.Debug(logMsg+" succeeded", 0, zlog.String("key", cacheKey))
+		}
 	} else {
-		zlog.Debug(logMsg+" succeeded", 0, zlog.String("key", cacheKey))
+		zlog.Debug(logMsg+" skipped nil stmt", 0, zlog.String("key", cacheKey))
 	}
 
 	// 标记为已关闭并清理 timer
@@ -358,8 +389,14 @@ func (pm *prepareManager) cleanupClosingStmt(wrapper *stmtWrapper, cacheKey, log
 	}
 	wrapper.timerMu.Unlock()
 
-	// 从缓存中删除（幂等操作）
-	_ = pm.cacheStmt.Del(cacheKey)
+	// 从缓存中删除：仅当缓存项仍指向本 wrapper。
+	// invalidate 后旧 wrapper 的 idle timer 不应 Del 已 Put 的新 wrapper（§10.1）。
+	if val, ok, _ := pm.cacheStmt.Get(cacheKey, nil); ok && val == wrapper {
+		_ = pm.cacheStmt.Del(cacheKey)
+	} else if ok {
+		zlog.Debug("cleanupClosingStmt skipped cache Del: key replaced", 0,
+			zlog.String("key", cacheKey))
+	}
 
 	// 安全关闭 shutdownDone（使用 sync.Once）
 	wrapper.closeOnce.Do(func() {
@@ -488,11 +525,13 @@ func (pm *prepareManager) tryForceClose(wrapper *stmtWrapper, key string, refCou
 	wrapper.closeMu.Lock()
 	defer wrapper.closeMu.Unlock()
 
-	if err := wrapper.stmt.Close(); err != nil {
-		zlog.Warn("force close stmt failed", 0,
-			zlog.String("key", key),
-			zlog.AddError(err))
-		return false
+	if wrapper.stmt != nil {
+		if err := wrapper.stmt.Close(); err != nil {
+			zlog.Warn("force close stmt failed", 0,
+				zlog.String("key", key),
+				zlog.AddError(err))
+			return false
+		}
 	}
 
 	wrapper.state.Store(int32(stateClosed))
@@ -567,14 +606,57 @@ func (pm *prepareManager) createWithLock(manager *RDBManager, sqlstr, sqlHash, c
 		return nil, nil, cacheKey, ErrShuttingDown
 	}
 
-	// 再次检查缓存
-	if stmt, release, ok := pm.tryGetFromCache(cacheKey, sqlHash); ok {
+	// 再次检查缓存（含 invalidMarker 短路）
+	if stmt, release, ok, err := pm.tryGetFromCache(cacheKey, sqlHash); err != nil {
+		return nil, nil, cacheKey, err
+	} else if ok {
 		return stmt, release, cacheKey, nil
 	}
 
 	// 创建新 Stmt
 	stmt, release, key, err := pm.createNewStmt(manager.Db, sqlstr, sqlHash, cacheKey)
 	return stmt, release, key, err
+}
+
+// invalidateCacheStmt removes a cached stmt so the next get will re-Prepare.
+// In-flight users keep their reference; the last release still closes the stmt.
+// Idle stmts are closed immediately.
+func (pm *prepareManager) invalidateCacheStmt(cacheKey string) {
+	if cacheKey == "" {
+		return
+	}
+	value, exists, _ := pm.cacheStmt.Get(cacheKey, nil)
+	if !exists || value == nil {
+		return
+	}
+
+	wrapper, ok := value.(*stmtWrapper)
+	if !ok {
+		_ = pm.cacheStmt.Del(cacheKey)
+		return
+	}
+
+	// Drop from cache first so subsequent gets miss and rebuild.
+	_ = pm.cacheStmt.Del(cacheKey)
+
+	// Idle: close immediately.
+	if wrapper.state.CompareAndSwap(int32(stateIdle), int32(stateClosing)) {
+		pm.cleanupClosingStmt(wrapper, cacheKey, "invalidate idle stmt")
+		return
+	}
+
+	// Active but no holders (rare): close now.
+	if wrapper.refCount.Load() == 0 &&
+		wrapper.state.CompareAndSwap(int32(stateActive), int32(stateClosing)) {
+		pm.cleanupClosingStmt(wrapper, cacheKey, "invalidate active stmt")
+		return
+	}
+
+	// Still in use: leave wrapper alive; last release → idle timer → Close.
+	zlog.Debug("invalidate deferred until release", 0,
+		zlog.String("key", cacheKey),
+		zlog.Int32("refCount", wrapper.refCount.Load()),
+		zlog.String("state", stmtState(wrapper.state.Load()).String()))
 }
 
 // transitionToIdle 将 stmt 转换为空闲状态并启动清理定时器

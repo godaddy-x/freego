@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"hash/fnv"
 	"reflect"
@@ -712,8 +711,8 @@ func (self *RDBManager) SaveWithContext(ctx context.Context, data ...sqlc.Object
 
 		ret, err := stmt.ExecContext(ctx, parameter...)
 		if err != nil {
-			if errors.Is(err, ErrStmtClosed) || errors.Is(err, sql.ErrConnDone) {
-				_ = defaultPrepareManager.cacheStmt.Del(cacheKey)
+			if isStmtInvalid(err) {
+				defaultPrepareManager.invalidateCacheStmt(cacheKey)
 				zlog.Warn("stmt invalid, cache cleared", 0, zlog.String("key", cacheKey))
 			}
 			return self.Error("[Mysql.Save] save failed: ", err)
@@ -862,8 +861,8 @@ func (self *RDBManager) UpdateWithContext(ctx context.Context, data ...sqlc.Obje
 
 		ret, err := stmt.ExecContext(ctx, parameter...)
 		if err != nil {
-			if errors.Is(err, ErrStmtClosed) || errors.Is(err, sql.ErrConnDone) {
-				_ = defaultPrepareManager.cacheStmt.Del(cacheKey)
+			if isStmtInvalid(err) {
+				defaultPrepareManager.invalidateCacheStmt(cacheKey)
 				zlog.Warn("stmt invalid, cache cleared", 0, zlog.String("key", cacheKey))
 			}
 			return self.Error("[Mysql.Update] update failed: ", err)
@@ -994,8 +993,8 @@ func (self *RDBManager) UpdateByCndWithContext(ctx context.Context, cnd *sqlc.Cn
 
 		ret, err := stmt.ExecContext(ctx, parameter...)
 		if err != nil {
-			if errors.Is(err, ErrStmtClosed) || errors.Is(err, sql.ErrConnDone) {
-				_ = defaultPrepareManager.cacheStmt.Del(cacheKey)
+			if isStmtInvalid(err) {
+				defaultPrepareManager.invalidateCacheStmt(cacheKey)
 				zlog.Warn("stmt invalid, cache cleared", 0, zlog.String("key", cacheKey))
 			}
 			return 0, self.Error("[Mysql.UpdateByCnd] update failed: ", err)
@@ -1113,8 +1112,8 @@ func (self *RDBManager) DeleteWithContext(ctx context.Context, data ...sqlc.Obje
 
 		ret, err := stmt.ExecContext(ctx, parameter...)
 		if err != nil {
-			if errors.Is(err, ErrStmtClosed) || errors.Is(err, sql.ErrConnDone) {
-				_ = defaultPrepareManager.cacheStmt.Del(cacheKey)
+			if isStmtInvalid(err) {
+				defaultPrepareManager.invalidateCacheStmt(cacheKey)
 				zlog.Warn("stmt invalid, cache cleared", 0, zlog.String("key", cacheKey))
 			}
 			return self.Error("[Mysql.Delete] delete failed: ", err)
@@ -1221,8 +1220,8 @@ func (self *RDBManager) DeleteByIdWithContext(ctx context.Context, object sqlc.O
 
 		ret, err := stmt.ExecContext(ctx, parameter...)
 		if err != nil {
-			if errors.Is(err, ErrStmtClosed) || errors.Is(err, sql.ErrConnDone) {
-				_ = defaultPrepareManager.cacheStmt.Del(cacheKey)
+			if isStmtInvalid(err) {
+				defaultPrepareManager.invalidateCacheStmt(cacheKey)
 				zlog.Warn("stmt invalid, cache cleared", 0, zlog.String("key", cacheKey))
 			}
 			return 0, self.Error("[Mysql.DeleteById] delete failed: ", err)
@@ -1312,8 +1311,8 @@ func (self *RDBManager) DeleteByCndWithContext(ctx context.Context, cnd *sqlc.Cn
 
 		ret, err := stmt.ExecContext(ctx, parameter...)
 		if err != nil {
-			if errors.Is(err, ErrStmtClosed) || errors.Is(err, sql.ErrConnDone) {
-				_ = defaultPrepareManager.cacheStmt.Del(cacheKey)
+			if isStmtInvalid(err) {
+				defaultPrepareManager.invalidateCacheStmt(cacheKey)
 				zlog.Warn("stmt invalid, cache cleared", 0, zlog.String("key", cacheKey))
 			}
 			return 0, self.Error("[Mysql.DeleteByCnd] update failed: ", err)
@@ -1415,8 +1414,8 @@ func (self *RDBManager) FindOneWithContext(ctx context.Context, cnd *sqlc.Cnd, d
 
 		rows, err = stmt.QueryContext(ctx, parameter...)
 		if err != nil {
-			if errors.Is(err, ErrStmtClosed) || errors.Is(err, sql.ErrConnDone) {
-				_ = defaultPrepareManager.cacheStmt.Del(cacheKey)
+			if isStmtInvalid(err) {
+				defaultPrepareManager.invalidateCacheStmt(cacheKey)
 				zlog.Warn("stmt invalid, cache cleared", 0, zlog.String("key", cacheKey))
 			}
 			return self.Error("[Mysql.FindOne] query failed: ", err)
@@ -1537,8 +1536,8 @@ func (self *RDBManager) FindListWithContext(ctx context.Context, cnd *sqlc.Cnd, 
 
 		rows, err = stmt.QueryContext(ctx, parameter...)
 		if err != nil {
-			if errors.Is(err, ErrStmtClosed) || errors.Is(err, sql.ErrConnDone) {
-				_ = defaultPrepareManager.cacheStmt.Del(cacheKey)
+			if isStmtInvalid(err) {
+				defaultPrepareManager.invalidateCacheStmt(cacheKey)
 				zlog.Warn("stmt invalid, cache cleared", 0, zlog.String("key", cacheKey))
 			}
 			return self.Error("[Mysql.FindList] query failed: ", err)
@@ -1622,8 +1621,8 @@ func (self *RDBManager) CountWithContext(ctx context.Context, cnd *sqlc.Cnd) (in
 
 		rows, err = stmt.QueryContext(ctx, parameter...)
 		if err != nil {
-			if errors.Is(err, ErrStmtClosed) || errors.Is(err, sql.ErrConnDone) {
-				_ = defaultPrepareManager.cacheStmt.Del(cacheKey)
+			if isStmtInvalid(err) {
+				defaultPrepareManager.invalidateCacheStmt(cacheKey)
 				zlog.Warn("stmt invalid, cache cleared", 0, zlog.String("key", cacheKey))
 			}
 			return 0, self.Error("[Mysql.Count] query failed: ", err)
@@ -1723,8 +1722,8 @@ func (self *RDBManager) ExistsWithContext(ctx context.Context, cnd *sqlc.Cnd) (b
 
 		rows, err = stmt.QueryContext(ctx, parameter...)
 		if err != nil {
-			if errors.Is(err, ErrStmtClosed) || errors.Is(err, sql.ErrConnDone) {
-				_ = defaultPrepareManager.cacheStmt.Del(cacheKey)
+			if isStmtInvalid(err) {
+				defaultPrepareManager.invalidateCacheStmt(cacheKey)
 				zlog.Warn("stmt invalid, cache cleared", 0, zlog.String("key", cacheKey))
 			}
 			return false, self.Error("[Mysql.Exists] query failed: ", err)
@@ -1894,8 +1893,8 @@ func (self *RDBManager) FindOneComplexWithContext(ctx context.Context, cnd *sqlc
 
 		rows, err = stmt.QueryContext(ctx, parameter...)
 		if err != nil {
-			if errors.Is(err, ErrStmtClosed) || errors.Is(err, sql.ErrConnDone) {
-				_ = defaultPrepareManager.cacheStmt.Del(cacheKey)
+			if isStmtInvalid(err) {
+				defaultPrepareManager.invalidateCacheStmt(cacheKey)
 				zlog.Warn("stmt invalid, cache cleared", 0, zlog.String("key", cacheKey))
 			}
 			return self.Error("[Mysql.FindOneComplex] query failed: ", err)
@@ -2085,8 +2084,8 @@ func (self *RDBManager) FindListComplexWithContext(ctx context.Context, cnd *sql
 
 		rows, err = stmt.QueryContext(ctx, parameter...)
 		if err != nil {
-			if errors.Is(err, ErrStmtClosed) || errors.Is(err, sql.ErrConnDone) {
-				_ = defaultPrepareManager.cacheStmt.Del(cacheKey)
+			if isStmtInvalid(err) {
+				defaultPrepareManager.invalidateCacheStmt(cacheKey)
 				zlog.Warn("stmt invalid, cache cleared", 0, zlog.String("key", cacheKey))
 			}
 			return self.Error("[Mysql.FindListComplex] query failed: ", err)
