@@ -11,6 +11,7 @@ import (
 
 	"encoding/hex"
 
+	"github.com/godaddy-x/freego/core/ex"
 	"github.com/godaddy-x/freego/core/jwt"
 	utils "github.com/godaddy-x/freego/core/str"
 	cache "github.com/godaddy-x/freego/infra/cache/contract"
@@ -187,7 +188,12 @@ func (g *GrpcGateway) handleCall(ctx context.Context, req *pb.GatewayRequest) (*
 	gctx := newContext(ctx, g, req, cfg)
 	if err := gctx.validateInbound(); err != nil {
 		zlog.Info("grpcgw inbound rejected", 0, zlog.String("route", route), zlog.String("err", err.Error()))
-		return g.signedError(route, 400, "request rejected", req.U), nil
+		out := ex.Normalize(ex.Catch(err))
+		code := int32(out.Code)
+		if code == 0 {
+			code = 400
+		}
+		return g.signedErrorForReq(req, route, code, clientSafeMessage(code), req.U), nil
 	}
 	if err := g.runInterceptors(gctx); err != nil {
 		return gctx.renderError(err)

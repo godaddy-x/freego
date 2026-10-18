@@ -19,6 +19,8 @@ const plan2NocLen = 32
 var (
 	streamBindAckPlain []byte
 	streamBindAckOnce  sync.Once
+	streamBindReqPlain []byte
+	streamBindReqOnce  sync.Once
 )
 
 func StreamBindAckPlain() []byte {
@@ -30,6 +32,18 @@ func StreamBindAckPlain() []byte {
 		streamBindAckPlain = b
 	})
 	return streamBindAckPlain
+}
+
+// StreamBindRequestWire 空 StreamBindRequest 的 proto 字节（Connect 首帧，进程内缓存）。
+func StreamBindRequestWire() []byte {
+	streamBindReqOnce.Do(func() {
+		b, err := proto.Marshal(&StreamBindRequest{})
+		if err != nil {
+			panic("stream bind req proto: " + err.Error())
+		}
+		streamBindReqPlain = b
+	})
+	return streamBindReqPlain
 }
 
 func MaxPlan2PublicKeyWireLen() int {

@@ -13,7 +13,10 @@ func plan2Unary(cli *Client, req *pb.GatewayRequest, macKey []byte, cipher crypt
 	if err := SignOuter(req, cipher); err != nil {
 		return nil, err
 	}
-	res, err := cli.CallWithTimeout(timeoutSec, req)
+	sess := cli.CopySession()
+	ctx, cancel := cli.callCtxFor(timeoutSec)
+	defer cancel()
+	res, err := cli.CallSession(ctx, req, sess)
 	if err != nil {
 		return nil, err
 	}

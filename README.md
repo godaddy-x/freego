@@ -11,6 +11,7 @@
 FreeGo targets high-concurrency, security-sensitive workloads: **Plan2 login / key exchange** uses **NIST post-quantum algorithms (ML-KEM-1024 / ML-DSA-87)**; logged-in **JWT signatures use HMAC-SHA256 (typical HS256)**, business messages use field **`s` for HMAC-SHA256 integrity**, with optional **AES-256-GCM** for payloads. Core strengths are the **service access layer**, **data access layer**, and the supporting components below:
 
 - **API framework**: HTTP / WebSocket / RPCX ingress, filter chains, authentication, authorization, integrity verification, and anti-replay (see [`README_SECURITY.md`](./README_SECURITY.md)).
+- **gRPC gateway (grpcgw)**: `server/grpcgw` + `client/grpcgw` for Plan2/Plan1 envelopes and protobuf payloads (used by wallet-mpc-broker/node CLI); see [`client/grpcgw/README.md`](./client/grpcgw/README.md).
 - **ORM framework**: MySQL / Mongo with **minimal reflection on hot paths** and allocation-friendly data access (`ormx`).
 
 Also includes cache (local and Redis), distributed locks and rate limiting, AMQP messaging, structured logging, and YAML configuration loading. **HTTPS/TLS is usually terminated at a reverse proxy or gateway**; the framework focuses on application-layer routing, filters, and cryptography (details in the security doc).

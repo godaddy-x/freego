@@ -3,7 +3,6 @@ package grpcgw_example
 import (
 	"testing"
 
-	cgrpc "github.com/godaddy-x/freego/client/grpcgw"
 	pb "github.com/godaddy-x/freego/protocol/grpcgw"
 )
 
@@ -15,39 +14,30 @@ func TestGRPCExampleServer(t *testing.T) {
 }
 
 func TestGRPCExampleClientLogin(t *testing.T) {
-	cipher, err := ExampleClientCipher()
-	if err != nil {
-		t.Fatal(err)
-	}
-	cli, err := cgrpc.Dial(defaultE2EListen)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer cli.Close()
-
 	const usr int64 = 10001
-	plain, err := plan2LoginWithRetry(cli, usr, cipher, demoLoginBody())
+	s, err := newExampleSDK(usr)
 	if err != nil {
 		t.Fatal(err)
 	}
-	tok := &pb.AuthToken{}
-	if err := pb.UnmarshalProto(plain, tok); err != nil {
+	defer s.Close()
+
+	res := &pb.AuthToken{}
+	if err := sdkPlan2LoginProtoWithRetry(s, "key", "login", demoLoginReq(), res, 0); err != nil {
 		t.Fatal(err)
 	}
-	if len(tok.Token) == 0 || len(tok.Secret) == 0 || tok.Expired <= 0 {
-		t.Fatalf("auth token incomplete: %+v", tok)
+	if res.Token == "" || len(res.Secret) < 32 || res.Expired <= 0 {
+		t.Fatalf("auth token incomplete: %+v", res)
 	}
-	t.Logf("login ok token_len=%d exp=%d", len(tok.Token), tok.Expired)
+	t.Logf("login ok token_len=%d exp=%d", len(res.Token), res.Expired)
 }
 
 func TestGRPCExampleClientGetUserPlan0(t *testing.T) {
 	const usr int64 = 10002
-	cli := e2eLoginSession(t, usr)
-	defer cli.Close()
+	s := e2eLoginSDKSession(t, usr)
+	defer s.Close()
 
 	res := &pb.GetUserResponse{}
-	err := cgrpc.CallPlan0Proto(cli, "getUser", &pb.GetUserRequest{Name: "plan0-e2e"}, res, 0)
-	if err != nil {
+	if err := s.CallPlan0Proto("getUser", &pb.GetUserRequest{Name: "plan0-e2e"}, res, 0); err != nil {
 		t.Fatal(err)
 	}
 	if res.Name != "plan0-e2e" || res.Echo != "1" {
@@ -58,12 +48,11 @@ func TestGRPCExampleClientGetUserPlan0(t *testing.T) {
 
 func TestGRPCExampleClientGetUserPlan1(t *testing.T) {
 	const usr int64 = 10003
-	cli := e2eLoginSession(t, usr)
-	defer cli.Close()
+	s := e2eLoginSDKSession(t, usr)
+	defer s.Close()
 
 	res := &pb.GetUserResponse{}
-	err := cgrpc.CallPlan1Proto(cli, "getUser", &pb.GetUserRequest{Name: "plan1-e2e"}, res, 0)
-	if err != nil {
+	if err := s.CallPlan1Proto("getUser", &pb.GetUserRequest{Name: "plan1-e2e"}, res, 0); err != nil {
 		t.Fatal(err)
 	}
 	if res.Name != "plan1-e2e" || res.Echo != "1" {

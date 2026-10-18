@@ -10,7 +10,22 @@ import (
 
 // signedError 入站失败尚无会话密钥时，用 broadcast_key 签 s，避免裸错误包被伪造。
 func (g *GrpcGateway) signedError(route string, code int32, msg string, u int64) *pb.GatewayResponse {
+	return g.signedErrorForReq(nil, route, code, msg, u)
+}
+
+func (g *GrpcGateway) signedErrorForReq(req *pb.GatewayRequest, route string, code int32, msg string, u int64) *pb.GatewayResponse {
 	n := pb.NewNonce()
+	if req != nil {
+		if r := req.R; route == "" {
+			route = r
+		}
+		if len(req.N) > 0 {
+			n = req.N
+		}
+		if u == 0 && req.U != 0 {
+			u = req.U
+		}
+	}
 	t := utils.UnixSecond()
 	const p int64 = 0
 	canonical := pb.CanonicalResponse(route, nil, n, t, p, u, code, msg)

@@ -83,6 +83,9 @@ func (c *Context) MarshalResponse(m proto.Message) error {
 
 func (c *Context) SetPlain(b []byte) { c.plain = b }
 
+// RequestPlain 入站校验解密后的业务体（handler / 适配 WS 迁移用）。
+func (c *Context) RequestPlain() []byte { return c.plain }
+
 func (c *Context) authTokenBytes() []byte {
 	return metadataFirst(c.Context, pb.MetadataAuthorizationKey, pb.MaxMetadataAuthorizationLen)
 }

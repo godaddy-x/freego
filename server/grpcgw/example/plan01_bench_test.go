@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	cgrpc "github.com/godaddy-x/freego/client/grpcgw"
+	"github.com/godaddy-x/freego/client/grpcgw/sdk"
 	pb "github.com/godaddy-x/freego/protocol/grpcgw"
 )
 
@@ -18,14 +18,14 @@ import (
 
 const benchPlan01User = int64(40001)
 
-func benchGetUserPlan0(cli *cgrpc.Client) error {
+func benchGetUserPlan0(s *sdk.SDK) error {
 	res := &pb.GetUserResponse{}
-	return cgrpc.CallPlan0Proto(cli, "getUser", &pb.GetUserRequest{Name: "bench-plan0"}, res, 0)
+	return s.CallPlan0Proto("getUser", &pb.GetUserRequest{Name: "bench-plan0"}, res, 0)
 }
 
-func benchGetUserPlan1(cli *cgrpc.Client) error {
+func benchGetUserPlan1(s *sdk.SDK) error {
 	res := &pb.GetUserResponse{}
-	return cgrpc.CallPlan1Proto(cli, "getUser", &pb.GetUserRequest{Name: "bench-plan1"}, res, 0)
+	return s.CallPlan1Proto("getUser", &pb.GetUserRequest{Name: "bench-plan1"}, res, 0)
 }
 
 func TestConcurrentPlan01GetUserSmoke(t *testing.T) {
@@ -34,12 +34,12 @@ func TestConcurrentPlan01GetUserSmoke(t *testing.T) {
 	}
 	target := e2eTarget()
 
-	runSmoke := func(name string, call func(*cgrpc.Client) error) {
-		cli, err := benchAuthenticatedClient(target, benchPlan01User)
+	runSmoke := func(name string, call func(*sdk.SDK) error) {
+		s, err := benchAuthenticatedSDK(target, benchPlan01User)
 		if err != nil {
 			t.Fatalf("%s login: %v", name, err)
 		}
-		defer cli.Close()
+		defer s.Close()
 
 		const workers = 32
 		const perWorker = 20
@@ -49,7 +49,7 @@ func TestConcurrentPlan01GetUserSmoke(t *testing.T) {
 		for w := 0; w < workers; w++ {
 			go func() {
 				for i := 0; i < perWorker; i++ {
-					if err := call(cli); err != nil {
+					if err := call(s); err != nil {
 						atomic.AddInt64(&fail, 1)
 						if fail <= 3 {
 							t.Logf("%s fail: %v", name, err)
@@ -78,17 +78,17 @@ func TestConcurrentPlan01GetUserSmoke(t *testing.T) {
 
 func benchmarkPlan01GetUser(b *testing.B, plan int) {
 	target := e2eTarget()
-	cli, err := benchAuthenticatedClient(target, benchPlan01User)
+	s, err := benchAuthenticatedSDK(target, benchPlan01User)
 	if err != nil {
 		b.Fatalf("login: %v", err)
 	}
-	defer cli.Close()
+	defer s.Close()
 
 	if plan == 0 {
-		if err := benchGetUserPlan0(cli); err != nil {
+		if err := benchGetUserPlan0(s); err != nil {
 			b.Fatalf("warmup plan0: %v", err)
 		}
-	} else if err := benchGetUserPlan1(cli); err != nil {
+	} else if err := benchGetUserPlan1(s); err != nil {
 		b.Fatalf("warmup plan1: %v", err)
 	}
 
@@ -100,9 +100,9 @@ func benchmarkPlan01GetUser(b *testing.B, plan int) {
 			res := &pb.GetUserResponse{}
 			var err error
 			if plan == 0 {
-				err = cgrpc.CallPlan0Proto(cli, "getUser", req, res, 0)
+				err = s.CallPlan0Proto("getUser", req, res, 0)
 			} else {
-				err = cgrpc.CallPlan1Proto(cli, "getUser", req, res, 0)
+				err = s.CallPlan1Proto("getUser", req, res, 0)
 			}
 			if err != nil {
 				if strings.Contains(err.Error(), "time window") {

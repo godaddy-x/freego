@@ -1,22 +1,23 @@
 package grpcgw
 
 import (
+	"github.com/godaddy-x/freego/core/ex"
 	utils "github.com/godaddy-x/freego/core/str"
 	pb "github.com/godaddy-x/freego/protocol/grpcgw"
 	"google.golang.org/protobuf/proto"
 )
 
 func plan01Invoke(cli *Client, route string, plain []byte, plan int64, timeoutSec int64) ([]byte, error) {
-	usr, err := cli.requestUser()
-	if err != nil {
-		return nil, err
+	sess := cli.CopySession()
+	if sess.User < 0 {
+		return nil, ex.Throw{Msg: "client user id not set"}
 	}
-	macKey, err := cli.macKey()
+	macKey, err := sess.MACKey()
 	if err != nil {
 		return nil, err
 	}
 	req := &pb.GatewayRequest{
-		R: route, N: pb.NewNonce(), T: utils.UnixSecond(), P: plan, U: usr,
+		R: route, N: pb.NewNonce(), T: utils.UnixSecond(), P: plan, U: sess.User,
 	}
 	if plan == 0 {
 		if err := SealPlan0(req, plain, macKey); err != nil {
@@ -27,7 +28,9 @@ func plan01Invoke(cli *Client, route string, plain []byte, plan int64, timeoutSe
 			return nil, err
 		}
 	}
-	res, err := cli.CallWithTimeout(timeoutSec, req)
+	ctx, cancel := cli.callCtxFor(timeoutSec)
+	defer cancel()
+	res, err := cli.CallSession(ctx, req, sess)
 	if err != nil {
 		return nil, err
 	}
@@ -52,4 +55,13 @@ func CallPlan0Proto(cli *Client, route string, reqMsg, resMsg proto.Message, tim
 
 func CallPlan1Proto(cli *Client, route string, reqMsg, resMsg proto.Message, timeoutSec int64) error {
 	return callPlanProto(cli, route, reqMsg, resMsg, 1, timeoutSec)
+}
+
+// InvokePlan0/1 明文业务 bytes（JSON 等），供 relay 等非 proto 调用方使用。
+func InvokePlan0(cli *Client, route string, plain []byte, timeoutSec int64) ([]byte, error) {
+	return plan01Invoke(cli, route, plain, 0, timeoutSec)
+}
+
+func InvokePlan1(cli *Client, route string, plain []byte, timeoutSec int64) ([]byte, error) {
+	return plan01Invoke(cli, route, plain, 1, timeoutSec)
 }

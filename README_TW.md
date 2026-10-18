@@ -11,6 +11,7 @@
 FreeGo 面向高併發與強安全場景：**Plan2 登入/金鑰交換**採用 **NIST 抗量子標準演算法（ML-KEM-1024 / ML-DSA-87）**；登入態 **JWT 簽名為 HMAC-SHA256（典型 HS256）**，業務報文欄位 **`s` 為 HMAC-SHA256 完整性校驗**，載荷可選 **AES-256-GCM**。核心能力聚焦在**服務接入層、資料存取層**及下文工程化配套元件：
 
 - **API 框架**：提供 HTTP / WebSocket / RPCX 接入與過濾器鏈能力，並提供認證、授權、完整性校驗和防重放能力；安全流程與威脅模型見 [`README_SECURITY_TW.md`](./README_SECURITY_TW.md)。
+- **gRPC 網關（grpcgw）**：`server/grpcgw` + `client/grpcgw`；說明見 [`client/grpcgw/README.md`](./client/grpcgw/README.md)。
 - **ORM 框架**：面向 MySQL / Mongo 的**極低反射熱點路徑**與預分配友好資料存取能力，兼顧吞吐與記憶體效率（以 `ormx` 為準）。
 
 同時提供快取（含本地與 Redis）、分散式鎖與限流、AMQP 訊息、結構化日誌、YAML 配置裝載等工程化配套能力，便於在生產環境拼裝服務。**對外 HTTPS/TLS 一般由反向代理或閘道終止**；框架側重應用層路由、過濾器與密碼學能力（細則見安全文件）。

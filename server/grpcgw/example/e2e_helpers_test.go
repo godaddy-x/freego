@@ -8,6 +8,7 @@ import (
 	"time"
 
 	cgrpc "github.com/godaddy-x/freego/client/grpcgw"
+	"github.com/godaddy-x/freego/client/grpcgw/sdk"
 	"github.com/godaddy-x/freego/core/crypto"
 	pb "github.com/godaddy-x/freego/protocol/grpcgw"
 	"google.golang.org/protobuf/proto"
@@ -36,6 +37,80 @@ func demoLoginBody() []byte {
 		panic(err)
 	}
 	return b
+}
+
+func demoLoginReq() *pb.LoginRequest {
+	return &pb.LoginRequest{Username: "demo", Password: "secret"}
+}
+
+func newExampleSDKAt(target string, usr int64) (*sdk.SDK, error) {
+	cipherObj, err := ExampleClientCipher()
+	if err != nil {
+		return nil, err
+	}
+	mldsa, ok := cipherObj.(*crypto.MLDSA87Object)
+	if !ok {
+		return nil, fmt.Errorf("example cipher: unexpected type %T", cipherObj)
+	}
+	s := sdk.New(target)
+	s.SetClientNo(usr)
+	if err := s.SetMLDSA87Object(usr, mldsa.PrivateKeyBase64, mldsa.PublicKeyBase64); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+func newExampleSDK(usr int64) (*sdk.SDK, error) {
+	return newExampleSDKAt(e2eTarget(), usr)
+}
+
+func e2eLoginSDKSession(t *testing.T, usr int64) *sdk.SDK {
+	t.Helper()
+	s, err := newExampleSDK(usr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := &pb.AuthToken{}
+	if err := sdkPlan2LoginProtoWithRetry(s, "key", "login", demoLoginReq(), res, 0); err != nil {
+		s.Close()
+		t.Fatal(err)
+	}
+	return s
+}
+
+func benchAuthenticatedSDK(target string, usr int64) (*sdk.SDK, error) {
+	s, err := newExampleSDKAt(target, usr)
+	if err != nil {
+		return nil, err
+	}
+	res := &pb.AuthToken{}
+	if err := sdkPlan2LoginProtoWithRetry(s, "key", "login", benchLoginReq(), res, 0); err != nil {
+		s.Close()
+		return nil, err
+	}
+	return s, nil
+}
+
+func benchLoginReq() *pb.LoginRequest {
+	return &pb.LoginRequest{Username: "bench", Password: "secret"}
+}
+
+func sdkPlan2LoginProtoWithRetry(s *sdk.SDK, keyRoute, loginRoute string, reqMsg, resMsg proto.Message, timeoutSec int64) error {
+	const maxRetries = 2
+	var last error
+	for retry := 0; retry <= maxRetries; retry++ {
+		err := s.LoginByPlan2Auto(keyRoute, loginRoute, reqMsg, resMsg, timeoutSec)
+		if err == nil {
+			return nil
+		}
+		last = err
+		if strings.Contains(err.Error(), "time window") && retry < maxRetries {
+			time.Sleep(10 * time.Millisecond)
+			continue
+		}
+		break
+	}
+	return last
 }
 
 func plan2LoginWithRetry(cli *cgrpc.Client, usr int64, cipher crypto.Cipher, loginBody []byte) ([]byte, error) {

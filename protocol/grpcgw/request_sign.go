@@ -9,7 +9,7 @@ func SignRequest(req *GatewayRequest, macKey []byte) {
 	req.S = HMACSHA256(macKey, CanonicalRequest(req.R, req.D, req.N, req.T, req.P, req.U))
 }
 
-// NewNonce returns 16 random bytes for GatewayRequest.n (wire bytes, not base64).
+// NewNonce returns 32 random bytes for GatewayRequest.n（GRPC_GATEWAY_PROTOCOL §3，与 Plan2 noc 长度一致）。
 func NewNonce() []byte {
-	return utils.GetRandomSecure(16)
+	return utils.GetRandomSecure(32)
 }

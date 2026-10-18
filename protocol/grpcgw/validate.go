@@ -34,7 +34,7 @@ func ValidateRequestFields(r string, d, n []byte, t, p, u int64, maxWireBlob int
 	if len(d) > maxWireBlob {
 		return errors.New("d too long")
 	}
-	if len(n) < 16 || len(n) > 64 {
+	if len(n) < 32 || len(n) > 64 {
 		return errors.New("n length invalid")
 	}
 	if t <= 0 {

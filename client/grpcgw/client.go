@@ -2,6 +2,7 @@ package grpcgw
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	DIC "github.com/godaddy-x/freego/core/const"
@@ -19,7 +20,9 @@ const (
 )
 
 // Client：usr(ClientNo)、JWT 会话、Plan2 plan2Wire；Unary 超时见 SetTimeout / CallWithTimeout。
+// token/secret 会被续期替换；单次 RPC 必须先 CopySession，全程只用那份副本。
 type Client struct {
+	mu         sync.RWMutex
 	conn       *grpc.ClientConn
 	api        pb.GatewayClient
 	plan2Wire  []byte
@@ -28,6 +31,15 @@ type Client struct {
 	secret     []byte
 	expired    int64
 	timeoutSec int64
+}
+
+// Session 是调用开始时拷贝的登录态。封包、验响应、metadata 都用这一份，避免与续期互相覆盖。
+type Session struct {
+	Token   string
+	Secret  []byte
+	Expired int64
+	User    int64
+	Plan2   []byte
 }
 
 func WrapGatewayClient(api pb.GatewayClient) *Client {
@@ -46,7 +58,9 @@ func Dial(target string, opts ...grpc.DialOption) (*Client, error) {
 }
 
 func (c *Client) Close() error {
+	c.mu.Lock()
 	c.clearSecret()
+	c.mu.Unlock()
 	if c.conn != nil {
 		return c.conn.Close()
 	}
@@ -61,13 +75,49 @@ func (c *Client) clearSecret() {
 }
 
 func (c *Client) SetAuthToken(token string, secret []byte, expired int64) {
-	c.ClearPlan2Authorization()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.plan2Wire = nil
 	c.token = token
 	c.clearSecret()
 	if len(secret) > 0 {
 		c.secret = DIC.CopyData(secret)
 	}
 	c.expired = expired
+}
+
+// CopySession 拷贝当前 token、secret、Plan2 线材。调用方持有独立副本，后续 SetAuthToken 不会改到它。
+func (c *Client) CopySession() Session {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return Session{
+		Token:   c.token,
+		Secret:  DIC.CopyData(c.secret),
+		Expired: c.expired,
+		User:    c.usr,
+		Plan2:   DIC.CopyData(c.plan2Wire),
+	}
+}
+
+func (s Session) metadata() metadata.MD {
+	md := metadata.Pairs(pb.MetadataTransportVersionKey, pb.TransportVersion)
+	if len(s.Plan2) > 0 {
+		md.Set(pb.MetadataPlan2AuthorizationKey, utils.Bytes2Str(s.Plan2))
+	} else if s.Token != "" {
+		md.Set(pb.MetadataAuthorizationKey, s.Token)
+	}
+	return md
+}
+
+// MACKey 返回会话 HMAC/AES 用的 32 字节密钥（与 Token 同属一次 CopySession 快照）。
+func (s Session) MACKey() ([]byte, error) {
+	if s.Token == "" {
+		return nil, ex.Throw{Msg: "authorization token missing"}
+	}
+	if len(s.Secret) < 32 {
+		return nil, ex.Throw{Msg: "token secret missing or too short"}
+	}
+	return s.Secret[:32], nil
 }
 
 func (c *Client) SetAuthTokenProto(tok *pb.AuthToken) error {
@@ -86,11 +136,27 @@ func (c *Client) ApplyLoginPlain(plain []byte) error {
 	return c.SetAuthTokenProto(tok)
 }
 
-func (c *Client) Token() string   { return c.token }
-func (c *Client) Secret() []byte { return c.secret }
-func (c *Client) Expired() int64 { return c.expired }
+func (c *Client) Token() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.token
+}
+
+func (c *Client) Secret() []byte {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return DIC.CopyData(c.secret)
+}
+
+func (c *Client) Expired() int64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.expired
+}
 
 func (c *Client) SetUser(usr int64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if usr < 0 {
 		c.usr = unsetUserID
 		return
@@ -99,27 +165,24 @@ func (c *Client) SetUser(usr int64) {
 }
 
 func (c *Client) SetClientNo(usr int64) { c.SetUser(usr) }
-func (c *Client) User() int64           { return c.usr }
 
-func (c *Client) requestUser() (int64, error) {
-	if c.usr < 0 {
-		return 0, ex.Throw{Msg: "client user id not set"}
-	}
-	return c.usr, nil
+func (c *Client) User() int64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.usr
 }
 
-func (c *Client) macKey() ([]byte, error) {
-	if c.token == "" {
-		return nil, ex.Throw{Msg: "authorization token missing"}
-	}
-	if len(c.secret) < 32 {
-		return nil, ex.Throw{Msg: "token secret missing or too short"}
-	}
-	return c.secret[:32], nil
+func (c *Client) SetPlan2Authorization(wire []byte) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.plan2Wire = DIC.CopyData(wire)
 }
 
-func (c *Client) SetPlan2Authorization(wire []byte) { c.plan2Wire = wire }
-func (c *Client) ClearPlan2Authorization()            { c.plan2Wire = nil }
+func (c *Client) ClearPlan2Authorization() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.plan2Wire = nil
+}
 
 // SetTimeout Unary 默认超时（秒）；0 表示 120s。
 func (c *Client) SetTimeout(sec int64) { c.timeoutSec = sec }
@@ -143,25 +206,21 @@ func (c *Client) CallWithTimeout(timeoutSec int64, req *pb.GatewayRequest) (*pb.
 }
 
 func (c *Client) Call(ctx context.Context, req *pb.GatewayRequest) (*pb.GatewayResponse, error) {
-	return c.api.Call(c.outgoingCtx(ctx), req)
+	return c.CallSession(ctx, req, c.CopySession())
+}
+
+// CallSession 使用调用方持有的 Session 副本填写 metadata，不再读 Client 上的当前 token。
+func (c *Client) CallSession(ctx context.Context, req *pb.GatewayRequest, sess Session) (*pb.GatewayResponse, error) {
+	return c.api.Call(metadata.NewOutgoingContext(ctx, sess.metadata()), req)
 }
 
 func (c *Client) Connect(ctx context.Context, device string) (pb.Gateway_ConnectClient, error) {
-	md := c.baseMD()
+	return c.ConnectSession(ctx, device, c.CopySession())
+}
+
+// ConnectSession 用同一份 Session 建立流，与后续 StreamBind 的 HMAC 密钥一致。
+func (c *Client) ConnectSession(ctx context.Context, device string, sess Session) (pb.Gateway_ConnectClient, error) {
+	md := sess.metadata()
 	md.Set(pb.MetadataDeviceKey, device)
 	return c.api.Connect(metadata.NewOutgoingContext(ctx, md))
-}
-
-func (c *Client) baseMD() metadata.MD {
-	md := metadata.Pairs(pb.MetadataTransportVersionKey, pb.TransportVersion)
-	if len(c.plan2Wire) > 0 {
-		md.Set(pb.MetadataPlan2AuthorizationKey, utils.Bytes2Str(c.plan2Wire))
-	} else if c.token != "" {
-		md.Set(pb.MetadataAuthorizationKey, c.token)
-	}
-	return md
-}
-
-func (c *Client) outgoingCtx(ctx context.Context) context.Context {
-	return metadata.NewOutgoingContext(ctx, c.baseMD())
 }

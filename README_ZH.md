@@ -11,6 +11,7 @@
 FreeGo 面向高并发与强安全场景：**Plan2 登录/密钥交换**采用 **NIST 抗量子标准算法（ML-KEM-1024 / ML-DSA-87）**；登录态 **JWT 签名为 HMAC-SHA256（典型 HS256）**，业务报文字段 **`s` 为 HMAC-SHA256 完整性校验**，载荷可选 **AES-256-GCM**。核心能力聚焦在**服务接入层、数据访问层**及下文工程化配套组件：
 
 - **API 框架**：提供 HTTP / WebSocket / RPCX 接入与过滤器链能力，并提供认证、授权、完整性校验和防重放能力；安全流程与威胁模型见 [`README_SECURITY_ZH.md`](./README_SECURITY_ZH.md)。
+- **gRPC 网关（grpcgw）**：`server/grpcgw` + `client/grpcgw`，Plan2/Plan1 信封与 protobuf 业务体；MPC 栈 broker/node 默认 CLI 传输，说明见 [`client/grpcgw/README.md`](./client/grpcgw/README.md)，协议见 [open_gateway GRPC_GATEWAY_PROTOCOL](https://github.com/godaddy-x/open_gateway/blob/main/docs/GRPC_GATEWAY_PROTOCOL.md)。
 - **ORM 框架**：面向 MySQL / Mongo 的**极低反射热点路径**与预分配友好数据访问能力，兼顾吞吐与内存效率（以 `ormx` 为准）。
 
 同时提供缓存（含本地与 Redis）、分布式锁与限流、AMQP 消息、结构化日志、YAML 配置装载等工程化配套能力，便于在生产环境拼装服务。**对外 HTTPS/TLS 一般由反向代理或网关终止**；框架侧重应用层路由、过滤器与密码学能力（细则见安全文档）。
