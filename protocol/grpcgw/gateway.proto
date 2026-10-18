@@ -1,0 +1,12 @@
+syntax = "proto3";
+
+package grpcgw.v1;
+
+option go_package = "github.com/godaddy-x/freego/protocol/grpcgw;grpcgw";
+
+import "envelope.proto";
+
+service Gateway {
+  rpc Call(GatewayRequest) returns (GatewayResponse);
+  rpc Connect(stream GatewayRequest) returns (stream GatewayResponse);
+}

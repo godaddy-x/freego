@@ -1,0 +1,53 @@
+syntax = "proto3";
+
+package grpcgw.v1;
+
+option go_package = "github.com/godaddy-x/freego/protocol/grpcgw;grpcgw";
+
+// Plan2PublicKey：grpcgw L2 / Plan2 authorization（二进制字段，非 wire.PublicKey JSON/base64 字符串）。
+message Plan2PublicKey {
+  bytes key = 1; // ML-KEM-1024 encapsulation key (1568 B)
+  bytes tag = 2; // ML-KEM ciphertext (1568 B)
+  bytes noc = 3; // handshake nonce raw bytes
+  bytes sig = 4; // ML-DSA-87 signature raw bytes
+  int64  exp = 5;
+  int64  usr = 6;
+}
+
+message StreamBindRequest {}
+
+message StreamBindResponse {
+  bool bound = 1;
+}
+
+message GuestEchoRequest {
+  int32 x = 1;
+}
+
+message GuestEchoResponse {
+  string res = 1;
+}
+
+message GetUserRequest {
+  string name = 1;
+}
+
+message GetUserResponse {
+  string name = 1;
+  string echo = 2;
+}
+
+message LoginRequest {
+  string username = 1;
+  string password = 2;
+}
+
+message AuthToken {
+  string token   = 1; // JWT 文本（ASCII）
+  bytes  secret  = 2; // GetTokenSecret 原始字节（非 base64）
+  int64  expired = 3;
+}
+
+message LoginOkResponse {
+  string ok = 1;
+}

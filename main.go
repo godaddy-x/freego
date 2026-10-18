@@ -11,6 +11,7 @@ import (
 	mgom "github.com/godaddy-x/freego/store/orm/mongo"
 
 	ballast "github.com/godaddy-x/freego/infra/gc"
+	grpcgw_example "github.com/godaddy-x/freego/server/grpcgw/example"
 	http_web "github.com/godaddy-x/freego/server/http/example"
 	"github.com/godaddy-x/freego/core/str"
 	_ "go.uber.org/automaxprocs"
@@ -21,6 +22,10 @@ func http_test() {
 	//go http_web.StartHttpNode2()
 	// mysql.RebuildMongoDBIndex()
 	http_web.StartHttpNode()
+}
+
+func grpc_test() {
+	grpcgw_example.StartGrpcGatewayNode(":18090")
 }
 
 type OwWallet struct {
@@ -122,6 +127,7 @@ func main() {
 	//ws.SetLocalSecret(utils.RandStr(24))
 	//rpcx.RunClient(appConfig.AppId)
 	http_test()
+	// grpc_test()
 	//router := fasthttprouter.New()
 	//router.GET("/pubkey", func(ctx *fasthttp.RequestCtx) {
 	//	ctx.WriteString("LS0tLS1CRUdJTiBSU0EgUFVCTElDSyBLRVktLS0tLQpNSUdKQW9HQkFMK2hpYkw5S3hpb2JNOVRPbmx6cXN0WnhPSy9rU2JQQzMzSmpoVTdjbklUbXlRaThuaXZiUG5wCncwOUo5N0p4aDdxY0tOWVhpakxRdTZxei9xUFNXZ0pYaU9qOWhoc2E0bEdlNVVkRkJtaFpxZ2V3R1J6ckJJNEkKRFNqZk1xcDNCM3puV1h1VnBaSFZNYStJOFBDc1A5dEd3dzdPS2hzRFI0bmp3L3Z2UXdERkFnTUJBQUU9Ci0tLS0tRU5EIFJTQSBQVUJMSUNLIEtFWS0tLS0tCg==")

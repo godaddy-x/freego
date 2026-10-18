@@ -19,8 +19,14 @@ import (
 
 const SharedInfo = "freego-ecdh-aes-gcm"
 
-func HKDFKey(shared []byte, nonce string) ([]byte, error) {
-	return hkdf.Key(sha256.New, shared, utils.Base64Decode(nonce), SharedInfo, 32)
+// HKDFKeyBytes Plan2 会话密钥：salt 为 noc 原始字节（grpc Plan2PublicKey.noc）。
+func HKDFKeyBytes(shared, salt []byte) ([]byte, error) {
+	return hkdf.Key(sha256.New, shared, salt, SharedInfo, 32)
+}
+
+// HKDFKey salt 为 wire.PublicKey.noc（Base64 文本，HTTP/WS）。
+func HKDFKey(shared []byte, nonceB64 string) ([]byte, error) {
+	return HKDFKeyBytes(shared, utils.Base64Decode(nonceB64))
 }
 
 func appendBodyMessageTo(dst []byte, path, data, nonce string, t, plan, usr int64) []byte {

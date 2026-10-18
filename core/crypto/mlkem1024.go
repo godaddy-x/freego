@@ -90,28 +90,37 @@ func (self *MLKEM1024Object) Verify(msg, sign []byte) error {
 	return nil
 }
 
-// EncapsulateToPeer 向服务端封装密钥（Plan2 /key 之后客户端调用）：返回共享秘密与 KEM 密文。
-func EncapsulateToPeer(serverEncapKeyB64 string) (sharedKey, kemCtB64 string, err error) {
-	ek, err := ecc.LoadMLKEM1024EncapsulationKeyFromBase64(serverEncapKeyB64)
+// EncapsulateToPeerBytes 向服务端封装密钥（1568B 封装公钥 raw bytes）。
+func EncapsulateToPeerBytes(serverEncapKey []byte) (sharedKey, kemCt []byte, err error) {
+	ek, err := ecc.LoadMLKEM1024EncapsulationKey(serverEncapKey)
 	if err != nil {
-		return "", "", err
+		return nil, nil, err
 	}
-	sk, ct, err := ecc.EncapsulateMLKEM1024(ek)
+	return ecc.EncapsulateMLKEM1024(ek)
+}
+
+// EncapsulateToPeer 向服务端封装密钥（Plan2 HTTP：封装公钥 Base64）。
+func EncapsulateToPeer(serverEncapKeyB64 string) (sharedKey, kemCtB64 string, err error) {
+	sk, ct, err := EncapsulateToPeerBytes(utils.Base64Decode(serverEncapKeyB64))
 	if err != nil {
 		return "", "", err
 	}
 	return utils.Base64Encode(sk), utils.Base64Encode(ct), nil
 }
 
-// DecapsulatePeerCiphertext 服务端用缓存的解封装私钥从客户端 KEM 密文恢复共享秘密。
-func DecapsulatePeerCiphertext(dkB64, kemCtB64 string) ([]byte, error) {
+// DecapsulatePeerCiphertextBytes dkB64 为解封装私钥 Base64；kemCt 为 1568B KEM 密文 raw bytes。
+func DecapsulatePeerCiphertextBytes(dkB64 string, kemCt []byte) ([]byte, error) {
 	dk, err := ecc.LoadMLKEM1024DecapsulationKeyFromBase64(dkB64)
 	if err != nil {
 		return nil, err
 	}
-	ct := utils.Base64Decode(kemCtB64)
-	if len(ct) != MLKEM1024CiphertextSize {
+	if len(kemCt) != MLKEM1024CiphertextSize {
 		return nil, errors.New("invalid ML-KEM ciphertext length")
 	}
-	return ecc.DecapsulateMLKEM1024(dk, ct)
+	return ecc.DecapsulateMLKEM1024(dk, kemCt)
+}
+
+// DecapsulatePeerCiphertext HTTP：KEM 密文 Base64。
+func DecapsulatePeerCiphertext(dkB64, kemCtB64 string) ([]byte, error) {
+	return DecapsulatePeerCiphertextBytes(dkB64, utils.Base64Decode(kemCtB64))
 }

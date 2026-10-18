@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package grpcgw.v1;
+
+option go_package = "github.com/godaddy-x/freego/protocol/grpcgw;grpcgw";
+
+// grpcgw-v1 信封，字段名对齐 wire.JsonBody / JsonResp。
+
+message GatewayRequest {
+  bytes  d = 1;
+  bytes  n = 2;
+  bytes  s = 3;
+  bytes  e = 4;
+  string r = 5;
+  int64  t = 6;
+  int64  p = 7;
+  int64  u = 8;
+}
+
+message GatewayResponse {
+  string m = 1;
+  bytes  d = 2;
+  bytes  n = 3;
+  bytes  s = 4;
+  bytes  e = 5;
+  string r = 6;
+  int32  c = 7;
+  int64  t = 8;
+  int64  p = 9;
+}
