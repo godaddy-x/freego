@@ -11,7 +11,7 @@ type PublicKey struct {
 	Noc string `json:"noc"` // 随机数
 	Sig string `json:"sig"` // 数据签名
 	Exp int64  `json:"exp"` // 有效时间，单位秒
-	Usr int64  `json:"usr"` // 客户端ID
+	Usr int64  `json:"usr"` // 本端 PQC 证书编号（clientNo），不是登录用户 ID
 }
 
 //easyjson:json
@@ -35,7 +35,7 @@ type JsonBody struct {
 	// 8字节字段组 (2个int64字段，16字节)
 	Time int64 `json:"t"` // 8字节 - int64字段
 	Plan int64 `json:"p"` // 8字节 - 0.默认(登录状态) 1.AES(登录状态) 2.Plan2(ML-KEM+ML-DSA匿名)
-	User int64 `json:"u"` // 8字节 - 客户端ID
+	User int64 `json:"u"` // 本端 PQC 证书编号（clientNo），不是 JWT subject / 登录用户 ID
 }
 
 // PlanRequiresOuterSignature Plan2 业务报文（p=2）需要 ML-DSA 外层签名。

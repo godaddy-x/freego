@@ -29,7 +29,7 @@ type RPC struct {
 	SSL        bool
 	timeout    int64
 	language   string
-	clientNo   int64
+	clientNo   int64 // 本端 PQC 证书编号，对应请求字段 U；不是登录用户 ID
 	cipherHook CipherHook
 
 	conn      *grpc.ClientConn
@@ -37,7 +37,7 @@ type RPC struct {
 	closeOnce sync.Once
 }
 
-// CipherHook 按客户端用户 ID 动态解析 ML-DSA Cipher（本端私钥 + 对端公钥）。
+// CipherHook 按本端 PQC 证书编号（clientNo）动态解析 ML-DSA Cipher（本端私钥 + 对端公钥）。
 type CipherHook = sign.CipherHook
 
 func New(address string) *RPC {

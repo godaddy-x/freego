@@ -30,6 +30,7 @@ type GatewayRequest struct {
 	R             string                 `protobuf:"bytes,5,opt,name=r,proto3" json:"r,omitempty"`
 	T             int64                  `protobuf:"varint,6,opt,name=t,proto3" json:"t,omitempty"`
 	P             int64                  `protobuf:"varint,7,opt,name=p,proto3" json:"p,omitempty"`
+	// 本端 PQC 证书编号（clientNo）。用来选择 ML-DSA 身份并参与 MAC，不是 JWT subject，也不是登录用户 ID。
 	U             int64                  `protobuf:"varint,8,opt,name=u,proto3" json:"u,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

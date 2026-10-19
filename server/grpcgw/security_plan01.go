@@ -1,8 +1,6 @@
 package grpcgw
 
 import (
-	"strconv"
-
 	"github.com/godaddy-x/freego/core/ex"
 	"github.com/godaddy-x/freego/core/jwt"
 	utils "github.com/godaddy-x/freego/core/str"
@@ -33,9 +31,7 @@ func (c *Context) validatePlan01() error {
 		return ex.Throw{Code: 401, Msg: "token invalid", Err: err}
 	}
 	c.subject = sub
-	if err := c.assertJWTUser(); err != nil {
-		return err
-	}
+	// req.U 是本端 PQC 证书编号（clientNo），与 JWT subject（应用/用户）无关，不要求写入 ext。
 	secret := sub.GetTokenSecret(utils.Bytes2Str(auth), c.gw.jwtConfig.TokenKey)
 	if len(secret) < 32 {
 		return ex.Throw{Code: 401, Msg: "token secret too short"}
@@ -46,20 +42,4 @@ func (c *Context) validatePlan01() error {
 		return err
 	}
 	return c.openRequestBody(macKey)
-}
-
-// assertJWTUser 要求 JWT ext 为十进制 u，与请求 u 一致（GRPC_GATEWAY_PROTOCOL.md §3）。
-func (c *Context) assertJWTUser() error {
-	if c.subject == nil || c.subject.Payload == nil {
-		return ex.Throw{Code: 401, Msg: "token payload missing"}
-	}
-	ext := c.subject.Payload.Ext
-	if ext == "" {
-		return ex.Throw{Code: 401, Msg: "jwt ext usr required"}
-	}
-	id, err := strconv.ParseInt(ext, 10, 64)
-	if err != nil || id != c.req.U {
-		return ex.Throw{Code: 401, Msg: "u does not match jwt"}
-	}
-	return nil
 }

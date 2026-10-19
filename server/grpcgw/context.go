@@ -34,7 +34,9 @@ func newContext(ctx context.Context, gw *GrpcGateway, req *pb.GatewayRequest, cf
 }
 
 func (c *Context) Route() string { return c.req.R }
-func (c *Context) User() int64   { return c.req.U }
+
+// User 返回请求里的 U：本端 PQC 证书编号（clientNo），不是 JWT subject / 登录用户 ID。
+func (c *Context) User() int64 { return c.req.U }
 
 func (c *Context) RouteConfig() *MethodConfig { return c.cfg }
 

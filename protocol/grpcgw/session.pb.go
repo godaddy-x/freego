@@ -29,6 +29,7 @@ type Plan2PublicKey struct {
 	Noc           []byte                 `protobuf:"bytes,3,opt,name=noc,proto3" json:"noc,omitempty"` // handshake nonce raw bytes
 	Sig           []byte                 `protobuf:"bytes,4,opt,name=sig,proto3" json:"sig,omitempty"` // ML-DSA-87 signature raw bytes
 	Exp           int64                  `protobuf:"varint,5,opt,name=exp,proto3" json:"exp,omitempty"`
+	// 本端 PQC 证书编号，必须与 GatewayRequest.U 相同；不是登录用户 ID。
 	Usr           int64                  `protobuf:"varint,6,opt,name=usr,proto3" json:"usr,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -424,7 +425,7 @@ func (x *LoginRequest) GetPassword() string {
 
 type AuthToken struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Token         string                 `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"`   // JWT 文本（ASCII）
+	Token         string                 `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"`   // JWT 文本（ASCII）。payload.sub 是应用或用户 ID，不是证书编号。
 	Secret        []byte                 `protobuf:"bytes,2,opt,name=secret,proto3" json:"secret,omitempty"` // GetTokenSecret 原始字节（非 base64）
 	Expired       int64                  `protobuf:"varint,3,opt,name=expired,proto3" json:"expired,omitempty"`
 	unknownFields protoimpl.UnknownFields

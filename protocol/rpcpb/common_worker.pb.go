@@ -84,7 +84,7 @@ type CommonRequest struct {
 	E             []byte                 `protobuf:"bytes,5,opt,name=e,proto3" json:"e,omitempty"`  // Ed25519(s) 64B
 	R             string                 `protobuf:"bytes,6,opt,name=r,proto3" json:"r,omitempty"`  // 访问路由
 	P             int64                  `protobuf:"varint,7,opt,name=p,proto3" json:"p,omitempty"` // 计划类型（当前仅 0）
-	U             int64                  `protobuf:"varint,8,opt,name=u,proto3" json:"u,omitempty"` // 客户端ID
+	U             int64                  `protobuf:"varint,8,opt,name=u,proto3" json:"u,omitempty"` // 本端 PQC 证书编号（clientNo），不是登录用户 ID
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }

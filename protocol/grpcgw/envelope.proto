@@ -14,6 +14,8 @@ message GatewayRequest {
   string r = 5;
   int64  t = 6;
   int64  p = 7;
+  // 本端 PQC 证书编号（clientNo / GeneratePlan2ClientNo）。
+  // 用来选择 ML-DSA 身份并参与 MAC，不是 JWT subject，也不是登录用户 ID。
   int64  u = 8;
 }
 

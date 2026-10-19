@@ -15,18 +15,19 @@ import (
 )
 
 const (
+	// unsetUserID 表示尚未设置证书编号（clientNo），不是用户 ID。
 	unsetUserID       = int64(-1)
 	defaultTimeoutSec = 120
 )
 
-// Client：usr(ClientNo)、JWT 会话、Plan2 plan2Wire；Unary 超时见 SetTimeout / CallWithTimeout。
+// Client：usr 为本端 PQC 证书编号（clientNo），不是登录用户 ID；JWT 会话、Plan2 plan2Wire；Unary 超时见 SetTimeout / CallWithTimeout。
 // token/secret 会被续期替换；单次 RPC 必须先 CopySession，全程只用那份副本。
 type Client struct {
 	mu         sync.RWMutex
 	conn       *grpc.ClientConn
 	api        pb.GatewayClient
 	plan2Wire  []byte
-	usr        int64
+	usr        int64 // 本端 PQC 证书编号（clientNo），写入 GatewayRequest.U；不是登录用户 ID
 	token      string
 	secret     []byte
 	expired    int64
@@ -38,7 +39,7 @@ type Session struct {
 	Token   string
 	Secret  []byte
 	Expired int64
-	User    int64
+	User    int64 // 本端 PQC 证书编号（clientNo），不是登录用户 ID
 	Plan2   []byte
 }
 
@@ -154,6 +155,7 @@ func (c *Client) Expired() int64 {
 	return c.expired
 }
 
+// SetUser 设置本端 PQC 证书编号（clientNo），会写入请求字段 U。不是登录用户 ID。
 func (c *Client) SetUser(usr int64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -164,8 +166,10 @@ func (c *Client) SetUser(usr int64) {
 	c.usr = usr
 }
 
+// SetClientNo 与 SetUser 相同：参数是证书编号。
 func (c *Client) SetClientNo(usr int64) { c.SetUser(usr) }
 
+// User 返回本端 PQC 证书编号（clientNo），不是登录用户 ID。
 func (c *Client) User() int64 {
 	c.mu.RLock()
 	defer c.mu.RUnlock()

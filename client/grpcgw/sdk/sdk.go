@@ -42,7 +42,7 @@ type SDK struct {
 	cli           *cgrpc.Client
 	cipher        crypto.Cipher
 	broadcastKey  []byte
-	clientNo      int64
+	clientNo      int64 // 本端 PQC 证书编号，对应 GatewayRequest.U；不是登录用户 ID
 	timeoutSec    int64
 	ssl           bool
 	connected     atomic.Bool

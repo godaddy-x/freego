@@ -16,7 +16,7 @@ message CommonRequest {
   bytes e = 5;              // Ed25519.Sign(本端私钥, SHA256(规范字段))，64 字节
   string r = 6;              // 访问路由
   int64 p = 7;               // 计划类型（当前仅支持 0 明文）
-  int64 u = 8;               // 客户端ID
+  int64 u = 8;               // 本端 PQC 证书编号（clientNo），不是登录用户 ID
 }
 
 message CommonResponse {

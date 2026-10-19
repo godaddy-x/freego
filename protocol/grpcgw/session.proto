@@ -11,6 +11,7 @@ message Plan2PublicKey {
   bytes noc = 3; // handshake nonce raw bytes
   bytes sig = 4; // ML-DSA-87 signature raw bytes
   int64  exp = 5;
+  // 本端 PQC 证书编号，必须与 GatewayRequest.u 相同；不是登录用户 ID。
   int64  usr = 6;
 }
 
@@ -43,7 +44,7 @@ message LoginRequest {
 }
 
 message AuthToken {
-  string token   = 1; // JWT 文本（ASCII）
+  string token   = 1; // JWT 文本（ASCII）。payload.sub 是应用或用户 ID，不是证书编号。
   bytes  secret  = 2; // GetTokenSecret 原始字节（非 base64）
   int64  expired = 3;
 }

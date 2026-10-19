@@ -172,7 +172,7 @@ type SDK struct {
 	rawAuthHeader string                         // 自定义Authorization头（用于plan2等非JWT建连）
 	broadcastKey  string                         // 广播数据签名密钥
 	ssl           bool                           // 是否启用https
-	clientNo      int64                          // 客户端ID
+	clientNo      int64                          // 本端 PQC 证书编号（clientNo），不是登录用户 ID
 	mldsaObject   map[int64]crypto.Cipher        // Plan2：ML-DSA-87 外层签
 	healthPing    int                            // 心跳间隔/秒，建议 10–15，内部最大 15
 
