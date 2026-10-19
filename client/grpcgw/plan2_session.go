@@ -88,7 +88,7 @@ func Plan2Call(cli *Client, usr int64, cipher crypto.Cipher, route string, share
 }
 
 func Plan2Login(cli *Client, usr int64, cipher crypto.Cipher, keyRoute, loginRoute string, loginPlain []byte, timeoutSec int64) ([]byte, error) {
-	cli.SetUser(usr)
+	cli.SetClientNo(usr)
 	boot, err := pb.CreatePlan2PublicKey(utils.GetRandomSecure(32), utils.GetRandomSecure(32), usr, cipher)
 	if err != nil {
 		return nil, err

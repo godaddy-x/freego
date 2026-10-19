@@ -7,14 +7,14 @@ import (
 )
 
 func TestCopySessionSurvivesTokenReplace(t *testing.T) {
-	c := &Client{usr: 7}
+	c := &Client{clientNo: 7}
 	oldSecret := bytes.Repeat([]byte{0x11}, 32)
-	c.SetAuthToken("tok-old", oldSecret, 100)
+	c.SetAuthToken("tok-old", oldSecret, 100, "1")
 	sess := c.CopySession()
 
-	c.SetAuthToken("tok-new", bytes.Repeat([]byte{0x22}, 32), 200)
+	c.SetAuthToken("tok-new", bytes.Repeat([]byte{0x22}, 32), 200, "1")
 
-	if sess.Token != "tok-old" || sess.Expired != 100 || sess.User != 7 {
+	if sess.Token != "tok-old" || sess.Expired != 100 || sess.ClientNo != 7 {
 		t.Fatalf("snapshot changed: %+v", sess)
 	}
 	if sess.Secret[0] != 0x11 {
@@ -30,8 +30,8 @@ func TestCopySessionSurvivesTokenReplace(t *testing.T) {
 }
 
 func TestCopySessionConcurrentReplace(t *testing.T) {
-	c := &Client{usr: 1}
-	c.SetAuthToken("tok", bytes.Repeat([]byte{1}, 32), 10)
+	c := &Client{clientNo: 1}
+	c.SetAuthToken("tok", bytes.Repeat([]byte{1}, 32), 10, "1")
 	var wg sync.WaitGroup
 	for i := 0; i < 8; i++ {
 		wg.Add(2)
@@ -49,7 +49,7 @@ func TestCopySessionConcurrentReplace(t *testing.T) {
 			defer wg.Done()
 			sec := bytes.Repeat([]byte{byte(id + 1)}, 32)
 			for n := 0; n < 50; n++ {
-				c.SetAuthToken("tok", sec, int64(100+n))
+				c.SetAuthToken("tok", sec, int64(100+n), "1")
 			}
 		}(i)
 	}

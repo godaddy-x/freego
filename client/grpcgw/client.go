@@ -2,6 +2,7 @@ package grpcgw
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,36 +16,45 @@ import (
 )
 
 const (
-	// unsetUserID 表示尚未设置证书编号（clientNo），不是用户 ID。
-	unsetUserID       = int64(-1)
+	unsetClientNo     = int64(-1)
 	defaultTimeoutSec = 120
 )
 
-// Client：usr 为本端 PQC 证书编号（clientNo），不是登录用户 ID；JWT 会话、Plan2 plan2Wire；Unary 超时见 SetTimeout / CallWithTimeout。
+// Client：clientNo 为本端 PQC 证书编号，写入 GatewayRequest.U；JWT 会话、Plan2 plan2Wire；Unary 超时见 SetTimeout / CallWithTimeout。
 // token/secret 会被续期替换；单次 RPC 必须先 CopySession，全程只用那份副本。
 type Client struct {
 	mu         sync.RWMutex
 	conn       *grpc.ClientConn
 	api        pb.GatewayClient
 	plan2Wire  []byte
-	usr        int64 // 本端 PQC 证书编号（clientNo），写入 GatewayRequest.U；不是登录用户 ID
+	clientNo   int64
 	token      string
 	secret     []byte
 	expired    int64
+	subject    string // JWT payload.sub；Connect 路由与 push MAC
 	timeoutSec int64
 }
 
 // Session 是调用开始时拷贝的登录态。封包、验响应、metadata 都用这一份，避免与续期互相覆盖。
 type Session struct {
-	Token   string
-	Secret  []byte
-	Expired int64
-	User    int64 // 本端 PQC 证书编号（clientNo），不是登录用户 ID
-	Plan2   []byte
+	Token    string
+	Secret   []byte
+	Expired  int64
+	ClientNo int64  // PQC 证书编号 → Unary / StreamBind 信封 U
+	Subject  string // JWT payload.sub → Connect 路由与 push MAC
+	Plan2    []byte
+}
+
+// StreamBindClientNo returns GatewayRequest.U for StreamBind (clientNo, or 0 if unset).
+func (s Session) StreamBindClientNo() int64 {
+	if s.ClientNo < 0 {
+		return 0
+	}
+	return s.ClientNo
 }
 
 func WrapGatewayClient(api pb.GatewayClient) *Client {
-	return &Client{api: api, usr: unsetUserID}
+	return &Client{api: api, clientNo: unsetClientNo}
 }
 
 func Dial(target string, opts ...grpc.DialOption) (*Client, error) {
@@ -55,7 +65,7 @@ func Dial(target string, opts ...grpc.DialOption) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Client{conn: conn, api: pb.NewGatewayClient(conn), usr: unsetUserID}, nil
+	return &Client{conn: conn, api: pb.NewGatewayClient(conn), clientNo: unsetClientNo}, nil
 }
 
 func (c *Client) Close() error {
@@ -75,11 +85,12 @@ func (c *Client) clearSecret() {
 	}
 }
 
-func (c *Client) SetAuthToken(token string, secret []byte, expired int64) {
+func (c *Client) SetAuthToken(token string, secret []byte, expired int64, subject string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.plan2Wire = nil
 	c.token = token
+	c.subject = strings.TrimSpace(subject)
 	c.clearSecret()
 	if len(secret) > 0 {
 		c.secret = DIC.CopyData(secret)
@@ -95,7 +106,8 @@ func (c *Client) CopySession() Session {
 		Token:   c.token,
 		Secret:  DIC.CopyData(c.secret),
 		Expired: c.expired,
-		User:    c.usr,
+		ClientNo: c.clientNo,
+		Subject:  c.subject,
 		Plan2:   DIC.CopyData(c.plan2Wire),
 	}
 }
@@ -125,7 +137,10 @@ func (c *Client) SetAuthTokenProto(tok *pb.AuthToken) error {
 	if tok == nil || len(tok.Token) == 0 || len(tok.Secret) < 32 {
 		return ex.Throw{Msg: "auth token incomplete"}
 	}
-	c.SetAuthToken(tok.Token, tok.Secret, tok.Expired)
+	if strings.TrimSpace(tok.Subject) == "" {
+		return ex.Throw{Msg: "auth token subject missing"}
+	}
+	c.SetAuthToken(tok.Token, tok.Secret, tok.Expired, tok.Subject)
 	return nil
 }
 
@@ -155,25 +170,29 @@ func (c *Client) Expired() int64 {
 	return c.expired
 }
 
-// SetUser 设置本端 PQC 证书编号（clientNo），会写入请求字段 U。不是登录用户 ID。
-func (c *Client) SetUser(usr int64) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if usr < 0 {
-		c.usr = unsetUserID
-		return
-	}
-	c.usr = usr
-}
-
-// SetClientNo 与 SetUser 相同：参数是证书编号。
-func (c *Client) SetClientNo(usr int64) { c.SetUser(usr) }
-
-// User 返回本端 PQC 证书编号（clientNo），不是登录用户 ID。
-func (c *Client) User() int64 {
+// Subject returns Connect hub key / push MAC (from login AuthToken.subject).
+func (c *Client) Subject() string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.usr
+	return c.subject
+}
+
+// SetClientNo 设置本端 PQC 证书编号，会写入 GatewayRequest.U（不是 JWT subject）。
+func (c *Client) SetClientNo(no int64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if no < 0 {
+		c.clientNo = unsetClientNo
+		return
+	}
+	c.clientNo = no
+}
+
+// ClientNo 返回本端 PQC 证书编号（写入 GatewayRequest.U），不是 JWT subject / 业务用户 ID。
+func (c *Client) ClientNo() int64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.clientNo
 }
 
 func (c *Client) SetPlan2Authorization(wire []byte) {

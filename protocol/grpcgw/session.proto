@@ -44,9 +44,10 @@ message LoginRequest {
 }
 
 message AuthToken {
-  string token   = 1; // JWT 文本（ASCII）。payload.sub 是应用或用户 ID，不是证书编号。
-  bytes  secret  = 2; // GetTokenSecret 原始字节（非 base64）
+  string token   = 1;
+  bytes  secret  = 2;
   int64  expired = 3;
+  string subject = 4; // Connect hub / push MAC（与 JWT sub 一致）
 }
 
 message LoginOkResponse {

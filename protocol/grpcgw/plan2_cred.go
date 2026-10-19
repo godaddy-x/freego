@@ -74,7 +74,8 @@ func UnmarshalPlan2PublicKey(b []byte) (*Plan2PublicKey, error) {
 
 func UnmarshalProto(b []byte, m proto.Message) error {
 	if len(b) == 0 {
-		return ex.Throw{Code: 400, Msg: "protobuf body is empty"}
+		// Valid protobuf messages may marshal to zero bytes (e.g. empty request types).
+		return nil
 	}
 	if err := proto.Unmarshal(b, m); err != nil {
 		return ex.Throw{Code: 400, Msg: "protobuf unmarshal failed", Err: err}

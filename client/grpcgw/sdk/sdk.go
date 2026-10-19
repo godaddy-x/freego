@@ -98,8 +98,8 @@ func (s *SDK) SetTimeout(sec int64) {
 func (s *SDK) AuthToken(tok wire.AuthToken) {
 	s.ensureClient()
 	secret := utils.Base64Decode(tok.Secret)
-	s.cli.SetAuthToken(tok.Token, secret, tok.Expired)
-	s.cli.SetUser(s.clientNo)
+	s.cli.SetAuthToken(tok.Token, secret, tok.Expired, tok.Subject)
+	s.cli.SetClientNo(s.clientNo)
 	s.cli.ClearPlan2Authorization()
 }
 
@@ -167,7 +167,7 @@ func (s *SDK) Connect() error {
 	if s.cli == nil {
 		return errors.New("grpc client dial failed")
 	}
-	s.cli.SetUser(s.clientNo)
+	s.cli.SetClientNo(s.clientNo)
 	sess := s.cli.CopySession()
 	if sess.Token == "" {
 		return errors.New("authorization token missing: call LoginByPlan2Auto first")
@@ -223,8 +223,11 @@ func (s *SDK) streamBind(stream pb.Gateway_ConnectClient, sess cgrpc.Session) er
 		return err
 	}
 	plain := pb.StreamBindRequestWire()
+	if strings.TrimSpace(sess.Subject) == "" {
+		return errors.New("jwt subject missing: call SetAuthToken after login")
+	}
 	req := &pb.GatewayRequest{
-		R: pb.StreamBindRoute, D: plain, N: pb.NewNonce(), T: utils.UnixSecond(), P: 0, U: sess.User,
+		R: pb.StreamBindRoute, D: plain, N: pb.NewNonce(), T: utils.UnixSecond(), P: 0, U: sess.StreamBindClientNo(),
 	}
 	if err := cgrpc.SealPlan0(req, plain, macKey); err != nil {
 		return err
@@ -244,7 +247,14 @@ func (s *SDK) verifyPush(res *pb.GatewayResponse) error {
 	if len(s.broadcastKey) == 0 {
 		return errors.New("broadcast key missing")
 	}
-	canonical := pb.CanonicalResponse(res.R, res.D, res.N, res.T, res.P, s.clientNo, res.C, res.M)
+	if s.cli == nil {
+		return errors.New("grpc client not ready")
+	}
+	subject := strings.TrimSpace(s.cli.Subject())
+	if subject == "" {
+		return errors.New("jwt subject missing")
+	}
+	canonical := pb.CanonicalPush(res.R, res.D, res.N, res.T, res.P, subject, res.C, res.M)
 	if len(res.S) != 32 || !pb.ConstantTimeEqual(pb.HMACSHA256(s.broadcastKey, canonical), res.S) {
 		return errors.New("push mac invalid")
 	}

@@ -120,8 +120,8 @@ func TestPlan0GetUserRoundTrip(t *testing.T) {
 	secret := sub.GetTokenSecret(token, tokenKey)
 
 	cli := cgrpc.WrapGatewayClient(api)
-	cli.SetUser(usr)
-	cli.SetAuthToken(token, secret, sub.Payload.Exp)
+	cli.SetClientNo(usr)
+	cli.SetAuthToken(token, secret, sub.Payload.Exp, sub.Payload.Sub)
 
 	reqMsg := &pb.GetUserRequest{Name: "a"}
 	resMsg := &pb.GetUserResponse{}
@@ -157,8 +157,8 @@ func TestPlan1GetUserRoundTrip(t *testing.T) {
 	secret := sub.GetTokenSecret(token, tokenKey)
 
 	cli := cgrpc.WrapGatewayClient(api)
-	cli.SetUser(usr)
-	cli.SetAuthToken(token, secret, sub.Payload.Exp)
+	cli.SetClientNo(usr)
+	cli.SetAuthToken(token, secret, sub.Payload.Exp, sub.Payload.Sub)
 
 	reqMsg := &pb.GetUserRequest{Name: "a"}
 	resMsg := &pb.GetUserResponse{}

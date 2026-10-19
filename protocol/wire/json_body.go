@@ -84,4 +84,5 @@ type AuthToken struct {
 	Token   string `json:"token"`
 	Secret  string `json:"secret"`
 	Expired int64  `json:"expired"`
+	Subject string `json:"subject"`
 }

@@ -39,7 +39,7 @@ type GrpcGateway struct {
 	localCache    cache.Cache
 	redisCache    cache.Cache
 	hub           *StreamHub
-	onStreamEnd   func(u int64, device string)
+	onStreamEnd   func(subject string, device string)
 	errorHandle   ErrorHandle
 	interceptors  []*InterceptorObject
 }
@@ -52,7 +52,7 @@ func NewGrpcGateway() *GrpcGateway {
 		broadcastKey:  hex.EncodeToString(utils.GetRandomSecure(32)),
 		hub:           newStreamHub(),
 	}
-	// Reserved: Gateway.Connect 首帧；需 JWT Plan0/1（与 getUser 相同 mac_key）。
+	// Gateway.Connect 首帧 StreamBind：Plan0 + JWT；hub 登记 JWT sub，req.U 为 clientNo。
 	g.AddMethod(pb.StreamBindRoute, func(ctx *Context) error {
 		ctx.SetPlain(pb.StreamBindAckPlain())
 		return nil
@@ -173,16 +173,21 @@ func (g *GrpcGateway) methodConfig(route string) *MethodConfig {
 }
 
 func (g *GrpcGateway) handleCall(ctx context.Context, req *pb.GatewayRequest) (*pb.GatewayResponse, error) {
+	resp, _, err := g.handleCallWithCtx(ctx, req)
+	return resp, err
+}
+
+func (g *GrpcGateway) handleCallWithCtx(ctx context.Context, req *pb.GatewayRequest) (*pb.GatewayResponse, *Context, error) {
 	if req == nil {
-		return g.signedError("", 400, "request is nil", 0), nil
+		return g.signedError("", 400, "request is nil", 0), nil, nil
 	}
 	if req.R == "" {
-		return g.signedError("", 400, "r is empty", 0), nil
+		return g.signedError("", 400, "r is empty", 0), nil, nil
 	}
 	route := req.R
 	h := g.methods[route]
 	if h == nil {
-		return g.signedError(route, 404, "route not found", req.U), nil
+		return g.signedError(route, 404, "route not found", req.U), nil, nil
 	}
 	cfg := g.methodConfig(route)
 	gctx := newContext(ctx, g, req, cfg)
@@ -193,15 +198,18 @@ func (g *GrpcGateway) handleCall(ctx context.Context, req *pb.GatewayRequest) (*
 		if code == 0 {
 			code = 400
 		}
-		return g.signedErrorForReq(req, route, code, clientSafeMessage(code), req.U), nil
+		return g.signedErrorForReq(req, route, code, clientSafeMessage(code), req.U), nil, nil
 	}
 	if err := g.runInterceptors(gctx); err != nil {
-		return gctx.renderError(err)
+		resp, rerr := gctx.renderError(err)
+		return resp, nil, rerr
 	}
 	if err := h(gctx); err != nil {
-		return gctx.renderError(err)
+		resp, rerr := gctx.renderError(err)
+		return resp, nil, rerr
 	}
-	return gctx.renderSuccess()
+	resp, rerr := gctx.renderSuccess()
+	return resp, gctx, rerr
 }
 
 type gatewayService struct {

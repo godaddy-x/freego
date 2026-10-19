@@ -80,11 +80,11 @@ func (n *MyGrpcNode) login(ctx *grpcgw.Context) error {
 	config := jwt.JwtConfig{TokenTyp: jwt.JWT, TokenAlg: jwt.HS256, TokenKey: "123456", TokenExp: jwt.TWO_WEEK * 10}
 	sub := &jwt.Subject{}
 	sub.Create(utils.NextSID()).Dev("APP")
-	sub.Payload.Ext = strconv.FormatInt(ctx.User(), 10)
+	sub.Payload.Ext = strconv.FormatInt(ctx.ClientNo(), 10)
 	token := sub.Generate(config)
 	secret := sub.GetTokenSecret(token, config.TokenKey)
 	return ctx.MarshalResponse(&pb.AuthToken{
-		Token: token, Secret: secret, Expired: sub.Payload.Exp,
+		Token: token, Secret: secret, Expired: sub.Payload.Exp, Subject: sub.Payload.Sub,
 	})
 }
 

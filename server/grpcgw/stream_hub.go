@@ -1,6 +1,7 @@
 package grpcgw
 
 import (
+	"strings"
 	"sync"
 
 	"github.com/godaddy-x/freego/core/ex"
@@ -38,23 +39,24 @@ func (c *streamConn) shutdown() {
 	close(c.ch)
 }
 
-// StreamHub indexes live Connect streams by subject and device.
+// StreamHub indexes live Connect streams by JWT subject (payload.sub) and device.
 type StreamHub struct {
 	mu   sync.Mutex
-	tabs map[int64]map[string]*streamConn
+	tabs map[string]map[string]*streamConn
 }
 
 func newStreamHub() *StreamHub {
-	return &StreamHub{tabs: map[int64]map[string]*streamConn{}}
+	return &StreamHub{tabs: map[string]map[string]*streamConn{}}
 }
 
-func (h *StreamHub) add(u int64, device string) *streamConn {
+func (h *StreamHub) add(subject, device string) *streamConn {
+	subject = strings.TrimSpace(subject)
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	devs := h.tabs[u]
+	devs := h.tabs[subject]
 	if devs == nil {
 		devs = map[string]*streamConn{}
-		h.tabs[u] = devs
+		h.tabs[subject] = devs
 	}
 	old := devs[device]
 	c := &streamConn{ch: make(chan *pb.GatewayResponse, 32)}
@@ -65,24 +67,58 @@ func (h *StreamHub) add(u int64, device string) *streamConn {
 	return c
 }
 
-func (h *StreamHub) remove(u int64, device string, c *streamConn) {
+func (h *StreamHub) remove(subject, device string, c *streamConn) {
+	subject = strings.TrimSpace(subject)
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	devs := h.tabs[u]
+	devs := h.tabs[subject]
 	if devs == nil || devs[device] != c {
 		return
 	}
 	delete(devs, device)
 	if len(devs) == 0 {
-		delete(h.tabs, u)
+		delete(h.tabs, subject)
 	}
 	c.shutdown()
 }
 
-func (h *StreamHub) send(u int64, device string, msg *pb.GatewayResponse) error {
+// HasDevice reports whether JWT subject has a live Connect stream for device (e.g. "API").
+func (h *StreamHub) HasDevice(subject, device string) bool {
+	subject = strings.TrimSpace(subject)
+	if h == nil || subject == "" || device == "" {
+		return false
+	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	devs := h.tabs[u]
+	devs := h.tabs[subject]
+	if devs == nil {
+		return false
+	}
+	return devs[device] != nil
+}
+
+// OnlineSubjects returns JWT subjects with a live stream for device.
+func (h *StreamHub) OnlineSubjects(device string) map[string]bool {
+	device = strings.TrimSpace(device)
+	out := make(map[string]bool)
+	if h == nil || device == "" {
+		return out
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for subject, devs := range h.tabs {
+		if devs[device] != nil {
+			out[subject] = true
+		}
+	}
+	return out
+}
+
+func (h *StreamHub) send(subject, device string, msg *pb.GatewayResponse) error {
+	subject = strings.TrimSpace(subject)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	devs := h.tabs[subject]
 	if devs == nil {
 		return ex.Throw{Code: 404, Msg: "stream not connected"}
 	}

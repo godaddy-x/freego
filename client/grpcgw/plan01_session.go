@@ -9,15 +9,15 @@ import (
 
 func plan01Invoke(cli *Client, route string, plain []byte, plan int64, timeoutSec int64) ([]byte, error) {
 	sess := cli.CopySession()
-	if sess.User < 0 {
-		return nil, ex.Throw{Msg: "client user id not set"}
+	if sess.ClientNo < 0 {
+		return nil, ex.Throw{Msg: "client certificate number (clientNo) not set"}
 	}
 	macKey, err := sess.MACKey()
 	if err != nil {
 		return nil, err
 	}
 	req := &pb.GatewayRequest{
-		R: route, N: pb.NewNonce(), T: utils.UnixSecond(), P: plan, U: sess.User,
+		R: route, N: pb.NewNonce(), T: utils.UnixSecond(), P: plan, U: sess.ClientNo,
 	}
 	if plan == 0 {
 		if err := SealPlan0(req, plain, macKey); err != nil {

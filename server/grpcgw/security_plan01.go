@@ -31,7 +31,10 @@ func (c *Context) validatePlan01() error {
 		return ex.Throw{Code: 401, Msg: "token invalid", Err: err}
 	}
 	c.subject = sub
-	// req.U 是本端 PQC 证书编号（clientNo），与 JWT subject（应用/用户）无关，不要求写入 ext。
+	if sub.Payload == nil {
+		return ex.Throw{Code: 401, Msg: "token invalid"}
+	}
+	// Unary / StreamBind：req.U = PQC 证书编号（clientNo），参与 MAC；Connect hub 键为 JWT sub（见 serveConnect）。
 	secret := sub.GetTokenSecret(utils.Bytes2Str(auth), c.gw.jwtConfig.TokenKey)
 	if len(secret) < 32 {
 		return ex.Throw{Code: 401, Msg: "token secret too short"}

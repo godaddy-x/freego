@@ -9,6 +9,7 @@ package sdk
 
 import (
 	"errors"
+	"strings"
 
 	cgrpc "github.com/godaddy-x/freego/client/grpcgw"
 	"github.com/godaddy-x/freego/core/crypto"
@@ -44,7 +45,7 @@ func Plan2LoginBody(target string, clientNo int64, cipher crypto.Cipher, keyRout
 		return nil, err
 	}
 	defer cli.Close()
-	cli.SetUser(clientNo)
+	cli.SetClientNo(clientNo)
 	plain, err := cgrpc.Plan2Login(cli, clientNo, cipher, TrimRoute(keyRoute), TrimRoute(loginRoute), loginPlain, 0)
 	if err != nil {
 		return nil, err
@@ -64,6 +65,9 @@ func UnmarshalLoginAuthToken(plain []byte) (*pb.AuthToken, error) {
 	if at.Token == "" || len(at.Secret) < 32 {
 		return nil, errors.New("login response incomplete")
 	}
+	if strings.TrimSpace(at.Subject) == "" {
+		return nil, errors.New("login response missing subject")
+	}
 	return at, nil
 }
 
@@ -73,7 +77,7 @@ func WireAuthToken(at *pb.AuthToken) wire.AuthToken {
 		return wire.AuthToken{}
 	}
 	return wire.AuthToken{
-		Token: at.Token, Secret: utils.Base64Encode(at.Secret), Expired: at.Expired,
+		Token: at.Token, Secret: utils.Base64Encode(at.Secret), Expired: at.Expired, Subject: at.Subject,
 	}
 }
 
@@ -93,16 +97,15 @@ func (s *SDK) LoginByPlan2Auto(keyRouter, loginRouter string, reqMsg, resMsg pro
 	if err != nil {
 		return err
 	}
+	parsed, err := UnmarshalLoginAuthToken(plain)
+	if err != nil {
+		return err
+	}
 	at, ok := resMsg.(*pb.AuthToken)
 	if !ok {
 		return errors.New("login response must be *grpcgw.AuthToken")
 	}
-	if err := pb.UnmarshalProto(plain, at); err != nil {
-		return err
-	}
-	if at.Token == "" || len(at.Secret) < 32 {
-		return errors.New("login response incomplete")
-	}
+	*at = *parsed
 	s.ensureClient()
 	if s.cli == nil {
 		return errors.New("grpc client dial failed")
@@ -118,6 +121,6 @@ func (s *SDK) plan2LoginRaw(keyRoute, loginRoute string, loginPlain []byte, time
 	if s.cli == nil {
 		return nil, errors.New("grpc client dial failed")
 	}
-	s.cli.SetUser(s.clientNo)
+	s.cli.SetClientNo(s.clientNo)
 	return cgrpc.Plan2Login(s.cli, s.clientNo, s.cipher, TrimRoute(keyRoute), TrimRoute(loginRoute), loginPlain, timeoutSec)
 }

@@ -10,6 +10,7 @@ const (
 	DomainAADReq    = "GRPCGWa1"
 	DomainAADRes    = "GRPCGWa2"
 	DomainPlan2Sign = "GRPCGWpk1" // Plan2PublicKey ML-DSA 签名字符串域
+	DomainPush      = "GRPCGWpush1" // Connect push (c=300)；subject 为 JWT sub 字符串
 	TransportVersion            = "grpcgw-v1"
 	MetadataTransportVersionKey   = "x-grpcgw-transport-version"
 	MetadataDeviceKey             = "x-grpcgw-device"
@@ -50,6 +51,29 @@ func CanonicalRequest(r string, d, n []byte, t, p, u int64) []byte {
 	b = appendI64BE(b, t)
 	b = appendI64BE(b, p)
 	b = appendI64BE(b, u)
+	return b
+}
+
+// CanonicalPush builds the HMAC input for Connect push (c=300). subject is JWT payload.sub (string).
+func CanonicalPush(r string, d, n []byte, t, p int64, subject string, c int32, m string) []byte {
+	rb := []byte(r)
+	sb := []byte(subject)
+	mb := []byte(m)
+	b := make([]byte, 0, 8+4+len(rb)+4+len(d)+4+len(n)+24+4+len(sb)+4+len(mb))
+	b = append(b, DomainPush...)
+	b = appendU32BE(b, uint32(len(rb)))
+	b = append(b, rb...)
+	b = appendU32BE(b, uint32(len(d)))
+	b = append(b, d...)
+	b = appendU32BE(b, uint32(len(n)))
+	b = append(b, n...)
+	b = appendI64BE(b, t)
+	b = appendI64BE(b, p)
+	b = appendU32BE(b, uint32(len(sb)))
+	b = append(b, sb...)
+	b = appendI32BE(b, c)
+	b = appendU32BE(b, uint32(len(mb)))
+	b = append(b, mb...)
 	return b
 }
 
